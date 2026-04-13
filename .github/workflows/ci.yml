@@ -38,7 +38,7 @@ jobs:
         working-directory: src-tauri
 
       - name: Cargo clippy
-        run: cargo clippy --deny warnings
+        run: cargo clippy -- -D warnings
         working-directory: src-tauri
 
       - name: Frontend lint
