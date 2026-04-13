@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-temp",
+  "productName": "Postlane",
   "version": "0.1.0",
-  "identifier": "com.hugoelliott.tauri-temp",
+  "identifier": "com.postlane.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "tauri-temp",
-        "width": 800,
-        "height": 600
+        "title": "Postlane",
+        "width": 1100,
+        "height": 700,
+        "minWidth": 820,
+        "minHeight": 560,
+        "resizable": true
       }
     ],
     "security": {
@@ -30,6 +33,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "hardenedRuntime": true
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_PUBKEY_TO_BE_GENERATED_BEFORE_V0.1.0",
+      "endpoints": ["https://github.com/postlane/desktop/releases/latest/download/latest.json"]
+    },
+    "deep-link": {
+      "schemes": ["postlane"]
+    }
   }
 }
