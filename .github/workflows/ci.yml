@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Cargo test
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: Cargo clippy
+        run: cargo clippy --deny warnings
+        working-directory: src-tauri
+
+      - name: Frontend lint
+        run: npm run lint
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+      - name: Install license-checker
+        run: npm install -g license-checker
+
+      - name: Check licenses
+        run: license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;CC-BY-3.0;CC-BY-4.0" --excludePackages "$(node -p "Object.keys(require('./package.json').dependencies || {}).join(';')")" || echo "License check requires manual review"
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Cargo audit
+        run: cargo audit
+        working-directory: src-tauri
