@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+pub mod init;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
