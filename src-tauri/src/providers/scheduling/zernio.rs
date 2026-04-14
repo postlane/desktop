@@ -45,14 +45,77 @@ impl SchedulingProvider for ZernioProvider {
 
     async fn schedule_post(
         &self,
-        _content: &str,
-        _platform: &str,
-        _scheduled_for: Option<DateTime<Utc>>,
-        _image_url: Option<&str>,
-        _profile_id: Option<&str>,
+        content: &str,
+        platform: &str,
+        scheduled_for: Option<DateTime<Utc>>,
+        image_url: Option<&str>,
+        profile_id: Option<&str>,
     ) -> Result<String, ProviderError> {
-        // Stub implementation - will be implemented in 4.4.2
-        Err(ProviderError::NotSupported)
+        use super::with_retry;
+
+        // Wrap in retry logic
+        with_retry(
+            || async {
+                let url = format!("{}/api/v1/posts", self.base_url());
+
+                let mut body = serde_json::json!({
+                    "content": content,
+                    "platform": platform,
+                });
+
+                if let Some(profile) = profile_id {
+                    body["profile_id"] = serde_json::json!(profile);
+                }
+
+                if let Some(scheduled) = scheduled_for {
+                    body["scheduled_for"] = serde_json::json!(scheduled.to_rfc3339());
+                }
+
+                if let Some(image) = image_url {
+                    body["image_url"] = serde_json::json!(image);
+                }
+
+                let response = self
+                    .client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+
+                let status = response.status();
+
+                if status == 401 {
+                    return Err(ProviderError::AuthError("Invalid API key".to_string()));
+                }
+
+                if !status.is_success() {
+                    let body = response
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unknown error".to_string());
+                    return Err(ProviderError::HttpError {
+                        status: status.as_u16(),
+                        body,
+                    });
+                }
+
+                let json: serde_json::Value = response
+                    .json()
+                    .await
+                    .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
+
+                let post_id = json["post_id"]
+                    .as_str()
+                    .ok_or_else(|| ProviderError::Unknown("Missing post_id in response".to_string()))?
+                    .to_string();
+
+                Ok(post_id)
+            },
+            3,
+        )
+        .await
     }
 
     async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> {
@@ -327,5 +390,144 @@ mod tests {
 
         let result = provider.test_connection().await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_success() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/v1/posts")
+                .header("Authorization", "Bearer test-key");
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "post_id": "zernio-post-456"
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let scheduled_time = chrono::DateTime::parse_from_rfc3339("2024-01-15T10:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        let result = provider.schedule_post(
+            "Test post content",
+            "x",
+            Some(scheduled_time),
+            None,
+            Some("profile-123"),
+        ).await;
+
+        assert!(result.is_ok(), "schedule_post failed: {:?}", result);
+        assert_eq!(result.unwrap(), "zernio-post-456");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_with_image() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/v1/posts")
+                .json_body(serde_json::json!({
+                    "content": "Post with image",
+                    "platform": "x",
+                    "profile_id": "profile-123",
+                    "image_url": "https://example.com/image.jpg"
+                }));
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "post_id": "post-with-img-789"
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.schedule_post(
+            "Post with image",
+            "x",
+            None,
+            Some("https://example.com/image.jpg"),
+            Some("profile-123"),
+        ).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "post-with-img-789");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_http_error() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/posts");
+            then.status(400)
+                .json_body(serde_json::json!({
+                    "error": "Invalid platform"
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.schedule_post(
+            "Test",
+            "invalid-platform",
+            None,
+            None,
+            Some("profile-123"),
+        ).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ProviderError::HttpError { status, .. } => {
+                assert_eq!(status, 400);
+            }
+            other => panic!("Expected HttpError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_wrapped_in_retry() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        // Create mock that will be called multiple times
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/api/v1/posts");
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "post_id": "retry-test-123"
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        // Test that schedule_post works (retry wrapper is tested separately in mod.rs)
+        let result = provider.schedule_post(
+            "Retry test",
+            "x",
+            None,
+            None,
+            Some("profile-123"),
+        ).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "retry-test-123");
+        mock.assert();
     }
 }
