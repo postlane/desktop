@@ -5,6 +5,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SendResult {
+    pub success: bool,
+    pub platform_results: Option<HashMap<String, String>>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PostMeta {
     pub status: String,
     pub platforms: Vec<String>,

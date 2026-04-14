@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::get_drafts_impl;
+use postlane_desktop_lib::commands::{approve_post_impl, get_drafts_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -193,5 +193,100 @@ mod get_drafts_tests {
         assert!(result.is_ok());
         let drafts = result.unwrap();
         assert_eq!(drafts.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod approve_post_tests {
+    use super::*;
+
+    #[test]
+    fn test_approve_post_fails_with_unregistered_repo() {
+        // Setup: Create temp directory with unregistered repo
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        // Empty repos config (no repos registered)
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to approve post from unregistered repo
+        let result = approve_post_impl(
+            repo_path.to_str().unwrap(),
+            "post1",
+            &state,
+        );
+
+        // Assert: Should fail with path not registered error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("not registered") || err.contains("403"));
+    }
+
+    #[test]
+    fn test_approve_post_fails_with_invalid_path() {
+        // Setup: Create temp directory
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "repo1".to_string(),
+                name: "Test Repo".to_string(),
+                path: repo_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to approve post with non-existent post folder
+        let result = approve_post_impl(
+            repo_path.to_str().unwrap(),
+            "nonexistent",
+            &state,
+        );
+
+        // Assert: Should fail with validation error
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_approve_post_fails_without_meta_json() {
+        // Setup: Create repo and post folder without meta.json
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let post_folder = repo_path.join(".postlane/posts/post1");
+        fs::create_dir_all(&post_folder).unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "repo1".to_string(),
+                name: "Test Repo".to_string(),
+                path: repo_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to approve post without meta.json
+        let result = approve_post_impl(
+            repo_path.to_str().unwrap(),
+            "post1",
+            &state,
+        );
+
+        // Assert: Should fail with validation error
+        assert!(result.is_err());
     }
 }
