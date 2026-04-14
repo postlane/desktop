@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{approve_post_impl, get_drafts_impl};
+use postlane_desktop_lib::commands::{approve_post_impl, dismiss_post_impl, get_drafts_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -287,6 +287,77 @@ mod approve_post_tests {
         );
 
         // Assert: Should fail with validation error
+        assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod dismiss_post_tests {
+    use super::*;
+
+    #[test]
+    fn test_dismiss_post_sets_status_to_dismissed() {
+        // Setup: Create repo with ready post
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let post_folder = repo_path.join(".postlane/posts/post1");
+        fs::create_dir_all(&post_folder).unwrap();
+
+        let meta = PostMeta {
+            status: "ready".to_string(),
+            platforms: vec!["x".to_string()],
+            schedule: None,
+            trigger: None,
+            scheduler_ids: None,
+            platform_results: None,
+            error: None,
+            image_url: None,
+            image_source: None,
+            image_attribution: None,
+            llm_model: None,
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            sent_at: None,
+        };
+        fs::write(
+            post_folder.join("meta.json"),
+            serde_json::to_string(&meta).unwrap(),
+        )
+        .unwrap();
+
+        // Test: Dismiss the post
+        let result = dismiss_post_impl(
+            repo_path.to_str().unwrap(),
+            "post1",
+        );
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+
+        // Verify: meta.json status is now "dismissed"
+        let updated_content = fs::read_to_string(post_folder.join("meta.json")).unwrap();
+        let updated_meta: PostMeta = serde_json::from_str(&updated_content).unwrap();
+        assert_eq!(updated_meta.status, "dismissed");
+    }
+
+    #[test]
+    fn test_dismiss_post_fails_with_missing_meta_json() {
+        // Setup: Create repo with post folder but no meta.json
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let post_folder = repo_path.join(".postlane/posts/post1");
+        fs::create_dir_all(&post_folder).unwrap();
+
+        // Test: Try to dismiss post without meta.json
+        let result = dismiss_post_impl(
+            repo_path.to_str().unwrap(),
+            "post1",
+        );
+
+        // Assert: Should fail
         assert!(result.is_err());
     }
 }

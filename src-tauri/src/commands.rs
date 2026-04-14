@@ -170,3 +170,47 @@ pub fn approve_post(
 ) -> Result<SendResult, String> {
     approve_post_impl(&repo_path, &post_folder, &state)
 }
+
+/// Dismiss a post
+/// This is the testable implementation
+pub fn dismiss_post_impl(
+    repo_path: &str,
+    post_folder: &str,
+) -> Result<(), String> {
+    let repo_pathbuf = PathBuf::from(repo_path);
+    let post_path = repo_pathbuf.join(".postlane/posts").join(post_folder);
+    let meta_path = post_path.join("meta.json");
+
+    // Check meta.json exists
+    if !meta_path.exists() {
+        return Err("meta.json not found in post folder".to_string());
+    }
+
+    // Read current meta.json
+    let meta_content = fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
+
+    let mut meta: PostMeta = serde_json::from_str(&meta_content)
+        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
+
+    // Update status to dismissed
+    meta.status = "dismissed".to_string();
+
+    // Write updated meta.json atomically
+    let temp_path = meta_path.with_extension("json.tmp");
+    fs::write(&temp_path, serde_json::to_string_pretty(&meta).unwrap())
+        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
+    fs::rename(&temp_path, &meta_path)
+        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
+
+    Ok(())
+}
+
+/// Tauri command wrapper for dismiss_post
+#[tauri::command]
+pub fn dismiss_post(
+    repo_path: String,
+    post_folder: String,
+) -> Result<(), String> {
+    dismiss_post_impl(&repo_path, &post_folder)
+}
