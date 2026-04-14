@@ -555,6 +555,19 @@ pub fn save_scheduler_credential_impl(
     Ok(())
 }
 
+/// Get scheduler credential - testable implementation
+/// Validates provider name (business logic that can be unit tested)
+pub fn get_scheduler_credential_impl(provider: &str) -> Result<(), String> {
+    // Validate provider (v1 only supports these three)
+    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    if !valid_providers.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+
+    // Validation passed - actual keyring retrieval happens in Tauri command
+    Ok(())
+}
+
 /// Delete scheduler credential - testable implementation
 /// Validates provider name (business logic that can be unit tested)
 pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
@@ -566,6 +579,32 @@ pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
 
     // Validation passed - actual keyring deletion happens in Tauri command
     Ok(())
+}
+
+/// Get scheduler credential from keyring (masked for display)
+/// Returns ••••••••{last4} format, never the full credential
+#[tauri::command]
+pub fn get_scheduler_credential(
+    provider: String,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    // Step 1: Validate provider
+    get_scheduler_credential_impl(&provider)?;
+
+    // Step 2: Retrieve from OS keyring
+    match app.keyring().get_password("postlane", &provider) {
+        Ok(Some(credential)) => {
+            // Step 3: Mask for display - never return full credential to frontend
+            Ok(Some(mask_credential(&credential)))
+        }
+        Ok(None) => {
+            // No credential stored for this provider
+            Ok(None)
+        }
+        Err(e) => {
+            Err(format!("Failed to retrieve credential: {}", e))
+        }
+    }
 }
 
 /// Save scheduler credential to keyring

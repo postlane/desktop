@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use postlane_desktop_lib::commands::{save_scheduler_credential_impl, mask_credential, delete_scheduler_credential_impl};
+use postlane_desktop_lib::commands::{
+    save_scheduler_credential_impl,
+    mask_credential,
+    delete_scheduler_credential_impl,
+    get_scheduler_credential_impl
+};
 
 #[cfg(test)]
 mod credential_tests {
@@ -69,6 +74,26 @@ mod credential_tests {
 
         for provider in providers {
             let result = delete_scheduler_credential_impl(provider);
+            assert!(result.is_ok(), "Provider {} should be valid", provider);
+        }
+    }
+
+    #[test]
+    fn test_get_credential_validates_provider() {
+        // Test: Unknown provider should return error
+        let result = get_scheduler_credential_impl("invalid-provider");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown provider"));
+    }
+
+    #[test]
+    fn test_get_credential_accepts_valid_providers() {
+        // Test: Valid providers should be accepted
+        let providers = vec!["zernio", "buffer", "ayrshare"];
+
+        for provider in providers {
+            let result = get_scheduler_credential_impl(provider);
             assert!(result.is_ok(), "Provider {} should be valid", provider);
         }
     }
