@@ -321,4 +321,13 @@ mod tests {
         let meta: PostMeta = serde_json::from_str(meta_json).expect("Should parse");
         assert_eq!(meta.platform_results.unwrap().len(), 1);
     }
+
+    #[test]
+    fn test_unknown_platform_url_counting() {
+        // Unknown platforms should fall through to default case (full character count)
+        let content = "Check out https://example.com/very/long/url";
+        let count = count_chars(content, "unknown-platform");
+        // Should count full length including full URL
+        assert_eq!(count, content.chars().count());
+    }
 }
