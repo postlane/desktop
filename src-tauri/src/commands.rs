@@ -509,3 +509,24 @@ pub fn check_repo_health(
 ) -> Result<Vec<RepoHealthStatus>, String> {
     check_repo_health_impl(&state)
 }
+
+/// Save scheduler credential to keyring
+#[tauri::command]
+pub fn save_scheduler_credential(
+    provider: String,
+    api_key: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // Validate provider (v1 only supports these three)
+    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    if !valid_providers.contains(&provider.as_str()) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+
+    // Save to keyring
+    app.keyring()
+        .set_password("postlane", &provider, &api_key)
+        .map_err(|e| format!("Failed to save credential: {}", e))?;
+
+    Ok(())
+}
