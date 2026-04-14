@@ -315,4 +315,31 @@ mod tests {
             _ => panic!("Expected ParseError variant"),
         }
     }
+
+    #[test]
+    fn test_read_repos_malformed_backup_rename_fails() {
+        let dir = std::env::temp_dir().join("postlane_test_repos_backup_fail");
+        fs::create_dir_all(&dir).expect("Failed to create test dir");
+
+        let repos_path = dir.join("repos.json");
+        let bak_path = dir.join("repos.json.bak");
+
+        // Create a directory where the .bak file should go
+        // This will cause the rename to fail
+        fs::create_dir_all(&bak_path).expect("Failed to create bak dir");
+
+        // Write malformed JSON to repos.json
+        fs::write(&repos_path, "{ not valid json }").expect("Failed to write malformed JSON");
+
+        // Attempt to read - should handle rename failure gracefully (line 81)
+        let result = read_repos_with_recovery(&repos_path);
+        assert!(result.is_ok(), "Should return Ok despite backup failure");
+
+        let config = result.unwrap();
+        assert_eq!(config.version, 1);
+        assert_eq!(config.repos.len(), 0, "Should return empty config");
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

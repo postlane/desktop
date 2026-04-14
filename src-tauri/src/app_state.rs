@@ -144,15 +144,19 @@ mod tests {
 
     #[test]
     fn test_read_app_state_missing_file_returns_default() {
-        let dir = std::env::temp_dir().join("postlane_test_app_state_missing");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let _lock = get_test_mutex().lock().unwrap();
 
-        // No file exists - should return default
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+        let path = app_state_path();
+
+        // Ensure file doesn't exist
+        let _ = fs::remove_file(&path);
+        assert!(!path.exists(), "File should not exist");
+
+        // No file exists - should return default via line 89
         let state = read_app_state();
         assert_eq!(state.version, 1);
         assert_eq!(state.window.width, 1100);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -340,5 +344,43 @@ mod tests {
 
         // Cleanup - remove the directory
         let _ = fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_read_app_state_valid_file() {
+        let _lock = get_test_mutex().lock().unwrap();
+
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+        let path = app_state_path();
+        let _ = fs::remove_file(&path);
+
+        // Write a valid version 1 file
+        let state = AppStateFile {
+            version: 1,
+            window: WindowState {
+                width: 1400,
+                height: 1000,
+                x: 200,
+                y: 150,
+            },
+            nav: NavState {
+                last_view: "all_repos".to_string(),
+                last_repo_id: None,
+                last_section: "sent".to_string(),
+                expanded_repos: vec![],
+            },
+        };
+
+        let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
+        fs::write(&path, json).expect("Failed to write");
+
+        // Should read and return the state (exercises line 102)
+        let loaded = read_app_state();
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.window.width, 1400);
+        assert_eq!(loaded.window.height, 1000);
+        assert_eq!(loaded.nav.last_section, "sent");
+
+        let _ = fs::remove_file(&path);
     }
 }
