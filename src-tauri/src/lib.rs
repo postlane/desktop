@@ -11,6 +11,8 @@ pub mod types;
 pub mod watcher;
 
 use std::sync::Arc;
+use app_state::AppState;
+use tauri::Manager;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -29,11 +31,27 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_keyring::init())
-        .setup(|_app| {
+        .setup(|app| {
             // Load repos from disk
             let repos_path = init::postlane_dir().join("repos.json");
             let repos_config = storage::read_repos_with_recovery(&repos_path)
                 .map_err(|e| format!("Failed to load repos: {:?}", e))?;
+
+            // Check libsecret availability (Linux only)
+            let libsecret_available = commands::check_libsecret_availability(Some(app.handle().clone()));
+
+            // Create AppState
+            let app_state = AppState::new(repos_config.clone());
+
+            // Set libsecret availability flag
+            {
+                let mut flag = app_state.libsecret_available.lock()
+                    .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
+                *flag = Some(libsecret_available);
+            }
+
+            // Manage AppState
+            app.manage(app_state);
 
             // Generate session token
             let token = http_server::generate_and_write_token()?;
@@ -62,7 +80,26 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            commands::get_drafts,
+            commands::approve_post,
+            commands::dismiss_post,
+            commands::retry_post,
+            commands::add_repo,
+            commands::remove_repo,
+            commands::set_repo_active,
+            commands::check_repo_health,
+            commands::get_libsecret_status,
+            commands::save_scheduler_credential,
+            commands::get_scheduler_credential,
+            commands::delete_scheduler_credential,
+            commands::test_scheduler,
+            commands::cancel_post_command,
+            commands::get_queue_command,
+            commands::export_history_csv,
+            commands::update_repo_path,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

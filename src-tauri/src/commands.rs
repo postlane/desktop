@@ -697,6 +697,17 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
+/// Get libsecret availability status for UI warning banner
+/// Returns Some(false) if unavailable, Some(true) if available, None if not checked yet
+#[tauri::command]
+pub fn get_libsecret_status(
+    state: State<AppState>,
+) -> Result<Option<bool>, String> {
+    let flag = state.libsecret_available.lock()
+        .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
+    Ok(*flag)
+}
+
 /// Test scheduler connection
 #[tauri::command]
 pub fn test_scheduler(
