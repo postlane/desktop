@@ -6,6 +6,7 @@ pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
 pub mod parser;
+pub mod providers;
 pub mod storage;
 pub mod types;
 pub mod watcher;

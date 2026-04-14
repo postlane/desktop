@@ -576,15 +576,11 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
     let test_password = "test";
 
     // Try to set a test password
-    match app.keyring().set_password(test_service, test_account, test_password) {
-        Ok(_) => {
-            // Successfully set - now try to delete
-            match app.keyring().delete_password(test_service, test_account) {
-                Ok(_) => true,  // Both operations succeeded
-                Err(_) => false, // Delete failed
-            }
-        }
-        Err(_) => false, // Set failed - libsecret unavailable
+    if app.keyring().set_password(test_service, test_account, test_password).is_ok() {
+        // Successfully set - now try to delete
+        app.keyring().delete_password(test_service, test_account).is_ok()
+    } else {
+        false // Set failed - libsecret unavailable
     }
 }
 
