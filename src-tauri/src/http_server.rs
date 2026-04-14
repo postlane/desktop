@@ -314,6 +314,7 @@ pub fn write_port_file(port: u16) -> std::io::Result<()> {
     {
         use std::fs::OpenOptions;
         use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::PermissionsExt;
         use std::io::Write;
 
         let mut file = OpenOptions::new()
@@ -324,6 +325,10 @@ pub fn write_port_file(port: u16) -> std::io::Result<()> {
             .open(&port_path)?;
 
         file.write_all(content.as_bytes())?;
+
+        // Explicitly set permissions (handles case where file already existed)
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&port_path, perms)?;
     }
 
     #[cfg(not(unix))]
@@ -350,6 +355,7 @@ pub fn generate_and_write_token() -> std::io::Result<String> {
     {
         use std::fs::OpenOptions;
         use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::PermissionsExt;
         use std::io::Write;
 
         let mut file = OpenOptions::new()
@@ -360,6 +366,10 @@ pub fn generate_and_write_token() -> std::io::Result<String> {
             .open(&token_path)?;
 
         file.write_all(token.as_bytes())?;
+
+        // Explicitly set permissions (handles case where file already existed)
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&token_path, perms)?;
     }
 
     #[cfg(not(unix))]
@@ -498,7 +508,7 @@ mod tests {
                     .uri("/send")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
-                        r#"{"path": "/test", "slug": "test-slug"}"#,
+                        r#"{"repo_path": "/test", "post_folder": "test-post"}"#,
                     ))
                     .unwrap(),
             )
@@ -531,7 +541,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .header("authorization", "Bearer wrong-token")
                     .body(axum::body::Body::from(
-                        r#"{"path": "/test", "slug": "test-slug"}"#,
+                        r#"{"repo_path": "/test", "post_folder": "test-post"}"#,
                     ))
                     .unwrap(),
             )
@@ -564,7 +574,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .header("authorization", "Bearer test-token")
                     .body(axum::body::Body::from(
-                        r#"{"path": "/nonexistent", "slug": "test-slug"}"#,
+                        r#"{"repo_path": "/nonexistent", "post_folder": "test-post"}"#,
                     ))
                     .unwrap(),
             )
