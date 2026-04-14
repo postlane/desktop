@@ -124,6 +124,14 @@ pub fn write_app_state(state: &AppStateFile) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::{Mutex, OnceLock};
+
+    // Global mutex to serialize tests that use the shared app_state file
+    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn get_test_mutex() -> &'static Mutex<()> {
+        TEST_MUTEX.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_app_state_default() {
@@ -218,6 +226,8 @@ mod tests {
 
     #[test]
     fn test_write_app_state() {
+        let _lock = get_test_mutex().lock().unwrap();
+
         // Ensure ~/.postlane exists
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
 
@@ -260,6 +270,8 @@ mod tests {
 
     #[test]
     fn test_read_app_state_malformed_json_returns_default() {
+        let _lock = get_test_mutex().lock().unwrap();
+
         // Ensure ~/.postlane exists
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
 
@@ -279,6 +291,8 @@ mod tests {
 
     #[test]
     fn test_read_app_state_version_mismatch_writes_file() {
+        let _lock = get_test_mutex().lock().unwrap();
+
         // Ensure ~/.postlane exists
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
 
@@ -302,5 +316,29 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_read_app_state_io_error() {
+        let _lock = get_test_mutex().lock().unwrap();
+
+        // Ensure ~/.postlane exists
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+
+        let path = app_state_path();
+
+        // Clean up first
+        let _ = fs::remove_file(&path);
+
+        // Create a directory with the same name as the file to cause IO error
+        fs::create_dir_all(&path).expect("Failed to create dir");
+
+        // read_app_state should fail to read (it's a directory) and return default
+        let loaded = read_app_state();
+        assert_eq!(loaded.version, 1, "Should return default on IO error");
+        assert_eq!(loaded.window.width, 1100, "Should have default values");
+
+        // Cleanup - remove the directory
+        let _ = fs::remove_dir_all(&path);
     }
 }

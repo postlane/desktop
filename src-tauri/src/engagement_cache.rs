@@ -262,4 +262,24 @@ mod tests {
 
         let _ = fs::remove_file(&path);
     }
+
+    #[test]
+    fn test_read_engagement_cache_io_error() {
+        let _lock = get_test_mutex().lock().unwrap();
+
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+        let path = cache_path();
+        let _ = fs::remove_file(&path);
+
+        // Create a directory with the same name as the file to cause IO error
+        fs::create_dir_all(&path).expect("Failed to create dir");
+
+        // Should return default on IO error
+        let loaded = read_engagement_cache();
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.entries.len(), 0);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&path);
+    }
 }
