@@ -211,6 +211,41 @@ async fn test_register_with_valid_path() {
 }
 
 #[tokio::test]
+async fn test_register_with_invalid_path_returns_403() {
+    // Setup
+    let repos_config = postlane_desktop_lib::storage::ReposConfig {
+        version: 1,
+        repos: vec![],
+    };
+
+    let token = "test-token-12345678901234567890";
+    let repos_arc = Arc::new(Mutex::new(repos_config));
+    let server_state = postlane_desktop_lib::http_server::ServerState {
+        token: token.to_string(),
+        repos: repos_arc,
+    };
+
+    let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
+        .await
+        .unwrap();
+
+    // Test: POST /register with path that doesn't exist
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://127.0.0.1:{}/register", port))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "path": "/nonexistent/path/that/does/not/exist"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert: Should return 403 (path not found or not accessible)
+    assert_eq!(response.status(), 403);
+}
+
+#[tokio::test]
 async fn test_register_with_wrong_token_returns_401() {
     // Setup
     let repos_config = postlane_desktop_lib::storage::ReposConfig {
