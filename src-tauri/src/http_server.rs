@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
+    extract::{Request, State},
+    http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
@@ -45,6 +46,34 @@ pub struct RegisterResponse {
     pub name: String,
 }
 
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    pub error: String,
+}
+
+/// Auth middleware - validates Bearer token from Authorization header
+async fn auth_middleware(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|h| h.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let token = auth_header
+        .strip_prefix("Bearer ")
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    if token != state.token {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok(next.run(request).await)
+}
+
 async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_string(),
@@ -52,29 +81,114 @@ async fn health_handler() -> Json<HealthResponse> {
 }
 
 async fn send_handler(
-    State(_state): State<ServerState>,
-    Json(_payload): Json<SendRequest>,
-) -> Result<Json<SendResponse>, StatusCode> {
-    // TODO: Implement in section 3.6
-    Ok(Json(SendResponse { success: true }))
+    State(state): State<ServerState>,
+    Json(payload): Json<SendRequest>,
+) -> Response {
+    // Validate path is registered
+    let repos = state.repos.lock().await;
+
+    // Canonicalize the path
+    let canonical_path = match std::fs::canonicalize(&payload.path) {
+        Ok(p) => p,
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "Path not found or not accessible".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let path_str = canonical_path.to_string_lossy().to_string();
+    let is_registered = repos.repos.iter().any(|r| r.path == path_str);
+
+    if !is_registered {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "Path not registered in repos.json".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // TODO: Implement actual send logic in section 3.6
+    (StatusCode::OK, Json(SendResponse { success: true })).into_response()
 }
 
 async fn register_handler(
     State(_state): State<ServerState>,
-    Json(_payload): Json<RegisterRequest>,
-) -> Result<Json<RegisterResponse>, StatusCode> {
-    // TODO: Implement in section 3.6
-    Ok(Json(RegisterResponse {
-        success: true,
-        name: "test".to_string(),
-    }))
+    Json(payload): Json<RegisterRequest>,
+) -> Response {
+    // Canonicalize the path
+    let canonical_path = match std::fs::canonicalize(&payload.path) {
+        Ok(p) => p,
+        Err(_) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "Path not found or not accessible".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Check .git/ exists
+    let git_path = canonical_path.join(".git");
+    if !git_path.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Not a git repository".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Check .postlane/config.json exists
+    let config_path = canonical_path.join(".postlane").join("config.json");
+    if !config_path.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: ".postlane/config.json not found - run postlane init first".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // TODO: Implement actual registration logic in section 3.6
+    let name = canonical_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    (
+        StatusCode::OK,
+        Json(RegisterResponse {
+            success: true,
+            name,
+        }),
+    )
+        .into_response()
 }
 
 pub fn create_router(state: ServerState) -> Router {
-    Router::new()
-        .route("/health", get(health_handler))
+    let protected_routes = Router::new()
         .route("/send", post(send_handler))
         .route("/register", post(register_handler))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    Router::new()
+        .route("/health", get(health_handler))
+        .merge(protected_routes)
         .with_state(state)
 }
 
@@ -179,6 +293,7 @@ pub fn generate_and_write_token() -> std::io::Result<String> {
 mod tests {
     use super::*;
     use std::fs;
+    use tower::ServiceExt;
 
     #[tokio::test]
     async fn test_health_endpoint_returns_ok() {
@@ -277,5 +392,162 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_file(&token_path);
+    }
+
+    #[tokio::test]
+    async fn test_send_endpoint_requires_auth() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+
+        let state = ServerState {
+            token: "test-token-123".to_string(),
+            repos,
+        };
+
+        let app = create_router(state);
+
+        // Request without auth header
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/send")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(
+                        r#"{"path": "/test", "slug": "test-slug"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_send_endpoint_rejects_wrong_token() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+
+        let state = ServerState {
+            token: "correct-token".to_string(),
+            repos,
+        };
+
+        let app = create_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/send")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer wrong-token")
+                    .body(axum::body::Body::from(
+                        r#"{"path": "/test", "slug": "test-slug"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_send_endpoint_rejects_unregistered_path() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+
+        let state = ServerState {
+            token: "test-token".to_string(),
+            repos,
+        };
+
+        let app = create_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/send")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(axum::body::Body::from(
+                        r#"{"path": "/nonexistent", "slug": "test-slug"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_register_endpoint_requires_auth() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+
+        let state = ServerState {
+            token: "test-token".to_string(),
+            repos,
+        };
+
+        let app = create_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri("/register")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(r#"{"path": "/test"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_health_endpoint_no_auth_required() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+
+        let state = ServerState {
+            token: "test-token".to_string(),
+            repos,
+        };
+
+        let app = create_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .uri("/health")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
