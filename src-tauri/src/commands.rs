@@ -525,6 +525,26 @@ pub fn check_repo_health(
     check_repo_health_impl(&state)
 }
 
+/// Get keyring key(s) to check for a credential
+/// Returns a vector of keys to try in order: [per-repo, global] or just [global]
+/// Per-repo key format: "{provider}/{repo_id}"
+/// Global key format: "{provider}"
+pub fn get_credential_keyring_key(provider: &str, repo_id: Option<&str>) -> Vec<String> {
+    match repo_id {
+        Some(id) => {
+            // Check per-repo override first, then fall back to global
+            vec![
+                format!("{}/{}", provider, id),
+                provider.to_string(),
+            ]
+        }
+        None => {
+            // Only check global key
+            vec![provider.to_string()]
+        }
+    }
+}
+
 /// Check if libsecret is available before saving credentials
 /// Takes the libsecret_available flag value from AppState
 /// Returns Err if libsecret is unavailable, Ok otherwise
@@ -630,35 +650,49 @@ pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
 
 /// Get scheduler credential from keyring (masked for display)
 /// Returns ••••••••{last4} format, never the full credential
+/// Checks per-repo override first (postlane/{provider}/{repo_id}), then global (postlane/{provider})
 #[tauri::command]
 pub fn get_scheduler_credential(
     provider: String,
+    repo_id: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
     // Step 1: Validate provider
     get_scheduler_credential_impl(&provider)?;
 
-    // Step 2: Retrieve from OS keyring
-    match app.keyring().get_password("postlane", &provider) {
-        Ok(Some(credential)) => {
-            // Step 3: Mask for display - never return full credential to frontend
-            Ok(Some(mask_credential(&credential)))
-        }
-        Ok(None) => {
-            // No credential stored for this provider
-            Ok(None)
-        }
-        Err(e) => {
-            Err(format!("Failed to retrieve credential: {}", e))
+    // Step 2: Get keyring keys to check (per-repo first, then global)
+    let keys = get_credential_keyring_key(&provider, repo_id.as_deref());
+
+    // Step 3: Try each key in order until we find a credential
+    for key in keys {
+        match app.keyring().get_password("postlane", &key) {
+            Ok(Some(credential)) => {
+                // Found credential - mask for display
+                return Ok(Some(mask_credential(&credential)));
+            }
+            Ok(None) => {
+                // This key doesn't exist, try next one
+                continue;
+            }
+            Err(e) => {
+                // Error reading keyring - return error
+                return Err(format!("Failed to retrieve credential: {}", e));
+            }
         }
     }
+
+    // No credential found at any key
+    Ok(None)
 }
 
 /// Save scheduler credential to keyring
+/// Supports per-repo override: if repo_id provided, stores at postlane/{provider}/{repo_id}
+/// Otherwise stores at global key postlane/{provider}
 #[tauri::command]
 pub fn save_scheduler_credential(
     provider: String,
     api_key: String,
+    repo_id: Option<String>,
     app: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
@@ -672,26 +706,41 @@ pub fn save_scheduler_credential(
     // Step 2: Validate provider and check libsecret availability
     save_scheduler_credential_impl(&provider, &api_key, libsecret_available)?;
 
-    // Step 3: Store in OS keyring
+    // Step 3: Determine keyring key (per-repo or global)
+    let keyring_key = match repo_id {
+        Some(id) => format!("{}/{}", provider, id),
+        None => provider.clone(),
+    };
+
+    // Step 4: Store in OS keyring
     app.keyring()
-        .set_password("postlane", &provider, &api_key)
+        .set_password("postlane", &keyring_key, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
 
     Ok(())
 }
 
 /// Delete scheduler credential from keyring
+/// Supports per-repo deletion: if repo_id provided, deletes postlane/{provider}/{repo_id}
+/// Otherwise deletes global key postlane/{provider}
 #[tauri::command]
 pub fn delete_scheduler_credential(
     provider: String,
+    repo_id: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     // Step 1: Validate provider
     delete_scheduler_credential_impl(&provider)?;
 
-    // Step 2: Delete from OS keyring
+    // Step 2: Determine keyring key (per-repo or global)
+    let keyring_key = match repo_id {
+        Some(id) => format!("{}/{}", provider, id),
+        None => provider.clone(),
+    };
+
+    // Step 3: Delete from OS keyring
     app.keyring()
-        .delete_password("postlane", &provider)
+        .delete_password("postlane", &keyring_key)
         .map_err(|e| format!("Failed to delete credential: {}", e))?;
 
     Ok(())
