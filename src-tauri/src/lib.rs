@@ -2,6 +2,7 @@
 
 pub mod app_state;
 pub mod engagement_cache;
+pub mod http_server;
 pub mod init;
 pub mod parser;
 pub mod storage;
