@@ -92,6 +92,13 @@ pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, Storag
     }
 }
 
+/// Writes repos.json atomically
+pub fn write_repos(repos_path: &Path, config: &ReposConfig) -> Result<(), StorageError> {
+    let json = serde_json::to_string_pretty(config)?;
+    crate::init::atomic_write(repos_path, json.as_bytes())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +191,100 @@ mod tests {
             }
             _ => panic!("Expected VersionMismatch error"),
         }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_repos_round_trip_with_version() {
+        let dir = std::env::temp_dir().join("postlane_test_repos_roundtrip");
+        fs::create_dir_all(&dir).expect("Failed to create test dir");
+
+        let repos_path = dir.join("repos.json");
+
+        let config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "repo1-id".to_string(),
+                    name: "Repo One".to_string(),
+                    path: "/path/to/repo1".to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+                Repo {
+                    id: "repo2-id".to_string(),
+                    name: "Repo Two".to_string(),
+                    path: "/path/to/repo2".to_string(),
+                    active: false,
+                    added_at: "2024-01-02T00:00:00Z".to_string(),
+                },
+            ],
+        };
+
+        // Write
+        write_repos(&repos_path, &config).expect("Failed to write repos");
+
+        // Read back
+        let loaded = read_repos_with_recovery(&repos_path).expect("Failed to read repos");
+
+        assert_eq!(loaded.version, 1, "Version should be preserved");
+        assert_eq!(loaded.repos.len(), 2, "Should have 2 repos");
+        assert_eq!(loaded.repos[0].id, "repo1-id");
+        assert_eq!(loaded.repos[0].name, "Repo One");
+        assert_eq!(loaded.repos[0].active, true);
+        assert_eq!(loaded.repos[1].id, "repo2-id");
+        assert_eq!(loaded.repos[1].active, false);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_concurrent_write_protection() {
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let dir = std::env::temp_dir().join("postlane_test_concurrent");
+        fs::create_dir_all(&dir).expect("Failed to create test dir");
+
+        let repos_path = Arc::new(dir.join("repos.json"));
+        let write_lock = Arc::new(Mutex::new(()));
+
+        // Simulate concurrent writes
+        let mut handles = vec![];
+
+        for i in 0..5 {
+            let path = Arc::clone(&repos_path);
+            let lock = Arc::clone(&write_lock);
+
+            let handle = thread::spawn(move || {
+                let _guard = lock.lock().unwrap(); // Mutex prevents interleaving
+
+                let config = ReposConfig {
+                    version: 1,
+                    repos: vec![Repo {
+                        id: format!("repo-{}", i),
+                        name: format!("Repo {}", i),
+                        path: format!("/path/to/repo{}", i),
+                        active: true,
+                        added_at: "2024-01-01T00:00:00Z".to_string(),
+                    }],
+                };
+
+                write_repos(&path, &config).expect("Write failed");
+            });
+
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().expect("Thread panicked");
+        }
+
+        // File should be valid JSON (not corrupted)
+        let final_state = read_repos_with_recovery(&repos_path).expect("Failed to read");
+        assert_eq!(final_state.version, 1);
+        assert_eq!(final_state.repos.len(), 1); // Last write wins
 
         let _ = fs::remove_dir_all(&dir);
     }
