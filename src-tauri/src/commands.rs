@@ -525,6 +525,34 @@ pub fn check_repo_health(
     check_repo_health_impl(&state)
 }
 
+/// Check if libsecret is available (Linux only)
+/// Performs a test set_password / delete_password cycle
+/// Returns true if keyring is available, false otherwise
+pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
+    // If no app handle provided (testing), return true (assume available)
+    let app = match app {
+        Some(a) => a,
+        None => return true,
+    };
+
+    // Try a test write/delete cycle
+    let test_service = "postlane";
+    let test_account = "__libsecret_test__";
+    let test_password = "test";
+
+    // Try to set a test password
+    match app.keyring().set_password(test_service, test_account, test_password) {
+        Ok(_) => {
+            // Successfully set - now try to delete
+            match app.keyring().delete_password(test_service, test_account) {
+                Ok(_) => true,  // Both operations succeeded
+                Err(_) => false, // Delete failed
+            }
+        }
+        Err(_) => false, // Set failed - libsecret unavailable
+    }
+}
+
 /// Mask credential for display
 /// Shows ••••••••{last4} where {last4} is the final 4 characters
 /// For credentials shorter than 4 characters, shows ••••••••

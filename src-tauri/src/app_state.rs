@@ -18,6 +18,9 @@ pub struct AppState {
     pub repos: Mutex<ReposConfig>,
     pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
     pub scheduler: Mutex<Option<Box<dyn SchedulingProvider>>>,
+    /// Linux libsecret availability flag
+    /// None = not checked yet, Some(true) = available, Some(false) = unavailable
+    pub libsecret_available: Mutex<Option<bool>>,
 }
 
 impl AppState {
@@ -26,6 +29,7 @@ impl AppState {
             repos: Mutex::new(repos),
             watchers: Mutex::new(HashMap::new()),
             scheduler: Mutex::new(None),
+            libsecret_available: Mutex::new(None),
         }
     }
 }
