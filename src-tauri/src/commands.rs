@@ -138,7 +138,21 @@ pub fn approve_post_impl(
         .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
 
     // Step 4: Call scheduling provider (stub for Milestone 3)
-    // In Milestone 4, this will call the real provider
+    //
+    // MILESTONE 4 TODO: Replace this stub with real provider integration
+    //
+    // The M4 implementation should:
+    // 1. Get the scheduler provider name from .postlane/config.json
+    // 2. Retrieve the API key from the OS keyring via tauri-plugin-keyring
+    // 3. Instantiate the appropriate provider (ZernioProvider, BufferProvider, or AyrshareProvider)
+    // 4. Call provider.schedule_post(content, platform, scheduled_for, image_url, profile_id)
+    // 5. Store the returned post_id in meta.scheduler_ids (HashMap<platform, post_id>)
+    // 6. Handle errors: ProviderError::AuthError, ::RateLimit, ::NetworkError, ::HttpError
+    // 7. Update platform_results with actual scheduler responses
+    //
+    // See: CHECKLIST_4_PROVIDERS.md Section 4.2 for SchedulingProvider trait definition
+    // See: src/providers/scheduling/{zernio,buffer,ayrshare}.rs for implementations
+    //
     // For now, simulate success
     let mut platform_results = std::collections::HashMap::new();
     for platform in &meta.platforms {

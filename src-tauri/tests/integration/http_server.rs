@@ -279,3 +279,61 @@ async fn test_register_with_wrong_token_returns_401() {
     // Assert: Should return 401
     assert_eq!(response.status(), 401);
 }
+
+#[tokio::test]
+async fn test_register_actually_adds_repo_to_repos_json() {
+    // Setup: Create temp repo with .git and config
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = temp_dir.path().join("test-repo");
+    fs::create_dir_all(&repo_path).unwrap();
+    fs::create_dir_all(repo_path.join(".git")).unwrap();
+
+    let config_dir = repo_path.join(".postlane");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("config.json"), "{}").unwrap();
+
+    let canonical_path = fs::canonicalize(&repo_path).unwrap();
+
+    // Setup server with empty repos
+    let repos_config = postlane_desktop_lib::storage::ReposConfig {
+        version: 1,
+        repos: vec![],
+    };
+
+    let token = "test-token-12345678901234567890";
+    let repos_arc = Arc::new(Mutex::new(repos_config));
+    let server_state = postlane_desktop_lib::http_server::ServerState {
+        token: token.to_string(),
+        repos: repos_arc.clone(),
+    };
+
+    let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
+        .await
+        .unwrap();
+
+    // Test: POST /register
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://127.0.0.1:{}/register", port))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({
+            "path": canonical_path.to_str().unwrap()
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Assert: Should return 200
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["success"], true);
+    assert_eq!(body["name"], "test-repo");
+
+    // Verify: Repo was actually added to repos_arc
+    let repos = repos_arc.lock().await;
+    assert_eq!(repos.repos.len(), 1);
+    assert_eq!(repos.repos[0].name, "test-repo");
+    assert_eq!(repos.repos[0].path, canonical_path.to_str().unwrap());
+    assert_eq!(repos.repos[0].active, true);
+    assert!(!repos.repos[0].id.is_empty(), "ID should be generated");
+}

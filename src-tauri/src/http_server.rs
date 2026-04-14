@@ -200,7 +200,7 @@ async fn send_handler(
 }
 
 async fn register_handler(
-    State(_state): State<ServerState>,
+    State(state): State<ServerState>,
     Json(payload): Json<RegisterRequest>,
 ) -> Response {
     // Canonicalize the path
@@ -241,12 +241,43 @@ async fn register_handler(
             .into_response();
     }
 
-    // TODO: Implement actual registration logic in section 3.6
+    // Add repo (generates UUID, derives name, writes to repos.json)
+    let canonical_str = canonical_path.to_str().unwrap_or("unknown");
     let name = canonical_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
+
+    // Generate UUID and create repo
+    let id = uuid::Uuid::new_v4().to_string();
+    let repo = crate::storage::Repo {
+        id,
+        name: name.clone(),
+        path: canonical_str.to_string(),
+        active: true,
+        added_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    // Add to repos and write to disk
+    let mut repos = state.repos.lock().await;
+
+    repos.repos.push(repo);
+
+    // Write to repos.json
+    let repos_path = crate::init::postlane_dir().join("repos.json");
+    if let Err(e) = crate::storage::write_repos(&repos_path, &repos) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to write repos.json: {:?}", e),
+            }),
+        )
+            .into_response();
+    }
+
+    // TODO: Start watcher (deferred - not critical for HTTP endpoint)
+    // TODO: Emit Tauri event for UI refresh (deferred - HTTP endpoint doesn't have Tauri app handle)
 
     (
         StatusCode::OK,
