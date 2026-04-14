@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, check_repo_health_impl, dismiss_post_impl, get_drafts_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
+use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, check_repo_health_impl, dismiss_post_impl, export_history_csv_impl, get_drafts_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -792,5 +792,49 @@ mod check_repo_health_tests {
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].id, "id1");
         assert_eq!(statuses[0].reachable, false);
+    }
+}
+
+#[cfg(test)]
+mod export_history_csv_tests {
+    use super::*;
+
+    #[test]
+    fn test_export_history_csv_generates_valid_csv_headers() {
+        // Setup: Empty repos (zero posts case)
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Export CSV
+        let result = export_history_csv_impl(&state);
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+        let csv_content = result.unwrap();
+
+        // Verify: Has correct headers
+        assert!(csv_content.starts_with("repo,slug,platforms,scheduler,model,sent_at,likes,reposts,replies,impressions,view_urls"));
+    }
+
+    #[test]
+    fn test_export_history_csv_handles_zero_posts() {
+        // Setup: Empty repos
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Export CSV
+        let result = export_history_csv_impl(&state);
+
+        // Assert: Should succeed with headers only
+        assert!(result.is_ok());
+        let csv_content = result.unwrap();
+        let lines: Vec<&str> = csv_content.lines().collect();
+        assert_eq!(lines.len(), 1); // Headers only
     }
 }
