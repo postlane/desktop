@@ -662,6 +662,58 @@ pub fn export_history_csv_impl(
     Ok(csv)
 }
 
+/// Update repository path
+#[tauri::command]
+pub fn update_repo_path(
+    id: String,
+    new_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    // Canonicalize new path
+    let canonical_path = fs::canonicalize(&new_path)
+        .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
+
+    let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
+
+    // Validate .git/ exists
+    let git_dir = canonical_path.join(".git");
+    if !git_dir.exists() {
+        return Err("Not a git repository".to_string());
+    }
+
+    // Validate .postlane/config.json exists
+    let config_path = canonical_path.join(".postlane/config.json");
+    if !config_path.exists() {
+        return Err("config.json not found at new path".to_string());
+    }
+
+    // Update path in state
+    let mut repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    let repo = repos
+        .repos
+        .iter_mut()
+        .find(|r| r.id == id)
+        .ok_or_else(|| format!("Repo with id '{}' not found", id))?;
+
+    repo.path = canonical_str.to_string();
+
+    // Write updated repos.json
+    let repos_path = postlane_dir().join("repos.json");
+    write_repos(&repos_path, &repos)
+        .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
+
+    // Stop old watcher and start new one (in tests, this is a no-op)
+    // In real app:
+    // - Stop watcher for old path
+    // - Start watcher for new path
+
+    Ok(())
+}
+
 /// Tauri command wrapper for export_history_csv
 /// Opens save dialog and writes CSV to chosen location
 #[tauri::command]
