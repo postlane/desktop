@@ -531,7 +531,7 @@ pub fn save_scheduler_credential(
 #[tauri::command]
 pub fn test_scheduler(
     provider: String,
-    state: State<AppState>,
+    _state: State<AppState>,
 ) -> Result<bool, String> {
     // In Milestone 3, this is a stub
     // In Milestone 4, this will:
@@ -553,11 +553,11 @@ pub fn test_scheduler(
 /// Cancel a queued post
 #[tauri::command]
 pub fn cancel_post_command(
-    repo_path: String,
-    post_folder: String,
-    post_id: String,
-    platform: String,
-    state: State<AppState>,
+    _repo_path: String,
+    _post_folder: String,
+    _post_id: String,
+    _platform: String,
+    _state: State<AppState>,
 ) -> Result<(), String> {
     // In Milestone 3, this is a stub
     // In Milestone 4, this will:
@@ -572,7 +572,7 @@ pub fn cancel_post_command(
 /// Get queued posts from scheduler
 #[tauri::command]
 pub fn get_queue_command(
-    state: State<AppState>,
+    _state: State<AppState>,
 ) -> Result<Vec<QueuedPost>, String> {
     // In Milestone 3, this is a stub
     // In Milestone 4, this will:

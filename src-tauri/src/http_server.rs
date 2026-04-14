@@ -26,8 +26,8 @@ pub struct HealthResponse {
 
 #[derive(Deserialize)]
 pub struct SendRequest {
-    pub path: String,
-    pub slug: String,
+    pub repo_path: String,
+    pub post_folder: String,
 }
 
 #[derive(Serialize)]
@@ -88,7 +88,7 @@ async fn send_handler(
     let repos = state.repos.lock().await;
 
     // Canonicalize the path
-    let canonical_path = match std::fs::canonicalize(&payload.path) {
+    let canonical_path = match std::fs::canonicalize(&payload.repo_path) {
         Ok(p) => p,
         Err(_) => {
             return (
@@ -114,7 +114,88 @@ async fn send_handler(
             .into_response();
     }
 
-    // TODO: Implement actual send logic in section 3.6
+    // Drop the lock before doing file operations
+    drop(repos);
+
+    // Validate post folder exists and has meta.json
+    let post_path = canonical_path
+        .join(".postlane/posts")
+        .join(&payload.post_folder);
+
+    if !post_path.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("Post folder does not exist: {}", payload.post_folder),
+            }),
+        )
+            .into_response();
+    }
+
+    let meta_path = post_path.join("meta.json");
+    if !meta_path.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "meta.json not found in post folder".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Read and update meta.json (stub send - always succeeds in M3)
+    let meta_content = match std::fs::read_to_string(&meta_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to read meta.json: {}", e),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let mut meta: serde_json::Value = match serde_json::from_str(&meta_content) {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to parse meta.json: {}", e),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    // Update status to sent (stub - real scheduler integration in M4)
+    meta["status"] = serde_json::json!("sent");
+    meta["sent_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+
+    // Write updated meta.json atomically
+    let temp_path = meta_path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&temp_path, serde_json::to_string_pretty(&meta).unwrap()) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to write meta.json: {}", e),
+            }),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = std::fs::rename(&temp_path, &meta_path) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to rename meta.json: {}", e),
+            }),
+        )
+            .into_response();
+    }
+
     (StatusCode::OK, Json(SendResponse { success: true })).into_response()
 }
 
