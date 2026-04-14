@@ -2,7 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::storage::{Repo, write_repos};
-use crate::types::{PostMeta, RepoHealthStatus, SendResult};
+use crate::types::{PostMeta, QueuedPost, RepoHealthStatus, SendResult};
 use crate::init::postlane_dir;
 use std::fs;
 use std::path::PathBuf;
@@ -552,4 +552,37 @@ pub fn test_scheduler(
 
     // Stub: always return true (connected)
     Ok(true)
+}
+
+/// Cancel a queued post
+#[tauri::command]
+pub fn cancel_post_command(
+    repo_path: String,
+    post_folder: String,
+    post_id: String,
+    platform: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    // In Milestone 3, this is a stub
+    // In Milestone 4, this will:
+    // 1. Call cancel_post(post_id, platform) on the scheduling provider
+    // 2. On success: set meta.json.status back to "ready"
+    // 3. If provider returns NotSupported: return error with message
+
+    // For now, return not implemented error
+    Err("Cancel not implemented in Milestone 3 (deferred to M4)".to_string())
+}
+
+/// Get queued posts from scheduler
+#[tauri::command]
+pub fn get_queue_command(
+    state: State<AppState>,
+) -> Result<Vec<QueuedPost>, String> {
+    // In Milestone 3, this is a stub
+    // In Milestone 4, this will:
+    // 1. Call get_queue() on the scheduling provider
+    // 2. Return the list of currently queued posts
+
+    // For now, return empty queue
+    Ok(Vec::new())
 }
