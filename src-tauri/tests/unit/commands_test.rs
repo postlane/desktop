@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, dismiss_post_impl, get_drafts_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
+use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, check_repo_health_impl, dismiss_post_impl, get_drafts_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -721,5 +721,76 @@ mod set_repo_active_tests {
 
         // Assert: Should fail
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod check_repo_health_tests {
+    use super::*;
+
+    #[test]
+    fn test_check_repo_health_reports_reachable_repos() {
+        // Setup: Create repo with valid config.json
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let postlane_dir = repo_path.join(".postlane");
+        fs::create_dir_all(&postlane_dir).unwrap();
+        fs::write(postlane_dir.join("config.json"), "{}").unwrap();
+
+        let canonical_path = fs::canonicalize(&repo_path).unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: canonical_path.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Check repo health
+        let result = check_repo_health_impl(&state);
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+        let statuses = result.unwrap();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].id, "id1");
+        assert_eq!(statuses[0].reachable, true);
+    }
+
+    #[test]
+    fn test_check_repo_health_reports_unreachable_repos() {
+        // Setup: Create repo config pointing to non-existent path
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: "/nonexistent/path".to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Check repo health
+        let result = check_repo_health_impl(&state);
+
+        // Assert: Should succeed but report unreachable
+        assert!(result.is_ok());
+        let statuses = result.unwrap();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].id, "id1");
+        assert_eq!(statuses[0].reachable, false);
     }
 }

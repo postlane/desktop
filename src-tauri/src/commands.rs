@@ -2,7 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::storage::{Repo, write_repos};
-use crate::types::{PostMeta, SendResult};
+use crate::types::{PostMeta, RepoHealthStatus, SendResult};
 use crate::init::postlane_dir;
 use std::fs;
 use std::path::PathBuf;
@@ -470,4 +470,42 @@ pub fn set_repo_active(
     state: State<AppState>,
 ) -> Result<(), String> {
     set_repo_active_impl(&id, active, &state)
+}
+
+/// Check health of all registered repos
+/// This is the testable implementation
+pub fn check_repo_health_impl(
+    state: &AppState,
+) -> Result<Vec<RepoHealthStatus>, String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    let mut statuses = Vec::new();
+
+    for repo in &repos.repos {
+        // Check if .postlane/config.json exists at the stored path
+        let config_path = PathBuf::from(&repo.path)
+            .join(".postlane")
+            .join("config.json");
+
+        let reachable = config_path.exists();
+
+        statuses.push(RepoHealthStatus {
+            id: repo.id.clone(),
+            reachable,
+            path: repo.path.clone(),
+        });
+    }
+
+    Ok(statuses)
+}
+
+/// Tauri command wrapper for check_repo_health
+#[tauri::command]
+pub fn check_repo_health(
+    state: State<AppState>,
+) -> Result<Vec<RepoHealthStatus>, String> {
+    check_repo_health_impl(&state)
 }
