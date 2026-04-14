@@ -173,14 +173,102 @@ impl SchedulingProvider for ZernioProvider {
         Ok(profiles)
     }
 
-    async fn cancel_post(&self, _post_id: &str, _platform: &str) -> Result<(), ProviderError> {
-        // Stub implementation - will be implemented in 4.4.4
-        Err(ProviderError::NotSupported)
+    async fn cancel_post(&self, post_id: &str, platform: &str) -> Result<(), ProviderError> {
+        let url = format!("{}/api/v1/posts/{}/cancel", self.base_url(), post_id);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&serde_json::json!({
+                "platform": platform
+            }))
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+
+        if status == 401 {
+            return Err(ProviderError::AuthError("Invalid API key".to_string()));
+        }
+
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ProviderError::HttpError {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        Ok(())
     }
 
     async fn get_queue(&self) -> Result<Vec<crate::types::QueuedPost>, ProviderError> {
-        // Stub implementation - will be implemented in 4.4.5
-        Err(ProviderError::NotSupported)
+        let url = format!("{}/api/v1/queue", self.base_url());
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+
+        if status == 401 {
+            return Err(ProviderError::AuthError("Invalid API key".to_string()));
+        }
+
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ProviderError::HttpError {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
+
+        let queue_array = json["posts"]
+            .as_array()
+            .ok_or_else(|| ProviderError::Unknown("Missing posts array".to_string()))?;
+
+        let queue = queue_array
+            .iter()
+            .filter_map(|p| {
+                let scheduled_for = p["scheduled_for"]
+                    .as_str()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc))?;
+
+                let content = p["content"].as_str()?.to_string();
+                let content_preview = if content.len() > 80 {
+                    format!("{}...", &content[..80])
+                } else {
+                    content
+                };
+
+                Some(crate::types::QueuedPost {
+                    post_id: p["post_id"].as_str()?.to_string(),
+                    platform: p["platform"].as_str()?.to_string(),
+                    scheduled_for,
+                    content_preview,
+                })
+            })
+            .collect();
+
+        Ok(queue)
     }
 
     async fn test_connection(&self) -> Result<(), ProviderError> {
@@ -192,11 +280,48 @@ impl SchedulingProvider for ZernioProvider {
 
     async fn get_engagement(
         &self,
-        _post_id: &str,
-        _platform: &str,
+        post_id: &str,
+        platform: &str,
     ) -> Result<Engagement, ProviderError> {
-        // Stub implementation - will be implemented in 4.4.7
-        Err(ProviderError::NotSupported)
+        let url = format!("{}/api/v1/posts/{}/engagement", self.base_url(), post_id);
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&[("platform", platform)])
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+
+        let status = response.status();
+
+        if status == 401 {
+            return Err(ProviderError::AuthError("Invalid API key".to_string()));
+        }
+
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(ProviderError::HttpError {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
+
+        Ok(Engagement {
+            likes: json["likes"].as_u64().unwrap_or(0),
+            reposts: json["reposts"].as_u64().unwrap_or(0),
+            replies: json["replies"].as_u64().unwrap_or(0),
+            impressions: json["impressions"].as_u64(),
+        })
     }
 
     fn post_url(&self, platform: &str, post_id: &str) -> Option<String> {
@@ -529,5 +654,128 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "retry-test-123");
         mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_cancel_post_success() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/api/v1/posts/post-123/cancel")
+                .header("Authorization", "Bearer test-key");
+            then.status(200);
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.cancel_post("post-123", "x").await;
+        assert!(result.is_ok());
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_success() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v1/queue")
+                .header("Authorization", "Bearer test-key");
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "posts": [
+                        {
+                            "post_id": "queued-1",
+                            "platform": "x",
+                            "scheduled_for": "2024-01-20T15:00:00Z",
+                            "content": "Short post"
+                        },
+                        {
+                            "post_id": "queued-2",
+                            "platform": "bluesky",
+                            "scheduled_for": "2024-01-21T10:00:00Z",
+                            "content": "This is a very long post that exceeds eighty characters and should be truncated with ellipsis"
+                        }
+                    ]
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.get_queue().await;
+        assert!(result.is_ok());
+
+        let queue = result.unwrap();
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue[0].post_id, "queued-1");
+        assert_eq!(queue[0].content_preview, "Short post");
+        assert_eq!(queue[1].content_preview.len(), 83); // 80 chars + "..."
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_success() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v1/posts/post-456/engagement")
+                .query_param("platform", "x")
+                .header("Authorization", "Bearer test-key");
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "likes": 42,
+                    "reposts": 12,
+                    "replies": 5,
+                    "impressions": 1500
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.get_engagement("post-456", "x").await;
+        assert!(result.is_ok());
+
+        let engagement = result.unwrap();
+        assert_eq!(engagement.likes, 42);
+        assert_eq!(engagement.reposts, 12);
+        assert_eq!(engagement.replies, 5);
+        assert_eq!(engagement.impressions, Some(1500));
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_without_impressions() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET)
+                .path("/api/v1/posts/post-789/engagement");
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "likes": 10,
+                    "reposts": 2,
+                    "replies": 1
+                }));
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.get_engagement("post-789", "x").await;
+        assert!(result.is_ok());
+
+        let engagement = result.unwrap();
+        assert_eq!(engagement.impressions, None);
     }
 }
