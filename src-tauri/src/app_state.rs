@@ -199,4 +199,108 @@ mod tests {
 
         // In the actual read_app_state function, this would trigger default return
     }
+
+    #[test]
+    fn test_app_state_new() {
+        let repos = crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+
+        let app_state = AppState::new(repos.clone());
+
+        // Verify all fields are initialized correctly
+        assert_eq!(app_state.repos.lock().unwrap().version, 1);
+        assert_eq!(app_state.repos.lock().unwrap().repos.len(), 0);
+        assert_eq!(app_state.watchers.lock().unwrap().len(), 0);
+        assert!(app_state.scheduler.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_write_app_state() {
+        // Ensure ~/.postlane exists
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+
+        let state = AppStateFile {
+            version: 1,
+            window: WindowState {
+                width: 1300,
+                height: 900,
+                x: 150,
+                y: 250,
+            },
+            nav: NavState {
+                last_view: "test".to_string(),
+                last_repo_id: Some("test-id".to_string()),
+                last_section: "sent".to_string(),
+                expanded_repos: vec!["repo1".to_string()],
+            },
+        };
+
+        // Clean up before test
+        let path = app_state_path();
+        let _ = fs::remove_file(&path);
+
+        // Write using the function
+        write_app_state(&state).expect("Failed to write app_state");
+
+        // Verify file exists
+        assert!(path.exists());
+
+        // Read back and verify content
+        let content = fs::read_to_string(&path).expect("Failed to read");
+        let loaded: AppStateFile = serde_json::from_str(&content).expect("Failed to parse");
+        assert_eq!(loaded.window.width, 1300);
+        assert_eq!(loaded.nav.last_view, "test");
+        assert_eq!(loaded.nav.expanded_repos.len(), 1);
+
+        // Cleanup
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_read_app_state_malformed_json_returns_default() {
+        // Ensure ~/.postlane exists
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+
+        let path = app_state_path();
+
+        // Write malformed JSON
+        fs::write(&path, "{ invalid json }").expect("Failed to write malformed JSON");
+
+        // read_app_state should return default on parse error
+        let state = read_app_state();
+        assert_eq!(state.version, 1);
+        assert_eq!(state.window.width, 1100); // default value
+
+        // Cleanup
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_read_app_state_version_mismatch_writes_file() {
+        // Ensure ~/.postlane exists
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+
+        let path = app_state_path();
+
+        // Create state with wrong version
+        let wrong_version_state = AppStateFile {
+            version: 999,
+            ..AppStateFile::default()
+        };
+
+        // Write it to disk
+        let json = serde_json::to_string_pretty(&wrong_version_state)
+            .expect("Failed to serialize");
+        fs::write(&path, json).expect("Failed to write");
+
+        // read_app_state should detect version mismatch and return default
+        let loaded = read_app_state();
+        assert_eq!(loaded.version, 1, "Should return default with correct version");
+        assert_eq!(loaded.window.width, 1100, "Should have default window width");
+
+        // Cleanup
+        let _ = fs::remove_file(&path);
+    }
 }

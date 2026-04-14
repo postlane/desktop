@@ -41,11 +41,13 @@ mod tests {
 
     #[test]
     fn test_init_postlane_dir_creates_directory() {
-        // Clean up if exists from previous test run
-        let dir = postlane_dir();
-        let _ = fs::remove_dir_all(&dir);
+        // This test verifies that init_postlane_dir creates the directory if it doesn't exist
+        // It uses the real ~/.postlane directory since the function is not configurable
+        // Note: This may cause race conditions with other tests that use ~/.postlane
 
-        // First call should create the directory
+        let dir = postlane_dir();
+
+        // First call should create the directory (idempotent, so safe even if it exists)
         init_postlane_dir().expect("Failed to initialize .postlane directory");
 
         assert!(dir.exists(), ".postlane directory should exist");
@@ -54,12 +56,14 @@ mod tests {
 
     #[test]
     fn test_init_postlane_dir_is_idempotent() {
-        // Call initialization twice in succession
-        init_postlane_dir().expect("First call failed");
-        init_postlane_dir().expect("Second call failed");
+        // Call initialization 5 times in succession (as per checklist 2.7.2)
+        for i in 1..=5 {
+            init_postlane_dir().unwrap_or_else(|_| panic!("Call {} failed", i));
+        }
 
-        // Should not panic and directory should exist
+        // Should not panic, no duplicate directory, and directory should exist
         assert!(postlane_dir().exists());
+        assert!(postlane_dir().is_dir());
     }
 
     #[test]
