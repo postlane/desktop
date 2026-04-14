@@ -2,6 +2,7 @@
 
 pub mod app_state;
 pub mod init;
+pub mod parser;
 pub mod storage;
 pub mod types;
 
