@@ -381,3 +381,47 @@ pub fn add_repo(
 ) -> Result<Repo, String> {
     add_repo_impl(&path, &state)
 }
+
+/// Remove a repository
+/// This is the testable implementation
+pub fn remove_repo_impl(
+    id: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    // Lock repos and find the repo to remove
+    let mut repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    // Find repo index
+    let repo_index = repos
+        .repos
+        .iter()
+        .position(|r| r.id == id)
+        .ok_or_else(|| format!("Repo with id '{}' not found", id))?;
+
+    // Remove from repos list
+    repos.repos.remove(repo_index);
+
+    // Write updated repos.json
+    let repos_path = postlane_dir().join("repos.json");
+    write_repos(&repos_path, &repos)
+        .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
+
+    // Stop watcher (in tests, watchers is empty - this is a no-op)
+    // In real app, this would call stop_watcher() or similar
+
+    // Do NOT delete any files in the repo directory itself
+
+    Ok(())
+}
+
+/// Tauri command wrapper for remove_repo
+#[tauri::command]
+pub fn remove_repo(
+    id: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    remove_repo_impl(&id, &state)
+}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, dismiss_post_impl, get_drafts_impl, retry_post_impl};
+use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, dismiss_post_impl, get_drafts_impl, remove_repo_impl, retry_post_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -532,5 +532,113 @@ mod add_repo_tests {
         let repos = state.repos.lock().unwrap();
         assert_eq!(repos.repos.len(), 1);
         assert_eq!(repos.repos[0].id, repo.id);
+    }
+}
+
+#[cfg(test)]
+mod remove_repo_tests {
+    use super::*;
+
+    #[test]
+    fn test_remove_repo_removes_from_state() {
+        // Setup: Create state with two repos
+        let temp_dir = TempDir::new().unwrap();
+        let repo1_path = temp_dir.path().join("repo1");
+        let repo2_path = temp_dir.path().join("repo2");
+        fs::create_dir_all(&repo1_path).unwrap();
+        fs::create_dir_all(&repo2_path).unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: repo1_path.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+                Repo {
+                    id: "id2".to_string(),
+                    name: "Repo 2".to_string(),
+                    path: repo2_path.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-02T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Remove first repo
+        let result = remove_repo_impl("id1", &state);
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+
+        // Verify: Only second repo remains
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos.len(), 1);
+        assert_eq!(repos.repos[0].id, "id2");
+    }
+
+    #[test]
+    fn test_remove_repo_fails_with_invalid_id() {
+        // Setup: Create state with one repo
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: "/tmp/repo1".to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to remove non-existent repo
+        let result = remove_repo_impl("nonexistent", &state);
+
+        // Assert: Should fail
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("not found") || err.contains("does not exist"));
+    }
+
+    #[test]
+    fn test_remove_repo_does_not_delete_files() {
+        // Setup: Create actual repo directory with files
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        // Create a test file
+        let test_file = repo_path.join("test.txt");
+        fs::write(&test_file, "test content").unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: repo_path.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Remove repo
+        let result = remove_repo_impl("id1", &state);
+        assert!(result.is_ok());
+
+        // Verify: Repo directory and files still exist
+        assert!(repo_path.exists());
+        assert!(test_file.exists());
+        assert_eq!(fs::read_to_string(&test_file).unwrap(), "test content");
     }
 }
