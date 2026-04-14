@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{approve_post_impl, dismiss_post_impl, get_drafts_impl};
+use postlane_desktop_lib::commands::{approve_post_impl, dismiss_post_impl, get_drafts_impl, retry_post_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
+use std::collections::HashMap;
 use tempfile::TempDir;
 
 #[cfg(test)]
@@ -359,5 +360,81 @@ mod dismiss_post_tests {
 
         // Assert: Should fail
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod retry_post_tests {
+    use super::*;
+
+    #[test]
+    fn test_retry_post_only_retries_failed_platforms() {
+        // Setup: Create repo with failed post (x succeeded, bluesky failed)
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let post_folder = repo_path.join(".postlane/posts/post1");
+        fs::create_dir_all(&post_folder).unwrap();
+
+        let mut platform_results = HashMap::new();
+        platform_results.insert("x".to_string(), "success".to_string());
+        platform_results.insert("bluesky".to_string(), "failed".to_string());
+
+        let meta = PostMeta {
+            status: "failed".to_string(),
+            platforms: vec!["x".to_string(), "bluesky".to_string()],
+            schedule: None,
+            trigger: None,
+            scheduler_ids: None,
+            platform_results: Some(platform_results),
+            error: Some("Bluesky timeout".to_string()),
+            image_url: None,
+            image_source: None,
+            image_attribution: None,
+            llm_model: None,
+            created_at: Some("2024-01-01T00:00:00Z".to_string()),
+            sent_at: None,
+        };
+        fs::write(
+            post_folder.join("meta.json"),
+            serde_json::to_string(&meta).unwrap(),
+        )
+        .unwrap();
+
+        // Canonicalize the path for repos_config (matches what retry_post_impl does)
+        let canonical_repo_path = fs::canonicalize(&repo_path).unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "repo1".to_string(),
+                name: "Test Repo".to_string(),
+                path: canonical_repo_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Retry the post
+        let result = retry_post_impl(
+            repo_path.to_str().unwrap(),
+            "post1",
+            &state,
+        );
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+        let send_result = result.unwrap();
+        assert!(send_result.success);
+
+        // Verify: x should still be success, bluesky should be retried (success in stub)
+        let updated_content = fs::read_to_string(post_folder.join("meta.json")).unwrap();
+        let updated_meta: PostMeta = serde_json::from_str(&updated_content).unwrap();
+        assert_eq!(updated_meta.status, "sent");
+        let results = updated_meta.platform_results.unwrap();
+        assert_eq!(results.get("x").unwrap(), "success"); // Should not change
+        assert_eq!(results.get("bluesky").unwrap(), "success"); // Should be retried
     }
 }
