@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{approve_post_impl, dismiss_post_impl, get_drafts_impl, retry_post_impl};
+use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, dismiss_post_impl, get_drafts_impl, retry_post_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -436,5 +436,101 @@ mod retry_post_tests {
         let results = updated_meta.platform_results.unwrap();
         assert_eq!(results.get("x").unwrap(), "success"); // Should not change
         assert_eq!(results.get("bluesky").unwrap(), "success"); // Should be retried
+    }
+}
+
+#[cfg(test)]
+mod add_repo_tests {
+    use super::*;
+
+    #[test]
+    fn test_add_repo_validates_git_directory() {
+        // Setup: Create repo without .git directory
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        // Create .postlane/config.json
+        let postlane_dir = repo_path.join(".postlane");
+        fs::create_dir_all(&postlane_dir).unwrap();
+        fs::write(postlane_dir.join("config.json"), "{}").unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to add repo without .git directory
+        let result = add_repo_impl(repo_path.to_str().unwrap(), &state);
+
+        // Assert: Should fail with git validation error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("git") || err.contains("Not a git repository"));
+    }
+
+    #[test]
+    fn test_add_repo_validates_config_json() {
+        // Setup: Create repo with .git but without .postlane/config.json
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+        fs::create_dir_all(repo_path.join(".git")).unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to add repo without config.json
+        let result = add_repo_impl(repo_path.to_str().unwrap(), &state);
+
+        // Assert: Should fail with config validation error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("config") || err.contains("init"));
+    }
+
+    #[test]
+    fn test_add_repo_generates_uuid_and_name() {
+        // Setup: Create valid repo
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("test-repo");
+        fs::create_dir_all(&repo_path).unwrap();
+        fs::create_dir_all(repo_path.join(".git")).unwrap();
+
+        let postlane_dir = repo_path.join(".postlane");
+        fs::create_dir_all(&postlane_dir).unwrap();
+        fs::write(postlane_dir.join("config.json"), "{}").unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Add repo
+        let result = add_repo_impl(repo_path.to_str().unwrap(), &state);
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+        let repo = result.unwrap();
+
+        // Verify: UUID format (36 chars with hyphens)
+        assert_eq!(repo.id.len(), 36);
+        assert!(repo.id.contains('-'));
+
+        // Verify: Name derived from folder
+        assert_eq!(repo.name, "test-repo");
+
+        // Verify: Repo is active
+        assert!(repo.active);
+
+        // Verify: Repo was added to state
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos.len(), 1);
+        assert_eq!(repos.repos[0].id, repo.id);
     }
 }
