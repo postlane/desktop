@@ -7,6 +7,7 @@ use crate::init::postlane_dir;
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
+use tauri_plugin_keyring::KeyringExt;
 use uuid::Uuid;
 
 /// Get all draft posts (status === "ready" or "failed") across all active repos
@@ -524,20 +525,37 @@ pub fn check_repo_health(
     check_repo_health_impl(&state)
 }
 
+/// Save scheduler credential - testable implementation
+/// Validates provider name (business logic that can be unit tested)
+pub fn save_scheduler_credential_impl(
+    provider: &str,
+    _api_key: &str,
+) -> Result<(), String> {
+    // Validate provider (v1 only supports these three)
+    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    if !valid_providers.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+
+    // Validation passed - actual keyring storage happens in Tauri command
+    Ok(())
+}
+
 /// Save scheduler credential to keyring
 #[tauri::command]
 pub fn save_scheduler_credential(
     provider: String,
-    _api_key: String,
+    api_key: String,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    // Validate provider (v1 only supports these three)
-    let valid_providers = ["zernio", "buffer", "ayrshare"];
-    if !valid_providers.contains(&provider.as_str()) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
+    // Step 1: Validate provider
+    save_scheduler_credential_impl(&provider, &api_key)?;
 
-    // Stub: In Milestone 4, this will save to OS keyring via tauri-plugin-keyring
-    // For M3, just validate provider and return success
+    // Step 2: Store in OS keyring
+    app.keyring()
+        .set_password("postlane", &provider, &api_key)
+        .map_err(|e| format!("Failed to store credential: {}", e))?;
+
     Ok(())
 }
 

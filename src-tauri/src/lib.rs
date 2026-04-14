@@ -28,6 +28,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_keyring::init())
         .setup(|_app| {
             // Load repos from disk
             let repos_path = init::postlane_dir().join("repos.json");
