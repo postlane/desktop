@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, dismiss_post_impl, get_drafts_impl, remove_repo_impl, retry_post_impl};
+use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, dismiss_post_impl, get_drafts_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
@@ -640,5 +640,86 @@ mod remove_repo_tests {
         assert!(repo_path.exists());
         assert!(test_file.exists());
         assert_eq!(fs::read_to_string(&test_file).unwrap(), "test content");
+    }
+}
+
+#[cfg(test)]
+mod set_repo_active_tests {
+    use super::*;
+
+    #[test]
+    fn test_set_repo_active_toggles_state() {
+        // Setup: Create repo that's initially active
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: "/tmp/repo1".to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Deactivate repo
+        let result = set_repo_active_impl("id1", false, &state);
+        assert!(result.is_ok());
+
+        // Verify: Repo is now inactive
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos[0].active, false);
+    }
+
+    #[test]
+    fn test_set_repo_active_activates_repo() {
+        // Setup: Create repo that's initially inactive
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: "/tmp/repo1".to_string(),
+                    active: false,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Activate repo
+        let result = set_repo_active_impl("id1", true, &state);
+        assert!(result.is_ok());
+
+        // Verify: Repo is now active
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos[0].active, true);
+    }
+
+    #[test]
+    fn test_set_repo_active_fails_with_invalid_id() {
+        // Setup: Create state with one repo
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "id1".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: "/tmp/repo1".to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Try to set active on non-existent repo
+        let result = set_repo_active_impl("nonexistent", true, &state);
+
+        // Assert: Should fail
+        assert!(result.is_err());
     }
 }

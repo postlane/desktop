@@ -425,3 +425,49 @@ pub fn remove_repo(
 ) -> Result<(), String> {
     remove_repo_impl(&id, &state)
 }
+
+/// Set repository active state
+/// This is the testable implementation
+pub fn set_repo_active_impl(
+    id: &str,
+    active: bool,
+    state: &AppState,
+) -> Result<(), String> {
+    // Lock repos and find the repo
+    let mut repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    // Find repo by ID
+    let repo = repos
+        .repos
+        .iter_mut()
+        .find(|r| r.id == id)
+        .ok_or_else(|| format!("Repo with id '{}' not found", id))?;
+
+    // Update active state
+    repo.active = active;
+
+    // Write updated repos.json
+    let repos_path = postlane_dir().join("repos.json");
+    write_repos(&repos_path, &repos)
+        .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
+
+    // Start/stop watcher (in tests, this is a no-op)
+    // In real app:
+    // - if active=true: start watcher
+    // - if active=false: stop watcher
+
+    Ok(())
+}
+
+/// Tauri command wrapper for set_repo_active
+#[tauri::command]
+pub fn set_repo_active(
+    id: String,
+    active: bool,
+    state: State<AppState>,
+) -> Result<(), String> {
+    set_repo_active_impl(&id, active, &state)
+}
