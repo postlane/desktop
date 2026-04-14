@@ -525,6 +525,20 @@ pub fn check_repo_health(
     check_repo_health_impl(&state)
 }
 
+/// Mask credential for display
+/// Shows ••••••••{last4} where {last4} is the final 4 characters
+/// For credentials shorter than 4 characters, shows ••••••••
+pub fn mask_credential(credential: &str) -> String {
+    let mask = "••••••••";
+
+    if credential.len() >= 4 {
+        let last_four = &credential[credential.len() - 4..];
+        format!("{}{}", mask, last_four)
+    } else {
+        mask.to_string()
+    }
+}
+
 /// Save scheduler credential - testable implementation
 /// Validates provider name (business logic that can be unit tested)
 pub fn save_scheduler_credential_impl(
@@ -538,6 +552,19 @@ pub fn save_scheduler_credential_impl(
     }
 
     // Validation passed - actual keyring storage happens in Tauri command
+    Ok(())
+}
+
+/// Delete scheduler credential - testable implementation
+/// Validates provider name (business logic that can be unit tested)
+pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
+    // Validate provider (v1 only supports these three)
+    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    if !valid_providers.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+
+    // Validation passed - actual keyring deletion happens in Tauri command
     Ok(())
 }
 
@@ -555,6 +582,23 @@ pub fn save_scheduler_credential(
     app.keyring()
         .set_password("postlane", &provider, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
+
+    Ok(())
+}
+
+/// Delete scheduler credential from keyring
+#[tauri::command]
+pub fn delete_scheduler_credential(
+    provider: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // Step 1: Validate provider
+    delete_scheduler_credential_impl(&provider)?;
+
+    // Step 2: Delete from OS keyring
+    app.keyring()
+        .delete_password("postlane", &provider)
+        .map_err(|e| format!("Failed to delete credential: {}", e))?;
 
     Ok(())
 }
