@@ -330,4 +330,22 @@ mod tests {
         // Should count full length including full URL
         assert_eq!(count, content.chars().count());
     }
+
+    #[test]
+    fn test_read_meta_missing_file() {
+        let dir = std::env::temp_dir().join("postlane_test_parser_missing_meta");
+        fs::create_dir_all(&dir).expect("Failed to create test dir");
+
+        // No meta.json file exists
+        let result = read_meta(&dir);
+
+        assert!(result.is_err(), "Should fail when meta.json is missing");
+        if let Err(ValidationError::ParseError(msg)) = result {
+            assert!(msg.contains("Failed to read meta.json"), "Error should mention read failure");
+        } else {
+            panic!("Expected ParseError");
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -288,4 +288,31 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn test_storage_error_from_io_error() {
+        // Test From<std::io::Error> implementation
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let storage_err: StorageError = io_err.into();
+
+        match storage_err {
+            StorageError::IoError(_) => {} // Expected
+            _ => panic!("Expected IoError variant"),
+        }
+    }
+
+    #[test]
+    fn test_storage_error_from_json_error() {
+        // Test From<serde_json::Error> implementation
+        let json_result: Result<ReposConfig, serde_json::Error> =
+            serde_json::from_str("{ invalid json }");
+
+        let json_err = json_result.unwrap_err();
+        let storage_err: StorageError = json_err.into();
+
+        match storage_err {
+            StorageError::ParseError(_) => {} // Expected
+            _ => panic!("Expected ParseError variant"),
+        }
+    }
 }

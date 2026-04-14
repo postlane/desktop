@@ -243,4 +243,23 @@ mod tests {
         };
         assert!(is_entry_valid(&entry), "Entry within 2-hour window should be valid");
     }
+
+    #[test]
+    fn test_read_engagement_cache_malformed_returns_default() {
+        let _lock = get_test_mutex().lock().unwrap();
+
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+        let path = cache_path();
+        let _ = fs::remove_file(&path);
+
+        // Write malformed JSON
+        fs::write(&path, "{ this is not valid json }").expect("Failed to write");
+
+        // Should return default on parse error
+        let loaded = read_engagement_cache();
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.entries.len(), 0);
+
+        let _ = fs::remove_file(&path);
+    }
 }
