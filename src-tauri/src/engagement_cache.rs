@@ -116,6 +116,14 @@ pub fn new_entry(likes: u64, reposts: u64, replies: u64, impressions: Option<u64
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::{Mutex, OnceLock};
+
+    // Global mutex to serialize tests that use the shared cache file
+    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn get_test_mutex() -> &'static Mutex<()> {
+        TEST_MUTEX.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_cache_key_format() {
@@ -136,6 +144,12 @@ mod tests {
 
     #[test]
     fn test_engagement_cache_round_trip() {
+        // Acquire lock to prevent race conditions with other tests
+        let _lock = get_test_mutex().lock().unwrap();
+
+        // Ensure ~/.postlane exists
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+
         let mut cache = EngagementCache::default();
 
         let entry = new_entry(100, 50, 25, Some(1000));
@@ -144,11 +158,15 @@ mod tests {
             entry,
         );
 
+        // Clean up any existing cache first
+        let path = cache_path();
+        let _ = fs::remove_file(&path);
+
         write_engagement_cache(&cache).expect("Failed to write cache");
 
         let loaded = read_engagement_cache();
         assert_eq!(loaded.version, 1);
-        assert_eq!(loaded.entries.len(), 1);
+        assert_eq!(loaded.entries.len(), 1, "Should have 1 entry");
 
         let retrieved = loaded.entries.get("repo1:post1:x").unwrap();
         assert_eq!(retrieved.likes, 100);
@@ -157,7 +175,7 @@ mod tests {
         assert_eq!(retrieved.impressions, Some(1000));
 
         // Cleanup
-        let _ = fs::remove_file(cache_path());
+        let _ = fs::remove_file(&path);
     }
 
     #[test]
@@ -192,18 +210,25 @@ mod tests {
 
     #[test]
     fn test_cache_version_mismatch() {
+        // Acquire lock to prevent race conditions with other tests
+        let _lock = get_test_mutex().lock().unwrap();
+
+        // Clean up before test to prevent race conditions
+        let path = cache_path();
+        let _ = fs::remove_file(&path);
+
         let mut cache = EngagementCache::default();
         cache.version = 999;
 
         let json = serde_json::to_string(&cache).expect("Failed to serialize");
-        fs::write(cache_path(), json).expect("Failed to write");
+        fs::write(&path, json).expect("Failed to write");
 
         let loaded = read_engagement_cache();
         assert_eq!(loaded.version, 1, "Should return default with correct version");
         assert_eq!(loaded.entries.len(), 0, "Should be empty");
 
         // Cleanup
-        let _ = fs::remove_file(cache_path());
+        let _ = fs::remove_file(&path);
     }
 
     #[test]

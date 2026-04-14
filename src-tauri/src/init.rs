@@ -18,6 +18,11 @@ pub fn init_postlane_dir() -> std::io::Result<()> {
 /// Atomic write: writes content to a .tmp file then renames to target
 /// This prevents corruption if the process crashes mid-write
 pub fn atomic_write(target_path: &Path, content: &[u8]) -> std::io::Result<()> {
+    // Ensure parent directory exists
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     let tmp_path = target_path.with_extension("tmp");
 
     // Write to .tmp file first
