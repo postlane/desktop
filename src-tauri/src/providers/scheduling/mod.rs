@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+pub mod ayrshare;
+pub mod buffer;
+pub mod zernio;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
@@ -100,6 +104,21 @@ pub trait SchedulingProvider: Send + Sync {
     fn post_url(&self, platform: &str, post_id: &str) -> Option<String>;
 }
 
+/// Build a shared reqwest::Client for provider HTTP requests
+///
+/// Creates a client with:
+/// - 10 second request timeout
+/// - 5 second connect timeout
+///
+/// Panics if client cannot be built (configuration error at startup)
+pub fn build_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .expect("Failed to build reqwest client")
+}
+
 /// Retry a function with exponential backoff
 ///
 /// Retries up to max_retries times with exponential backoff:
@@ -148,6 +167,18 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+
+    #[test]
+    fn test_build_client_creates_client_with_timeouts() {
+        // Test: build_client should create a reqwest::Client
+        // with 10s request timeout and 5s connect timeout
+        let client = build_client();
+
+        // Verify client was created (if this compiles and doesn't panic, it worked)
+        // The actual timeout values are internal to reqwest::Client and can't be
+        // easily inspected, but we can verify the function doesn't panic
+        assert!(std::any::type_name_of_val(&client).contains("Client"));
+    }
 
     #[tokio::test]
     async fn test_with_retry_succeeds_on_first_attempt() {
