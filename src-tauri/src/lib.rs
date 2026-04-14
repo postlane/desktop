@@ -6,6 +6,7 @@ pub mod init;
 pub mod parser;
 pub mod storage;
 pub mod types;
+pub mod watcher;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
