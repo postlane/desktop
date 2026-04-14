@@ -837,4 +837,124 @@ mod export_history_csv_tests {
         let lines: Vec<&str> = csv_content.lines().collect();
         assert_eq!(lines.len(), 1); // Headers only
     }
+
+    #[test]
+    fn test_export_history_csv_with_three_sent_posts_across_two_repos() {
+        // Setup: Create temp directories with two repos
+        let temp_dir = TempDir::new().unwrap();
+
+        // Repo 1 with 2 sent posts
+        let repo1_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo1_path).unwrap();
+        let posts1_dir = repo1_path.join(".postlane/posts");
+        fs::create_dir_all(&posts1_dir).unwrap();
+
+        let post1a_dir = posts1_dir.join("post1a");
+        fs::create_dir_all(&post1a_dir).unwrap();
+        let meta1a = serde_json::json!({
+            "status": "sent",
+            "platforms": ["x"],
+            "schedule": null,
+            "trigger": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "error": null,
+            "image_url": null,
+            "image_source": null,
+            "image_attribution": null,
+            "llm_model": null,
+            "created_at": "2024-01-01T00:00:00Z",
+            "sent_at": "2024-01-01T12:00:00Z"
+        });
+        fs::write(post1a_dir.join("meta.json"), serde_json::to_string(&meta1a).unwrap()).unwrap();
+
+        let post1b_dir = posts1_dir.join("post1b");
+        fs::create_dir_all(&post1b_dir).unwrap();
+        let meta1b = serde_json::json!({
+            "status": "sent",
+            "platforms": ["x", "linkedin"],
+            "schedule": null,
+            "trigger": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "error": null,
+            "image_url": null,
+            "image_source": null,
+            "image_attribution": null,
+            "llm_model": "claude-3-5-sonnet",
+            "created_at": "2024-01-02T00:00:00Z",
+            "sent_at": "2024-01-02T12:00:00Z"
+        });
+        fs::write(post1b_dir.join("meta.json"), serde_json::to_string(&meta1b).unwrap()).unwrap();
+
+        // Repo 2 with 1 sent post
+        let repo2_path = temp_dir.path().join("repo2");
+        fs::create_dir_all(&repo2_path).unwrap();
+        let posts2_dir = repo2_path.join(".postlane/posts");
+        fs::create_dir_all(&posts2_dir).unwrap();
+
+        let post2a_dir = posts2_dir.join("post2a");
+        fs::create_dir_all(&post2a_dir).unwrap();
+        let meta2a = serde_json::json!({
+            "status": "sent",
+            "platforms": ["x"],
+            "schedule": null,
+            "trigger": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "error": null,
+            "image_url": null,
+            "image_source": null,
+            "image_attribution": null,
+            "llm_model": null,
+            "created_at": "2024-01-03T00:00:00Z",
+            "sent_at": "2024-01-03T12:00:00Z"
+        });
+        fs::write(post2a_dir.join("meta.json"), serde_json::to_string(&meta2a).unwrap()).unwrap();
+
+        // Canonicalize paths
+        let canonical_repo1 = fs::canonicalize(&repo1_path).unwrap();
+        let canonical_repo2 = fs::canonicalize(&repo2_path).unwrap();
+
+        // Setup repos config
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![
+                Repo {
+                    id: "repo1-id".to_string(),
+                    name: "Repo 1".to_string(),
+                    path: canonical_repo1.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+                Repo {
+                    id: "repo2-id".to_string(),
+                    name: "Repo 2".to_string(),
+                    path: canonical_repo2.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        let state = AppState::new(repos_config);
+
+        // Test: Export CSV
+        let result = export_history_csv_impl(&state);
+
+        // Assert: Should succeed
+        assert!(result.is_ok());
+        let csv_content = result.unwrap();
+        let lines: Vec<&str> = csv_content.lines().collect();
+
+        // Verify: Has headers + 3 data rows
+        assert_eq!(lines.len(), 4, "Expected 1 header + 3 data rows");
+
+        // Verify: Headers are correct
+        assert!(lines[0].starts_with("repo,slug,platforms,scheduler,model,sent_at"));
+
+        // Verify: Contains all three posts
+        assert!(csv_content.contains("post1a"), "CSV should contain post1a");
+        assert!(csv_content.contains("post1b"), "CSV should contain post1b");
+        assert!(csv_content.contains("post2a"), "CSV should contain post2a");
+    }
 }
