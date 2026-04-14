@@ -4,7 +4,8 @@ use postlane_desktop_lib::commands::{
     save_scheduler_credential_impl,
     mask_credential,
     delete_scheduler_credential_impl,
-    get_scheduler_credential_impl
+    get_scheduler_credential_impl,
+    check_libsecret_before_save
 };
 
 #[cfg(test)]
@@ -14,7 +15,7 @@ mod credential_tests {
     #[test]
     fn test_save_credential_validates_provider() {
         // Test: Unknown provider should return error
-        let result = save_scheduler_credential_impl("invalid-provider", "test-key-123");
+        let result = save_scheduler_credential_impl("invalid-provider", "test-key-123", None);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown provider"));
@@ -26,7 +27,7 @@ mod credential_tests {
         let providers = vec!["zernio", "buffer", "ayrshare"];
 
         for provider in providers {
-            let result = save_scheduler_credential_impl(provider, "test-key-123");
+            let result = save_scheduler_credential_impl(provider, "test-key-123", None);
             assert!(result.is_ok(), "Provider {} should be valid", provider);
         }
     }
@@ -96,5 +97,49 @@ mod credential_tests {
             let result = get_scheduler_credential_impl(provider);
             assert!(result.is_ok(), "Provider {} should be valid", provider);
         }
+    }
+
+    #[test]
+    fn test_check_libsecret_before_save_when_unavailable() {
+        // Test: Should return error when libsecret is unavailable
+        let result = check_libsecret_before_save(Some(false));
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("libsecret not available"));
+    }
+
+    #[test]
+    fn test_check_libsecret_before_save_when_available() {
+        // Test: Should return Ok when libsecret is available
+        let result = check_libsecret_before_save(Some(true));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_libsecret_before_save_when_not_checked() {
+        // Test: Should return Ok when not checked yet (None) - will check on first use
+        let result = check_libsecret_before_save(None);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_save_credential_checks_libsecret_flag() {
+        // Test: save_scheduler_credential_impl should call check_libsecret_before_save
+        // and return error if libsecret is unavailable
+
+        // Case 1: libsecret unavailable - should return error
+        let result = save_scheduler_credential_impl("zernio", "test-key", Some(false));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("libsecret not available"));
+
+        // Case 2: libsecret available - should succeed
+        let result = save_scheduler_credential_impl("zernio", "test-key", Some(true));
+        assert!(result.is_ok());
+
+        // Case 3: not checked yet (None) - should succeed
+        let result = save_scheduler_credential_impl("zernio", "test-key", None);
+        assert!(result.is_ok());
     }
 }

@@ -525,6 +525,21 @@ pub fn check_repo_health(
     check_repo_health_impl(&state)
 }
 
+/// Check if libsecret is available before saving credentials
+/// Takes the libsecret_available flag value from AppState
+/// Returns Err if libsecret is unavailable, Ok otherwise
+pub fn check_libsecret_before_save(libsecret_available: Option<bool>) -> Result<(), String> {
+    match libsecret_available {
+        Some(false) => {
+            Err("libsecret not available. See the warning banner. Install with: sudo apt install libsecret-1-dev".to_string())
+        }
+        Some(true) | None => {
+            // Available or not checked yet (will check on first use)
+            Ok(())
+        }
+    }
+}
+
 /// Check if libsecret is available (Linux only)
 /// Performs a test set_password / delete_password cycle
 /// Returns true if keyring is available, false otherwise
@@ -572,7 +587,11 @@ pub fn mask_credential(credential: &str) -> String {
 pub fn save_scheduler_credential_impl(
     provider: &str,
     _api_key: &str,
+    libsecret_available: Option<bool>,
 ) -> Result<(), String> {
+    // Check libsecret availability before saving (Linux only)
+    check_libsecret_before_save(libsecret_available)?;
+
     // Validate provider (v1 only supports these three)
     let valid_providers = ["zernio", "buffer", "ayrshare"];
     if !valid_providers.contains(&provider) {
@@ -641,11 +660,19 @@ pub fn save_scheduler_credential(
     provider: String,
     api_key: String,
     app: tauri::AppHandle,
+    state: State<AppState>,
 ) -> Result<(), String> {
-    // Step 1: Validate provider
-    save_scheduler_credential_impl(&provider, &api_key)?;
+    // Step 1: Get libsecret availability flag from AppState
+    let libsecret_available = {
+        let flag = state.libsecret_available.lock()
+            .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
+        *flag
+    };
 
-    // Step 2: Store in OS keyring
+    // Step 2: Validate provider and check libsecret availability
+    save_scheduler_credential_impl(&provider, &api_key, libsecret_available)?;
+
+    // Step 3: Store in OS keyring
     app.keyring()
         .set_password("postlane", &provider, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
