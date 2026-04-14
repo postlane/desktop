@@ -530,3 +530,26 @@ pub fn save_scheduler_credential(
 
     Ok(())
 }
+
+/// Test scheduler connection
+#[tauri::command]
+pub fn test_scheduler(
+    provider: String,
+    state: State<AppState>,
+) -> Result<bool, String> {
+    // In Milestone 3, this is a stub
+    // In Milestone 4, this will:
+    // 1. Get credential from keyring
+    // 2. Instantiate provider
+    // 3. Call test_connection()
+    // 4. Return Ok(true) on success, Ok(false) on connection failure, Err on missing credential
+
+    // For now, just validate provider exists
+    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    if !valid_providers.contains(&provider.as_str()) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+
+    // Stub: always return true (connected)
+    Ok(true)
+}
