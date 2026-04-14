@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod app_state;
+pub mod engagement_cache;
 pub mod init;
 pub mod parser;
 pub mod storage;
