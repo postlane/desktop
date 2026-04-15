@@ -7,7 +7,7 @@ import Wizard from './wizard/Wizard';
 import AddRepoModal from './wizard/AddRepoModal';
 import LeftNav from './nav/LeftNav';
 import AllReposDraftsView from './drafts/AllReposDraftsView';
-import AllReposPublished from './pages/AllReposPublished';
+import AllReposPublishedView from './published/AllReposPublishedView';
 import RepoDraftsView from './drafts/RepoDraftsView';
 import RepoPublishedView from './published/RepoPublishedView';
 import Settings from './pages/Settings';
@@ -25,18 +25,20 @@ function MainContent({
   postWizardNudge,
   onCloseSettings,
   onNudgeDismissed,
+  onNavigateToRepo,
 }: {
   view: ViewSelection;
   settingsOpen: boolean;
   postWizardNudge: boolean;
   onCloseSettings: () => void;
   onNudgeDismissed: () => void;
+  onNavigateToRepo: (repoId: string) => void;
 }) {
   if (settingsOpen) return <Settings onClose={onCloseSettings} />;
 
   if (view.view === 'all_repos') {
     return view.section === 'published'
-      ? <AllReposPublished />
+      ? <AllReposPublishedView onNavigateToRepo={onNavigateToRepo} />
       : <AllReposDraftsView postWizardNudge={postWizardNudge} onNudgeDismissed={onNudgeDismissed} />;
   }
 
@@ -52,6 +54,19 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
+
+  // Cmd+H / Ctrl+H — navigate to All repos Published
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'h') {
+        e.preventDefault();
+        setCurrentView({ view: 'all_repos', repoId: null, section: 'published' });
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
   const [postWizardNudge, setPostWizardNudge] = useState(false);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -133,6 +148,10 @@ export default function App() {
           postWizardNudge={postWizardNudge}
           onCloseSettings={() => setSettingsOpen(false)}
           onNudgeDismissed={() => setPostWizardNudge(false)}
+          onNavigateToRepo={(repoId) => {
+            setCurrentView({ view: 'repo', repoId, section: 'published' });
+            setSettingsOpen(false);
+          }}
         />
       </main>
     </div>

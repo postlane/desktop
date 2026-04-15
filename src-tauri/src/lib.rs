@@ -100,6 +100,8 @@ pub fn run() {
             nav_commands::get_repos,
             nav_commands::get_all_drafts,
             nav_commands::get_repo_published,
+            nav_commands::get_all_published,
+            nav_commands::get_model_stats,
             nav_commands::read_app_state_command,
             nav_commands::save_app_state_command,
             commands::get_drafts,

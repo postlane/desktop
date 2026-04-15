@@ -79,6 +79,15 @@ export interface DraftPost {
 
 export type Platform = 'x' | 'bluesky' | 'mastodon';
 
+/** Model edit-rate statistics — returned by get_model_stats */
+export interface ModelStats {
+  model: string;
+  total_posts: number;
+  edited_posts: number;
+  edit_rate: number;         // 0.0–1.0
+  limited_data: boolean;     // true when 5–19 posts
+}
+
 /** Sent or queued post with repo context — returned by get_repo_published */
 export interface PublishedPost {
   repo_id: string;

@@ -392,6 +392,255 @@ pub fn get_repo_published_impl(
     Ok(page)
 }
 
+/// Returns sent posts across all repos (active + inactive), newest first.
+/// Pagination via offset + limit.
+pub fn get_all_published_impl(
+    offset: usize,
+    limit: usize,
+    state: &AppState,
+) -> Result<Vec<PublishedPost>, String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    let mut posts: Vec<PublishedPost> = Vec::new();
+
+    for repo in &repos.repos {
+        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
+        if !posts_dir.exists() { continue; }
+
+        let entries = match fs::read_dir(&posts_dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let post_path = entry.path();
+            if !post_path.is_dir() { continue; }
+            let meta_path = post_path.join("meta.json");
+            if !meta_path.exists() { continue; }
+
+            let content = match fs::read_to_string(&meta_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let meta: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let status = match meta.get("status").and_then(|s| s.as_str()) {
+                Some(s @ "sent") | Some(s @ "queued") => s.to_string(),
+                _ => continue,
+            };
+
+            let post_folder = post_path.file_name()
+                .and_then(|n| n.to_str()).unwrap_or("").to_string();
+
+            let platforms: Vec<String> = meta.get("platforms")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+
+            let platform_results = meta.get("platform_results").and_then(|v| {
+                v.as_object().map(|obj| obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect())
+            });
+
+            let scheduler_ids = meta.get("scheduler_ids").and_then(|v| {
+                v.as_object().map(|obj| obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                    .collect())
+            });
+
+            posts.push(PublishedPost {
+                repo_id: repo.id.clone(),
+                repo_name: repo.name.clone(),
+                repo_path: repo.path.clone(),
+                post_folder,
+                status,
+                platforms,
+                platform_results,
+                schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
+                scheduler_ids,
+                llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
+                sent_at: meta.get("sent_at").and_then(|v| v.as_str()).map(String::from),
+                created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+            });
+        }
+    }
+
+    posts.sort_by(|a, b| match (&b.sent_at, &a.sent_at) {
+        (Some(bt), Some(at)) => bt.cmp(at),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+
+    Ok(posts.into_iter().skip(offset).take(limit).collect())
+}
+
+#[tauri::command]
+pub fn get_all_published(
+    offset: usize,
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<Vec<PublishedPost>, String> {
+    get_all_published_impl(offset, limit, &state)
+}
+
+/// Levenshtein distance between two strings (character-level).
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
+        row[0] = i;
+    }
+    for (j, cell) in dp[0].iter_mut().enumerate().take(n + 1) {
+        *cell = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            dp[i][j] = if a[i-1] == b[j-1] {
+                dp[i-1][j-1]
+            } else {
+                1 + dp[i-1][j].min(dp[i][j-1]).min(dp[i-1][j-1])
+            };
+        }
+    }
+    dp[m][n]
+}
+
+/// Returns per-model edit rate statistics across all repos.
+/// A post is "edited" if Levenshtein distance between original and approved text
+/// exceeds 5% of original length on any platform.
+/// Models with <5 posts are excluded entirely.
+/// Models with 5–19 posts are marked limited_data = true.
+pub fn get_model_stats_impl(state: &AppState) -> Result<Vec<ModelStatRow>, String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    // model -> (total, edited)
+    let mut counts: std::collections::HashMap<String, (u32, u32)> = std::collections::HashMap::new();
+
+    for repo in &repos.repos {
+        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
+        if !posts_dir.exists() { continue; }
+
+        let entries = match fs::read_dir(&posts_dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let post_path = entry.path();
+            if !post_path.is_dir() { continue; }
+
+            let meta_path = post_path.join("meta.json");
+            if !meta_path.exists() { continue; }
+
+            let meta_content = match fs::read_to_string(&meta_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let meta: serde_json::Value = match serde_json::from_str(&meta_content) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if meta.get("status").and_then(|s| s.as_str()) != Some("sent") { continue; }
+
+            let model = match meta.get("llm_model").and_then(|v| v.as_str()) {
+                Some(m) if !m.is_empty() => m.to_string(),
+                _ => continue,
+            };
+
+            let entry_counts = counts.entry(model).or_insert((0, 0));
+            entry_counts.0 += 1;
+
+            // Check for original.json
+            let original_path = post_path.join("original.json");
+            if !original_path.exists() {
+                // No original.json — counts toward total but not edited
+                continue;
+            }
+
+            let original_content = match fs::read_to_string(&original_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let original: serde_json::Value = match serde_json::from_str(&original_content) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            // Check each platform: x.md, bluesky.md, mastodon.md
+            let platforms = ["x", "bluesky", "mastodon"];
+            let mut is_edited = false;
+
+            'platform: for platform in &platforms {
+                let original_text = match original.get(platform).and_then(|v| v.as_str()) {
+                    Some(t) => t.to_string(),
+                    None => continue,
+                };
+                let approved_path = post_path.join(format!("{}.md", platform));
+                let approved_text = match fs::read_to_string(&approved_path) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                let threshold = (original_text.chars().count() as f64 * 0.05).ceil() as usize;
+                let dist = levenshtein(&original_text, approved_text.trim());
+                if dist > threshold {
+                    is_edited = true;
+                    break 'platform;
+                }
+            }
+
+            if is_edited {
+                entry_counts.1 += 1;
+            }
+        }
+    }
+
+    let mut result: Vec<ModelStatRow> = counts
+        .into_iter()
+        .filter(|(_, (total, _))| *total >= 5)
+        .map(|(model, (total, edited))| {
+            let edit_rate = if total > 0 { edited as f64 / total as f64 } else { 0.0 };
+            ModelStatRow {
+                model,
+                total_posts: total,
+                edited_posts: edited,
+                edit_rate,
+                limited_data: total < 20,
+            }
+        })
+        .collect();
+
+    result.sort_by(|a, b| b.total_posts.cmp(&a.total_posts));
+    Ok(result)
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ModelStatRow {
+    pub model: String,
+    pub total_posts: u32,
+    pub edited_posts: u32,
+    pub edit_rate: f64,
+    pub limited_data: bool,
+}
+
+#[tauri::command]
+pub fn get_model_stats(state: State<'_, AppState>) -> Result<Vec<ModelStatRow>, String> {
+    get_model_stats_impl(&state)
+}
+
 #[tauri::command]
 pub fn get_repo_published(
     repo_id: String,
@@ -510,6 +759,106 @@ mod tests {
         assert_eq!(failed, 0);
         assert!(ts.is_none());
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // levenshtein tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_levenshtein_identical() {
+        assert_eq!(levenshtein("hello", "hello"), 0);
+    }
+
+    #[test]
+    fn test_levenshtein_single_insertion() {
+        assert_eq!(levenshtein("cat", "cats"), 1);
+    }
+
+    #[test]
+    fn test_levenshtein_empty() {
+        assert_eq!(levenshtein("", "abc"), 3);
+        assert_eq!(levenshtein("abc", ""), 3);
+    }
+
+    // ------------------------------------------------------------------
+    // get_model_stats_impl tests
+    // ------------------------------------------------------------------
+
+    fn write_sent_with_original(
+        dir: &std::path::Path,
+        folder: &str,
+        model: &str,
+        original_x: &str,
+        approved_x: &str,
+    ) {
+        let p = dir.join(".postlane/posts").join(folder);
+        fs::create_dir_all(&p).expect("create");
+        fs::write(p.join("meta.json"), format!(
+            r#"{{"status":"sent","platforms":["x"],"llm_model":"{}","sent_at":"2026-04-15T10:00:00Z"}}"#,
+            model
+        )).expect("write meta");
+        let original_escaped = original_x.replace('\\', "\\\\").replace('"', "\\\"");
+        fs::write(p.join("original.json"), format!(
+            r#"{{"x":"{}"}}"#, original_escaped
+        )).expect("write original");
+        fs::write(p.join("x.md"), approved_x).expect("write approved");
+    }
+
+    #[test]
+    fn test_get_model_stats_excludes_models_with_fewer_than_5_posts() {
+        let dir = std::env::temp_dir().join("postlane_test_model_stats_exclude");
+        for i in 0..4 {
+            write_sent_with_original(&dir, &format!("p{}", i), "gpt-4", "hello world", "hello world");
+        }
+        let state = make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(), active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        let result = get_model_stats_impl(&state).expect("ok");
+        assert!(result.is_empty(), "model with 4 posts should be excluded");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_model_stats_marks_limited_data_for_5_to_19_posts() {
+        let dir = std::env::temp_dir().join("postlane_test_model_stats_limited");
+        for i in 0..7 {
+            write_sent_with_original(&dir, &format!("p{}", i), "claude-haiku", "hello world", "hello world");
+        }
+        let state = make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(), active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        let result = get_model_stats_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1);
+        assert!(result[0].limited_data, "7 posts should be limited_data");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_model_stats_counts_edited_posts() {
+        let dir = std::env::temp_dir().join("postlane_test_model_stats_edit");
+        let original = "The quick brown fox jumped over the lazy dog";
+        let edited = "A completely different sentence with nothing in common at all!";
+        for i in 0..3 {
+            write_sent_with_original(&dir, &format!("unchanged-{}", i), "claude-sonnet", original, original);
+        }
+        for i in 0..2 {
+            write_sent_with_original(&dir, &format!("edited-{}", i), "claude-sonnet", original, edited);
+        }
+        let state = make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(), active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        let result = get_model_stats_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].total_posts, 5);
+        assert_eq!(result[0].edited_posts, 2);
         let _ = fs::remove_dir_all(&dir);
     }
 
