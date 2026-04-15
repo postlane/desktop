@@ -9,7 +9,7 @@ import LeftNav from './nav/LeftNav';
 import AllReposDraftsView from './drafts/AllReposDraftsView';
 import AllReposPublished from './pages/AllReposPublished';
 import RepoDraftsView from './drafts/RepoDraftsView';
-import RepoPublished from './pages/RepoPublished';
+import RepoPublishedView from './published/RepoPublishedView';
 import Settings from './pages/Settings';
 import type { AppStateFile, RepoWithStatus, ViewSelection } from './types';
 
@@ -43,7 +43,7 @@ function MainContent({
   if (!view.repoId) return <AllReposDraftsView postWizardNudge={false} onNudgeDismissed={onNudgeDismissed} />;
 
   return view.section === 'published'
-    ? <RepoPublished repoId={view.repoId} />
+    ? <RepoPublishedView repoId={view.repoId} />
     : <RepoDraftsView repoId={view.repoId} />;
 }
 

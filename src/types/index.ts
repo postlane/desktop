@@ -78,3 +78,19 @@ export interface DraftPost {
 }
 
 export type Platform = 'x' | 'bluesky' | 'mastodon';
+
+/** Sent or queued post with repo context — returned by get_repo_published */
+export interface PublishedPost {
+  repo_id: string;
+  repo_name: string;
+  repo_path: string;
+  post_folder: string;
+  status: 'sent' | 'queued';
+  platforms: string[];
+  platform_results: Record<string, string> | null;
+  schedule: string | null;
+  scheduler_ids: Record<string, string> | null;
+  llm_model: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+}
