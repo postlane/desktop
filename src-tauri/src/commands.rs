@@ -613,13 +613,16 @@ pub fn add_repo_impl(
     Ok(repo)
 }
 
-/// Tauri command wrapper for add_repo
+/// Tauri command wrapper for add_repo — starts the watcher after adding
 #[tauri::command]
 pub fn add_repo(
     path: String,
     state: State<AppState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<Repo, String> {
-    add_repo_impl(&path, &state)
+    let repo = add_repo_impl(&path, &state)?;
+    start_repo_watcher(&repo.id, &repo.path, &state, app_handle);
+    Ok(repo)
 }
 
 /// Remove a repository
@@ -702,14 +705,75 @@ pub fn set_repo_active_impl(
     Ok(())
 }
 
-/// Tauri command wrapper for set_repo_active
+/// Tauri command wrapper for set_repo_active — wires watcher start/stop
 #[tauri::command]
 pub fn set_repo_active(
     id: String,
     active: bool,
     state: State<AppState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    set_repo_active_impl(&id, active, &state)
+    set_repo_active_impl(&id, active, &state)?;
+
+    if active {
+        // Resolve repo path from state to start watcher
+        let repo_path = {
+            let repos = state
+                .repos
+                .lock()
+                .map_err(|e| format!("Failed to lock repos: {}", e))?;
+            repos
+                .repos
+                .iter()
+                .find(|r| r.id == id)
+                .map(|r| r.path.clone())
+                .ok_or_else(|| format!("Repo '{}' not found after activation", id))?
+        };
+        start_repo_watcher(&id, &repo_path, &state, app_handle);
+    } else {
+        crate::watcher::stop_watcher(&id, &state.watchers);
+    }
+
+    Ok(())
+}
+
+/// Starts a file watcher for a repo's posts directory.
+/// On each meta.json change, emits a "meta-changed" Tauri event.
+fn start_repo_watcher(
+    repo_id: &str,
+    repo_path: &str,
+    state: &AppState,
+    app_handle: tauri::AppHandle,
+) {
+    use crate::nav_commands::MetaChangedPayload;
+    use tauri::Emitter;
+
+    let id = repo_id.to_string();
+    let path = std::path::Path::new(repo_path);
+
+    if let Err(e) = crate::watcher::watch_repo(
+        id.clone(),
+        path,
+        &state.watchers,
+        move |changed_paths| {
+            for changed in &changed_paths {
+                let post_folder = changed
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let payload = MetaChangedPayload {
+                    repo_id: id.clone(),
+                    post_folder,
+                };
+                if let Err(emit_err) = app_handle.emit("meta-changed", payload.clone()) {
+                    log::warn!("Failed to emit meta-changed: {}", emit_err);
+                }
+            }
+        },
+    ) {
+        log::warn!("Failed to start watcher for repo {}: {}", repo_id, e);
+    }
 }
 
 /// Check health of all registered repos

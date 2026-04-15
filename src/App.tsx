@@ -1,51 +1,62 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+// SPDX-License-Identifier: BUSL-1.1
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+import { useState } from 'react';
+import LeftNav from './nav/LeftNav';
+import AllReposDrafts from './pages/AllReposDrafts';
+import AllReposPublished from './pages/AllReposPublished';
+import RepoDrafts from './pages/RepoDrafts';
+import RepoPublished from './pages/RepoPublished';
+import Settings from './pages/Settings';
+import type { ViewSelection } from './types';
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+const DEFAULT_VIEW: ViewSelection = {
+  view: 'all_repos',
+  repoId: null,
+  section: 'drafts',
+};
+
+function MainContent({
+  view,
+  settingsOpen,
+  onCloseSettings,
+}: {
+  view: ViewSelection;
+  settingsOpen: boolean;
+  onCloseSettings: () => void;
+}) {
+  if (settingsOpen) return <Settings onClose={onCloseSettings} />;
+
+  if (view.view === 'all_repos') {
+    return view.section === 'published'
+      ? <AllReposPublished />
+      : <AllReposDrafts />;
   }
 
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+  if (!view.repoId) return <AllReposDrafts />;
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+  return view.section === 'published'
+    ? <RepoPublished repoId={view.repoId} />
+    : <RepoDrafts repoId={view.repoId} />;
 }
 
-export default App;
+export default function App() {
+  const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-900">
+      <LeftNav
+        currentView={currentView}
+        onNavigate={(sel) => { setCurrentView(sel); setSettingsOpen(false); }}
+        onSettingsOpen={() => setSettingsOpen(true)}
+      />
+      <main className="flex-1 overflow-y-auto">
+        <MainContent
+          view={currentView}
+          settingsOpen={settingsOpen}
+          onCloseSettings={() => setSettingsOpen(false)}
+        />
+      </main>
+    </div>
+  );
+}

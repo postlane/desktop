@@ -5,6 +5,7 @@ pub mod commands;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
+pub mod nav_commands;
 pub mod parser;
 pub mod providers;
 pub mod storage;
@@ -94,6 +95,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            nav_commands::get_repos,
+            nav_commands::read_app_state_command,
+            nav_commands::save_app_state_command,
             commands::get_drafts,
             commands::approve_post,
             commands::dismiss_post,
