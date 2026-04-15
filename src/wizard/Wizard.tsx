@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { Button } from '../components/catalyst/button';
 import type { RepoWithStatus } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -51,25 +52,13 @@ function Step1({ onNext }: Step1Props) {
   if (branch === 'question') {
     return (
       <div className="flex flex-col gap-6">
-        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-          Add a repo
-        </h2>
+        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Add a repo</h2>
         <p className="text-zinc-600 dark:text-zinc-400">
           Have you already run <code className="font-mono text-sm">npx postlane init</code> in a repo?
         </p>
         <div className="flex gap-3">
-          <button
-            onClick={() => setBranch('yes')}
-            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            Yes — browse for the folder
-          </button>
-          <button
-            onClick={() => setBranch('no')}
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            No — show me how
-          </button>
+          <Button onClick={() => setBranch('yes')}>Yes — browse for the folder</Button>
+          <Button outline onClick={() => setBranch('no')}>No — show me how</Button>
         </div>
       </div>
     );
@@ -78,9 +67,7 @@ function Step1({ onNext }: Step1Props) {
   if (branch === 'no') {
     return (
       <div className="flex flex-col gap-6">
-        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-          Set up a repo first
-        </h2>
+        <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Set up a repo first</h2>
         <p className="text-zinc-600 dark:text-zinc-400">
           Run this command inside the repo you want to use:
         </p>
@@ -88,12 +75,7 @@ function Step1({ onNext }: Step1Props) {
           npx postlane init
         </pre>
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => setBranch('yes')}
-            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          >
-            Add repo
-          </button>
+          <Button onClick={() => setBranch('yes')}>Add repo</Button>
           <a
             href="https://postlane.dev/docs/getting-started"
             target="_blank"
@@ -103,6 +85,9 @@ function Step1({ onNext }: Step1Props) {
             Open terminal guide →
           </a>
         </div>
+        <Button plain onClick={() => setBranch('question')} className="self-start text-zinc-500">
+          ← Back
+        </Button>
       </div>
     );
   }
@@ -110,19 +95,16 @@ function Step1({ onNext }: Step1Props) {
   // branch === 'yes'
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-        Add a repo
-      </h2>
+      <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Add a repo</h2>
       <p className="text-zinc-600 dark:text-zinc-400">
         Select the folder where you ran <code className="font-mono text-sm">npx postlane init</code>.
       </p>
-      <button
-        onClick={handleBrowse}
-        disabled={loading}
-        className="w-fit rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-      >
-        {loading ? 'Adding…' : 'Browse for the folder'}
-      </button>
+      <div className="flex gap-3">
+        <Button outline onClick={() => setBranch('question')}>← Back</Button>
+        <Button onClick={handleBrowse} disabled={loading}>
+          {loading ? 'Adding…' : 'Browse for the folder'}
+        </Button>
+      </div>
       {folderError && (
         <p className="text-sm text-red-600 dark:text-red-400">{folderError}</p>
       )}

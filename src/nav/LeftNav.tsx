@@ -9,6 +9,8 @@ import {
   ChevronRightIcon,
   Cog6ToothIcon,
   ExclamationTriangleIcon,
+  MinusCircleIcon,
+  PlusCircleIcon,
 } from '@heroicons/react/24/outline';
 import { getRepoStatus, sortAndBucketRepos } from './navUtils';
 import type {
@@ -35,6 +37,7 @@ const ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
 interface Props {
   onNavigate: (selection: ViewSelection) => void;
   onSettingsOpen: () => void;
+  onAddRepo: () => void;
   currentView: ViewSelection;
 }
 
@@ -282,6 +285,7 @@ function RepoRow({
   onToggle,
   onNavigate,
   onRestartWatcher,
+  onRemove,
 }: {
   repo: RepoWithStatus;
   isExpanded: boolean;
@@ -290,57 +294,92 @@ function RepoRow({
   onToggle: () => void;
   onNavigate: (sel: ViewSelection) => void;
   onRestartWatcher: (id: string) => void;
+  onRemove: (id: string) => void;
 }) {
+  const [hovered, setHovered] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const indicator = getRepoStatus(repo);
   const isDisabled = !repo.active;
   const isNotFound = !repo.path_exists;
 
-  // Disabled or not-found: non-expandable, click goes to message view
+  function handleRemoveClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (confirming) {
+      onRemove(repo.id);
+    } else {
+      setConfirming(true);
+    }
+  }
+
+  function handleBlur() {
+    // Cancel confirm if user tabs away
+    setTimeout(() => setConfirming(false), 150);
+  }
+
+  const removeButton = (
+    <button
+      onClick={handleRemoveClick}
+      onBlur={handleBlur}
+      aria-label={confirming ? `Confirm remove ${repo.name}` : `Remove ${repo.name}`}
+      title={confirming ? 'Click again to confirm' : 'Remove repo'}
+      className={[
+        'shrink-0 rounded-md p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+        confirming
+          ? 'text-red-500'
+          : 'text-zinc-400 hover:text-red-400 dark:text-zinc-400 dark:hover:text-red-400',
+      ].join(' ')}
+    >
+      <MinusCircleIcon className="h-5 w-5" />
+    </button>
+  );
+
   if (isDisabled || isNotFound) {
     return (
-      <div className="px-3 py-1">
-        <button
-          onClick={() =>
-            onNavigate({ view: 'repo', repoId: repo.id, section: 'drafts' })
-          }
-          className={[
-            'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
-            isDisabled ? 'text-zinc-400 dark:text-zinc-600' : 'text-zinc-700 dark:text-zinc-300',
-          ].join(' ')}
-        >
-          <span className="truncate">{repo.name}</span>
-          <StatusDot
-            indicator={indicator}
-            repoId={repo.id}
-            isStalled={false}
-            onRestartWatcher={onRestartWatcher}
-          />
-        </button>
+      <div
+        className="px-3 py-1"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => { setHovered(false); setConfirming(false); }}
+      >
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onNavigate({ view: 'repo', repoId: repo.id, section: 'drafts' })}
+            className={[
+              'flex flex-1 items-center justify-between rounded-md px-2 py-1.5 text-sm',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+              isDisabled ? 'text-zinc-400 dark:text-zinc-600' : 'text-zinc-700 dark:text-zinc-300',
+            ].join(' ')}
+          >
+            <span className="truncate">{repo.name}</span>
+            <StatusDot indicator={indicator} repoId={repo.id} isStalled={false} onRestartWatcher={onRestartWatcher} />
+          </button>
+          {(hovered || confirming) && removeButton}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="px-3 py-1">
-      <button
-        onClick={onToggle}
-        aria-expanded={isExpanded}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-      >
-        {isExpanded ? (
-          <ChevronDownIcon className="h-3 w-3 shrink-0" />
-        ) : (
-          <ChevronRightIcon className="h-3 w-3 shrink-0" />
-        )}
-        <span className="flex-1 truncate text-left">{repo.name}</span>
-        <StatusDot
-          indicator={indicator}
-          repoId={repo.id}
-          isStalled={isStalled}
-          onRestartWatcher={onRestartWatcher}
-        />
-      </button>
+    <div
+      className="px-3 py-1"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setConfirming(false); }}
+    >
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onToggle}
+          aria-expanded={isExpanded}
+          className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          {isExpanded ? (
+            <ChevronDownIcon className="h-3 w-3 shrink-0" />
+          ) : (
+            <ChevronRightIcon className="h-3 w-3 shrink-0" />
+          )}
+          <span className="flex-1 truncate text-left">{repo.name}</span>
+          <StatusDot indicator={indicator} repoId={repo.id} isStalled={isStalled} onRestartWatcher={onRestartWatcher} />
+        </button>
+        {(hovered || confirming) && removeButton}
+      </div>
       {isExpanded && (
         <SubItems repo={repo} currentView={currentView} onNavigate={onNavigate} />
       )}
@@ -352,7 +391,7 @@ function RepoRow({
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Props) {
+export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, currentView }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -423,6 +462,15 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
     }
   }
 
+  async function handleRemoveRepo(repoId: string) {
+    try {
+      await invoke('remove_repo', { id: repoId });
+      refresh();
+    } catch (e) {
+      console.error('Failed to remove repo:', e);
+    }
+  }
+
   const { active, inactive } = sortAndBucketRepos(repos);
   const totalReady = repos.reduce((sum, r) => sum + r.ready_count, 0);
   const totalFailed = repos.reduce((sum, r) => sum + r.failed_count, 0);
@@ -441,6 +489,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
 
         {/* All repos */}
         <div className="px-3 py-1">
+          <div className="flex items-center gap-1">
           <button
             onClick={() =>
               handleNavigate({
@@ -451,7 +500,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
             }
             aria-current={isAllRepos ? 'page' : undefined}
             className={[
-              'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm font-medium',
+              'flex flex-1 items-center justify-between rounded-md px-2 py-1.5 text-sm font-medium',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
               isAllRepos
                 ? 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
@@ -472,6 +521,15 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
               )}
             </span>
           </button>
+          <button
+            onClick={onAddRepo}
+            aria-label="Add a repo"
+            title="Add a repo"
+            className="shrink-0 rounded-md p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
+            <PlusCircleIcon className="h-5 w-5" />
+          </button>
+          </div>
         </div>
 
         {/* Active repos */}
@@ -485,6 +543,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
             onToggle={() => handleToggle(repo.id)}
             onNavigate={handleNavigate}
             onRestartWatcher={handleRestartWatcher}
+            onRemove={handleRemoveRepo}
           />
         ))}
 
@@ -504,6 +563,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
             onToggle={() => handleToggle(repo.id)}
             onNavigate={handleNavigate}
             onRestartWatcher={handleRestartWatcher}
+            onRemove={handleRemoveRepo}
           />
         ))}
       </div>

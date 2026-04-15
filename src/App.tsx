@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
+import AddRepoModal from './wizard/AddRepoModal';
 import LeftNav from './nav/LeftNav';
 import AllReposDraftsView from './drafts/AllReposDraftsView';
 import AllReposPublished from './pages/AllReposPublished';
@@ -50,6 +51,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showAddRepo, setShowAddRepo] = useState(false);
   const [postWizardNudge, setPostWizardNudge] = useState(false);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -119,7 +121,11 @@ export default function App() {
         currentView={currentView}
         onNavigate={(sel) => { setCurrentView(sel); setSettingsOpen(false); }}
         onSettingsOpen={() => setSettingsOpen(true)}
+        onAddRepo={() => setShowAddRepo(true)}
       />
+      {showAddRepo && (
+        <AddRepoModal onClose={() => setShowAddRepo(false)} />
+      )}
       <main className="flex-1 overflow-y-auto">
         <MainContent
           view={currentView}
