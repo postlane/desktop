@@ -35,6 +35,29 @@ impl ZernioProvider {
     fn base_url(&self) -> &str {
         &self.base_url
     }
+
+    /// Helper to check HTTP status and return appropriate error
+    fn check_response_status(response: &reqwest::Response) -> Result<(), ProviderError> {
+        let status = response.status();
+
+        if status == 401 {
+            return Err(ProviderError::AuthError("Invalid API key".to_string()));
+        }
+
+        if status == 429 {
+            // Extract Retry-After header if present
+            let retry_after = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(60); // Default to 60 seconds if header missing/invalid
+
+            return Err(ProviderError::RateLimit(std::time::Duration::from_secs(retry_after)));
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -84,12 +107,9 @@ impl SchedulingProvider for ZernioProvider {
                     .await
                     .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+                Self::check_response_status(&response)?;
+
                 let status = response.status();
-
-                if status == 401 {
-                    return Err(ProviderError::AuthError("Invalid API key".to_string()));
-                }
-
                 if !status.is_success() {
                     let body = response
                         .text()
@@ -129,12 +149,9 @@ impl SchedulingProvider for ZernioProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -187,12 +204,9 @@ impl SchedulingProvider for ZernioProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -218,12 +232,9 @@ impl SchedulingProvider for ZernioProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -253,8 +264,9 @@ impl SchedulingProvider for ZernioProvider {
                     .map(|dt| dt.with_timezone(&chrono::Utc))?;
 
                 let content = p["content"].as_str()?.to_string();
-                let content_preview = if content.len() > 80 {
-                    format!("{}...", &content[..80])
+                let content_preview = if content.chars().count() > 80 {
+                    let truncated: String = content.chars().take(80).collect();
+                    format!("{}...", truncated)
                 } else {
                     content
                 };
@@ -294,12 +306,9 @@ impl SchedulingProvider for ZernioProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -777,5 +786,39 @@ mod tests {
 
         let engagement = result.unwrap();
         assert_eq!(engagement.impressions, None);
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_429_returns_rate_limit_error_with_retry_after() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        // Mock 429 response with Retry-After header
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/posts");
+            then.status(429)
+                .header("Retry-After", "60")  // 60 seconds
+                .body("Rate limit exceeded");
+        });
+
+        let mut provider = ZernioProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.schedule_post(
+            "Test",
+            "x",
+            None,
+            None,
+            Some("profile-123"),
+        ).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ProviderError::RateLimit(duration) => {
+                assert_eq!(duration.as_secs(), 60);
+            }
+            other => panic!("Expected RateLimit error, got {:?}", other),
+        }
     }
 }

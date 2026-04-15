@@ -189,7 +189,7 @@ mod credential_tests {
         let test_api_key = "test-security-key-fd8a9b2c1e3f4d5a6b7c8d9e0f1a2b3c";
 
         // Get the ~/.postlane directory
-        let postlane_path = postlane_dir();
+        let postlane_path = postlane_dir().expect("Failed to get postlane dir");
 
         // Scan all files in ~/.postlane/ before saving credential
         fn scan_directory_for_string(dir: &PathBuf, search: &str) -> Vec<PathBuf> {

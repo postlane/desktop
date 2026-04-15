@@ -4,6 +4,15 @@ use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
+use std::sync::OnceLock;
+
+// Mutex to ensure tests that use ~/.postlane directory run sequentially
+// This prevents race conditions when tests run in parallel
+static POSTLANE_DIR_MUTEX: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+
+fn get_postlane_dir_lock() -> &'static std::sync::Mutex<()> {
+    POSTLANE_DIR_MUTEX.get_or_init(|| std::sync::Mutex::new(()))
+}
 
 #[tokio::test]
 async fn test_send_with_correct_token_and_registered_path() {
@@ -162,6 +171,9 @@ async fn test_send_with_wrong_token_returns_401() {
 
 #[tokio::test]
 async fn test_register_with_valid_path() {
+    // Acquire lock to prevent race conditions with other tests using ~/.postlane
+    let _lock = get_postlane_dir_lock().lock().unwrap();
+
     // Setup: Create temp repo with .git and config
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path().join("test-repo");
@@ -173,6 +185,9 @@ async fn test_register_with_valid_path() {
     fs::write(config_dir.join("config.json"), "{}").unwrap();
 
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
+
+    // Initialize postlane directory (needed for /register endpoint to write repos.json)
+    postlane_desktop_lib::init::init_postlane_dir().expect("Failed to init postlane dir");
 
     // Setup server
     let repos_config = postlane_desktop_lib::storage::ReposConfig {
@@ -282,6 +297,9 @@ async fn test_register_with_wrong_token_returns_401() {
 
 #[tokio::test]
 async fn test_register_actually_adds_repo_to_repos_json() {
+    // Acquire lock to prevent race conditions with other tests using ~/.postlane
+    let _lock = get_postlane_dir_lock().lock().unwrap();
+
     // Setup: Create temp repo with .git and config
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path().join("test-repo");
@@ -293,6 +311,9 @@ async fn test_register_actually_adds_repo_to_repos_json() {
     fs::write(config_dir.join("config.json"), "{}").unwrap();
 
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
+
+    // Initialize postlane directory (needed for /register endpoint to write repos.json)
+    postlane_desktop_lib::init::init_postlane_dir().expect("Failed to init postlane dir");
 
     // Setup server with empty repos
     let repos_config = postlane_desktop_lib::storage::ReposConfig {

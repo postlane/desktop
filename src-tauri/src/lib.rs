@@ -34,7 +34,7 @@ pub fn run() {
         .plugin(tauri_plugin_keyring::init())
         .setup(|app| {
             // Load repos from disk
-            let repos_path = init::postlane_dir().join("repos.json");
+            let repos_path = init::postlane_dir()?.join("repos.json");
             let repos_config = storage::read_repos_with_recovery(&repos_path)
                 .map_err(|e| format!("Failed to load repos: {:?}", e))?;
 
@@ -53,6 +53,17 @@ pub fn run() {
 
             // Manage AppState
             app.manage(app_state);
+
+            // Eagerly instantiate provider if credentials exist
+            // This eliminates first-send delay when user already has credentials configured
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Get AppState from app handle
+                let state: tauri::State<AppState> = app_handle.state();
+                if let Err(e) = commands::eager_init_provider_if_configured(&state, Some(&app_handle)).await {
+                    log::warn!("Eager provider initialization failed: {}", e);
+                }
+            });
 
             // Generate session token
             let token = http_server::generate_and_write_token()?;
@@ -108,7 +119,7 @@ pub fn run() {
 /// Checks if another instance is already running
 /// Returns Err if instance is running, Ok if not
 fn check_single_instance() -> Result<(), String> {
-    let port_path = init::postlane_dir().join("port");
+    let port_path = init::postlane_dir()?.join("port");
 
     if !port_path.exists() {
         return Ok(());

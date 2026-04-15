@@ -35,6 +35,29 @@ impl BufferProvider {
     fn base_url(&self) -> &str {
         &self.base_url
     }
+
+    /// Helper to check HTTP status and return appropriate error
+    fn check_response_status(response: &reqwest::Response) -> Result<(), ProviderError> {
+        let status = response.status();
+
+        if status == 401 {
+            return Err(ProviderError::AuthError("Invalid API key".to_string()));
+        }
+
+        if status == 429 {
+            // Extract Retry-After header if present
+            let retry_after = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(60); // Default to 60 seconds
+
+            return Err(ProviderError::RateLimit(std::time::Duration::from_secs(retry_after)));
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -73,18 +96,15 @@ impl SchedulingProvider for BufferProvider {
                 let response = self
                     .client
                     .post(&url)
-                    .query(&[("access_token", &self.api_key)])
+                    .header("Authorization", format!("Bearer {}", self.api_key))
                     .json(&body)
                     .send()
                     .await
                     .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+                Self::check_response_status(&response)?;
+
                 let status = response.status();
-
-                if status == 401 {
-                    return Err(ProviderError::AuthError("Invalid API key".to_string()));
-                }
-
                 if !status.is_success() {
                     let body = response
                         .text()
@@ -120,17 +140,14 @@ impl SchedulingProvider for BufferProvider {
         let response = self
             .client
             .get(&url)
-            .query(&[("access_token", &self.api_key)])
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -169,17 +186,14 @@ impl SchedulingProvider for BufferProvider {
         let response = self
             .client
             .post(&url)
-            .query(&[("access_token", &self.api_key)])
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -201,7 +215,7 @@ impl SchedulingProvider for BufferProvider {
         let response = self
             .client
             .get(&url)
-            .query(&[("access_token", &self.api_key)])
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
@@ -221,7 +235,7 @@ impl SchedulingProvider for BufferProvider {
                 if let Ok(queue_response) = self
                     .client
                     .get(&queue_url)
-                    .query(&[("access_token", &self.api_key)])
+                    .header("Authorization", format!("Bearer {}", self.api_key))
                     .send()
                     .await
                 {
@@ -234,8 +248,9 @@ impl SchedulingProvider for BufferProvider {
 
                                     if let Some(scheduled) = scheduled_for {
                                         let content = update["text"].as_str().unwrap_or("").to_string();
-                                        let content_preview = if content.len() > 80 {
-                                            format!("{}...", &content[..80])
+                                        let content_preview = if content.chars().count() > 80 {
+                                            let truncated: String = content.chars().take(80).collect();
+                                            format!("{}...", truncated)
                                         } else {
                                             content
                                         };
@@ -274,17 +289,14 @@ impl SchedulingProvider for BufferProvider {
         let response = self
             .client
             .get(&url)
-            .query(&[("access_token", &self.api_key)])
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
+        Self::check_response_status(&response)?;
+
         let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
         if !status.is_success() {
             let body = response
                 .text()
@@ -389,7 +401,7 @@ mod tests {
         server.mock(|when, then| {
             when.method(GET)
                 .path("/1/profiles.json")
-                .query_param("access_token", "test-key");
+                .header("Authorization", "Bearer test-key");
             then.status(200)
                 .json_body(serde_json::json!([
                     {
@@ -461,6 +473,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_schedule_post_uses_authorization_header_not_query_param() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        // This test verifies that API key is sent in Authorization header,
+        // NOT as a query parameter (which would be insecure)
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/1/updates/create.json")
+                .header("Authorization", "Bearer test-key")
+                .matches(|req| {
+                    // Verify access_token is NOT in query params
+                    req.query_params.is_none() ||
+                    !req.query_params.as_ref().unwrap().iter().any(|(k, _)| k == "access_token")
+                });
+            then.status(200)
+                .json_body(serde_json::json!({
+                    "updates": [
+                        {
+                            "id": "buffer-post-123"
+                        }
+                    ]
+                }));
+        });
+
+        let mut provider = BufferProvider::new("test-key".to_string());
+        provider.base_url = server.base_url();
+
+        let result = provider.schedule_post(
+            "Test post",
+            "twitter",
+            None,
+            None,
+            Some("channel-1"),
+        ).await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "buffer-post-123");
+        mock.assert();
+    }
+
+    #[tokio::test]
     async fn test_schedule_post_success() {
         use httpmock::prelude::*;
 
@@ -469,7 +524,7 @@ mod tests {
         server.mock(|when, then| {
             when.method(POST)
                 .path("/1/updates/create.json")
-                .query_param("access_token", "test-key");
+                .header("Authorization", "Bearer test-key");
             then.status(200)
                 .json_body(serde_json::json!({
                     "updates": [
@@ -504,7 +559,7 @@ mod tests {
         server.mock(|when, then| {
             when.method(POST)
                 .path("/1/updates/post-456/destroy.json")
-                .query_param("access_token", "test-key");
+                .header("Authorization", "Bearer test-key");
             then.status(200);
         });
 
@@ -524,7 +579,7 @@ mod tests {
         server.mock(|when, then| {
             when.method(GET)
                 .path("/1/updates/post-789.json")
-                .query_param("access_token", "test-key");
+                .header("Authorization", "Bearer test-key");
             then.status(200)
                 .json_body(serde_json::json!({
                     "statistics": {

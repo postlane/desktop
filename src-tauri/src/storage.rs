@@ -83,7 +83,8 @@ pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, Storag
                 log::info!("Corrupted repos.json backed up to {:?}", bak_path);
             }
 
-            // Return empty config - do not panic
+            // Return empty config to allow recovery - corruption is logged above
+            // This allows the app to continue functioning rather than crashing
             Ok(ReposConfig {
                 version: REPOS_CONFIG_VERSION,
                 repos: vec![],

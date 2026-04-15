@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::init::postlane_dir;
+use crate::providers::scheduling::SchedulingProvider;
 use crate::storage::ReposConfig;
 use notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
@@ -8,16 +9,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Placeholder trait for scheduling providers (implemented in Milestone 4)
-pub trait SchedulingProvider: Send {
-    fn name(&self) -> &str;
-}
-
 /// Application state shared across Tauri commands, watchers, and HTTP handlers
 pub struct AppState {
     pub repos: Mutex<ReposConfig>,
     pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
-    pub scheduler: Mutex<Option<Box<dyn SchedulingProvider>>>,
+    /// Scheduler uses tokio::sync::Mutex for async compatibility
+    pub scheduler: tokio::sync::Mutex<Option<Box<dyn SchedulingProvider>>>,
     /// Linux libsecret availability flag
     /// None = not checked yet, Some(true) = available, Some(false) = unavailable
     pub libsecret_available: Mutex<Option<bool>>,
@@ -28,7 +25,7 @@ impl AppState {
         Self {
             repos: Mutex::new(repos),
             watchers: Mutex::new(HashMap::new()),
-            scheduler: Mutex::new(None),
+            scheduler: tokio::sync::Mutex::new(None),
             libsecret_available: Mutex::new(None),
         }
     }
@@ -80,14 +77,20 @@ impl Default for AppStateFile {
     }
 }
 
-fn app_state_path() -> PathBuf {
-    postlane_dir().join("app_state.json")
+fn app_state_path() -> Result<PathBuf, String> {
+    Ok(postlane_dir()?.join("app_state.json"))
 }
 
 /// Reads app_state.json with silent fallback to defaults
 /// On missing, corrupt, or version-mismatched file: returns default state
 pub fn read_app_state() -> AppStateFile {
-    let path = app_state_path();
+    let path = match app_state_path() {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("Failed to get app state path: {}. Using defaults.", e);
+            return AppStateFile::default();
+        }
+    };
 
     if !path.exists() {
         return AppStateFile::default();
@@ -118,10 +121,12 @@ pub fn read_app_state() -> AppStateFile {
 }
 
 /// Writes app_state.json atomically
-pub fn write_app_state(state: &AppStateFile) -> std::io::Result<()> {
-    let path = app_state_path();
-    let json = serde_json::to_string_pretty(&state)?;
+pub fn write_app_state(state: &AppStateFile) -> Result<(), String> {
+    let path = app_state_path()?;
+    let json = serde_json::to_string_pretty(&state)
+        .map_err(|e| format!("Failed to serialize app state: {}", e))?;
     crate::init::atomic_write(&path, json.as_bytes())
+        .map_err(|e| format!("Failed to write app state: {}", e))
 }
 
 #[cfg(test)]
@@ -151,7 +156,7 @@ mod tests {
         let _lock = get_test_mutex().lock().unwrap();
 
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path();
+        let path = app_state_path().expect("Failed to get app state path");
 
         // Ensure file doesn't exist
         let _ = fs::remove_file(&path);
@@ -229,7 +234,7 @@ mod tests {
         assert_eq!(app_state.repos.lock().unwrap().version, 1);
         assert_eq!(app_state.repos.lock().unwrap().repos.len(), 0);
         assert_eq!(app_state.watchers.lock().unwrap().len(), 0);
-        assert!(app_state.scheduler.lock().unwrap().is_none());
+        assert!(app_state.scheduler.blocking_lock().is_none());
     }
 
     #[test]
@@ -256,7 +261,7 @@ mod tests {
         };
 
         // Clean up before test
-        let path = app_state_path();
+        let path = app_state_path().expect("Failed to get app state path");
         let _ = fs::remove_file(&path);
 
         // Write using the function
@@ -283,7 +288,7 @@ mod tests {
         // Ensure ~/.postlane exists
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
 
-        let path = app_state_path();
+        let path = app_state_path().expect("Failed to get app state path");
 
         // Write malformed JSON
         fs::write(&path, "{ invalid json }").expect("Failed to write malformed JSON");
@@ -304,7 +309,7 @@ mod tests {
         // Ensure ~/.postlane exists
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
 
-        let path = app_state_path();
+        let path = app_state_path().expect("Failed to get app state path");
 
         // Create state with wrong version
         let wrong_version_state = AppStateFile {
@@ -333,7 +338,7 @@ mod tests {
         // Ensure ~/.postlane exists
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
 
-        let path = app_state_path();
+        let path = app_state_path().expect("Failed to get app state path");
 
         // Clean up first
         let _ = fs::remove_file(&path);
@@ -355,7 +360,7 @@ mod tests {
         let _lock = get_test_mutex().lock().unwrap();
 
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path();
+        let path = app_state_path().expect("Failed to get app state path");
         let _ = fs::remove_file(&path);
 
         // Write a valid version 1 file

@@ -30,8 +30,8 @@ impl Default for EngagementCache {
     }
 }
 
-fn cache_path() -> PathBuf {
-    postlane_dir().join("engagement_cache.json")
+fn cache_path() -> Result<PathBuf, String> {
+    Ok(postlane_dir()?.join("engagement_cache.json"))
 }
 
 /// Generates cache key: "{repo_id}:{slug}:{platform}"
@@ -41,7 +41,13 @@ pub fn cache_key(repo_id: &str, slug: &str, platform: &str) -> String {
 
 /// Reads engagement cache with silent fallback to empty cache
 pub fn read_engagement_cache() -> EngagementCache {
-    let path = cache_path();
+    let path = match cache_path() {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("Failed to get cache path: {}. Returning empty cache.", e);
+            return EngagementCache::default();
+        }
+    };
 
     if !path.exists() {
         return EngagementCache::default();
@@ -72,10 +78,12 @@ pub fn read_engagement_cache() -> EngagementCache {
 }
 
 /// Writes engagement cache atomically
-pub fn write_engagement_cache(cache: &EngagementCache) -> std::io::Result<()> {
-    let path = cache_path();
-    let json = serde_json::to_string_pretty(&cache)?;
+pub fn write_engagement_cache(cache: &EngagementCache) -> Result<(), String> {
+    let path = cache_path()?;
+    let json = serde_json::to_string_pretty(&cache)
+        .map_err(|e| format!("Failed to serialize cache: {}", e))?;
     crate::init::atomic_write(&path, json.as_bytes())
+        .map_err(|e| format!("Failed to write cache: {}", e))
 }
 
 /// Checks if a cache entry is valid based on TTL and clock-manipulation guard
@@ -134,7 +142,7 @@ mod tests {
     #[test]
     fn test_read_engagement_cache_missing_file() {
         // Clean up if exists
-        let path = cache_path();
+        let path = cache_path().expect("Failed to get cache path");
         let _ = fs::remove_file(&path);
 
         let cache = read_engagement_cache();
@@ -159,7 +167,7 @@ mod tests {
         );
 
         // Clean up any existing cache first
-        let path = cache_path();
+        let path = cache_path().expect("Failed to get cache path");
         let _ = fs::remove_file(&path);
 
         write_engagement_cache(&cache).expect("Failed to write cache");
@@ -214,7 +222,7 @@ mod tests {
         let _lock = get_test_mutex().lock().unwrap();
 
         // Clean up before test to prevent race conditions
-        let path = cache_path();
+        let path = cache_path().expect("Failed to get cache path");
         let _ = fs::remove_file(&path);
 
         let mut cache = EngagementCache::default();
@@ -249,7 +257,7 @@ mod tests {
         let _lock = get_test_mutex().lock().unwrap();
 
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = cache_path();
+        let path = cache_path().expect("Failed to get cache path");
         let _ = fs::remove_file(&path);
 
         // Write malformed JSON
@@ -268,7 +276,7 @@ mod tests {
         let _lock = get_test_mutex().lock().unwrap();
 
         crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = cache_path();
+        let path = cache_path().expect("Failed to get cache path");
         let _ = fs::remove_file(&path);
 
         // Create a directory with the same name as the file to cause IO error

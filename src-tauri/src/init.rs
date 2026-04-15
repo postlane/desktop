@@ -3,16 +3,18 @@
 use std::path::{Path, PathBuf};
 
 /// Returns the path to the ~/.postlane directory
-pub fn postlane_dir() -> PathBuf {
+pub fn postlane_dir() -> Result<PathBuf, String> {
     dirs::home_dir()
-        .expect("Could not determine home directory")
-        .join(".postlane")
+        .ok_or_else(|| "Could not determine home directory - HOME environment variable not set".to_string())
+        .map(|home| home.join(".postlane"))
 }
 
 /// Initializes the ~/.postlane directory
 /// Idempotent - safe to call on every launch
-pub fn init_postlane_dir() -> std::io::Result<()> {
-    std::fs::create_dir_all(postlane_dir())
+pub fn init_postlane_dir() -> Result<(), String> {
+    let dir = postlane_dir()?;
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("Failed to create .postlane directory: {}", e))
 }
 
 /// Atomic write: writes content to a .tmp file then renames to target
@@ -45,7 +47,7 @@ mod tests {
         // It uses the real ~/.postlane directory since the function is not configurable
         // Note: This may cause race conditions with other tests that use ~/.postlane
 
-        let dir = postlane_dir();
+        let dir = postlane_dir().expect("Failed to get postlane dir");
 
         // First call should create the directory (idempotent, so safe even if it exists)
         init_postlane_dir().expect("Failed to initialize .postlane directory");
@@ -62,8 +64,9 @@ mod tests {
         }
 
         // Should not panic, no duplicate directory, and directory should exist
-        assert!(postlane_dir().exists());
-        assert!(postlane_dir().is_dir());
+        let dir = postlane_dir().expect("Failed to get postlane dir");
+        assert!(dir.exists());
+        assert!(dir.is_dir());
     }
 
     #[test]

@@ -93,25 +93,179 @@ pub fn get_drafts(state: State<AppState>) -> Result<Vec<PostMeta>, String> {
     get_drafts_impl(&state)
 }
 
+/// Get or initialize the scheduling provider for a repo
+/// Returns a reference to the provider, instantiating it if necessary
+///
+/// Steps:
+/// 1. Read config.json to get scheduler.provider
+/// 2. Check if AppState.scheduler is already set and matches the provider
+/// 3. If not, get credential from keyring (per-repo override first, then global)
+/// 4. Instantiate the provider and store in AppState.scheduler
+///
+/// Returns clear error if no credential found (never panics)
+/// Eagerly instantiate provider if any registered repo has a configured provider with a credential
+/// Called during app startup to eliminate first-send delay
+/// Silently skips if no credential found - eager init is opportunistic, not required
+pub async fn eager_init_provider_if_configured(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+) -> Result<(), String> {
+    // If no AppHandle (test mode), skip eager init
+    let app = match app {
+        Some(a) => a,
+        None => return Ok(()),
+    };
+
+    // Get first active repo with a configured provider
+    let repo_info: Option<(String, String, String)> = {
+        let repos = state.repos.lock()
+            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+        repos.repos.iter()
+            .filter(|r| r.active)
+            .find_map(|repo| {
+                let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
+                if !config_path.exists() {
+                    return None;
+                }
+
+                let config_content = fs::read_to_string(&config_path).ok()?;
+                let config: serde_json::Value = serde_json::from_str(&config_content).ok()?;
+                let provider_name = config["scheduler"]["provider"].as_str()?;
+
+                Some((repo.path.clone(), repo.id.clone(), provider_name.to_string()))
+            })
+    };
+
+    // If no repo has a configured provider, nothing to do
+    let (repo_path, repo_id, provider_name) = match repo_info {
+        Some(info) => info,
+        None => return Ok(()),
+    };
+
+    // Try to get credential (per-repo override first, then global)
+    let keyring_keys = get_credential_keyring_key(&provider_name, Some(&repo_id));
+
+    let mut api_key: Option<String> = None;
+    for key in keyring_keys {
+        match app.keyring().get_password("postlane", &key) {
+            Ok(Some(credential)) => {
+                api_key = Some(credential);
+                break;
+            }
+            Ok(None) => continue,
+            Err(_) => continue,
+        }
+    }
+
+    // If no credential found, silently skip - eager init is opportunistic
+    if api_key.is_none() {
+        return Ok(());
+    }
+
+    // Use get_or_init_provider to instantiate
+    get_or_init_provider(app, &repo_path, &repo_id, state).await
+}
+
+async fn get_or_init_provider(
+    app: &tauri::AppHandle,
+    repo_path: &str,
+    repo_id: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    use crate::providers::scheduling::{
+        ayrshare::AyrshareProvider,
+        buffer::BufferProvider,
+        zernio::ZernioProvider,
+    };
+
+    // Step 1: Read config.json to get scheduler.provider
+    let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
+    if !config_path.exists() {
+        return Err("config.json not found".to_string());
+    }
+
+    let config_content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+
+    let config: serde_json::Value = serde_json::from_str(&config_content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+    let provider_name = config["scheduler"]["provider"]
+        .as_str()
+        .ok_or("scheduler.provider not found in config.json")?;
+
+    // Step 2: Check if provider is already instantiated and matches
+    {
+        let scheduler = state.scheduler.lock().await;
+
+        if let Some(existing_provider) = scheduler.as_ref() {
+            if existing_provider.name() == provider_name {
+                // Provider already instantiated and matches - reuse it
+                return Ok(());
+            }
+        }
+    }
+
+    // Step 3: Get credential from keyring (per-repo override first, then global)
+    let keyring_keys = get_credential_keyring_key(provider_name, Some(repo_id));
+
+    let mut api_key: Option<String> = None;
+    for key in keyring_keys {
+        match app.keyring().get_password("postlane", &key) {
+            Ok(Some(credential)) => {
+                api_key = Some(credential);
+                break;
+            }
+            Ok(None) => continue,
+            Err(_) => continue,
+        }
+    }
+
+    let api_key = api_key.ok_or_else(|| {
+        format!(
+            "No {} API key configured. Add it in Settings → Scheduler.",
+            provider_name
+        )
+    })?;
+
+    // Step 4: Instantiate the provider
+    let provider: Box<dyn crate::providers::scheduling::SchedulingProvider> = match provider_name {
+        "zernio" => Box::new(ZernioProvider::new(api_key)),
+        "buffer" => Box::new(BufferProvider::new(api_key)),
+        "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
+        _ => return Err(format!("Unknown provider: {}", provider_name)),
+    };
+
+    // Step 5: Store in AppState.scheduler
+    let mut scheduler = state.scheduler.lock().await;
+    *scheduler = Some(provider);
+
+    Ok(())
+}
+
 /// Approve and send a post
 /// This is the testable implementation
-pub fn approve_post_impl(
+pub async fn approve_post_impl(
     repo_path: &str,
     post_folder: &str,
     state: &AppState,
+    app: Option<&tauri::AppHandle>,
 ) -> Result<SendResult, String> {
     // Step 1: Canonicalize repo_path
     let canonical_path = fs::canonicalize(repo_path)
         .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
 
     // Step 2: Validate repo_path is in repos.json
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-
     let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
-    let is_registered = repos.repos.iter().any(|r| r.path == canonical_str);
+    let is_registered = {
+        let repos = state
+            .repos
+            .lock()
+            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+        repos.repos.iter().any(|r| r.path == canonical_str)
+    };
 
     if !is_registered {
         return Err("Repository not registered (403)".to_string());
@@ -138,36 +292,100 @@ pub fn approve_post_impl(
     let mut meta: PostMeta = serde_json::from_str(&meta_content)
         .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
 
-    // Step 4: Call scheduling provider (stub for Milestone 3)
-    //
-    // MILESTONE 4 TODO: Replace this stub with real provider integration
-    //
-    // The M4 implementation should:
-    // 1. Get the scheduler provider name from .postlane/config.json
-    // 2. Retrieve the API key from the OS keyring via tauri-plugin-keyring
-    // 3. Instantiate the appropriate provider (ZernioProvider, BufferProvider, or AyrshareProvider)
-    // 4. Call provider.schedule_post(content, platform, scheduled_for, image_url, profile_id)
-    // 5. Store the returned post_id in meta.scheduler_ids (HashMap<platform, post_id>)
-    // 6. Handle errors: ProviderError::AuthError, ::RateLimit, ::NetworkError, ::HttpError
-    // 7. Update platform_results with actual scheduler responses
-    //
-    // See: CHECKLIST_4_PROVIDERS.md Section 4.2 for SchedulingProvider trait definition
-    // See: src/providers/scheduling/{zernio,buffer,ayrshare}.rs for implementations
-    //
-    // For now, simulate success
+    // Step 4: Call scheduling provider
     let mut platform_results = std::collections::HashMap::new();
-    for platform in &meta.platforms {
-        platform_results.insert(platform.clone(), "success".to_string());
+    let mut scheduler_ids = std::collections::HashMap::new();
+
+    // Only proceed with scheduling if app handle is provided (not in tests)
+    if let Some(app_handle) = app {
+        // Get repo ID from state (clone to avoid holding lock across await)
+        let repo_id = {
+            let repos = state.repos.lock()
+                .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+            let repo = repos.repos.iter()
+                .find(|r| r.path == canonical_str)
+                .ok_or("Repository not found in state")?;
+
+            repo.id.clone()
+        };
+
+        // Initialize provider if needed
+        get_or_init_provider(app_handle, repo_path, &repo_id, state).await?;
+
+        // Read config.json to get profile_id
+        let config_path = canonical_path.join(".postlane/config.json");
+        let config_content = fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config.json: {}", e))?;
+
+        let config: serde_json::Value = serde_json::from_str(&config_content)
+            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+        let profile_id = config["scheduler"]["profile_id"].as_str();
+
+        // Schedule post for each platform
+        for platform in &meta.platforms {
+            // Read post content from platform-specific file
+            let content_file = post_path.join(format!("{}.md", platform));
+            let content = if content_file.exists() {
+                fs::read_to_string(&content_file)
+                    .map_err(|e| format!("Failed to read {}.md: {}", platform, e))?
+            } else {
+                return Err(format!("Content file {}.md not found", platform));
+            };
+
+            // Get scheduled time (if any)
+            let scheduled_for = meta.schedule.as_ref().and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(s).ok()
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+            });
+
+            // Call provider.schedule_post
+            let result = {
+                let scheduler = state.scheduler.lock().await;
+
+                let provider = scheduler.as_ref()
+                    .ok_or("Provider not initialized")?;
+
+                provider.schedule_post(
+                    &content,
+                    platform,
+                    scheduled_for,
+                    meta.image_url.as_deref(),
+                    profile_id,
+                ).await
+            };
+
+            match result {
+                Ok(post_id) => {
+                    platform_results.insert(platform.clone(), "success".to_string());
+                    scheduler_ids.insert(platform.clone(), post_id);
+                }
+                Err(e) => {
+                    platform_results.insert(platform.clone(), format!("error: {}", e));
+                }
+            }
+        }
+    } else {
+        // No app handle (tests) - simulate success
+        for platform in &meta.platforms {
+            platform_results.insert(platform.clone(), "success".to_string());
+        }
     }
 
     // Step 5: Update meta.json with results
     meta.status = "sent".to_string();
     meta.platform_results = Some(platform_results.clone());
     meta.sent_at = Some(chrono::Utc::now().to_rfc3339());
+    if !scheduler_ids.is_empty() {
+        meta.scheduler_ids = Some(scheduler_ids);
+    }
 
     // Write updated meta.json atomically
     let temp_path = meta_path.with_extension("json.tmp");
-    fs::write(&temp_path, serde_json::to_string_pretty(&meta).unwrap())
+    let json_content = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
+    fs::write(&temp_path, json_content)
         .map_err(|e| format!("Failed to write meta.json: {}", e))?;
     fs::rename(&temp_path, &meta_path)
         .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
@@ -181,12 +399,13 @@ pub fn approve_post_impl(
 
 /// Tauri command wrapper for approve_post
 #[tauri::command]
-pub fn approve_post(
+pub async fn approve_post(
     repo_path: String,
     post_folder: String,
-    state: State<AppState>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<SendResult, String> {
-    approve_post_impl(&repo_path, &post_folder, &state)
+    approve_post_impl(&repo_path, &post_folder, &state, Some(&app)).await
 }
 
 /// Dismiss a post
@@ -216,7 +435,9 @@ pub fn dismiss_post_impl(
 
     // Write updated meta.json atomically
     let temp_path = meta_path.with_extension("json.tmp");
-    fs::write(&temp_path, serde_json::to_string_pretty(&meta).unwrap())
+    let json_content = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
+    fs::write(&temp_path, json_content)
         .map_err(|e| format!("Failed to write meta.json: {}", e))?;
     fs::rename(&temp_path, &meta_path)
         .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
@@ -245,13 +466,15 @@ pub fn retry_post_impl(
         .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
 
     // Step 2: Validate repo_path is in repos.json
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-
     let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
-    let is_registered = repos.repos.iter().any(|r| r.path == canonical_str);
+    let is_registered = {
+        let repos = state
+            .repos
+            .lock()
+            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+        repos.repos.iter().any(|r| r.path == canonical_str)
+    };
 
     if !is_registered {
         return Err("Repository not registered (403)".to_string());
@@ -303,7 +526,9 @@ pub fn retry_post_impl(
 
     // Write updated meta.json atomically
     let temp_path = meta_path.with_extension("json.tmp");
-    fs::write(&temp_path, serde_json::to_string_pretty(&meta).unwrap())
+    let json_content = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
+    fs::write(&temp_path, json_content)
         .map_err(|e| format!("Failed to write meta.json: {}", e))?;
     fs::rename(&temp_path, &meta_path)
         .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
@@ -377,7 +602,7 @@ pub fn add_repo_impl(
     repos.repos.push(repo.clone());
 
     // Write to repos.json
-    let repos_path = postlane_dir().join("repos.json");
+    let repos_path = postlane_dir()?.join("repos.json");
     write_repos(&repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
@@ -420,7 +645,7 @@ pub fn remove_repo_impl(
     repos.repos.remove(repo_index);
 
     // Write updated repos.json
-    let repos_path = postlane_dir().join("repos.json");
+    let repos_path = postlane_dir()?.join("repos.json");
     write_repos(&repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
@@ -465,7 +690,7 @@ pub fn set_repo_active_impl(
     repo.active = active;
 
     // Write updated repos.json
-    let repos_path = postlane_dir().join("repos.json");
+    let repos_path = postlane_dir()?.join("repos.json");
     write_repos(&repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
@@ -928,7 +1153,7 @@ pub fn update_repo_path(
     repo.path = canonical_str.to_string();
 
     // Write updated repos.json
-    let repos_path = postlane_dir().join("repos.json");
+    let repos_path = postlane_dir()?.join("repos.json");
     write_repos(&repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 

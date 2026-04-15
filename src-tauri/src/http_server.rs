@@ -19,11 +19,6 @@ pub struct ServerState {
     pub repos: Arc<tokio::sync::Mutex<crate::storage::ReposConfig>>,
 }
 
-#[derive(Serialize)]
-pub struct HealthResponse {
-    pub status: String,
-}
-
 #[derive(Deserialize)]
 pub struct SendRequest {
     pub repo_path: String,
@@ -74,10 +69,8 @@ async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-async fn health_handler() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "ok".to_string(),
-    })
+async fn health_handler() -> StatusCode {
+    StatusCode::NO_CONTENT
 }
 
 async fn send_handler(
@@ -116,6 +109,15 @@ async fn send_handler(
 
     // Drop the lock before doing file operations
     drop(repos);
+
+    // SECURITY NOTE: TOCTOU race window exists between checking is_registered (line 105)
+    // and using the path (below). Another thread could unregister the repo after our check
+    // but before we use the path. However, practical risk is low because:
+    // 1. Unregistration requires explicit user action (rare during active operations)
+    // 2. Path validation continues to work even if repo is unregistered
+    // 3. Worst case: we process a post for an unregistered repo (benign - no security impact)
+    // 4. Alternative (holding lock during file I/O) would block all other operations
+    // We accept this minimal race window to avoid blocking operations.
 
     // Validate post folder exists and has meta.json
     let post_path = canonical_path
@@ -176,7 +178,20 @@ async fn send_handler(
 
     // Write updated meta.json atomically
     let temp_path = meta_path.with_extension("json.tmp");
-    if let Err(e) = std::fs::write(&temp_path, serde_json::to_string_pretty(&meta).unwrap()) {
+    let json_str = match serde_json::to_string_pretty(&meta) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to serialize meta.json: {}", e),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    if let Err(e) = std::fs::write(&temp_path, json_str) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -242,12 +257,31 @@ async fn register_handler(
     }
 
     // Add repo (generates UUID, derives name, writes to repos.json)
-    let canonical_str = canonical_path.to_str().unwrap_or("unknown");
-    let name = canonical_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let canonical_str = match canonical_path.to_str() {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Path contains invalid UTF-8 characters".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let name = match canonical_path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_string(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Unable to extract repository name from path".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
 
     // Generate UUID and create repo
     let id = uuid::Uuid::new_v4().to_string();
@@ -265,7 +299,19 @@ async fn register_handler(
     repos.repos.push(repo);
 
     // Write to repos.json
-    let repos_path = crate::init::postlane_dir().join("repos.json");
+    let postlane_dir = match crate::init::postlane_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to get postlane directory: {}", e),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let repos_path = postlane_dir.join("repos.json");
     if let Err(e) = crate::storage::write_repos(&repos_path, &repos) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -301,6 +347,7 @@ pub fn create_router(state: ServerState) -> Router {
     Router::new()
         .route("/health", get(health_handler))
         .merge(protected_routes)
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB limit
         .with_state(state)
 }
 
@@ -319,7 +366,9 @@ pub async fn start_server(
         Ok(listener) => {
             let bound_port = listener.local_addr()?.port();
             tokio::spawn(async move {
-                axum::serve(listener, app).await.unwrap();
+                if let Err(e) = axum::serve(listener, app).await {
+                    log::error!("HTTP server error: {}", e);
+                }
             });
             Ok(bound_port)
         }
@@ -329,7 +378,9 @@ pub async fn start_server(
             let listener = TcpListener::bind(fallback_addr).await?;
             let bound_port = listener.local_addr()?.port();
             tokio::spawn(async move {
-                axum::serve(listener, app).await.unwrap();
+                if let Err(e) = axum::serve(listener, app).await {
+                    log::error!("HTTP server error: {}", e);
+                }
             });
             Ok(bound_port)
         }
@@ -337,8 +388,8 @@ pub async fn start_server(
 }
 
 /// Writes the port file to ~/.postlane/port with 0600 permissions
-pub fn write_port_file(port: u16) -> std::io::Result<()> {
-    let port_path = crate::init::postlane_dir().join("port");
+pub fn write_port_file(port: u16) -> Result<(), String> {
+    let port_path = crate::init::postlane_dir()?.join("port");
     let content = port.to_string();
 
     #[cfg(unix)]
@@ -353,34 +404,40 @@ pub fn write_port_file(port: u16) -> std::io::Result<()> {
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(&port_path)?;
+            .open(&port_path)
+            .map_err(|e| format!("Failed to open port file: {}", e))?;
 
-        file.write_all(content.as_bytes())?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| format!("Failed to write port file: {}", e))?;
 
         // Explicitly set permissions (handles case where file already existed)
         let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&port_path, perms)?;
+        std::fs::set_permissions(&port_path, perms)
+            .map_err(|e| format!("Failed to set port file permissions: {}", e))?;
     }
 
     #[cfg(not(unix))]
     {
-        std::fs::write(&port_path, content)?;
+        std::fs::write(&port_path, content)
+            .map_err(|e| format!("Failed to write port file: {}", e))?;
     }
 
     Ok(())
 }
 
 /// Generates a random session token and writes it to ~/.postlane/session.token with 0600 permissions
-pub fn generate_and_write_token() -> std::io::Result<String> {
+pub fn generate_and_write_token() -> Result<String, String> {
     use rand::Rng;
 
+    // Generate 43-character alphanumeric token for 256 bits of entropy
+    // 43 chars * log2(62) ≈ 43 * 5.95 ≈ 256 bits
     let token: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
-        .take(32)
+        .take(43)
         .map(char::from)
         .collect();
 
-    let token_path = crate::init::postlane_dir().join("session.token");
+    let token_path = crate::init::postlane_dir()?.join("session.token");
 
     #[cfg(unix)]
     {
@@ -394,18 +451,22 @@ pub fn generate_and_write_token() -> std::io::Result<String> {
             .create(true)
             .truncate(true)
             .mode(0o600)
-            .open(&token_path)?;
+            .open(&token_path)
+            .map_err(|e| format!("Failed to open token file: {}", e))?;
 
-        file.write_all(token.as_bytes())?;
+        file.write_all(token.as_bytes())
+            .map_err(|e| format!("Failed to write token file: {}", e))?;
 
         // Explicitly set permissions (handles case where file already existed)
         let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&token_path, perms)?;
+        std::fs::set_permissions(&token_path, perms)
+            .map_err(|e| format!("Failed to set token file permissions: {}", e))?;
     }
 
     #[cfg(not(unix))]
     {
-        std::fs::write(&token_path, &token)?;
+        std::fs::write(&token_path, &token)
+            .map_err(|e| format!("Failed to write token file: {}", e))?;
     }
 
     Ok(token)
@@ -418,7 +479,7 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
-    async fn test_health_endpoint_returns_ok() {
+    async fn test_health_endpoint_returns_no_content() {
         let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
             version: 1,
             repos: vec![],
@@ -442,7 +503,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]
@@ -471,7 +532,9 @@ mod tests {
         let port = 47312u16;
         write_port_file(port).expect("Failed to write port file");
 
-        let port_path = crate::init::postlane_dir().join("port");
+        let port_path = crate::init::postlane_dir()
+            .expect("Failed to get postlane dir")
+            .join("port");
         assert!(port_path.exists());
 
         let content = fs::read_to_string(&port_path).expect("Failed to read port file");
@@ -495,10 +558,12 @@ mod tests {
 
         let token = generate_and_write_token().expect("Failed to generate token");
 
-        assert_eq!(token.len(), 32);
+        assert_eq!(token.len(), 43); // 256 bits of entropy
         assert!(token.chars().all(|c| c.is_alphanumeric()));
 
-        let token_path = crate::init::postlane_dir().join("session.token");
+        let token_path = crate::init::postlane_dir()
+            .expect("Failed to get postlane dir")
+            .join("session.token");
         assert!(token_path.exists());
 
         let content = fs::read_to_string(&token_path).expect("Failed to read token file");
@@ -670,6 +735,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 }
