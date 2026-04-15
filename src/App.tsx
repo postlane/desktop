@@ -8,7 +8,7 @@ import AddRepoModal from './wizard/AddRepoModal';
 import LeftNav from './nav/LeftNav';
 import AllReposDraftsView from './drafts/AllReposDraftsView';
 import AllReposPublished from './pages/AllReposPublished';
-import RepoDrafts from './pages/RepoDrafts';
+import RepoDraftsView from './drafts/RepoDraftsView';
 import RepoPublished from './pages/RepoPublished';
 import Settings from './pages/Settings';
 import type { AppStateFile, RepoWithStatus, ViewSelection } from './types';
@@ -44,7 +44,7 @@ function MainContent({
 
   return view.section === 'published'
     ? <RepoPublished repoId={view.repoId} />
-    : <RepoDrafts repoId={view.repoId} />;
+    : <RepoDraftsView repoId={view.repoId} />;
 }
 
 export default function App() {
