@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::{AppState, AppStateFile, read_app_state, write_app_state};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Payload emitted on the "meta-changed" Tauri event
 #[derive(Serialize, Clone, Debug)]
@@ -131,6 +131,133 @@ pub fn save_app_state_command(state: AppStateFile) -> Result<(), String> {
     write_app_state(&state)
 }
 
+/// Post enriched with repo context, for the frontend drafts view
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DraftPost {
+    pub repo_id: String,
+    pub repo_name: String,
+    pub repo_path: String,
+    pub post_folder: String,
+    pub status: String,
+    pub platforms: Vec<String>,
+    pub schedule: Option<String>,
+    pub trigger: Option<String>,
+    pub platform_results: Option<std::collections::HashMap<String, String>>,
+    pub error: Option<String>,
+    pub image_url: Option<String>,
+    pub llm_model: Option<String>,
+    pub created_at: Option<String>,
+}
+
+/// Returns all ready/failed posts across all active repos, enriched with repo context.
+/// Within each repo: failed first, then ready; each sub-group newest created_at first.
+pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    let mut drafts: Vec<DraftPost> = Vec::new();
+
+    for repo in repos.repos.iter().filter(|r| r.active) {
+        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
+        if !posts_dir.exists() {
+            continue;
+        }
+
+        let entries = match fs::read_dir(&posts_dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let post_path = entry.path();
+            if !post_path.is_dir() {
+                continue;
+            }
+            let meta_path = post_path.join("meta.json");
+            if !meta_path.exists() {
+                continue;
+            }
+
+            let content = match fs::read_to_string(&meta_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let meta: serde_json::Value = match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let status = match meta.get("status").and_then(|s| s.as_str()) {
+                Some(s @ "ready") | Some(s @ "failed") => s.to_string(),
+                _ => continue,
+            };
+
+            let post_folder = post_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let platforms: Vec<String> = meta
+                .get("platforms")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let platform_results = meta.get("platform_results").and_then(|v| {
+                v.as_object().map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect()
+                })
+            });
+
+            drafts.push(DraftPost {
+                repo_id: repo.id.clone(),
+                repo_name: repo.name.clone(),
+                repo_path: repo.path.clone(),
+                post_folder,
+                status,
+                platforms,
+                schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
+                trigger: meta.get("trigger").and_then(|v| v.as_str()).map(String::from),
+                platform_results,
+                error: meta.get("error").and_then(|v| v.as_str()).map(String::from),
+                image_url: meta.get("image_url").and_then(|v| v.as_str()).map(String::from),
+                llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
+                created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+            });
+        }
+    }
+
+    // Sort: failed first, then by created_at newest first
+    drafts.sort_by(|a, b| {
+        match (a.status.as_str(), b.status.as_str()) {
+            ("failed", "ready") => std::cmp::Ordering::Less,
+            ("ready", "failed") => std::cmp::Ordering::Greater,
+            _ => match (&b.created_at, &a.created_at) {
+                (Some(bt), Some(at)) => bt.cmp(at),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            },
+        }
+    });
+
+    Ok(drafts)
+}
+
+#[tauri::command]
+pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<DraftPost>, String> {
+    get_all_drafts_impl(&state)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +366,96 @@ mod tests {
         assert_eq!(failed, 0);
         assert!(ts.is_none());
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // get_all_drafts_impl tests
+    // ------------------------------------------------------------------
+
+    fn write_meta(dir: &std::path::Path, folder: &str, json: &str) {
+        let p = dir.join(".postlane/posts").join(folder);
+        fs::create_dir_all(&p).expect("create post dir");
+        fs::write(p.join("meta.json"), json).expect("write meta");
+    }
+
+    #[test]
+    fn test_get_all_drafts_empty() {
+        let state = make_state(vec![]);
+        let result = get_all_drafts_impl(&state).expect("should succeed");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_all_drafts_only_ready_and_failed_included() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_filter");
+        write_meta(&dir, "p1", r#"{"status":"ready","platforms":["x"],"created_at":"2024-06-01T10:00:00Z"}"#);
+        write_meta(&dir, "p2", r#"{"status":"sent","platforms":["x"],"created_at":"2024-06-02T10:00:00Z"}"#);
+        write_meta(&dir, "p3", r#"{"status":"failed","platforms":["bluesky"],"created_at":"2024-06-03T10:00:00Z","error":"timeout"}"#);
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_all_drafts_impl(&state).expect("should succeed");
+        assert_eq!(result.len(), 2, "sent post should be excluded");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_drafts_failed_before_ready() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_sort");
+        write_meta(&dir, "p1", r#"{"status":"ready","platforms":["x"],"created_at":"2024-06-03T00:00:00Z"}"#);
+        write_meta(&dir, "p2", r#"{"status":"failed","platforms":["x"],"created_at":"2024-06-01T00:00:00Z"}"#);
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_all_drafts_impl(&state).expect("should succeed");
+        assert_eq!(result[0].status, "failed");
+        assert_eq!(result[1].status, "ready");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_drafts_inactive_repo_excluded() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_inactive");
+        write_meta(&dir, "p1", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: false, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_all_drafts_impl(&state).expect("should succeed");
+        assert!(result.is_empty(), "inactive repo should be excluded");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_drafts_enriches_with_repo_context() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_context");
+        write_meta(&dir, "my-post", r#"{"status":"ready","platforms":["x","bluesky"],"trigger":"Launched v2","created_at":"2024-06-01T00:00:00Z"}"#);
+
+        let state = make_state(vec![Repo {
+            id: "abc-123".to_string(), name: "My App".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_all_drafts_impl(&state).expect("should succeed");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].repo_id, "abc-123");
+        assert_eq!(result[0].repo_name, "My App");
+        assert_eq!(result[0].post_folder, "my-post");
+        assert_eq!(result[0].trigger.as_deref(), Some("Launched v2"));
+        assert_eq!(result[0].platforms, vec!["x", "bluesky"]);
         let _ = fs::remove_dir_all(&dir);
     }
 }

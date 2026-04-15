@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
 import LeftNav from './nav/LeftNav';
-import AllReposDrafts from './pages/AllReposDrafts';
+import AllReposDraftsView from './drafts/AllReposDraftsView';
 import AllReposPublished from './pages/AllReposPublished';
 import RepoDrafts from './pages/RepoDrafts';
 import RepoPublished from './pages/RepoPublished';
@@ -36,10 +36,10 @@ function MainContent({
   if (view.view === 'all_repos') {
     return view.section === 'published'
       ? <AllReposPublished />
-      : <AllReposDrafts postWizardNudge={postWizardNudge} onNudgeDismissed={onNudgeDismissed} />;
+      : <AllReposDraftsView postWizardNudge={postWizardNudge} onNudgeDismissed={onNudgeDismissed} />;
   }
 
-  if (!view.repoId) return <AllReposDrafts postWizardNudge={false} onNudgeDismissed={onNudgeDismissed} />;
+  if (!view.repoId) return <AllReposDraftsView postWizardNudge={false} onNudgeDismissed={onNudgeDismissed} />;
 
   return view.section === 'published'
     ? <RepoPublished repoId={view.repoId} />

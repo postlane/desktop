@@ -98,6 +98,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             nav_commands::get_repos,
+            nav_commands::get_all_drafts,
             nav_commands::read_app_state_command,
             nav_commands::save_app_state_command,
             commands::get_drafts,

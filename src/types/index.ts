@@ -59,3 +59,22 @@ export interface MetaChangedPayload {
   repo_id: string;
   post_folder: string;
 }
+
+/** PostMeta enriched with repo context — returned by get_all_drafts */
+export interface DraftPost {
+  repo_id: string;
+  repo_name: string;
+  repo_path: string;
+  post_folder: string;
+  status: 'ready' | 'failed';
+  platforms: string[];
+  schedule: string | null;
+  trigger: string | null;
+  platform_results: Record<string, string> | null;
+  error: string | null;
+  image_url: string | null;
+  llm_model: string | null;
+  created_at: string | null;
+}
+
+export type Platform = 'x' | 'bluesky' | 'mastodon';
