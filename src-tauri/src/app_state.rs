@@ -55,6 +55,11 @@ pub struct AppStateFile {
     pub version: u32,
     pub window: WindowState,
     pub nav: NavState,
+    /// Set to true after the user completes or skips the onboarding wizard.
+    /// Uses serde default so existing app_state.json files without this field
+    /// deserialise as false (wizard not yet completed).
+    #[serde(default)]
+    pub wizard_completed: bool,
 }
 
 impl Default for AppStateFile {
@@ -73,6 +78,7 @@ impl Default for AppStateFile {
                 last_section: "drafts".to_string(),
                 expanded_repos: vec![],
             },
+            wizard_completed: false,
         }
     }
 }
@@ -187,6 +193,7 @@ mod tests {
                 last_section: "published".to_string(),
                 expanded_repos: vec!["repo1".to_string(), "repo2".to_string()],
             },
+            wizard_completed: false,
         };
 
         let path = dir.join("app_state.json");
@@ -258,6 +265,7 @@ mod tests {
                 last_section: "sent".to_string(),
                 expanded_repos: vec!["repo1".to_string()],
             },
+            wizard_completed: false,
         };
 
         // Clean up before test
@@ -378,6 +386,7 @@ mod tests {
                 last_section: "sent".to_string(),
                 expanded_repos: vec![],
             },
+            wizard_completed: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
