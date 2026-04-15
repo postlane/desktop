@@ -10,7 +10,7 @@ import AllReposDraftsView from './drafts/AllReposDraftsView';
 import AllReposPublishedView from './published/AllReposPublishedView';
 import RepoDraftsView from './drafts/RepoDraftsView';
 import RepoPublishedView from './published/RepoPublishedView';
-import Settings from './pages/Settings';
+import SettingsPanel from './settings/SettingsPanel';
 import type { AppStateFile, RepoWithStatus, ViewSelection } from './types';
 
 const DEFAULT_VIEW: ViewSelection = {
@@ -34,7 +34,7 @@ function MainContent({
   onNudgeDismissed: () => void;
   onNavigateToRepo: (repoId: string) => void;
 }) {
-  if (settingsOpen) return <Settings onClose={onCloseSettings} />;
+  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} />;
 
   if (view.view === 'all_repos') {
     return view.section === 'published'

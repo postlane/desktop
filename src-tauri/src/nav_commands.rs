@@ -641,6 +641,39 @@ pub fn get_model_stats(state: State<'_, AppState>) -> Result<Vec<ModelStatRow>, 
     get_model_stats_impl(&state)
 }
 
+/// Returns the app version from Cargo.toml
+#[tauri::command]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Returns whether autostart is enabled (stub — real impl uses tauri-plugin-autostart)
+#[tauri::command]
+pub fn get_autostart_enabled() -> bool {
+    // tauri-plugin-autostart state not available without AppHandle in a simple command.
+    // Frontend should call tauri-plugin-autostart JS API directly for reads.
+    // This stub returns false; the real toggle is handled by set_autostart_enabled.
+    false
+}
+
+/// Returns available scheduler profiles for a repo (stub — M4 providers implement this)
+#[derive(Serialize, Clone, Debug)]
+pub struct SchedulerProfile {
+    pub id: String,
+    pub name: String,
+    pub platforms: Vec<String>,
+}
+
+#[tauri::command]
+pub fn list_profiles_for_repo(
+    _repo_id: String,
+    _state: State<'_, AppState>,
+) -> Result<Vec<SchedulerProfile>, String> {
+    // In M4 this calls the scheduling provider's list_profiles().
+    // Returns empty list if no credential is configured (caller checks the credential separately).
+    Ok(vec![])
+}
+
 #[tauri::command]
 pub fn get_repo_published(
     repo_id: String,
