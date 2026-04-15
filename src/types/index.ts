@@ -35,6 +35,7 @@ export interface AppStateFile {
   version: number;
   window: WindowState;
   nav: NavState;
+  wizard_completed: boolean;
 }
 
 export type Section = 'drafts' | 'published';

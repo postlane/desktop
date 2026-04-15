@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import type { AppStateFile } from './types';
+import Wizard from './wizard/Wizard';
 import LeftNav from './nav/LeftNav';
 import AllReposDrafts from './pages/AllReposDrafts';
 import AllReposPublished from './pages/AllReposPublished';
 import RepoDrafts from './pages/RepoDrafts';
 import RepoPublished from './pages/RepoPublished';
 import Settings from './pages/Settings';
-import type { ViewSelection } from './types';
+import type { AppStateFile, RepoWithStatus, ViewSelection } from './types';
 
 const DEFAULT_VIEW: ViewSelection = {
   view: 'all_repos',
@@ -21,21 +21,25 @@ const DEFAULT_VIEW: ViewSelection = {
 function MainContent({
   view,
   settingsOpen,
+  postWizardNudge,
   onCloseSettings,
+  onNudgeDismissed,
 }: {
   view: ViewSelection;
   settingsOpen: boolean;
+  postWizardNudge: boolean;
   onCloseSettings: () => void;
+  onNudgeDismissed: () => void;
 }) {
   if (settingsOpen) return <Settings onClose={onCloseSettings} />;
 
   if (view.view === 'all_repos') {
     return view.section === 'published'
       ? <AllReposPublished />
-      : <AllReposDrafts />;
+      : <AllReposDrafts postWizardNudge={postWizardNudge} onNudgeDismissed={onNudgeDismissed} />;
   }
 
-  if (!view.repoId) return <AllReposDrafts />;
+  if (!view.repoId) return <AllReposDrafts postWizardNudge={false} onNudgeDismissed={onNudgeDismissed} />;
 
   return view.section === 'published'
     ? <RepoPublished repoId={view.repoId} />
@@ -45,7 +49,36 @@ function MainContent({
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [postWizardNudge, setPostWizardNudge] = useState(false);
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Determine wizard visibility on launch
+  useEffect(() => {
+    Promise.all([
+      invoke<AppStateFile>('read_app_state_command'),
+      invoke<RepoWithStatus[]>('get_repos'),
+    ])
+      .then(([appState, repos]) => {
+        if (!appState.wizard_completed && repos.length === 0) {
+          setShowWizard(true);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  async function handleWizardComplete() {
+    try {
+      const appState = await invoke<AppStateFile>('read_app_state_command');
+      await invoke('save_app_state_command', {
+        state: { ...appState, wizard_completed: true },
+      });
+    } catch (e) {
+      console.error('Failed to mark wizard complete:', e);
+    }
+    setShowWizard(false);
+    setPostWizardNudge(true);
+  }
 
   // Persist window dimensions on resize
   useEffect(() => {
@@ -76,6 +109,10 @@ export default function App() {
     };
   }, []);
 
+  if (showWizard) {
+    return <Wizard onComplete={handleWizardComplete} />;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-900">
       <LeftNav
@@ -87,7 +124,9 @@ export default function App() {
         <MainContent
           view={currentView}
           settingsOpen={settingsOpen}
+          postWizardNudge={postWizardNudge}
           onCloseSettings={() => setSettingsOpen(false)}
+          onNudgeDismissed={() => setPostWizardNudge(false)}
         />
       </main>
     </div>
