@@ -99,9 +99,9 @@ describe('getRepoStatus', () => {
     expect(status).toEqual({ type: 'none' });
   });
 
-  it('returns none when active repo has no pending posts', () => {
+  it('returns watching when active repo has no pending posts', () => {
     const status = getRepoStatus(makeRepo({ ready_count: 0, failed_count: 0 }));
-    expect(status).toEqual({ type: 'none' });
+    expect(status).toEqual({ type: 'watching' });
   });
 
   it('returns single green when only ready posts', () => {

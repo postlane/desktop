@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -177,6 +178,16 @@ function StatusDot({
     );
   }
   if (indicator.type === 'none') return null;
+
+  if (indicator.type === 'watching' && !isStalled) {
+    return (
+      <span
+        className="h-2 w-2 shrink-0 rounded-full bg-green-500"
+        title="Watching for new drafts"
+        aria-label="Watching for new drafts"
+      />
+    );
+  }
 
   if (isStalled) {
     return (
@@ -364,19 +375,28 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView }: Pro
 
   function scheduleWrite(ids: Set<string>, view: ViewSelection) {
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(() => {
-      invoke<void>('save_app_state_command', {
-        state: {
-          version: 1,
-          window: { width: 1100, height: 700, x: 0, y: 0 },
-          nav: {
-            last_view: view.view,
-            last_repo_id: view.repoId,
-            last_section: view.section,
-            expanded_repos: [...ids],
+    persistTimerRef.current = setTimeout(async () => {
+      try {
+        const win = getCurrentWindow();
+        const [size, pos] = await Promise.all([
+          win.outerSize(),
+          win.outerPosition(),
+        ]);
+        await invoke<void>('save_app_state_command', {
+          state: {
+            version: 1,
+            window: { width: size.width, height: size.height, x: pos.x, y: pos.y },
+            nav: {
+              last_view: view.view,
+              last_repo_id: view.repoId,
+              last_section: view.section,
+              expanded_repos: [...ids],
+            },
           },
-        },
-      }).catch((e) => console.error('Failed to persist nav state:', e));
+        });
+      } catch (e) {
+        console.error('Failed to persist nav state:', e);
+      }
     }, PERSIST_DEBOUNCE_MS);
   }
 

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import type { AppStateFile } from './types';
 import LeftNav from './nav/LeftNav';
 import AllReposDrafts from './pages/AllReposDrafts';
 import AllReposPublished from './pages/AllReposPublished';
@@ -42,6 +45,36 @@ function MainContent({
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persist window dimensions on resize
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+
+    win.onResized(async ({ payload: size }) => {
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+      resizeTimerRef.current = setTimeout(async () => {
+        try {
+          const pos = await win.outerPosition();
+          const appState = await invoke<AppStateFile>('read_app_state_command');
+          await invoke('save_app_state_command', {
+            state: {
+              ...appState,
+              window: { width: size.width, height: size.height, x: pos.x, y: pos.y },
+            },
+          });
+        } catch (e) {
+          console.error('Failed to persist window size:', e);
+        }
+      }, 500);
+    }).then((fn) => { unlisten = fn; }).catch(console.error);
+
+    return () => {
+      unlisten?.();
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-900">

@@ -31,7 +31,7 @@ export function getRepoStatus(repo: RepoWithStatus): StatusIndicatorType {
   if (hasReady && hasFailed) return { type: 'stacked' };
   if (hasFailed) return { type: 'single', color: 'red' };
   if (hasReady) return { type: 'single', color: 'green' };
-  return { type: 'none' };
+  return { type: 'watching' }; // active, watcher running, no pending posts
 }
 
 /** Sort repos alphabetically, case-insensitive. */

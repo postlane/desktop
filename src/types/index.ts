@@ -47,8 +47,9 @@ export interface ViewSelection {
 }
 
 export type StatusIndicatorType =
-  | { type: 'none' }
-  | { type: 'warning' }
+  | { type: 'none' }        // inactive repo — no dot shown
+  | { type: 'watching' }    // active repo, watcher running, no pending posts
+  | { type: 'warning' }     // path not found
   | { type: 'single'; color: 'red' | 'green' }
   | { type: 'stacked' };
 
