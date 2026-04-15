@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback } from 'react';
+import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import { invoke } from '@tauri-apps/api/core';
 import {
   ChevronDownIcon,
@@ -103,6 +104,7 @@ function PlatformResults({ results }: { results: Record<string, string> }) {
 // ---------------------------------------------------------------------------
 
 export default function PostCard({ post, onApproved, onDismissed, isFocused = false }: Props) {
+  const tz = useTimezone();
   const isFailed = post.status === 'failed';
   const [expanded, setExpanded] = useState(isFailed);
   const [activeTab, setActiveTab] = useState<Platform>(
@@ -202,7 +204,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
           <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
             {post.platforms.join(' · ')}
             {post.schedule && (
-              <> · {new Date(post.schedule).toLocaleString()}</>
+              <> · {formatTimestamp(post.schedule, tz)}</>
             )}
           </p>
         </div>

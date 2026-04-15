@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '../components/catalyst/button';
+import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/catalyst/table';
 import type { PublishedPost } from '../types';
 
@@ -16,7 +17,7 @@ interface Props {
 // Scheduled sub-section
 // ---------------------------------------------------------------------------
 
-function ScheduledRow({ post, onCancelled }: { post: PublishedPost; onCancelled: () => void }) {
+function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancelled: () => void; tz: string }) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -51,7 +52,7 @@ function ScheduledRow({ post, onCancelled }: { post: PublishedPost; onCancelled:
     <TableRow>
       <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
       <TableCell>{post.platforms.join(', ')}</TableCell>
-      <TableCell>{post.schedule ? new Date(post.schedule).toLocaleString() : '—'}</TableCell>
+      <TableCell>{formatTimestamp(post.schedule, tz)}</TableCell>
       <TableCell>
         {cancelError ? (
           <span className="text-xs text-zinc-500">{cancelError}</span>
@@ -69,7 +70,7 @@ function ScheduledRow({ post, onCancelled }: { post: PublishedPost; onCancelled:
 // Sent posts table
 // ---------------------------------------------------------------------------
 
-function SentRow({ post }: { post: PublishedPost }) {
+function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
   const sentPlatforms = post.platform_results
     ? Object.entries(post.platform_results)
         .filter(([, v]) => v === 'sent')
@@ -86,7 +87,7 @@ function SentRow({ post }: { post: PublishedPost }) {
     <TableRow>
       <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
       <TableCell className="text-xs text-zinc-500">
-        {post.sent_at ? new Date(post.sent_at).toLocaleString() : '—'}
+        {formatTimestamp(post.sent_at, tz)}
       </TableCell>
       <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
       <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
@@ -107,6 +108,7 @@ function SentRow({ post }: { post: PublishedPost }) {
 // ---------------------------------------------------------------------------
 
 export default function RepoPublishedView({ repoId }: Props) {
+  const tz = useTimezone();
   const [posts, setPosts] = useState<PublishedPost[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -187,6 +189,7 @@ export default function RepoPublishedView({ repoId }: Props) {
                 <ScheduledRow
                   key={post.post_folder}
                   post={post}
+                  tz={tz}
                   onCancelled={() => loadPage(0, false)}
                 />
               ))}
@@ -211,7 +214,7 @@ export default function RepoPublishedView({ repoId }: Props) {
             </TableHead>
             <TableBody>
               {sent.map((post) => (
-                <SentRow key={post.post_folder} post={post} />
+                <SentRow key={post.post_folder} post={post} tz={tz} />
               ))}
             </TableBody>
           </Table>

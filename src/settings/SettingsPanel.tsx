@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTimezone } from '../TimezoneContext';
+import type { AppStateFile } from '../types';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Button } from '../components/catalyst/button';
 import {
@@ -32,6 +34,7 @@ interface CredentialState {
 
 interface Props {
   onClose: () => void;
+  onTimezoneChange?: (tz: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +319,26 @@ function SchedulerTab() {
 // App tab
 // ---------------------------------------------------------------------------
 
-function AppTab() {
+// A selection of common IANA timezones — enough for the UI without being overwhelming
+const COMMON_TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+];
+
+function AppTab({ onTimezoneChange }: { onTimezoneChange?: (tz: string) => void }) {
+  const currentTimezone = useTimezone();
   const [version, setVersion] = useState('');
   const [autostart, setAutostart] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
@@ -326,6 +348,16 @@ function AppTab() {
     invoke<string>('get_app_version').then(setVersion).catch(console.error);
     invoke<boolean>('get_autostart_enabled').then(setAutostart).catch(console.error);
   }, []);
+
+  async function handleTimezoneChange(tz: string) {
+    try {
+      const appState = await invoke<AppStateFile>('read_app_state_command');
+      await invoke('save_app_state_command', { state: { ...appState, timezone: tz } });
+      onTimezoneChange?.(tz);
+    } catch (e) {
+      console.error('Failed to save timezone:', e);
+    }
+  }
 
   async function handleAutostartToggle() {
     try {
@@ -381,6 +413,24 @@ function AppTab() {
         />
       </div>
 
+      {/* Timezone */}
+      <div className="flex items-center justify-between">
+        <label htmlFor="timezone" className="text-sm text-zinc-700 dark:text-zinc-300">
+          Display timezone
+        </label>
+        <select
+          id="timezone"
+          value={currentTimezone}
+          onChange={(e) => handleTimezoneChange(e.target.value)}
+          className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <option value="">System default</option>
+          {COMMON_TIMEZONES.map((tz) => (
+            <option key={tz} value={tz}>{tz}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Logs */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-zinc-700 dark:text-zinc-300">Logs</span>
@@ -409,7 +459,7 @@ function AppTab() {
 // Main panel
 // ---------------------------------------------------------------------------
 
-export default function SettingsPanel({ onClose }: Props) {
+export default function SettingsPanel({ onClose, onTimezoneChange }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('repos');
 
   return (
@@ -444,7 +494,7 @@ export default function SettingsPanel({ onClose }: Props) {
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'repos' && <ReposTab onRepoChange={() => {}} />}
         {activeTab === 'scheduler' && <SchedulerTab />}
-        {activeTab === 'app' && <AppTab />}
+        {activeTab === 'app' && <AppTab onTimezoneChange={onTimezoneChange} />}
       </div>
     </div>
   );

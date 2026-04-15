@@ -36,6 +36,8 @@ export interface AppStateFile {
   window: WindowState;
   nav: NavState;
   wizard_completed: boolean;
+  /** IANA timezone identifier. Empty string = system timezone. */
+  timezone: string;
 }
 
 export type Section = 'drafts' | 'published';

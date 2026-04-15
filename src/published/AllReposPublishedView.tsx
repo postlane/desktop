@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import { Button } from '../components/catalyst/button';
 import { Badge } from '../components/catalyst/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/catalyst/table';
@@ -71,6 +72,7 @@ function ModelBar({ stats }: { stats: ModelStats[] }) {
 // ---------------------------------------------------------------------------
 
 export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
+  const tz = useTimezone();
   const [posts, setPosts] = useState<PublishedPost[]>([]);
   const [stats, setStats] = useState<ModelStats[]>([]);
   const [page, setPage] = useState(0);
@@ -192,7 +194,7 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
                 </TableCell>
                 <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
                 <TableCell className="text-xs text-zinc-500">
-                  {post.sent_at ? new Date(post.sent_at).toLocaleString() : '—'}
+                  {formatTimestamp(post.sent_at, tz)}
                 </TableCell>
                 <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
                 <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>

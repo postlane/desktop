@@ -11,6 +11,7 @@ import AllReposPublishedView from './published/AllReposPublishedView';
 import RepoDraftsView from './drafts/RepoDraftsView';
 import RepoPublishedView from './published/RepoPublishedView';
 import SettingsPanel from './settings/SettingsPanel';
+import { TimezoneContext } from './TimezoneContext';
 import type { AppStateFile, RepoWithStatus, ViewSelection } from './types';
 
 const DEFAULT_VIEW: ViewSelection = {
@@ -26,6 +27,7 @@ function MainContent({
   onCloseSettings,
   onNudgeDismissed,
   onNavigateToRepo,
+  onTimezoneChange,
 }: {
   view: ViewSelection;
   settingsOpen: boolean;
@@ -33,8 +35,9 @@ function MainContent({
   onCloseSettings: () => void;
   onNudgeDismissed: () => void;
   onNavigateToRepo: (repoId: string) => void;
+  onTimezoneChange: (tz: string) => void;
 }) {
-  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} />;
+  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} onTimezoneChange={onTimezoneChange} />;
 
   if (view.view === 'all_repos') {
     return view.section === 'published'
@@ -54,6 +57,14 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
+  const [timezone, setTimezone] = useState<string>('');
+
+  // Load timezone from app state on startup
+  useEffect(() => {
+    invoke<AppStateFile>('read_app_state_command')
+      .then((s) => setTimezone(s.timezone ?? ''))
+      .catch(console.error);
+  }, []);
 
   // Cmd+H / Ctrl+H — navigate to All repos Published
   useEffect(() => {
@@ -131,6 +142,7 @@ export default function App() {
   }
 
   return (
+    <TimezoneContext.Provider value={timezone}>
     <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-900">
       <LeftNav
         currentView={currentView}
@@ -148,6 +160,7 @@ export default function App() {
           postWizardNudge={postWizardNudge}
           onCloseSettings={() => setSettingsOpen(false)}
           onNudgeDismissed={() => setPostWizardNudge(false)}
+          onTimezoneChange={setTimezone}
           onNavigateToRepo={(repoId) => {
             setCurrentView({ view: 'repo', repoId, section: 'published' });
             setSettingsOpen(false);
@@ -155,5 +168,6 @@ export default function App() {
         />
       </main>
     </div>
+    </TimezoneContext.Provider>
   );
 }

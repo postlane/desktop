@@ -60,6 +60,9 @@ pub struct AppStateFile {
     /// deserialise as false (wizard not yet completed).
     #[serde(default)]
     pub wizard_completed: bool,
+    /// IANA timezone identifier (e.g. "America/New_York"). Empty string = system timezone.
+    #[serde(default)]
+    pub timezone: String,
 }
 
 impl Default for AppStateFile {
@@ -79,6 +82,7 @@ impl Default for AppStateFile {
                 expanded_repos: vec![],
             },
             wizard_completed: false,
+            timezone: String::new(),
         }
     }
 }
@@ -194,6 +198,7 @@ mod tests {
                 expanded_repos: vec!["repo1".to_string(), "repo2".to_string()],
             },
             wizard_completed: false,
+            timezone: String::new(),
         };
 
         let path = dir.join("app_state.json");
@@ -266,6 +271,7 @@ mod tests {
                 expanded_repos: vec!["repo1".to_string()],
             },
             wizard_completed: false,
+            timezone: String::new(),
         };
 
         // Clean up before test
@@ -387,6 +393,7 @@ mod tests {
                 expanded_repos: vec![],
             },
             wizard_completed: false,
+            timezone: String::new(),
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
