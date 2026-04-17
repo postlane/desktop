@@ -35,6 +35,7 @@ function setupDefaults() {
   mockInvoke.mockImplementation(async (cmd: unknown) => {
     if (cmd === 'get_repos') return [makeRepo()];
     if (cmd === 'get_scheduler_credential') throw new Error('not found');
+    if (cmd === 'list_profiles_for_repo') return [];
     if (cmd === 'get_app_version') return '0.1.0';
     if (cmd === 'get_autostart_enabled') return false;
     return null;
@@ -126,6 +127,7 @@ describe('SettingsPanel — Repos tab', () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_repos') return [makeRepo()];
       if (cmd === 'add_repo') return makeRepo({ id: 'r2', name: 'new-repo', path: '/new/repo' });
+      if (cmd === 'list_profiles_for_repo') return [];
       if (cmd === 'get_scheduler_credential') throw new Error('not found');
       if (cmd === 'get_app_version') return '0.1.0';
       if (cmd === 'get_autostart_enabled') return false;
@@ -208,6 +210,102 @@ describe('SettingsPanel — Scheduler tab', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /test/i })[0]);
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', expect.anything()),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Repos tab — posting account (profile_id) selector
+// ---------------------------------------------------------------------------
+
+describe('SettingsPanel — Repos tab — posting account', () => {
+  it('shows "Posting account" section for each repo', async () => {
+    setupDefaults();
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('my-app'));
+    expect(screen.getByText(/posting account/i)).toBeInTheDocument();
+  });
+
+  it('shows "No account selected" when profile_id is empty', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'list_profiles_for_repo') return [];
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('my-app'));
+    expect(screen.getByText(/no account selected/i)).toBeInTheDocument();
+  });
+
+  it('calls list_profiles_for_repo with the repo id', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'list_profiles_for_repo') return [
+        { id: 'p1', name: 'My X Account', platforms: ['x', 'bluesky'] },
+      ];
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('list_profiles_for_repo', { repoId: 'r1' }),
+    );
+  });
+
+  it('shows profile names in the dropdown', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'list_profiles_for_repo') return [
+        { id: 'p1', name: 'My X Account', platforms: ['x', 'bluesky'] },
+        { id: 'p2', name: 'My Alt Account', platforms: ['x'] },
+      ];
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('My X Account'));
+    expect(screen.getByText('My Alt Account')).toBeInTheDocument();
+  });
+
+  it('selecting a profile calls save_profile_id with repo id and profile id', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'list_profiles_for_repo') return [
+        { id: 'p1', name: 'My X Account', platforms: ['x', 'bluesky'] },
+      ];
+      if (cmd === 'save_profile_id') return null;
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    const select = await screen.findByRole('combobox', { name: /posting account/i });
+    fireEvent.change(select, { target: { value: 'p1' } });
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('save_profile_id', { repoId: 'r1', profileId: 'p1' }),
+    );
+  });
+
+  it('shows error message if list_profiles_for_repo fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'list_profiles_for_repo') throw new Error('No API key configured');
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByText(/no api key configured/i)).toBeInTheDocument(),
     );
   });
 });

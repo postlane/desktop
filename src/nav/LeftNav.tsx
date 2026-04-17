@@ -39,6 +39,7 @@ interface Props {
   onSettingsOpen: () => void;
   onAddRepo: () => void;
   currentView: ViewSelection;
+  refreshKey?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -391,11 +392,15 @@ function RepoRow({
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, currentView }: Props) {
+export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, currentView, refreshKey }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { repos, loadError, refresh } = useRepoData();
+
+  // Re-fetch whenever Settings adds or removes a repo.
+  useEffect(() => { if (refreshKey !== undefined) refresh(); }, [refreshKey, refresh]);
+
   useAppStateRestore(repos, setExpandedIds, onNavigate);
   const lastWatcherEvent = useMetaChangedListener(refresh);
   const stalledRepos = useWatcherHealth(repos, lastWatcherEvent);

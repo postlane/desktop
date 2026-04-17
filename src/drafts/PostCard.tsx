@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import { invoke } from '@tauri-apps/api/core';
+import { confirm } from '@tauri-apps/plugin-dialog';
+import { ChevronDownIcon } from '@heroicons/react/20/solid';
 import {
-  ChevronDownIcon,
-  XMarkIcon,
-} from '@heroicons/react/20/solid';
+  DevicePhoneMobileIcon,
+  ComputerDesktopIcon,
+} from '@heroicons/react/24/outline';
 import { Button } from '../components/catalyst/button';
 import { Badge } from '../components/catalyst/badge';
+import PostPreview from '../components/PostPreview';
 import type { DraftPost, Platform } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +36,28 @@ const PLATFORM_ORDER: Platform[] = ['x', 'bluesky', 'mastodon'];
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+const IMAGE_CDN_HOSTNAMES = new Set([
+  'images.unsplash.com',
+  'cdn.pixabay.com',
+  'images.pexels.com',
+  'lh3.googleusercontent.com',
+  'pbs.twimg.com',
+  'media.giphy.com',
+]);
+
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'];
+
+function isDirectImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (IMAGE_CDN_HOSTNAMES.has(parsed.hostname)) return true;
+    const path = parsed.pathname.toLowerCase();
+    return IMAGE_EXTENSIONS.some((ext) => path.endsWith(`.${ext}`));
+  } catch {
+    return false;
+  }
+}
 
 function triggerText(post: DraftPost): string {
   if (post.trigger) return post.trigger;
@@ -113,8 +138,27 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [postContent, setPostContent] = useState<string>('');
+  const [mobileView, setMobileView] = useState(true);
+  const [imageUrl, setImageUrl] = useState<string | null>(post.image_url ?? null);
+  const [addingImage, setAddingImage] = useState(false);
+  const [imageInput, setImageInput] = useState('');
+  const [fetchingOg, setFetchingOg] = useState(false);
+  const [ogFetchError, setOgFetchError] = useState<string | null>(null);
 
   const platforms = platformsOnPost(post);
+
+  // Fetch post content whenever the card is expanded or the active tab changes.
+  useEffect(() => {
+    if (!expanded) return;
+    invoke<string>('get_post_content', {
+      repoPath: post.repo_path,
+      postFolder: post.post_folder,
+      platform: activeTab,
+    })
+      .then((c) => setPostContent(typeof c === 'string' ? c : ''))
+      .catch(() => setPostContent(''));
+  }, [expanded, activeTab, post.repo_path, post.post_folder]);
 
   const handleApprove = useCallback(async () => {
     setApproving(true);
@@ -132,15 +176,83 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
     }
   }, [post, onApproved]);
 
-  const handleDismiss = useCallback(async () => {
+  const handleSave = useCallback(async (newContent: string) => {
     try {
-      await invoke('dismiss_post', {
+      await invoke('update_post_content', {
+        repoPath: post.repo_path,
+        postFolder: post.post_folder,
+        platform: activeTab,
+        newContent,
+      });
+      setPostContent(newContent);
+    } catch (e) {
+      console.error('update_post_content failed:', e);
+    }
+  }, [post, activeTab]);
+
+  const handleSaveImage = useCallback(async (url: string) => {
+    let resolvedUrl = url;
+    if (!isDirectImageUrl(url)) {
+      setFetchingOg(true);
+      setOgFetchError(null);
+      try {
+        const found = await invoke<string | null>('fetch_og_image', { url });
+        if (found) {
+          resolvedUrl = found;
+        } else {
+          setOgFetchError('No image found on that page. Paste a direct image URL instead.');
+          setFetchingOg(false);
+          return;
+        }
+      } catch (e) {
+        setOgFetchError(e instanceof Error ? e.message : String(e));
+        setFetchingOg(false);
+        return;
+      }
+      setFetchingOg(false);
+    }
+    try {
+      await invoke('update_post_image', {
+        repoPath: post.repo_path,
+        postFolder: post.post_folder,
+        imageUrl: resolvedUrl,
+      });
+      setImageUrl(resolvedUrl);
+      setAddingImage(false);
+      setImageInput('');
+      setOgFetchError(null);
+    } catch (e) {
+      console.error('update_post_image failed:', e);
+    }
+  }, [post]);
+
+  const handleRemoveImage = useCallback(async () => {
+    try {
+      await invoke('update_post_image', {
+        repoPath: post.repo_path,
+        postFolder: post.post_folder,
+        imageUrl: null,
+      });
+      setImageUrl(null);
+    } catch (e) {
+      console.error('update_post_image failed:', e);
+    }
+  }, [post]);
+
+  const handleDismiss = useCallback(async () => {
+    const yes = await confirm('Delete this post? This cannot be undone.', {
+      title: 'Delete post',
+      kind: 'warning',
+    });
+    if (!yes) return;
+    try {
+      await invoke('delete_post', {
         repoPath: post.repo_path,
         postFolder: post.post_folder,
       });
       onDismissed();
     } catch (e) {
-      console.error('dismiss_post failed:', e);
+      console.error('delete_post failed:', e);
     }
   }, [post, onDismissed]);
 
@@ -211,26 +323,8 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
 
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
-          {isFailed ? (
-            <Button
-              onClick={handleRetry}
-              disabled={retrying}
-              color="amber"
-            >
-              {retrying ? 'Retrying…' : 'Retry'}
-            </Button>
-          ) : (
-            <Button
-              onClick={handleApprove}
-              disabled={approving}
-              color="green"
-            >
-              {approving ? 'Approving…' : 'Approve'}
-            </Button>
-          )}
-
           <Button
-            plain
+            color="sky"
             onClick={() => setExpanded((v) => !v)}
             aria-label="Preview"
             aria-expanded={expanded}
@@ -240,17 +334,8 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
             />
             Preview
           </Button>
-
-          <Button plain onClick={handleDismiss} aria-label="Dismiss">
-            <XMarkIcon className="h-4 w-4" />
-          </Button>
         </div>
       </div>
-
-      {/* Approve error */}
-      {approveError && (
-        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{approveError}</p>
-      )}
 
       {/* Failed: error message + platform results */}
       {isFailed && post.error && (
@@ -264,25 +349,97 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
         </div>
       )}
 
-      {/* Expanded: platform tabs + preview */}
+      {/* Expanded: platform tabs + view toggle + preview */}
       {expanded && platforms.length > 0 && (
         <div className="mt-4">
-          <PlatformTabs
-            platforms={platforms}
-            active={activeTab}
-            onChange={setActiveTab}
-          />
-          <div className="mt-3 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800">
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {PLATFORM_LABELS[activeTab] ?? activeTab} preview — post content renders here (5.9)
-            </p>
-          </div>
-          {post.image_url && (
-            <img
-              src={post.image_url}
-              alt="Post image"
-              className="mt-3 h-32 w-auto rounded-lg object-cover"
+          <div className="flex items-center justify-between">
+            <PlatformTabs
+              platforms={platforms}
+              active={activeTab}
+              onChange={setActiveTab}
             />
+            <div className="flex items-center gap-1 pb-px">
+              <Button
+                plain
+                onClick={() => setMobileView(true)}
+                aria-label="Mobile view"
+                aria-pressed={mobileView}
+                className={mobileView
+                  ? 'rounded bg-zinc-200 p-0.5 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-100'
+                  : 'p-0.5 text-zinc-400 dark:text-zinc-500'}
+              >
+                <DevicePhoneMobileIcon className="h-4 w-4" />
+              </Button>
+              <Button
+                plain
+                onClick={() => setMobileView(false)}
+                aria-label="Desktop view"
+                aria-pressed={!mobileView}
+                className={!mobileView
+                  ? 'rounded bg-zinc-200 p-0.5 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-100'
+                  : 'p-0.5 text-zinc-400 dark:text-zinc-500'}
+              >
+                <ComputerDesktopIcon className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div
+            data-testid="preview-container"
+            className={`mt-3 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800 ${mobileView ? 'max-w-[375px]' : 'max-w-[600px]'}`}
+          >
+            <PostPreview
+              content={postContent}
+              platform={activeTab}
+              imageUrl={imageUrl ?? undefined}
+              onSave={handleSave}
+              onImageClick={() => {
+                setImageInput(imageUrl ?? '');
+                setAddingImage(true);
+                setOgFetchError(null);
+              }}
+              onApprove={isFailed ? handleRetry : handleApprove}
+              approveLabel={isFailed ? (retrying ? 'Retrying…' : 'Retry') : (approving ? 'Approving…' : 'Approve')}
+              onDelete={handleDismiss}
+            />
+          </div>
+
+          {/* Image URL input — shown when addingImage is true */}
+          {addingImage && (
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="url"
+                  aria-label="Image URL"
+                  placeholder="https://example.com/image.png or paste a page URL"
+                  value={imageInput}
+                  onChange={(e) => { setImageInput(e.target.value); setOgFetchError(null); }}
+                  className="flex-1 rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {imageUrl && (
+                  <Button plain onClick={handleRemoveImage} className="text-rose-700 dark:text-rose-400">
+                    Remove
+                  </Button>
+                )}
+                <Button
+                  onClick={() => handleSaveImage(imageInput)}
+                  disabled={!imageInput.startsWith('https://') || fetchingOg}
+                  aria-label="Save image"
+                >
+                  {fetchingOg ? 'Resolving…' : 'Save image'}
+                </Button>
+                <Button plain onClick={() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }}>
+                  Cancel
+                </Button>
+              </div>
+              {ogFetchError && (
+                <span className="text-xs text-amber-600 dark:text-amber-400">{ogFetchError}</span>
+              )}
+            </div>
+          )}
+
+          {/* Approve error */}
+          {approveError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{approveError}</p>
           )}
         </div>
       )}

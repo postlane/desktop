@@ -656,22 +656,117 @@ pub fn get_autostart_enabled() -> bool {
     false
 }
 
-/// Returns available scheduler profiles for a repo (stub — M4 providers implement this)
-#[derive(Serialize, Clone, Debug)]
-pub struct SchedulerProfile {
-    pub id: String,
-    pub name: String,
-    pub platforms: Vec<String>,
+/// Read the repo's config.json and return (repo_path, provider_name).
+/// Testable without AppHandle — the keyring and provider calls are in the Tauri command.
+pub fn get_repo_config_impl(
+    repo_id: &str,
+    state: &AppState,
+) -> Result<(String, String), String> {
+    let repos = state.repos.lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    let repo = repos.repos.iter()
+        .find(|r| r.id == repo_id)
+        .ok_or_else(|| format!("Repo '{}' not in registered repos", repo_id))?;
+
+    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+
+    let config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+    let provider_name = config["scheduler"]["provider"]
+        .as_str()
+        .ok_or("scheduler.provider not set in config.json")?
+        .to_string();
+
+    Ok((repo.path.clone(), provider_name))
 }
 
 #[tauri::command]
-pub fn list_profiles_for_repo(
-    _repo_id: String,
-    _state: State<'_, AppState>,
-) -> Result<Vec<SchedulerProfile>, String> {
-    // In M4 this calls the scheduling provider's list_profiles().
-    // Returns empty list if no credential is configured (caller checks the credential separately).
-    Ok(vec![])
+pub async fn list_profiles_for_repo(
+    repo_id: String,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<crate::providers::scheduling::SchedulerProfile>, String> {
+    use crate::commands::get_credential_keyring_key;
+    use crate::providers::scheduling::{ProviderError, SchedulingProvider};
+    use crate::providers::scheduling::ayrshare::AyrshareProvider;
+    use crate::providers::scheduling::buffer::BufferProvider;
+    use crate::providers::scheduling::zernio::ZernioProvider;
+    use tauri_plugin_keyring::KeyringExt;
+
+    let (_repo_path, provider_name) = get_repo_config_impl(&repo_id, &state)?;
+
+    let keyring_keys = get_credential_keyring_key(&provider_name, Some(&repo_id));
+    let mut api_key: Option<String> = None;
+    for key in &keyring_keys {
+        if let Ok(Some(k)) = app.keyring().get_password("postlane", key) {
+            api_key = Some(k);
+            break;
+        }
+    }
+    let api_key = api_key.ok_or_else(|| {
+        format!("No {} API key configured. Add it in Settings → Scheduler.", provider_name)
+    })?;
+
+    let provider: Box<dyn SchedulingProvider> = match provider_name.as_str() {
+        "zernio" => Box::new(ZernioProvider::new(api_key)),
+        "buffer" => Box::new(BufferProvider::new(api_key)),
+        "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
+        other => return Err(format!("Unknown scheduler provider: {}", other)),
+    };
+
+    provider.list_profiles().await.map_err(|e: ProviderError| e.to_string())
+}
+
+/// Write a profile_id into a repo's config.json, preserving all other fields.
+/// Uses an atomic write (tmp → rename) to prevent partial writes on crash.
+pub fn save_profile_id_impl(config_path: &std::path::Path, profile_id: &str) -> Result<(), String> {
+    if !config_path.exists() {
+        return Err(format!("config.json not found at {}", config_path.display()));
+    }
+
+    let content = fs::read_to_string(config_path)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+
+    let mut config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+    if !config["scheduler"].is_object() {
+        return Err("config.json is missing the 'scheduler' block".to_string());
+    }
+
+    config["scheduler"]["profile_id"] = serde_json::json!(profile_id);
+
+    let serialized = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config.json: {}", e))?;
+
+    let tmp_path = config_path.with_extension("tmp");
+    fs::write(&tmp_path, &serialized)
+        .map_err(|e| format!("Failed to write temp config: {}", e))?;
+    fs::rename(&tmp_path, config_path)
+        .map_err(|e| format!("Failed to rename temp config: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_profile_id(
+    repo_id: String,
+    profile_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let repos = state.repos.lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+
+    let repo = repos.repos.iter()
+        .find(|r| r.id == repo_id)
+        .ok_or_else(|| format!("Repo '{}' not in registered repos", repo_id))?;
+
+    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
+    save_profile_id_impl(&config_path, &profile_id)
 }
 
 #[tauri::command]
@@ -892,6 +987,165 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].total_posts, 5);
         assert_eq!(result[0].edited_posts, 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // save_profile_id_impl tests
+    // ------------------------------------------------------------------
+
+    fn write_config(dir: &std::path::Path, json: &str) -> PathBuf {
+        let config_dir = dir.join(".postlane");
+        fs::create_dir_all(&config_dir).expect("create .postlane dir");
+        let config_path = config_dir.join("config.json");
+        fs::write(&config_path, json).expect("write config.json");
+        config_path
+    }
+
+    #[test]
+    fn test_save_profile_id_writes_profile_id_to_config() {
+        let dir = std::env::temp_dir().join("postlane_test_save_profile_id");
+        let config_path = write_config(&dir, r#"{
+            "version": 1,
+            "platforms": ["x", "bluesky"],
+            "scheduler": { "provider": "zernio", "profile_id": "" }
+        }"#);
+
+        save_profile_id_impl(&config_path, "profile-abc123").expect("should succeed");
+
+        let content = fs::read_to_string(&config_path).expect("read config");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["profile_id"].as_str(), Some("profile-abc123"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_profile_id_preserves_other_config_fields() {
+        let dir = std::env::temp_dir().join("postlane_test_save_profile_id_preserve");
+        let config_path = write_config(&dir, r#"{
+            "version": 1,
+            "base_url": "https://postlane.dev",
+            "platforms": ["x", "bluesky"],
+            "repo_type": "saas-product",
+            "scheduler": { "provider": "zernio", "profile_id": "" },
+            "llm": { "provider": "anthropic", "model": "claude-sonnet-4-6" }
+        }"#);
+
+        save_profile_id_impl(&config_path, "new-profile").expect("should succeed");
+
+        let content = fs::read_to_string(&config_path).expect("read config");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["version"].as_i64(), Some(1));
+        assert_eq!(config["base_url"].as_str(), Some("https://postlane.dev"));
+        assert_eq!(config["repo_type"].as_str(), Some("saas-product"));
+        assert_eq!(config["scheduler"]["provider"].as_str(), Some("zernio"));
+        assert_eq!(config["llm"]["model"].as_str(), Some("claude-sonnet-4-6"));
+        assert_eq!(config["scheduler"]["profile_id"].as_str(), Some("new-profile"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_profile_id_errors_when_config_missing() {
+        let result = save_profile_id_impl(
+            std::path::Path::new("/nonexistent/path/.postlane/config.json"),
+            "some-profile",
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_save_profile_id_errors_when_no_scheduler_block() {
+        let dir = std::env::temp_dir().join("postlane_test_save_profile_no_scheduler");
+        let config_path = write_config(&dir, r#"{ "version": 1, "platforms": ["x"] }"#);
+
+        let result = save_profile_id_impl(&config_path, "profile-abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("scheduler"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_save_profile_id_rejects_unregistered_repo() {
+        let state = make_state(vec![]);
+        // Call the impl directly — unregistered repo_id must return an error
+        let repos = state.repos.lock().expect("lock");
+        let result: Result<(), String> = repos.repos.iter()
+            .find(|r| r.id == "nonexistent")
+            .map(|_| Ok(()))
+            .unwrap_or_else(|| Err(format!("Repo '{}' not in registered repos", "nonexistent")));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not in registered repos"));
+    }
+
+    // ------------------------------------------------------------------
+    // get_repo_config_impl tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_get_repo_config_returns_provider_and_path() {
+        let dir = std::env::temp_dir().join("postlane_test_get_repo_config");
+        write_config(&dir, r#"{
+            "version": 1,
+            "scheduler": { "provider": "zernio", "profile_id": "" }
+        }"#);
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "My Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_repo_config_impl("r1", &state).expect("should succeed");
+        assert_eq!(result.0, dir.to_str().unwrap());
+        assert_eq!(result.1, "zernio");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_repo_config_errors_on_missing_repo() {
+        let state = make_state(vec![]);
+        let result = get_repo_config_impl("nonexistent", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not in registered repos"));
+    }
+
+    #[test]
+    fn test_get_repo_config_errors_on_missing_config_file() {
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "My Repo".to_string(),
+            path: "/nonexistent/path/that/cannot/exist".to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        let result = get_repo_config_impl("r1", &state);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_repo_config_errors_when_provider_missing_from_config() {
+        let dir = std::env::temp_dir().join("postlane_test_get_repo_config_no_provider");
+        write_config(&dir, r#"{ "version": 1, "platforms": ["x"] }"#);
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "My Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_repo_config_impl("r1", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("scheduler.provider"));
+
         let _ = fs::remove_dir_all(&dir);
     }
 

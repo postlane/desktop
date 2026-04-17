@@ -9,10 +9,11 @@ import { Button } from '../components/catalyst/button';
 import {
   Dialog,
   DialogActions,
+  DialogBody,
   DialogDescription,
   DialogTitle,
 } from '../components/catalyst/dialog';
-import type { RepoWithStatus } from '../types';
+import type { RepoWithStatus, SchedulerProfile } from '../types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,11 +36,66 @@ interface CredentialState {
 interface Props {
   onClose: () => void;
   onTimezoneChange?: (tz: string) => void;
+  onRepoChange?: () => void;
 }
 
 // ---------------------------------------------------------------------------
 // Repos tab
 // ---------------------------------------------------------------------------
+
+interface ProfileSelectorProps {
+  repoId: string;
+}
+
+function ProfileSelector({ repoId }: ProfileSelectorProps) {
+  const [profiles, setProfiles] = useState<SchedulerProfile[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<SchedulerProfile[]>('list_profiles_for_repo', { repoId })
+      .then(setProfiles)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [repoId]);
+
+  async function handleChange(profileId: string) {
+    setSelectedId(profileId);
+    try {
+      await invoke('save_profile_id', { repoId, profileId });
+    } catch (e) {
+      console.error('save_profile_id failed:', e);
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
+      <label
+        htmlFor={`profile-${repoId}`}
+        className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
+      >
+        Posting account
+      </label>
+      {error ? (
+        <p className="text-xs text-red-500">{error}</p>
+      ) : profiles.length === 0 ? (
+        <p className="text-xs text-zinc-400">No account selected</p>
+      ) : (
+        <select
+          id={`profile-${repoId}`}
+          aria-label="Posting account"
+          value={selectedId}
+          onChange={(e) => handleChange(e.target.value)}
+          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <option value="">No account selected</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
 
 function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
   const [repos, setRepos] = useState<RepoWithStatus[]>([]);
@@ -159,6 +215,7 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
                   )}
                 </div>
               </div>
+              {!isNotFound && <ProfileSelector repoId={repo.id} />}
             </div>
           );
         })}
@@ -198,6 +255,8 @@ function SchedulerTab() {
     buffer: { preview: null, testing: false, testResult: null, testError: null, adding: false, keyInput: '' },
     ayrshare: { preview: null, testing: false, testResult: null, testError: null, adding: false, keyInput: '' },
   });
+  const [removeConfirmProvider, setRemoveConfirmProvider] = useState<Provider | null>(null);
+  const [removeConfirmInput, setRemoveConfirmInput] = useState('');
 
   useEffect(() => {
     PROVIDERS.forEach(async (provider) => {
@@ -232,9 +291,21 @@ function SchedulerTab() {
     try {
       await invoke('delete_scheduler_credential', { provider });
       update(provider, { preview: null, testResult: null });
+      setRemoveConfirmProvider(null);
+      setRemoveConfirmInput('');
     } catch (e) {
       console.error('delete credential failed:', e);
     }
+  }
+
+  function openRemoveConfirm(provider: Provider) {
+    setRemoveConfirmInput('');
+    setRemoveConfirmProvider(provider);
+  }
+
+  function closeRemoveConfirm() {
+    setRemoveConfirmProvider(null);
+    setRemoveConfirmInput('');
   }
 
   async function handleTest(provider: Provider) {
@@ -253,7 +324,18 @@ function SchedulerTab() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Scheduler</h2>
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Default scheduler</h2>
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        These credentials apply to all repos by default. Per-repo scheduler accounts
+        (for separate businesses or clients) will be configurable in v1.1 via
+        Settings → Repos → Configure.
+      </p>
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
+        <strong>macOS Keychain:</strong> When you save an API key, macOS will ask for
+        your login password to store it securely. Enter your password and click{' '}
+        <strong>Always Allow</strong> — this is a one-time prompt per key.
+        Your API keys are stored in Keychain, never in any file on disk.
+      </div>
       {PROVIDERS.map((provider) => {
         const c = creds[provider];
         return (
@@ -282,7 +364,7 @@ function SchedulerTab() {
                     <Button outline onClick={() => update(provider, { adding: true })}>
                       Change
                     </Button>
-                    <Button outline onClick={() => handleRemove(provider)}>
+                    <Button outline onClick={() => openRemoveConfirm(provider)}>
                       Remove
                     </Button>
                   </>
@@ -311,6 +393,37 @@ function SchedulerTab() {
           </div>
         );
       })}
+      {/* Type-to-confirm removal dialog */}
+      <Dialog open={removeConfirmProvider !== null} onClose={closeRemoveConfirm}>
+        <DialogTitle>Remove {removeConfirmProvider} API key</DialogTitle>
+        <DialogDescription>
+          This will permanently delete the API key from your macOS Keychain.
+          Any repos using {removeConfirmProvider} will stop working until a new key is added.
+        </DialogDescription>
+        <DialogBody>
+          <p className="mb-2 text-sm text-zinc-700 dark:text-zinc-300">
+            Type <strong>{removeConfirmProvider}</strong> to confirm:
+          </p>
+          <input
+            type="text"
+            value={removeConfirmInput}
+            onChange={(e) => setRemoveConfirmInput(e.target.value)}
+            placeholder={removeConfirmProvider ?? ''}
+            className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            autoFocus
+          />
+        </DialogBody>
+        <DialogActions>
+          <Button plain onClick={closeRemoveConfirm}>Cancel</Button>
+          <Button
+            color="red"
+            disabled={removeConfirmInput !== removeConfirmProvider}
+            onClick={() => removeConfirmProvider && handleRemove(removeConfirmProvider)}
+          >
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }
@@ -459,7 +572,7 @@ function AppTab({ onTimezoneChange }: { onTimezoneChange?: (tz: string) => void 
 // Main panel
 // ---------------------------------------------------------------------------
 
-export default function SettingsPanel({ onClose, onTimezoneChange }: Props) {
+export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('repos');
 
   return (
@@ -492,7 +605,7 @@ export default function SettingsPanel({ onClose, onTimezoneChange }: Props) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'repos' && <ReposTab onRepoChange={() => {}} />}
+        {activeTab === 'repos' && <ReposTab onRepoChange={() => onRepoChange?.()} />}
         {activeTab === 'scheduler' && <SchedulerTab />}
         {activeTab === 'app' && <AppTab onTimezoneChange={onTimezoneChange} />}
       </div>

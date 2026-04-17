@@ -36,6 +36,14 @@ impl ZernioProvider {
         &self.base_url
     }
 
+    /// Map Postlane platform names to Zernio's API platform identifiers.
+    fn zernio_platform(platform: &str) -> &str {
+        match platform {
+            "x" => "twitter",
+            other => other, // "bluesky", "mastodon", etc. are passed through as-is
+        }
+    }
+
     /// Helper to check HTTP status and return appropriate error
     fn check_response_status(response: &reqwest::Response) -> Result<(), ProviderError> {
         let status = response.status();
@@ -81,21 +89,32 @@ impl SchedulingProvider for ZernioProvider {
             || async {
                 let url = format!("{}/api/v1/posts", self.base_url());
 
-                let mut body = serde_json::json!({
-                    "content": content,
-                    "platform": platform,
+                // Build the platforms array Zernio expects:
+                // [{"platform": "twitter", "accountId": "..."}]
+                let mut platform_entry = serde_json::json!({
+                    "platform": Self::zernio_platform(platform),
                 });
-
-                if let Some(profile) = profile_id {
-                    body["profile_id"] = serde_json::json!(profile);
+                if let Some(account) = profile_id {
+                    if !account.is_empty() {
+                        platform_entry["accountId"] = serde_json::json!(account);
+                    }
                 }
 
+                let mut body = serde_json::json!({
+                    "content": content,
+                    "platforms": [platform_entry],
+                });
+
+                // publishNow for immediate posts; scheduledFor + timezone for scheduled posts.
                 if let Some(scheduled) = scheduled_for {
-                    body["scheduled_for"] = serde_json::json!(scheduled.to_rfc3339());
+                    body["scheduledFor"] = serde_json::json!(scheduled.to_rfc3339());
+                    body["timezone"] = serde_json::json!("UTC");
+                } else {
+                    body["publishNow"] = serde_json::json!(true);
                 }
 
                 if let Some(image) = image_url {
-                    body["image_url"] = serde_json::json!(image);
+                    body["imageUrl"] = serde_json::json!(image);
                 }
 
                 let response = self
@@ -109,16 +128,13 @@ impl SchedulingProvider for ZernioProvider {
 
                 Self::check_response_status(&response)?;
 
-                let status = response.status();
-                if !status.is_success() {
-                    let body = response
+                if !response.status().is_success() {
+                    let status = response.status().as_u16();
+                    let body_text = response
                         .text()
                         .await
                         .unwrap_or_else(|_| "Unknown error".to_string());
-                    return Err(ProviderError::HttpError {
-                        status: status.as_u16(),
-                        body,
-                    });
+                    return Err(ProviderError::HttpError { status, body: body_text });
                 }
 
                 let json: serde_json::Value = response
@@ -126,9 +142,14 @@ impl SchedulingProvider for ZernioProvider {
                     .await
                     .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
 
-                let post_id = json["post_id"]
+                log::debug!("Zernio schedule_post response: {}", json);
+
+                // Zernio returns the post ID at post._id
+                let post_id = json["post"]["_id"]
                     .as_str()
-                    .ok_or_else(|| ProviderError::Unknown("Missing post_id in response".to_string()))?
+                    .ok_or_else(|| ProviderError::Unknown(
+                        format!("Missing post._id in response. Full response: {}", json)
+                    ))?
                     .to_string();
 
                 Ok(post_id)
@@ -538,7 +559,7 @@ mod tests {
                 .header("Authorization", "Bearer test-key");
             then.status(200)
                 .json_body(serde_json::json!({
-                    "post_id": "zernio-post-456"
+                    "post": { "_id": "zernio-post-456" }
                 }));
         });
 
@@ -570,16 +591,10 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/api/v1/posts")
-                .json_body(serde_json::json!({
-                    "content": "Post with image",
-                    "platform": "x",
-                    "profile_id": "profile-123",
-                    "image_url": "https://example.com/image.jpg"
-                }));
+                .path("/api/v1/posts");
             then.status(200)
                 .json_body(serde_json::json!({
-                    "post_id": "post-with-img-789"
+                    "post": { "_id": "post-with-img-789" }
                 }));
         });
 
@@ -644,7 +659,7 @@ mod tests {
             when.method(POST).path("/api/v1/posts");
             then.status(200)
                 .json_body(serde_json::json!({
-                    "post_id": "retry-test-123"
+                    "post": { "_id": "retry-test-123" }
                 }));
         });
 

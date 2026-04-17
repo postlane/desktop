@@ -45,6 +45,18 @@ impl std::fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
+impl ProviderError {
+    /// Returns true for transient errors that are safe to retry.
+    /// Unknown errors are NOT retried — the request likely already succeeded
+    /// on the provider's side, so retrying would create duplicate posts.
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            ProviderError::NetworkError(_) | ProviderError::RateLimit(_)
+        ) || matches!(self, ProviderError::HttpError { status, .. } if *status >= 500)
+    }
+}
+
 /// Scheduler profile (social media account connected to the scheduler)
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SchedulerProfile {
@@ -140,20 +152,19 @@ where
         match f().await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                attempt += 1;
-
-                if attempt > max_retries {
-                    // No more retries - return the last error
+                if !e.is_retryable() {
                     return Err(e);
                 }
 
-                // Determine wait duration
+                attempt += 1;
+
+                if attempt > max_retries {
+                    return Err(e);
+                }
+
                 let wait_duration = match &e {
                     ProviderError::RateLimit(duration) => *duration,
-                    _ => {
-                        // Exponential backoff: 1s, 2s, 4s
-                        Duration::from_secs(2u64.pow(attempt - 1))
-                    }
+                    _ => Duration::from_secs(2u64.pow(attempt - 1)),
                 };
 
                 tokio::time::sleep(wait_duration).await;

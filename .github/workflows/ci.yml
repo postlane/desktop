@@ -41,6 +41,9 @@ jobs:
         run: cargo clippy -- -D warnings
         working-directory: src-tauri
 
+      - name: Vitest
+        run: npx vitest run
+
       - name: Frontend lint
         run: npm run lint
 

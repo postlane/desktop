@@ -454,6 +454,73 @@ pub fn dismiss_post(
     dismiss_post_impl(&repo_path, &post_folder)
 }
 
+/// Permanently removes a post folder from disk.
+pub fn delete_post_impl(repo_path: &str, post_folder: &str) -> Result<(), String> {
+    if post_folder.contains('/') || post_folder.contains('\\') || post_folder.contains("..") {
+        return Err("Invalid post folder: must not contain path separators or '..'".to_string());
+    }
+
+    let post_path = PathBuf::from(repo_path)
+        .join(".postlane/posts")
+        .join(post_folder);
+
+    if !post_path.exists() {
+        return Err(format!("Post folder not found: {}", post_path.display()));
+    }
+
+    fs::remove_dir_all(&post_path)
+        .map_err(|e| format!("Failed to delete post: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_post(repo_path: String, post_folder: String) -> Result<(), String> {
+    delete_post_impl(&repo_path, &post_folder)
+}
+
+/// Read the Markdown content of a single platform post file.
+///
+/// `platform` is validated against the allowed list before use to prevent
+/// path traversal via the platform parameter.
+/// `post_folder` is validated to contain no path separators or `..`.
+pub fn get_post_content_impl(
+    repo_path: &str,
+    post_folder: &str,
+    platform: &str,
+) -> Result<String, String> {
+    const VALID_PLATFORMS: &[&str] = &["x", "bluesky", "mastodon"];
+    if !VALID_PLATFORMS.contains(&platform) {
+        return Err(format!(
+            "Invalid platform: '{}'. Must be one of: x, bluesky, mastodon",
+            platform
+        ));
+    }
+
+    if post_folder.contains('/') || post_folder.contains('\\') || post_folder.contains("..") {
+        return Err("Invalid post folder: must not contain path separators or '..'".to_string());
+    }
+
+    let file_path = PathBuf::from(repo_path)
+        .join(".postlane/posts")
+        .join(post_folder)
+        .join(format!("{}.md", platform));
+
+    std::fs::read_to_string(&file_path).map_err(|e| {
+        format!("Failed to read post content at {}: {}", file_path.display(), e)
+    })
+}
+
+/// Tauri command wrapper for get_post_content
+#[tauri::command]
+pub fn get_post_content(
+    repo_path: String,
+    post_folder: String,
+    platform: String,
+) -> Result<String, String> {
+    get_post_content_impl(&repo_path, &post_folder, &platform)
+}
+
 /// Retry a failed post (only retry failed platforms)
 /// This is the testable implementation
 pub fn retry_post_impl(
@@ -769,6 +836,7 @@ fn start_repo_watcher(
                 if let Err(emit_err) = app_handle.emit("meta-changed", payload.clone()) {
                     log::warn!("Failed to emit meta-changed: {}", emit_err);
                 }
+                crate::tray::refresh_tray(&app_handle);
             }
         },
     ) {

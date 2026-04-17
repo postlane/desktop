@@ -3928,6 +3928,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
+ "url",
  "uuid",
 ]
 
@@ -5348,6 +5349,7 @@ dependencies = [
  "gtk",
  "heck 0.5.0",
  "http 1.4.0",
+ "image",
  "jni",
  "libc",
  "log",

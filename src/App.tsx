@@ -28,6 +28,7 @@ function MainContent({
   onNudgeDismissed,
   onNavigateToRepo,
   onTimezoneChange,
+  onRepoChange,
 }: {
   view: ViewSelection;
   settingsOpen: boolean;
@@ -36,8 +37,9 @@ function MainContent({
   onNudgeDismissed: () => void;
   onNavigateToRepo: (repoId: string) => void;
   onTimezoneChange: (tz: string) => void;
+  onRepoChange: () => void;
 }) {
-  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} onTimezoneChange={onTimezoneChange} />;
+  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} onTimezoneChange={onTimezoneChange} onRepoChange={onRepoChange} />;
 
   if (view.view === 'all_repos') {
     return view.section === 'published'
@@ -58,6 +60,7 @@ export default function App() {
   const [showWizard, setShowWizard] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [timezone, setTimezone] = useState<string>('');
+  const [repoVersion, setRepoVersion] = useState(0);
 
   // Load timezone from app state on startup
   useEffect(() => {
@@ -149,6 +152,7 @@ export default function App() {
         onNavigate={(sel) => { setCurrentView(sel); setSettingsOpen(false); }}
         onSettingsOpen={() => setSettingsOpen(true)}
         onAddRepo={() => setShowAddRepo(true)}
+        refreshKey={repoVersion}
       />
       {showAddRepo && (
         <AddRepoModal onClose={() => setShowAddRepo(false)} />
@@ -161,6 +165,7 @@ export default function App() {
           onCloseSettings={() => setSettingsOpen(false)}
           onNudgeDismissed={() => setPostWizardNudge(false)}
           onTimezoneChange={setTimezone}
+          onRepoChange={() => setRepoVersion((v) => v + 1)}
           onNavigateToRepo={(repoId) => {
             setCurrentView({ view: 'repo', repoId, section: 'published' });
             setSettingsOpen(false);

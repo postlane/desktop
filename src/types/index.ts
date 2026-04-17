@@ -40,6 +40,13 @@ export interface AppStateFile {
   timezone: string;
 }
 
+/** Mirrors providers::scheduling::SchedulerProfile */
+export interface SchedulerProfile {
+  id: string;
+  name: string;
+  platforms: string[];
+}
+
 export type Section = 'drafts' | 'published';
 export type NavView = 'all_repos' | 'repo';
 

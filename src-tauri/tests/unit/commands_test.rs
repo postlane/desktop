@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use postlane_desktop_lib::app_state::AppState;
-use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, check_repo_health_impl, dismiss_post_impl, export_history_csv_impl, get_drafts_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
+use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, check_repo_health_impl, delete_post_impl, dismiss_post_impl, export_history_csv_impl, get_drafts_impl, get_post_content_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
 use postlane_desktop_lib::init;
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
@@ -372,6 +372,47 @@ mod dismiss_post_tests {
         );
 
         // Assert: Should fail
+        assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod delete_post_tests {
+    use super::*;
+
+    #[test]
+    fn test_delete_post_removes_folder() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        let post_folder = repo_path.join(".postlane/posts/post1");
+        fs::create_dir_all(&post_folder).unwrap();
+        fs::write(post_folder.join("x.md"), "Hello").unwrap();
+
+        let result = delete_post_impl(repo_path.to_str().unwrap(), "post1");
+
+        assert!(result.is_ok());
+        assert!(!post_folder.exists());
+    }
+
+    #[test]
+    fn test_delete_post_rejects_path_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let result = delete_post_impl(repo_path.to_str().unwrap(), "../evil");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_delete_post_errors_when_folder_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo_path = temp_dir.path().join("repo1");
+        fs::create_dir_all(&repo_path).unwrap();
+
+        let result = delete_post_impl(repo_path.to_str().unwrap(), "nonexistent");
+
         assert!(result.is_err());
     }
 }
@@ -1257,5 +1298,74 @@ mod provider_instantiation_tests {
         // Scheduler should remain None (no credential = no instantiation)
         let scheduler = app_state.scheduler.lock().await;
         assert!(scheduler.is_none(), "Scheduler should remain None without credential");
+    }
+}  // end provider_instantiation_tests
+
+// ---------------------------------------------------------------------------
+// get_post_content_impl tests
+// ---------------------------------------------------------------------------
+
+mod get_post_content_tests {
+    use super::*;
+
+    fn setup_post(platform: &str, content: &str) -> (tempfile::TempDir, String, String) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let post_folder = "20260416-test-post";
+        let repo_path = tmp.path().to_str().unwrap().to_string();
+        let post_dir = tmp.path()
+            .join(".postlane/posts")
+            .join(post_folder);
+        fs::create_dir_all(&post_dir).unwrap();
+        fs::write(post_dir.join(format!("{}.md", platform)), content).unwrap();
+        (tmp, repo_path, post_folder.to_string())
+    }
+
+    #[test]
+    fn test_get_post_content_returns_x_content() {
+        let content = "Timezone support shipped. Set it in Settings.";
+        let (_tmp, repo_path, post_folder) = setup_post("x", content);
+        let result = get_post_content_impl(&repo_path, &post_folder, "x");
+        assert!(result.is_ok(), "Should read x.md successfully");
+        assert_eq!(result.unwrap(), content);
+    }
+
+    #[test]
+    fn test_get_post_content_returns_bluesky_content() {
+        let content = "**Timezone support** shipped. Set it in Settings.";
+        let (_tmp, repo_path, post_folder) = setup_post("bluesky", content);
+        let result = get_post_content_impl(&repo_path, &post_folder, "bluesky");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), content);
+    }
+
+    #[test]
+    fn test_get_post_content_rejects_invalid_platform() {
+        let (_tmp, repo_path, post_folder) = setup_post("x", "content");
+        let result = get_post_content_impl(&repo_path, &post_folder, "twitter");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid platform"));
+    }
+
+    #[test]
+    fn test_get_post_content_rejects_path_traversal_in_platform() {
+        let (_tmp, repo_path, post_folder) = setup_post("x", "content");
+        let result = get_post_content_impl(&repo_path, &post_folder, "../../../etc/passwd");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_post_content_rejects_path_traversal_in_post_folder() {
+        let (_tmp, repo_path, _) = setup_post("x", "content");
+        let result = get_post_content_impl(&repo_path, "../../etc", "x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid post folder"));
+    }
+
+    #[test]
+    fn test_get_post_content_missing_file_returns_err() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let repo_path = tmp.path().to_str().unwrap();
+        let result = get_post_content_impl(repo_path, "nonexistent-post", "x");
+        assert!(result.is_err());
     }
 }

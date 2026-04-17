@@ -2,6 +2,8 @@
 
 pub mod app_state;
 pub mod commands;
+pub mod post_editor;
+pub mod tray;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
@@ -35,6 +37,9 @@ pub fn run() {
         .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            tray::handle_menu_event(app, event.id.0.as_str());
+        })
         .setup(|app| {
             // Load repos from disk
             let repos_path = init::postlane_dir()?.join("repos.json");
@@ -56,6 +61,22 @@ pub fn run() {
 
             // Manage AppState
             app.manage(app_state);
+
+            // Set up system tray (reads AppState, so must come after manage).
+            tray::setup_tray(app.handle())
+                .map_err(|e| format!("Failed to set up tray: {}", e))?;
+
+            // Hide the main window on close rather than quitting — the app
+            // lives in the tray and the user quits via "Quit" in the tray menu.
+            if let Some(window) = app.get_webview_window("main") {
+                let win = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win.hide();
+                    }
+                });
+            }
 
             // Eagerly instantiate provider if credentials exist
             // This eliminates first-send delay when user already has credentials configured
@@ -105,11 +126,14 @@ pub fn run() {
             nav_commands::get_app_version,
             nav_commands::get_autostart_enabled,
             nav_commands::list_profiles_for_repo,
+            nav_commands::save_profile_id,
             nav_commands::read_app_state_command,
             nav_commands::save_app_state_command,
             commands::get_drafts,
             commands::approve_post,
+            commands::get_post_content,
             commands::dismiss_post,
+            commands::delete_post,
             commands::retry_post,
             commands::add_repo,
             commands::remove_repo,
@@ -124,6 +148,9 @@ pub fn run() {
             commands::get_queue_command,
             commands::export_history_csv,
             commands::update_repo_path,
+            post_editor::update_post_content,
+            post_editor::update_post_image,
+            post_editor::fetch_og_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
