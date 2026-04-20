@@ -156,6 +156,36 @@ describe('Wizard — Step 2', () => {
       expect(screen.getByText(/you're ready/i)).toBeInTheDocument(),
     );
   });
+
+  it('"Change scheduler" resets to input form when credential exists', async () => {
+    await goToStep2(true);
+    fireEvent.click(screen.getByRole('button', { name: /change scheduler/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('combobox')).toBeInTheDocument(),
+    );
+  });
+
+  it('Test connection shows ✓ on success', async () => {
+    await goToStep2(false);
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'test_scheduler') return true;
+      return null;
+    });
+    fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
+    await waitFor(() => expect(screen.getByText('✓')).toBeInTheDocument());
+  });
+
+  it('Test connection shows error message on failure', async () => {
+    await goToStep2(false);
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'test_scheduler') throw new Error('Invalid API key');
+      return null;
+    });
+    fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/invalid api key/i)).toBeInTheDocument(),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -222,5 +252,71 @@ describe('Wizard — Step 3', () => {
     await waitFor(() =>
       expect(screen.getByText(/press ctrl\+c to copy/i)).toBeInTheDocument(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 1 — "No" branch navigation
+// ---------------------------------------------------------------------------
+
+describe('Wizard — Step 1 "No" branch', () => {
+  it('"← Back" in the No branch returns to the opening question', async () => {
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /no/i }));
+    await screen.findByText(/npx postlane init/i);
+    fireEvent.click(screen.getByRole('button', { name: /← back/i }));
+    expect(await screen.findByText(/have you already run/i)).toBeInTheDocument();
+  });
+
+  it('"Add repo" button in the No branch switches to the Yes path', async () => {
+    mockOpenDialog.mockResolvedValue(null);
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /no/i }));
+    await screen.findByText(/npx postlane init/i);
+    fireEvent.click(screen.getByRole('button', { name: /add repo/i }));
+    expect(await screen.findByRole('button', { name: /browse for the folder/i })).toBeInTheDocument();
+  });
+
+  it('"← Back" in the Yes branch returns to the opening question', async () => {
+    mockOpenDialog.mockResolvedValue(null);
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
+    await screen.findByRole('button', { name: /browse for the folder/i });
+    fireEvent.click(screen.getByRole('button', { name: /← back/i }));
+    expect(await screen.findByText(/have you already run/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 2 — provider / API key inputs
+// ---------------------------------------------------------------------------
+
+describe('Wizard — Step 2 inputs', () => {
+  async function goToStep2NoCredential() {
+    mockOpenDialog.mockResolvedValue('/valid/repo');
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      return null;
+    });
+    renderWizard();
+    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
+    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
+    fireEvent.click(browse);
+    await screen.findByText(/connect a scheduler/i);
+  }
+
+  it('changing the provider select updates it', async () => {
+    await goToStep2NoCredential();
+    const select = screen.getByRole('combobox');
+    fireEvent.change(select, { target: { value: 'Buffer' } });
+    expect((select as HTMLSelectElement).value).toBe('Buffer');
+  });
+
+  it('typing an API key updates the input', async () => {
+    await goToStep2NoCredential();
+    const input = screen.getByPlaceholderText(/api key/i);
+    fireEvent.change(input, { target: { value: 'sk-test-abc' } });
+    expect((input as HTMLInputElement).value).toBe('sk-test-abc');
   });
 });

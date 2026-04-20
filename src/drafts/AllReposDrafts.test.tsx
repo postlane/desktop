@@ -94,6 +94,21 @@ describe('AllReposDraftsView — approve all ready', () => {
     );
   });
 
+  it('Cancel button in approve-all dialog closes it', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+    ]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+  });
+
   it('does not show "Approve all ready" with only 1 ready post', async () => {
     mockInvoke.mockResolvedValue([makePost()]);
     render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
@@ -153,5 +168,102 @@ describe('AllReposDraftsView — Cmd+Enter shortcut', () => {
     await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
     fireEvent.keyDown(document, { key: 'Enter', metaKey: true });
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  });
+
+  it('Cmd+Enter does nothing when fewer than 2 ready posts', async () => {
+    mockInvoke.mockResolvedValue([makePost()]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByText('Test post'));
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WizardNudge
+// ---------------------------------------------------------------------------
+
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({ writeText: vi.fn() }));
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+const mockWriteText = vi.mocked(writeText);
+
+describe('AllReposDraftsView — WizardNudge', () => {
+  it('shows nudge when postWizardNudge is true', () => {
+    mockInvoke.mockResolvedValue([]);
+    render(<AllReposDraftsView postWizardNudge={true} onNudgeDismissed={vi.fn()} />);
+    expect(screen.getByText(/you're set up/i)).toBeInTheDocument();
+    expect(screen.getByText('/draft-post')).toBeInTheDocument();
+  });
+
+  it('Dismiss button calls onNudgeDismissed', () => {
+    const onDismiss = vi.fn();
+    mockInvoke.mockResolvedValue([]);
+    render(<AllReposDraftsView postWizardNudge={true} onNudgeDismissed={onDismiss} />);
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it('Copy button writes /draft-post to clipboard', async () => {
+    mockWriteText.mockResolvedValue(undefined);
+    mockInvoke.mockResolvedValue([]);
+    render(<AllReposDraftsView postWizardNudge={true} onNudgeDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    expect(mockWriteText).toHaveBeenCalledWith('/draft-post');
+    await waitFor(() => expect(screen.getByText(/copied/i)).toBeInTheDocument());
+  });
+
+  it('Copy fallback shown when clipboard fails', async () => {
+    mockWriteText.mockRejectedValue(new Error('no clipboard'));
+    mockInvoke.mockResolvedValue([]);
+    render(<AllReposDraftsView postWizardNudge={true} onNudgeDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/press ctrl\+c/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approve all — error path
+// ---------------------------------------------------------------------------
+
+describe('AllReposDraftsView — approve all with failure', () => {
+  it('continues after a post fails to approve', async () => {
+    const drafts = [
+      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+    ];
+    let callCount = 0;
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_drafts') return drafts;
+      if (cmd === 'approve_post') {
+        callCount++;
+        if (callCount === 1) throw new Error('Scheduler timeout');
+        return { success: true };
+      }
+      return null;
+    });
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({ postFolder: 'p2' })),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fetch error
+// ---------------------------------------------------------------------------
+
+describe('AllReposDraftsView — fetch error', () => {
+  it('shows empty state and does not crash when get_all_drafts fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('DB locked'));
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByText(/no drafts waiting/i)).toBeInTheDocument(),
+    );
   });
 });

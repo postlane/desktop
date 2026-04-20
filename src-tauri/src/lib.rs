@@ -1,16 +1,26 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+pub mod account_config;
 pub mod app_state;
 pub mod commands;
-pub mod post_editor;
-pub mod tray;
+pub mod draft_queries;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
+pub mod model_stats;
 pub mod nav_commands;
 pub mod parser;
+pub mod post_approval;
+pub mod post_editor;
+pub mod post_export;
+pub mod post_ops;
 pub mod providers;
+pub mod published_queries;
+pub mod repo_mgmt;
+pub mod repo_queries;
+pub mod scheduler_credentials;
 pub mod storage;
+pub mod tray;
 pub mod types;
 pub mod watcher;
 
@@ -118,36 +128,37 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
-            nav_commands::get_repos,
-            nav_commands::get_all_drafts,
-            nav_commands::get_repo_published,
-            nav_commands::get_all_published,
-            nav_commands::get_model_stats,
+            repo_queries::get_repos,
+            draft_queries::get_all_drafts,
+            published_queries::get_repo_published,
+            published_queries::get_all_published,
+            model_stats::get_model_stats,
             nav_commands::get_app_version,
             nav_commands::get_autostart_enabled,
-            nav_commands::list_profiles_for_repo,
-            nav_commands::save_profile_id,
+            account_config::list_profiles_for_repo,
+            account_config::save_account_id,
+            account_config::get_account_ids,
             nav_commands::read_app_state_command,
             nav_commands::save_app_state_command,
-            commands::get_drafts,
-            commands::approve_post,
-            commands::get_post_content,
-            commands::dismiss_post,
-            commands::delete_post,
-            commands::retry_post,
-            commands::add_repo,
-            commands::remove_repo,
-            commands::set_repo_active,
-            commands::check_repo_health,
-            commands::get_libsecret_status,
-            commands::save_scheduler_credential,
-            commands::get_scheduler_credential,
-            commands::delete_scheduler_credential,
+            post_ops::get_drafts,
+            post_approval::approve_post,
+            post_ops::get_post_content,
+            post_ops::dismiss_post,
+            post_ops::delete_post,
+            post_ops::retry_post,
+            repo_mgmt::add_repo,
+            repo_mgmt::remove_repo,
+            repo_mgmt::set_repo_active,
+            repo_mgmt::check_repo_health,
+            scheduler_credentials::get_libsecret_status,
+            scheduler_credentials::save_scheduler_credential,
+            scheduler_credentials::get_scheduler_credential,
+            scheduler_credentials::delete_scheduler_credential,
             commands::test_scheduler,
             commands::cancel_post_command,
             commands::get_queue_command,
-            commands::export_history_csv,
-            commands::update_repo_path,
+            post_export::export_history_csv,
+            repo_mgmt::update_repo_path,
             post_editor::update_post_content,
             post_editor::update_post_image,
             post_editor::fetch_og_image,

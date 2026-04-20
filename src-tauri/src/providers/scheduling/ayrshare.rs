@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use super::{build_client, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
+use super::{build_client, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -73,7 +73,7 @@ impl SchedulingProvider for AyrshareProvider {
         scheduled_for: Option<DateTime<Utc>>,
         image_url: Option<&str>,
         profile_id: Option<&str>,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<PostScheduleResult, ProviderError> {
         use super::with_retry;
 
         // Wrap in retry logic
@@ -131,7 +131,7 @@ impl SchedulingProvider for AyrshareProvider {
                     .ok_or_else(|| ProviderError::Unknown("Missing id in response".to_string()))?
                     .to_string();
 
-                Ok(post_id)
+                Ok(PostScheduleResult { scheduler_id: post_id, platform_url: None })
             },
             3,
         )
@@ -515,7 +515,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok(), "schedule_post failed: {:?}", result);
-        assert_eq!(result.unwrap(), "ayrshare-post-456");
+        assert_eq!(result.unwrap().scheduler_id, "ayrshare-post-456");
         mock.assert();
     }
 
@@ -552,7 +552,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "post-with-img-789");
+        assert_eq!(result.unwrap().scheduler_id, "post-with-img-789");
         mock.assert();
     }
 
@@ -618,7 +618,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "retry-test-123");
+        assert_eq!(result.unwrap().scheduler_id, "retry-test-123");
         mock.assert();
     }
 

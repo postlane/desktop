@@ -1003,3 +1003,67 @@ describe('SettingsPanel — Scheduler tab — credential removal', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// ReposTab — toggle in-flight guard
+// ---------------------------------------------------------------------------
+
+describe('SettingsPanel — ReposTab toggle in-flight guard', () => {
+  it('second toggle click is ignored while first is in flight', async () => {
+    let resolve!: () => void;
+    const blocker = new Promise<void>((r) => { resolve = r; });
+
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'set_repo_active') { await blocker; return null; }
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'list_profiles_for_repo') return [];
+      if (cmd === 'get_account_ids') return {};
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('my-app'));
+
+    const btn = screen.getByRole('button', { name: /deactivate/i });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+
+    resolve();
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('set_repo_active', expect.anything()),
+    );
+
+    const toggleCalls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'set_repo_active');
+    expect(toggleCalls).toHaveLength(1);
+  });
+
+  it('toggle button is disabled while in flight', async () => {
+    let resolve!: () => void;
+    const blocker = new Promise<void>((r) => { resolve = r; });
+
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'set_repo_active') { await blocker; return null; }
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'list_profiles_for_repo') return [];
+      if (cmd === 'get_account_ids') return {};
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('my-app'));
+
+    const btn = screen.getByRole('button', { name: /deactivate/i });
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /deactivate/i })).toBeDisabled(),
+    );
+
+    resolve();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /deactivate|activate/i })).not.toBeDisabled(),
+    );
+  });
+});

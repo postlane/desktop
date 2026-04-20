@@ -12,6 +12,8 @@ export interface RepoWithStatus {
   failed_count: number;
   /** ISO 8601 timestamp of most recent post created_at, or null */
   last_post_at: string | null;
+  /** Scheduler provider from .postlane/config.json, or null if not configured */
+  provider: string | null;
 }
 
 /** Mirrors app_state::NavState */
@@ -108,6 +110,9 @@ export interface PublishedPost {
   platform_results: Record<string, string> | null;
   schedule: string | null;
   scheduler_ids: Record<string, string> | null;
+  platform_urls: Record<string, string> | null;
+  /** Scheduler provider name (e.g. "zernio") from repo config.json, or null */
+  provider: string | null;
   llm_model: string | null;
   sent_at: string | null;
   created_at: string | null;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use super::{build_client, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
+use super::{build_client, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -73,7 +73,7 @@ impl SchedulingProvider for BufferProvider {
         scheduled_for: Option<DateTime<Utc>>,
         image_url: Option<&str>,
         profile_id: Option<&str>,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<PostScheduleResult, ProviderError> {
         use super::with_retry;
 
         with_retry(
@@ -126,7 +126,7 @@ impl SchedulingProvider for BufferProvider {
                     .ok_or_else(|| ProviderError::Unknown("Missing update id in response".to_string()))?
                     .to_string();
 
-                Ok(update_id)
+                Ok(PostScheduleResult { scheduler_id: update_id, platform_url: None })
             },
             3,
         )
@@ -511,7 +511,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "buffer-post-123");
+        assert_eq!(result.unwrap().scheduler_id, "buffer-post-123");
         mock.assert();
     }
 
@@ -547,7 +547,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "buffer-post-123");
+        assert_eq!(result.unwrap().scheduler_id, "buffer-post-123");
     }
 
     #[tokio::test]

@@ -39,6 +39,25 @@ describe('BlueskyCard', () => {
     expect(screen.getByText('50/300')).toBeInTheDocument();
   });
 
+  it('renders **bold** as <strong>', () => {
+    const { container } = render(<BlueskyCard content="**bold text**" />);
+    expect(container.querySelector('strong')).toHaveTextContent('bold text');
+  });
+
+  it('renders _italic_ as <em>', () => {
+    const { container } = render(<BlueskyCard content="_italic text_" />);
+    expect(container.querySelector('em')).toHaveTextContent('italic text');
+  });
+
+  it('Cancel returns to read mode without saving', () => {
+    const onSave = vi.fn();
+    render(<BlueskyCard content="Original" onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
   it('does not italicise underscores inside URLs (UTM params)', () => {
     const { container } = render(
       <BlueskyCard content="https://postlane.dev?utm_source=bluesky&utm_medium=social&utm_content=20260417" />
@@ -194,6 +213,130 @@ describe('MastodonCard — inline edit', () => {
 
 // ---------------------------------------------------------------------------
 // 5.10.4 — PostPreview smoke test
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// MastodonCard — content warning
+// ---------------------------------------------------------------------------
+
+describe('MastodonCard — content warning', () => {
+  it('renders CW bar when content starts with "CW:"', () => {
+    render(<MastodonCard content={'CW: spoilers\nThe actual body'} />);
+    expect(screen.getByText(/CW: spoilers/)).toBeInTheDocument();
+  });
+
+  it('does not render CW bar when content has no CW prefix', () => {
+    render(<MastodonCard content="Normal post" />);
+    expect(screen.queryByText(/^CW:/)).not.toBeInTheDocument();
+  });
+
+  it('hides CW bar while editing', () => {
+    const { container } = render(<MastodonCard content={'CW: spoilers\nBody'} onSave={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    expect(container.querySelector('.bg-amber-50')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MastodonCard — HTML rendering (parseMastodonHTML)
+// ---------------------------------------------------------------------------
+
+describe('MastodonCard — HTML rendering', () => {
+  it('renders <b> as <strong>', () => {
+    const { container } = render(<MastodonCard content="<b>bold text</b>" />);
+    expect(container.querySelector('strong')).toHaveTextContent('bold text');
+  });
+
+  it('renders <i> as <em>', () => {
+    const { container } = render(<MastodonCard content="<i>italic text</i>" />);
+    expect(container.querySelector('em')).toHaveTextContent('italic text');
+  });
+
+  it('renders <a href="https://..."> as a link', () => {
+    const { container } = render(
+      <MastodonCard content='<a href="https://postlane.dev">Postlane</a>' />,
+    );
+    const link = container.querySelector('a');
+    expect(link).toHaveAttribute('href', 'https://postlane.dev');
+    expect(link).toHaveTextContent('Postlane');
+  });
+
+  it('does not render <a> when href is not https', () => {
+    const { container } = render(
+      <MastodonCard content='<a href="http://example.com">insecure</a>' />,
+    );
+    expect(container.querySelector('a')).not.toBeInTheDocument();
+  });
+
+  it('preserves plain text before and after tags (multiple nodes)', () => {
+    const { container } = render(
+      <MastodonCard content="Before <b>bold</b> after" />,
+    );
+    const div = container.querySelector('.whitespace-pre-wrap');
+    expect(div?.textContent).toContain('Before');
+    expect(div?.textContent).toContain('bold');
+    expect(div?.textContent).toContain('after');
+  });
+
+  it('renders plain text with no tags as a single text node', () => {
+    render(<MastodonCard content="Just plain text" />);
+    expect(screen.getByText('Just plain text')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MastodonCard — action buttons
+// ---------------------------------------------------------------------------
+
+describe('MastodonCard — action buttons', () => {
+  it('calls onApprove when Approve clicked', () => {
+    const onApprove = vi.fn();
+    render(<MastodonCard content="Post" onApprove={onApprove} />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    expect(onApprove).toHaveBeenCalledOnce();
+  });
+
+  it('calls onDelete when Delete clicked', () => {
+    const onDelete = vi.fn();
+    render(<MastodonCard content="Post" onDelete={onDelete} />);
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+    expect(onDelete).toHaveBeenCalledOnce();
+  });
+
+  it('calls onImageClick when Image clicked', () => {
+    const onImageClick = vi.fn();
+    render(<MastodonCard content="Post" onImageClick={onImageClick} />);
+    fireEvent.click(screen.getByRole('button', { name: /image/i }));
+    expect(onImageClick).toHaveBeenCalledOnce();
+  });
+
+  it('shows custom approveLabel', () => {
+    render(<MastodonCard content="Post" onApprove={vi.fn()} approveLabel="Retry" />);
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('Approve is disabled when content exceeds 500 chars', () => {
+    render(<MastodonCard content={'a'.repeat(501)} onApprove={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+  });
+
+  it('renders image when imageUrl provided', () => {
+    const { container } = render(
+      <MastodonCard content="Post" imageUrl="https://example.com/img.png" />,
+    );
+    expect(container.querySelector('img')).toHaveAttribute('src', 'https://example.com/img.png');
+  });
+
+  it('Cancel button returns to read mode without calling onSave', () => {
+    const onSave = vi.fn();
+    render(<MastodonCard content="Original" onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 describe('PostPreview', () => {

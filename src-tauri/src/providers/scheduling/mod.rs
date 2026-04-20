@@ -74,6 +74,15 @@ pub struct Engagement {
     pub impressions: Option<u64>,
 }
 
+/// Result from scheduling a post
+#[derive(Debug, Clone)]
+pub struct PostScheduleResult {
+    /// Scheduler-internal post ID (stored for cancellation / engagement lookup)
+    pub scheduler_id: String,
+    /// Public URL of the post on the platform, if the provider returned it
+    pub platform_url: Option<String>,
+}
+
 /// Trait for scheduling provider implementations
 /// All methods are async and the trait requires Send + Sync for thread safety
 #[async_trait]
@@ -82,7 +91,7 @@ pub trait SchedulingProvider: Send + Sync {
     fn name(&self) -> &str;
 
     /// Schedule a post
-    /// Returns the scheduler-assigned post ID
+    /// Returns the scheduler ID and optional platform URL (available immediately for publishNow posts)
     async fn schedule_post(
         &self,
         content: &str,
@@ -90,7 +99,7 @@ pub trait SchedulingProvider: Send + Sync {
         scheduled_for: Option<DateTime<Utc>>,
         image_url: Option<&str>,
         profile_id: Option<&str>,
-    ) -> Result<String, ProviderError>;
+    ) -> Result<PostScheduleResult, ProviderError>;
 
     /// List available profiles (social accounts)
     async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError>;

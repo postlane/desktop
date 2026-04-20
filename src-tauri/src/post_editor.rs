@@ -26,18 +26,18 @@ fn is_private_host(url: &str) -> bool {
         Err(_) => return true,
     };
     match parsed.host() {
-        None => return true,
+        None => true,
         Some(url::Host::Domain(d)) => {
-            return matches!(d, "localhost" | "localhost.localdomain");
+            matches!(d, "localhost" | "localhost.localdomain")
         }
         Some(url::Host::Ipv4(v4)) => {
-            return v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                || v4.is_broadcast() || v4.is_unspecified();
+            v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                || v4.is_broadcast() || v4.is_unspecified()
         }
         Some(url::Host::Ipv6(v6)) => {
-            return v6.is_loopback()
+            v6.is_loopback()
                 || v6.is_unspecified()
-                || (v6.segments()[0] & 0xfe00 == 0xfc00); // fc00::/7 unique-local
+                || (v6.segments()[0] & 0xfe00 == 0xfc00) // fc00::/7 unique-local
         }
     }
 }

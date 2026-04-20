@@ -24,6 +24,8 @@ function makeSent(overrides: Partial<PublishedPost> = {}): PublishedPost {
     platform_results: { x: 'sent' },
     schedule: null,
     scheduler_ids: null,
+    platform_urls: null,
+    provider: null,
     llm_model: 'claude-sonnet-4-6',
     sent_at: '2026-04-15T10:00:00Z',
     created_at: '2026-04-15T09:00:00Z',
@@ -176,12 +178,134 @@ describe('AllReposPublishedView — export CSV', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Scheduler column
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — scheduler column', () => {
+  it('shows provider name in Scheduler column when present', async () => {
+    setupMocks([makeSent({ provider: 'zernio' })], []);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(screen.getByText('zernio')).toBeInTheDocument();
+  });
+
+  it('shows — in Scheduler column when provider is null', async () => {
+    setupMocks([makeSent({ provider: null })], []);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// View links
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — view links', () => {
+  it('shows — when platform_urls is null', async () => {
+    setupMocks([makeSent({ platform_urls: null })], []);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+
+  it('shows clickable view link when platform_urls has a URL', async () => {
+    setupMocks(
+      [makeSent({
+        platform_results: { x: 'sent' },
+        platform_urls: { x: 'https://x.com/i/web/status/42' },
+      })],
+      [],
+    );
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(screen.getByRole('button', { name: /view x post/i })).toBeInTheDocument();
+  });
+
+  it('clicking view link invokes opener with the correct URL', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published')
+        return [makeSent({
+          platform_results: { x: 'sent' },
+          platform_urls: { x: 'https://x.com/i/web/status/77' },
+        })];
+      if (cmd === 'get_model_stats') return [];
+      return undefined;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /view x post/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view x post/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+        url: 'https://x.com/i/web/status/77',
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Cmd+H keyboard shortcut (tested at App level — just verify the component renders)
 // ---------------------------------------------------------------------------
 
 describe('AllReposPublishedView — renders correctly', () => {
   it('renders without crashing', async () => {
     setupMocks([], []);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Export CSV — error path
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — export error', () => {
+  it('shows error message when export fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return [makeSent()];
+      if (cmd === 'get_model_stats') return [];
+      if (cmd === 'export_history_csv') throw new Error('Permission denied');
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /export csv/i }));
+    fireEvent.click(screen.getByRole('button', { name: /export csv/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/permission denied/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Load more
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — load more', () => {
+  it('clicking Load more appends next page', async () => {
+    const firstPage = Array.from({ length: 101 }, (_, i) =>
+      makeSent({ post_folder: `p${String(i).padStart(3, '0')}` }),
+    );
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return firstPage;
+      if (cmd === 'get_model_stats') return [];
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /load more/i }));
+    fireEvent.click(screen.getByRole('button', { name: /load more/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(3)); // initial: 2 calls, load more: 1 more
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fetch error
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — fetch error', () => {
+  it('shows empty state when get_all_published fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('network error'));
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() =>
       expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),

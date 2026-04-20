@@ -117,16 +117,17 @@ mod tests {
         )
         .expect("Failed to start watcher");
 
-        // Give watcher time to initialize
-        thread::sleep(Duration::from_millis(100));
+        // Give watcher time to initialize — CI runners need more time than local dev
+        thread::sleep(Duration::from_millis(200));
 
         // Write meta.json
         let meta_path = posts_dir.join("test-post").join("meta.json");
         fs::create_dir_all(meta_path.parent().unwrap()).expect("Failed to create post dir");
         fs::write(&meta_path, r#"{"status": "draft"}"#).expect("Failed to write meta.json");
 
-        // Wait for event
-        let result = rx.recv_timeout(Duration::from_millis(500));
+        // Wait for event — 3s ceiling; the OS delivers inotify/FSEvents events within ~100ms
+        // locally but CI runners with heavy I/O load can take significantly longer.
+        let result = rx.recv_timeout(Duration::from_millis(3000));
         assert!(result.is_ok(), "Should receive meta.json change event");
 
         if let Ok(paths) = result {

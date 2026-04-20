@@ -232,6 +232,7 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   // Bump per-repo to reload ProfileSelector after credential changes
   const [credentialVersions, setCredentialVersions] = useState<Record<string, number>>({});
 
@@ -244,7 +245,7 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
       const result = await invoke<RepoWithStatus[]>('get_repos');
       setRepos(result);
     } catch (e) {
-      console.error('get_repos failed:', e);
+      console.error('get_repos failed:', e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -278,12 +279,16 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
   }
 
   async function handleToggleActive(id: string, active: boolean) {
+    if (togglingIds.has(id)) return;
+    setTogglingIds((prev) => new Set(prev).add(id));
+    setActionError(null);
     try {
-      setActionError(null);
       await invoke('set_repo_active', { id, active });
       refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'Failed to update repo');
+    } finally {
+      setTogglingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
     }
   }
 
@@ -349,6 +354,7 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
                     <>
                       <Button
                         outline
+                        disabled={togglingIds.has(repo.id)}
                         onClick={() => handleToggleActive(repo.id, !repo.active)}
                       >
                         {repo.active ? 'Deactivate' : 'Activate'}

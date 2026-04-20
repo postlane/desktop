@@ -24,6 +24,7 @@ function makeSent(overrides: Partial<PublishedPost> = {}): PublishedPost {
     platform_results: { x: 'sent', bluesky: 'sent' },
     schedule: null,
     scheduler_ids: { x: 'tweet-123' },
+    platform_urls: null,
     llm_model: 'claude-sonnet-4-6',
     sent_at: '2026-04-15T10:00:00Z',
     created_at: '2026-04-15T09:00:00Z',
@@ -122,11 +123,42 @@ describe('RepoPublishedView — sent posts table', () => {
     expect(screen.getByText('claude-sonnet-4-6')).toBeInTheDocument();
   });
 
-  it('shows — for view link when no scheduler_ids', async () => {
-    mockInvoke.mockResolvedValue([makeSent({ scheduler_ids: null })]);
+  it('shows — for view link when no platform_urls', async () => {
+    mockInvoke.mockResolvedValue([makeSent({ platform_urls: null })]);
     render(<RepoPublishedView repoId="r1" />);
     await waitFor(() => screen.getByText('post-001'));
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+
+  it('shows clickable view link when platform_urls has URL for sent platform', async () => {
+    mockInvoke.mockResolvedValue([
+      makeSent({
+        platform_results: { x: 'sent' },
+        platform_urls: { x: 'https://x.com/i/web/status/123' },
+      }),
+    ]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(screen.getByRole('button', { name: /view x post/i })).toBeInTheDocument();
+  });
+
+  it('clicking view link invokes opener with the URL', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repo_published')
+        return [makeSent({
+          platform_results: { x: 'sent' },
+          platform_urls: { x: 'https://x.com/i/web/status/999' },
+        })];
+      return undefined;
+    });
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /view x post/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view x post/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('plugin:opener|open_url', {
+        url: 'https://x.com/i/web/status/999',
+      }),
+    );
   });
 
   it('filters to only sent posts in the sent table — queued posts are only in Scheduled section', async () => {
@@ -168,5 +200,62 @@ describe('RepoPublishedView — pagination', () => {
     render(<RepoPublishedView repoId="r1" />);
     await waitFor(() => screen.getByText('post-0'));
     expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+  });
+
+  it('clicking Load more fetches the next page', async () => {
+    const firstPage = Array.from({ length: 101 }, (_, i) =>
+      makeSent({ post_folder: `post-${String(i).padStart(3, '0')}` }),
+    );
+    mockInvoke
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([makeSent({ post_folder: 'page-2-post' })]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /load more/i }));
+    fireEvent.click(screen.getByRole('button', { name: /load more/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cancel errors
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — cancel error paths', () => {
+  it('shows "Cancel via dashboard" when scheduler returns not-supported', async () => {
+    mockInvoke
+      .mockResolvedValueOnce([makeQueued({ post_folder: 'q1', scheduler_ids: { x: 'id-99' } })])
+      .mockRejectedValueOnce(new Error('not supported by this provider'));
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/cancel via dashboard/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('shows generic error message for other cancel failures', async () => {
+    mockInvoke
+      .mockResolvedValueOnce([makeQueued({ post_folder: 'q1', scheduler_ids: { x: 'id-99' } })])
+      .mockRejectedValueOnce(new Error('Connection refused'));
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/connection refused/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fetch error
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — fetch error', () => {
+  it('shows empty state when get_repo_published fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('DB error'));
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByText(/no posts sent yet/i)).toBeInTheDocument(),
+    );
   });
 });

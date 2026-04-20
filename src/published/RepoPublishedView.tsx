@@ -77,11 +77,17 @@ function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
         .map(([k]) => k)
     : post.platforms;
 
-  // Build view links from scheduler_ids
-  const viewLinks = sentPlatforms.map((platform) => {
-    const id = post.scheduler_ids?.[platform];
-    return { platform, id: id ?? null };
-  });
+  const viewLinks = sentPlatforms
+    .map((platform) => ({ platform, url: post.platform_urls?.[platform] ?? null }))
+    .filter((l): l is { platform: string; url: string } => l.url !== null);
+
+  async function handleOpenLink(url: string) {
+    try {
+      await invoke('plugin:opener|open_url', { url });
+    } catch (e) {
+      console.error('Failed to open URL:', e);
+    }
+  }
 
   return (
     <TableRow>
@@ -93,9 +99,16 @@ function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
       <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
       <TableCell className="text-xs text-zinc-400">—</TableCell>
       <TableCell className="text-xs">
-        {viewLinks.some((l) => l.id)
-          ? viewLinks.filter((l) => l.id).map((l) => (
-              <span key={l.platform} className="mr-2">{l.platform}</span>
+        {viewLinks.length > 0
+          ? viewLinks.map((l) => (
+              <button
+                key={l.platform}
+                onClick={() => handleOpenLink(l.url)}
+                aria-label={`View ${l.platform} post`}
+                className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200"
+              >
+                {l.platform} ↗
+              </button>
             ))
           : '—'}
       </TableCell>

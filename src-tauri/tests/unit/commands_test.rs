@@ -40,6 +40,7 @@ mod get_drafts_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: None,
             image_url: None,
             image_source: None,
@@ -64,6 +65,7 @@ mod get_drafts_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: Some("Connection timeout".to_string()),
             image_url: None,
             image_source: None,
@@ -88,6 +90,7 @@ mod get_drafts_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: None,
             image_url: None,
             image_source: None,
@@ -143,6 +146,7 @@ mod get_drafts_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: None,
             image_url: None,
             image_source: None,
@@ -326,6 +330,7 @@ mod dismiss_post_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: None,
             image_url: None,
             image_source: None,
@@ -442,6 +447,7 @@ mod retry_post_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: Some(platform_results),
+            platform_urls: None,
             error: Some("Bluesky timeout".to_string()),
             image_url: None,
             image_source: None,
@@ -1078,6 +1084,7 @@ mod provider_instantiation_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: None,
             image_url: None,
             image_source: None,
@@ -1150,7 +1157,7 @@ mod provider_instantiation_tests {
             "version": 1,
             "scheduler": {
                 "provider": "zernio",
-                "profile_id": "test-profile"
+                "account_ids": { "x": "acc-twitter-test" }
             }
         });
         fs::write(
@@ -1170,6 +1177,7 @@ mod provider_instantiation_tests {
             trigger: None,
             scheduler_ids: None,
             platform_results: None,
+            platform_urls: None,
             error: None,
             image_url: None,
             image_source: None,

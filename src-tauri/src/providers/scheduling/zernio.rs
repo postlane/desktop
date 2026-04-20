@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use super::{build_client, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
+use super::{build_client, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -81,7 +81,7 @@ impl SchedulingProvider for ZernioProvider {
         scheduled_for: Option<DateTime<Utc>>,
         image_url: Option<&str>,
         profile_id: Option<&str>,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<PostScheduleResult, ProviderError> {
         use super::with_retry;
 
         // Wrap in retry logic
@@ -145,14 +145,22 @@ impl SchedulingProvider for ZernioProvider {
                 log::debug!("Zernio schedule_post response: {}", json);
 
                 // Zernio returns the post ID at post._id
-                let post_id = json["post"]["_id"]
+                let scheduler_id = json["post"]["_id"]
                     .as_str()
                     .ok_or_else(|| ProviderError::Unknown(
                         format!("Missing post._id in response. Full response: {}", json)
                     ))?
                     .to_string();
 
-                Ok(post_id)
+                // For publishNow posts Zernio includes platformPostUrl immediately.
+                // For scheduled posts this field appears after publish time.
+                let platform_url = json["post"]["platforms"]
+                    .as_array()
+                    .and_then(|arr| arr.first())
+                    .and_then(|p| p["platformPostUrl"].as_str())
+                    .map(String::from);
+
+                Ok(PostScheduleResult { scheduler_id, platform_url })
             },
             3,
         )
@@ -160,7 +168,9 @@ impl SchedulingProvider for ZernioProvider {
     }
 
     async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> {
-        let url = format!("{}/api/v1/profiles", self.base_url());
+        // Zernio's connected social accounts live at /api/v1/accounts (not /api/v1/profiles).
+        // Each account is per-platform: { _id, username, platform }.
+        let url = format!("{}/api/v1/accounts", self.base_url());
 
         let response = self
             .client
@@ -189,21 +199,30 @@ impl SchedulingProvider for ZernioProvider {
             .await
             .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
 
-        let profiles_array = json["profiles"]
-            .as_array()
-            .ok_or_else(|| ProviderError::Unknown("Missing profiles array".to_string()))?;
+        log::debug!("Zernio list_profiles response: {}", json);
 
-        let profiles = profiles_array
+        let accounts_array = json["accounts"]
+            .as_array()
+            .ok_or_else(|| ProviderError::Unknown(
+                format!("Missing accounts array in response. Full response: {}", json)
+            ))?;
+
+        let profiles = accounts_array
             .iter()
-            .filter_map(|p| {
+            .filter_map(|a| {
+                let id = a["_id"].as_str()?.to_string();
+                let name = a["username"].as_str()
+                    .or_else(|| a["name"].as_str())?
+                    .to_string();
+                // Normalise Zernio's "twitter" to postlane's internal "x"
+                let platform = match a["platform"].as_str()? {
+                    "twitter" => "x",
+                    other => other,
+                }.to_string();
                 Some(SchedulerProfile {
-                    id: p["id"].as_str()?.to_string(),
-                    name: p["name"].as_str()?.to_string(),
-                    platforms: p["platforms"]
-                        .as_array()?
-                        .iter()
-                        .filter_map(|platform| platform.as_str().map(|s| s.to_string()))
-                        .collect(),
+                    id,
+                    name,
+                    platforms: vec![platform],
                 })
             })
             .collect();
@@ -436,48 +455,48 @@ mod tests {
     async fn test_list_profiles_success() {
         use httpmock::prelude::*;
 
-        // Mock server
         let server = MockServer::start();
 
-        // Mock the profiles endpoint
+        // Zernio uses /api/v1/accounts and returns an "accounts" array.
+        // Each account is per-platform: _id, username, platform.
         let mock = server.mock(|when, then| {
             when.method(GET)
-                .path("/api/v1/profiles")
+                .path("/api/v1/accounts")
                 .header("Authorization", "Bearer test-api-key");
             then.status(200)
                 .header("content-type", "application/json")
                 .json_body(serde_json::json!({
-                    "profiles": [
+                    "accounts": [
                         {
-                            "id": "profile-1",
-                            "name": "My X Account",
-                            "platforms": ["x", "twitter"]
+                            "_id": "acc-twitter-1",
+                            "username": "@myhandle",
+                            "platform": "twitter",
+                            "status": "connected"
                         },
                         {
-                            "id": "profile-2",
-                            "name": "My Bluesky",
-                            "platforms": ["bluesky"]
+                            "_id": "acc-bluesky-1",
+                            "username": "myhandle.bsky.social",
+                            "platform": "bluesky",
+                            "status": "connected"
                         }
                     ]
                 }));
         });
 
-        // Create provider with mock server URL
         let mut provider = ZernioProvider::new("test-api-key".to_string());
         provider.base_url = server.base_url();
 
-        // Call list_profiles
         let result = provider.list_profiles().await;
 
-        // Verify success
         assert!(result.is_ok());
         let profiles = result.unwrap();
         assert_eq!(profiles.len(), 2);
-        assert_eq!(profiles[0].id, "profile-1");
-        assert_eq!(profiles[0].name, "My X Account");
-        assert_eq!(profiles[0].platforms, vec!["x", "twitter"]);
+        assert_eq!(profiles[0].id, "acc-twitter-1");
+        assert_eq!(profiles[0].name, "@myhandle");
+        assert_eq!(profiles[0].platforms, vec!["x"]); // "twitter" normalised to "x"
+        assert_eq!(profiles[1].id, "acc-bluesky-1");
+        assert_eq!(profiles[1].platforms, vec!["bluesky"]);
 
-        // Verify the mock was called
         mock.assert();
     }
 
@@ -489,7 +508,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(GET)
-                .path("/api/v1/profiles");
+                .path("/api/v1/accounts");
             then.status(401)
                 .json_body(serde_json::json!({
                     "error": "Invalid API key"
@@ -517,9 +536,9 @@ mod tests {
         let server = MockServer::start();
 
         server.mock(|when, then| {
-            when.method(GET).path("/api/v1/profiles");
+            when.method(GET).path("/api/v1/accounts");
             then.status(200)
-                .json_body(serde_json::json!({"profiles": []}));
+                .json_body(serde_json::json!({"accounts": []}));
         });
 
         let mut provider = ZernioProvider::new("test-key".to_string());
@@ -579,7 +598,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok(), "schedule_post failed: {:?}", result);
-        assert_eq!(result.unwrap(), "zernio-post-456");
+        assert_eq!(result.unwrap().scheduler_id, "zernio-post-456");
         mock.assert();
     }
 
@@ -610,7 +629,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "post-with-img-789");
+        assert_eq!(result.unwrap().scheduler_id, "post-with-img-789");
         mock.assert();
     }
 
@@ -676,7 +695,7 @@ mod tests {
         ).await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "retry-test-123");
+        assert_eq!(result.unwrap().scheduler_id, "retry-test-123");
         mock.assert();
     }
 

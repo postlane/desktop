@@ -152,6 +152,7 @@ fn make_meta(temp_dir: &TempDir, post_folder: &str, image_url: Option<&str>) -> 
         trigger: None,
         scheduler_ids: None,
         platform_results: None,
+        platform_urls: None,
         error: None,
         image_url: image_url.map(|s| s.to_string()),
         image_source: None,
