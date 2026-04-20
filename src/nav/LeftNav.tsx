@@ -86,11 +86,20 @@ function useAppStateRestore(
         setExpandedIds(new Set(validIds));
 
         const lastRepoId = appState.nav.last_repo_id;
-        if (lastRepoId && repos.some((r) => r.id === lastRepoId)) {
+        const validViews = ['all_repos', 'repo'] as const;
+        const validSections = ['drafts', 'published'] as const;
+        const lastView = appState.nav.last_view;
+        const lastSection = appState.nav.last_section;
+        if (
+          lastRepoId &&
+          repos.some((r) => r.id === lastRepoId) &&
+          (validViews as readonly string[]).includes(lastView) &&
+          (validSections as readonly string[]).includes(lastSection)
+        ) {
           onNavigate({
-            view: appState.nav.last_view as ViewSelection['view'],
+            view: lastView as ViewSelection['view'],
             repoId: lastRepoId,
-            section: appState.nav.last_section as ViewSelection['section'],
+            section: lastSection as ViewSelection['section'],
           });
           setExpandedIds((prev) => new Set([...prev, lastRepoId]));
         }
@@ -110,6 +119,7 @@ function useMetaChangedListener(onRefresh: () => void) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let mounted = true;
     listen<MetaChangedPayload>('meta-changed', (event) => {
       setLastWatcherEvent((prev) => {
         const next = new Map(prev);
@@ -118,9 +128,18 @@ function useMetaChangedListener(onRefresh: () => void) {
       });
       onRefresh();
     })
-      .then((fn) => { unlisten = fn; })
+      .then((fn) => {
+        if (mounted) {
+          unlisten = fn;
+        } else {
+          fn(); // already unmounted — unsubscribe immediately
+        }
+      })
       .catch(console.error);
-    return () => { unlisten?.(); };
+    return () => {
+      mounted = false;
+      unlisten?.();
+    };
   }, [onRefresh]);
 
   return lastWatcherEvent;
@@ -241,7 +260,7 @@ function SubItems({
       'w-full rounded-md px-3 py-1.5 text-left text-sm',
       'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
       isCurrent
-        ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
+        ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
         : 'text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800/50',
     ].join(' ');
   };
@@ -487,6 +506,11 @@ export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, current
       aria-label="Main navigation"
       className="flex h-screen w-64 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
     >
+      {/* Wordmark */}
+      <div className="flex-shrink-0 px-5 py-4">
+        <span className="text-sm font-semibold tracking-tight text-[#0f0f0f] dark:text-white">post</span>
+        <span className="text-sm font-semibold tracking-tight text-blue-600">lane</span>
+      </div>
       <div className="flex-1 overflow-y-auto py-2">
         {loadError && (
           <p className="px-4 py-2 text-sm text-red-500">{loadError}</p>
@@ -508,7 +532,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, current
               'flex flex-1 items-center justify-between rounded-md px-2 py-1.5 text-sm font-medium',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
               isAllRepos
-                ? 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'
+                ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
                 : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50',
             ].join(' ')}
           >

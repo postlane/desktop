@@ -120,10 +120,20 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
   // Listen for meta-changed events
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let mounted = true;
     listen<MetaChangedPayload>('meta-changed', () => refresh())
-      .then((fn) => { unlisten = fn; })
+      .then((fn) => {
+        if (mounted) {
+          unlisten = fn;
+        } else {
+          fn(); // already unmounted — unsubscribe immediately
+        }
+      })
       .catch(console.error);
-    return () => { unlisten?.(); };
+    return () => {
+      mounted = false;
+      unlisten?.();
+    };
   }, [refresh]);
 
   // Cmd+Enter / Ctrl+Enter → approve all

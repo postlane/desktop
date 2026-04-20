@@ -119,6 +119,17 @@ async fn send_handler(
     // 4. Alternative (holding lock during file I/O) would block all other operations
     // We accept this minimal race window to avoid blocking operations.
 
+    // Reject path traversal attempts in post_folder
+    if payload.post_folder.contains('/') || payload.post_folder.contains('\\') || payload.post_folder.contains("..") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid post folder: path traversal not permitted".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
     // Validate post folder exists and has meta.json
     let post_path = canonical_path
         .join(".postlane/posts")

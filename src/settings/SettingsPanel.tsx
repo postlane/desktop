@@ -43,55 +43,185 @@ interface Props {
 // Repos tab
 // ---------------------------------------------------------------------------
 
-interface ProfileSelectorProps {
-  repoId: string;
+const PLATFORM_LABELS: Record<string, string> = {
+  twitter: 'X',
+  x: 'X',
+  bluesky: 'Bluesky',
+  mastodon: 'Mastodon',
+  linkedin: 'LinkedIn',
+};
+
+function platformLabel(platform: string): string {
+  return PLATFORM_LABELS[platform] ?? platform;
 }
 
-function ProfileSelector({ repoId }: ProfileSelectorProps) {
-  const [profiles, setProfiles] = useState<SchedulerProfile[]>([]);
-  const [selectedId, setSelectedId] = useState('');
+interface ProfileSelectorProps {
+  repoId: string;
+  /** Bump this to force a reload of profiles (e.g. after per-repo key changes) */
+  credentialVersion: number;
+}
+
+function ProfileSelector({ repoId, credentialVersion }: ProfileSelectorProps) {
+  const [accounts, setAccounts] = useState<SchedulerProfile[]>([]);
+  const [selected, setSelected] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    invoke<SchedulerProfile[]>('list_profiles_for_repo', { repoId })
-      .then(setProfiles)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    // Load saved account selections from config.json
+    invoke<Record<string, string>>('get_account_ids', { repoId })
+      .then((result) => setSelected(result ?? {}))
+      .catch(() => {}); // non-fatal — selections just default to empty
   }, [repoId]);
 
-  async function handleChange(profileId: string) {
-    setSelectedId(profileId);
+  useEffect(() => {
+    setError(null);
+    invoke<SchedulerProfile[]>('list_profiles_for_repo', { repoId })
+      .then(setAccounts)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [repoId, credentialVersion]);
+
+  async function handleChange(platform: string, accountId: string) {
+    setSelected((prev) => ({ ...prev, [platform]: accountId }));
     try {
-      await invoke('save_profile_id', { repoId, profileId });
+      await invoke('save_account_id', { repoId, platform, accountId });
     } catch (e) {
-      console.error('save_profile_id failed:', e);
+      console.error('save_account_id failed:', e);
     }
   }
 
+  // Group accounts by the platform they serve (each account has platforms[0]).
+  const byPlatform = accounts.reduce<Record<string, SchedulerProfile[]>>((acc, profile) => {
+    const platform = profile.platforms[0];
+    if (platform) {
+      acc[platform] = [...(acc[platform] ?? []), profile];
+    }
+    return acc;
+  }, {});
+
+  const platforms = Object.keys(byPlatform);
+
   return (
     <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
-      <label
-        htmlFor={`profile-${repoId}`}
-        className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400"
-      >
-        Posting account
-      </label>
+      <p className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        Posting accounts
+      </p>
       {error ? (
         <p className="text-xs text-red-500">{error}</p>
-      ) : profiles.length === 0 ? (
-        <p className="text-xs text-zinc-400">No account selected</p>
+      ) : accounts.length === 0 ? (
+        <p className="text-xs text-zinc-400">No accounts connected. Add credentials in Settings → Scheduler.</p>
       ) : (
-        <select
-          id={`profile-${repoId}`}
-          aria-label="Posting account"
-          value={selectedId}
-          onChange={(e) => handleChange(e.target.value)}
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        >
-          <option value="">No account selected</option>
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+        <div className="space-y-2">
+          {platforms.map((platform) => (
+            <div key={platform} className="flex items-center gap-3">
+              <span className="w-16 shrink-0 text-xs text-zinc-500">
+                {platformLabel(platform)}
+              </span>
+              <select
+                aria-label={`${platformLabel(platform)} account`}
+                value={selected[platform] ?? ''}
+                onChange={(e) => handleChange(platform, e.target.value)}
+                className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <option value="">— select account —</option>
+                {byPlatform[platform].map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            </div>
           ))}
-        </select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface RepoSchedulerKeyProps {
+  repoId: string;
+  provider: string;
+  onCredentialChange: () => void;
+}
+
+function RepoSchedulerKey({ repoId, provider, onCredentialChange }: RepoSchedulerKeyProps) {
+  const [maskedKey, setMaskedKey] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await invoke<string | null>('get_scheduler_credential', { provider, repoId });
+      setMaskedKey(result ?? null);
+    } catch {
+      setMaskedKey(null);
+    }
+  }, [provider, repoId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleSave() {
+    if (!keyInput.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await invoke('save_scheduler_credential', { provider, apiKey: keyInput.trim(), repoId });
+      setKeyInput('');
+      setAdding(false);
+      await load();
+      onCredentialChange();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    try {
+      await invoke('delete_scheduler_credential', { provider, repoId });
+      await load();
+      onCredentialChange();
+    } catch (e) {
+      console.error('delete_scheduler_credential failed:', e);
+    }
+  }
+
+  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+  return (
+    <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
+      <p className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        {providerLabel} API key
+      </p>
+      {adding ? (
+        <div className="space-y-2">
+          <input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="Paste API key…"
+            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          />
+          {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+          <div className="flex gap-2">
+            <Button onClick={handleSave} disabled={saving || !keyInput.trim()}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+            <Button outline onClick={() => { setAdding(false); setKeyInput(''); setSaveError(null); }}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : maskedKey ? (
+        <div className="flex items-center gap-3">
+          <span className="flex-1 font-mono text-xs text-zinc-500">{maskedKey}</span>
+          <Button outline onClick={handleRemove}>Remove override</Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <span className="flex-1 text-xs text-zinc-400">Using global key</span>
+          <Button outline onClick={() => setAdding(true)}>Override for this repo</Button>
+        </div>
       )}
     </div>
   );
@@ -101,6 +231,13 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
   const [repos, setRepos] = useState<RepoWithStatus[]>([]);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
+  // Bump per-repo to reload ProfileSelector after credential changes
+  const [credentialVersions, setCredentialVersions] = useState<Record<string, number>>({});
+
+  function bumpCredentialVersion(repoId: string) {
+    setCredentialVersions((prev) => ({ ...prev, [repoId]: (prev[repoId] ?? 0) + 1 }));
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -116,6 +253,7 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   async function handleAdd() {
+    setActionError(null);
     const selected = await openDialog({ directory: true });
     if (!selected) return;
     try {
@@ -123,34 +261,41 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
       refresh();
       onRepoChange();
     } catch (e) {
-      console.error('add_repo failed:', e);
+      setActionError(e instanceof Error ? e.message : 'Failed to add repo');
     }
   }
 
   async function handleRemove(id: string) {
+    setActionError(null);
     try {
       await invoke('remove_repo', { id });
       setRemoveConfirmId(null);
       refresh();
       onRepoChange();
     } catch (e) {
-      console.error('remove_repo failed:', e);
+      setActionError(e instanceof Error ? e.message : 'Failed to remove repo');
     }
   }
 
   async function handleToggleActive(id: string, active: boolean) {
-    await invoke('set_repo_active', { id, active });
-    refresh();
+    try {
+      setActionError(null);
+      await invoke('set_repo_active', { id, active });
+      refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Failed to update repo');
+    }
   }
 
   async function handleUpdatePath(id: string) {
+    setActionError(null);
     const selected = await openDialog({ directory: true });
     if (!selected) return;
     try {
       await invoke('update_repo_path', { id, newPath: selected });
       refresh();
     } catch (e) {
-      console.error('update_repo_path failed:', e);
+      setActionError(e instanceof Error ? e.message : 'Failed to update repo path');
     }
   }
 
@@ -215,7 +360,19 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
                   )}
                 </div>
               </div>
-              {!isNotFound && <ProfileSelector repoId={repo.id} />}
+              {!isNotFound && repo.provider && (
+                <RepoSchedulerKey
+                  repoId={repo.id}
+                  provider={repo.provider}
+                  onCredentialChange={() => bumpCredentialVersion(repo.id)}
+                />
+              )}
+              {!isNotFound && (
+                <ProfileSelector
+                  repoId={repo.id}
+                  credentialVersion={credentialVersions[repo.id] ?? 0}
+                />
+              )}
             </div>
           );
         })}
@@ -224,6 +381,10 @@ function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
           <p className="text-sm text-zinc-500">No repos registered. Add one to get started.</p>
         )}
       </div>
+
+      {actionError && (
+        <p className="mt-2 text-sm text-red-600 dark:text-red-400">{actionError}</p>
+      )}
 
       {/* Remove confirmation dialog */}
       <Dialog
@@ -294,7 +455,10 @@ function SchedulerTab() {
       setRemoveConfirmProvider(null);
       setRemoveConfirmInput('');
     } catch (e) {
-      console.error('delete credential failed:', e);
+      update(provider, {
+        testResult: 'error',
+        testError: e instanceof Error ? e.message : 'Failed to remove credential',
+      });
     }
   }
 

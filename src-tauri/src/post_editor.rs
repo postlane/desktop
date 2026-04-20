@@ -18,6 +18,54 @@ const IMAGE_CDN_HOSTNAMES: &[&str] = &[
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif", "svg"];
 
+/// Returns true if the URL's host is a private/reserved address.
+/// Blocks: loopback, RFC-1918 private, link-local, unique-local IPv6, localhost.
+fn is_private_host(url: &str) -> bool {
+    let parsed = match url::Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => return true,
+    };
+    let host = match parsed.host_str() {
+        Some(h) => h,
+        None => return true,
+    };
+    if matches!(host, "localhost" | "localhost.localdomain") {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                    || v4.is_broadcast() || v4.is_unspecified()
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (v6.segments()[0] & 0xfe00 == 0xfc00) // fc00::/7 unique-local
+            }
+        };
+    }
+    false
+}
+
+fn og_regex() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r#"<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']"#
+        ).expect("og:image regex is valid")
+    })
+}
+
+fn og_regex_rev() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r#"<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']"#
+        ).expect("og:image rev regex is valid")
+    })
+}
+
 /// Returns true if the URL points directly to an image file rather than a web page.
 /// Used by the frontend to decide whether to attempt OG image extraction.
 pub fn is_direct_image_url(url: &str) -> bool {
@@ -61,10 +109,7 @@ pub fn update_post_content_impl(
         .join(format!("{}.md", platform));
 
     if !file_path.parent().map(|p| p.exists()).unwrap_or(false) {
-        return Err(format!(
-            "Post folder not found: {}",
-            file_path.parent().unwrap_or(&file_path).display()
-        ));
+        return Err("Post folder not found".to_string());
     }
 
     let tmp_path = file_path.with_extension("md.tmp");
@@ -151,6 +196,10 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
         return Err("URL must start with https://".to_string());
     }
 
+    if is_private_host(&url) {
+        return Err("URL resolves to a private or reserved address".to_string());
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .user_agent("Postlane/1.0 (og-image-fetch)")
@@ -163,30 +212,26 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
         .await
         .map_err(|e| format!("Failed to fetch URL: {}", e))?;
 
-    let html = response
-        .text()
+    let bytes = response
+        .bytes()
         .await
         .map_err(|e| format!("Failed to read response: {}", e))?;
+    if bytes.len() > 512 * 1024 {
+        return Err("Response too large (max 512 KB)".to_string());
+    }
+    let html = String::from_utf8_lossy(&bytes).to_string();
 
     // Extract og:image with a simple regex — avoids pulling in a full HTML parser.
-    let og_regex = regex::Regex::new(
-        r#"<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']"#
-    ).map_err(|e| format!("Regex error: {}", e))?;
-
     // Also handle reversed attribute order: content before property.
-    let og_regex_rev = regex::Regex::new(
-        r#"<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']"#
-    ).map_err(|e| format!("Regex error: {}", e))?;
-
-    let image_url = og_regex
+    let image_url = og_regex()
         .captures(&html)
-        .or_else(|| og_regex_rev.captures(&html))
+        .or_else(|| og_regex_rev().captures(&html))
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str().to_string());
 
     // Validate the extracted URL: must be https://, not a private IP.
     if let Some(ref img_url) = image_url {
-        if !img_url.starts_with("https://") {
+        if !img_url.starts_with("https://") || is_private_host(img_url) {
             return Ok(None);
         }
     }

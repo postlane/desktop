@@ -33,6 +33,10 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 const PLATFORM_ORDER: Platform[] = ['x', 'bluesky', 'mastodon'];
 
+function isPlatform(val: unknown): val is Platform {
+  return val === 'x' || val === 'bluesky' || val === 'mastodon';
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -93,7 +97,7 @@ function PlatformTabs({
           className={[
             'px-3 py-1.5 text-sm font-medium border-b-2 -mb-px focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
             p === active
-              ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
+              ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
               : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300',
           ].join(' ')}
           aria-label={`${PLATFORM_LABELS[p] ?? p} (${i + 1})`}
@@ -133,7 +137,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const isFailed = post.status === 'failed';
   const [expanded, setExpanded] = useState(isFailed);
   const [activeTab, setActiveTab] = useState<Platform>(
-    (post.platforms[0] as Platform) ?? 'x',
+    isPlatform(post.platforms[0]) ? post.platforms[0] : 'x',
   );
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -324,7 +328,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
           <Button
-            color="sky"
+            color="blue"
             onClick={() => setExpanded((v) => !v)}
             aria-label="Preview"
             aria-expanded={expanded}
