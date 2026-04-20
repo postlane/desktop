@@ -484,4 +484,273 @@ describe('PostCard — keyboard shortcuts', () => {
     fireEvent.keyDown(card, { key: 'Escape' });
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
+
+  it('1 key switches to first platform tab', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} isFocused />);
+    const card = screen.getByRole('article');
+    fireEvent.keyDown(card, { key: 'e' }); // expand
+    await waitFor(() => screen.getByRole('tablist'));
+    fireEvent.keyDown(card, { key: '2' }); // switch to bluesky
+    fireEvent.keyDown(card, { key: '1' }); // switch back to x
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /x/i, selected: true })).toBeInTheDocument(),
+    );
+  });
+
+  it('2 key switches to second platform tab', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} isFocused />);
+    const card = screen.getByRole('article');
+    fireEvent.keyDown(card, { key: 'e' });
+    await waitFor(() => screen.getByRole('tablist'));
+    fireEvent.keyDown(card, { key: '2' });
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /bluesky/i, selected: true })).toBeInTheDocument(),
+    );
+  });
+
+  it('3 key does nothing when only 2 platforms', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} isFocused />);
+    const card = screen.getByRole('article');
+    fireEvent.keyDown(card, { key: 'e' });
+    await waitFor(() => screen.getByRole('tablist'));
+    fireEvent.keyDown(card, { key: '3' }); // no third platform — should not throw
+    expect(screen.getByRole('tab', { name: /x/i })).toBeInTheDocument();
+  });
+
+  it('R key retries a failed card', async () => {
+    const onApproved = vi.fn();
+    mockInvoke.mockResolvedValue({ success: true });
+    const failedPost = makePost({ status: 'failed', error: 'Timeout' });
+    render(<PostCard post={failedPost} onApproved={onApproved} onDismissed={vi.fn()} isFocused />);
+    const card = screen.getByRole('article');
+    fireEvent.keyDown(card, { key: 'r' });
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('retry_post', expect.anything()));
+  });
+
+  it('keyboard shortcuts are ignored when card is not focused', () => {
+    const onApproved = vi.fn();
+    render(<PostCard post={makePost()} onApproved={onApproved} onDismissed={vi.fn()} isFocused={false} />);
+    const card = screen.getByRole('article');
+    fireEvent.keyDown(card, { key: 'a' });
+    expect(onApproved).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error paths
+// ---------------------------------------------------------------------------
+
+describe('PostCard — error paths', () => {
+  it('update_post_content failure does not crash', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('Original.');
+      if (cmd === 'update_post_content') return Promise.reject(new Error('write failed'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /edit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Changed.' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('update_post_content', expect.anything()),
+    );
+    // No crash; card still rendered
+    expect(screen.getByRole('article')).toBeInTheDocument();
+  });
+
+  it('shows error when fetch_og_image returns null (no image found)', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      if (cmd === 'fetch_og_image') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ image_url: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /image url/i }), {
+      target: { value: 'https://unsplash.com/photos/some-photo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save image/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/no image found on that page/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('shows error when fetch_og_image throws', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      if (cmd === 'fetch_og_image') return Promise.reject(new Error('timeout'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ image_url: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /image url/i }), {
+      target: { value: 'https://unsplash.com/photos/some-photo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save image/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/timeout/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('malformed image URL (new URL throws) falls through to fetch_og_image', async () => {
+    // 'https://' starts with 'https://' so the button is enabled, but new URL('https://') throws
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      if (cmd === 'fetch_og_image') return Promise.resolve('https://images.example.com/photo.jpg');
+      if (cmd === 'update_post_image') return Promise.resolve(undefined);
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ image_url: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /image url/i }), {
+      target: { value: 'https://' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save image/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('fetch_og_image', { url: 'https://' }),
+    );
+  });
+
+  it('update_post_image failure on save does not crash', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      if (cmd === 'update_post_image') return Promise.reject(new Error('disk full'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ image_url: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /image url/i }), {
+      target: { value: 'https://example.com/og.png' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^save image$/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('update_post_image', expect.anything()),
+    );
+    // No crash
+  });
+
+  it('update_post_image failure on remove does not crash', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_post_content') return Promise.resolve('content');
+      if (cmd === 'update_post_image') return Promise.reject(new Error('disk full'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost({ image_url: 'https://example.com/og.png' })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^image$/i }));
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('update_post_image', expect.anything()),
+    );
+    // No crash
+  });
+
+  it('delete_post failure does not crash', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'delete_post') return Promise.reject(new Error('permission denied'));
+      return Promise.resolve(null);
+    });
+    const onDismissed = vi.fn();
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={onDismissed} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /delete/i }));
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('delete_post', expect.anything()),
+    );
+    expect(onDismissed).not.toHaveBeenCalled();
+  });
+
+  it('retry_post failure does not crash', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'retry_post') return Promise.reject(new Error('network error'));
+      return Promise.resolve(null);
+    });
+    const onApproved = vi.fn();
+    const failedPost = makePost({ status: 'failed', error: 'Timeout' });
+    render(<PostCard post={failedPost} onApproved={onApproved} onDismissed={vi.fn()} isFocused />);
+    const card = screen.getByRole('article');
+    fireEvent.keyDown(card, { key: 'r' });
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('retry_post', expect.anything()),
+    );
+    expect(onApproved).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PostCard — platform default (isPlatform type guard)
+// ---------------------------------------------------------------------------
+
+describe('PostCard — platform default', () => {
+  it('defaults activeTab to x when platforms is empty', async () => {
+    const post = makePost({ platforms: [] });
+    render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    // Expand to trigger tab rendering
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => {
+      // No platform tabs should render (no platforms on post)
+      expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    });
+  });
+
+  it('defaults activeTab to x when platforms contains an unrecognised value', async () => {
+    // Before the fix, `as Platform` would silently accept 'instagram'.
+    // After the fix, isPlatform rejects it and falls back to 'x'.
+    const post = makePost({ platforms: ['instagram' as any, 'x'] });
+    // Should render without throwing — type guard prevents invalid state
+    expect(() =>
+      render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />)
+    ).not.toThrow();
+  });
+
+  it('uses bluesky as activeTab when platforms starts with bluesky', async () => {
+    const post = makePost({ platforms: ['bluesky', 'x'] });
+    render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => {
+      const blueskyTab = screen.getByRole('tab', { name: /bluesky/i });
+      expect(blueskyTab).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Image form — Cancel
+// ---------------------------------------------------------------------------
+
+describe('PostCard — image form cancel', () => {
+  it('Cancel closes the image input without saving', async () => {
+    render(<PostCard post={makePost({ image_url: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^image$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^image$/i }));
+    expect(screen.getByRole('textbox', { name: /image url/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByRole('textbox', { name: /image url/i })).not.toBeInTheDocument();
+  });
 });
