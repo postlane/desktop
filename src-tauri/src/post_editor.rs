@@ -25,27 +25,21 @@ fn is_private_host(url: &str) -> bool {
         Ok(u) => u,
         Err(_) => return true,
     };
-    let host = match parsed.host_str() {
-        Some(h) => h,
+    match parsed.host() {
         None => return true,
-    };
-    if matches!(host, "localhost" | "localhost.localdomain") {
-        return true;
+        Some(url::Host::Domain(d)) => {
+            return matches!(d, "localhost" | "localhost.localdomain");
+        }
+        Some(url::Host::Ipv4(v4)) => {
+            return v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                || v4.is_broadcast() || v4.is_unspecified();
+        }
+        Some(url::Host::Ipv6(v6)) => {
+            return v6.is_loopback()
+                || v6.is_unspecified()
+                || (v6.segments()[0] & 0xfe00 == 0xfc00); // fc00::/7 unique-local
+        }
     }
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        return match ip {
-            std::net::IpAddr::V4(v4) => {
-                v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                    || v4.is_broadcast() || v4.is_unspecified()
-            }
-            std::net::IpAddr::V6(v6) => {
-                v6.is_loopback()
-                    || v6.is_unspecified()
-                    || (v6.segments()[0] & 0xfe00 == 0xfc00) // fc00::/7 unique-local
-            }
-        };
-    }
-    false
 }
 
 fn og_regex() -> &'static regex::Regex {
@@ -237,4 +231,162 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
     }
 
     Ok(image_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- is_private_host ---
+
+    #[test]
+    fn test_private_host_loopback_ipv4() {
+        assert!(is_private_host("https://127.0.0.1/path"));
+    }
+
+    #[test]
+    fn test_private_host_loopback_ipv4_port() {
+        assert!(is_private_host("https://127.0.0.1:8080/path"));
+    }
+
+    #[test]
+    fn test_private_host_rfc1918_10() {
+        assert!(is_private_host("https://10.0.0.1/"));
+    }
+
+    #[test]
+    fn test_private_host_rfc1918_172() {
+        assert!(is_private_host("https://172.20.0.1/"));
+    }
+
+    #[test]
+    fn test_private_host_rfc1918_192_168() {
+        assert!(is_private_host("https://192.168.1.1/"));
+    }
+
+    #[test]
+    fn test_private_host_link_local() {
+        assert!(is_private_host("https://169.254.169.254/latest/meta-data/"));
+    }
+
+    #[test]
+    fn test_private_host_localhost_string() {
+        assert!(is_private_host("https://localhost/"));
+    }
+
+    #[test]
+    fn test_private_host_localhost_localdomain() {
+        assert!(is_private_host("https://localhost.localdomain/"));
+    }
+
+    #[test]
+    fn test_private_host_ipv6_loopback() {
+        assert!(is_private_host("https://[::1]/"));
+    }
+
+    #[test]
+    fn test_private_host_ipv6_unique_local() {
+        assert!(is_private_host("https://[fd00::1]/"));
+    }
+
+    #[test]
+    fn test_private_host_ipv6_unique_local_range_boundary() {
+        assert!(is_private_host("https://[fc00::1]/"));
+    }
+
+    #[test]
+    fn test_private_host_broadcast() {
+        assert!(is_private_host("https://255.255.255.255/"));
+    }
+
+    #[test]
+    fn test_private_host_unspecified() {
+        assert!(is_private_host("https://0.0.0.0/"));
+    }
+
+    #[test]
+    fn test_public_host_allowed() {
+        assert!(!is_private_host("https://example.com/image.png"));
+    }
+
+    #[test]
+    fn test_public_host_cdn_allowed() {
+        assert!(!is_private_host("https://images.unsplash.com/photo-123"));
+    }
+
+    #[test]
+    fn test_unparseable_url_rejected() {
+        assert!(is_private_host("not-a-url"));
+    }
+
+    #[test]
+    fn test_private_host_no_host_rejected() {
+        assert!(is_private_host("file:///etc/passwd"));
+    }
+
+    // --- fetch_og_image: synchronous validation ---
+
+    #[tokio::test]
+    async fn test_fetch_og_image_rejects_http_url() {
+        let result = fetch_og_image("http://example.com/page".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("https://"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_og_image_rejects_private_ip_direct() {
+        let result = fetch_og_image("https://127.0.0.1/".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("private"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_og_image_rejects_localhost() {
+        let result = fetch_og_image("https://localhost/".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("private"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_og_image_rejects_aws_metadata() {
+        let result = fetch_og_image("https://169.254.169.254/latest/meta-data/".to_string()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("private"));
+    }
+
+    // --- update_post_content_impl: path traversal ---
+
+    #[test]
+    fn test_update_content_rejects_slash_in_folder() {
+        let result = update_post_content_impl("/repo", "sub/folder", "x", "content");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_content_rejects_dotdot_in_folder() {
+        let result = update_post_content_impl("/repo", "../escape", "x", "content");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_content_rejects_invalid_platform() {
+        let result = update_post_content_impl("/repo", "valid-folder", "instagram", "content");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid platform"));
+    }
+
+    // --- update_post_image_impl: path traversal + https validation ---
+
+    #[test]
+    fn test_update_image_rejects_slash_in_folder() {
+        let result = update_post_image_impl("/repo", "sub/folder", Some("https://example.com/img.png"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_image_rejects_http_url() {
+        let result = update_post_image_impl("/repo", "valid", Some("http://example.com/img.png"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("https://"));
+    }
 }

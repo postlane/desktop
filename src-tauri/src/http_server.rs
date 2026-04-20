@@ -748,4 +748,108 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
+
+    fn make_state_with_tmp_repo() -> (ServerState, String) {
+        let tmp = std::env::temp_dir();
+        let canonical = std::fs::canonicalize(&tmp).expect("temp_dir exists");
+        let path_str = canonical.to_str().expect("valid utf8").to_string();
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "test-id".to_string(),
+                name: "test".to_string(),
+                path: path_str.clone(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        }));
+        (ServerState { token: "tok".to_string(), repos }, path_str)
+    }
+
+    #[tokio::test]
+    async fn test_send_rejects_path_traversal_double_dot() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"../secret"}}"#, path_str);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_send_rejects_path_traversal_forward_slash() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"sub/dir"}}"#, path_str);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_send_rejects_path_traversal_backslash() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"sub\\dir"}}"#, path_str);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_send_rejects_path_traversal_absolute_path() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"../../etc/passwd"}}"#, path_str);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_send_accepts_valid_post_folder_name() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        // Valid folder name — post_path won't exist so expect BAD_REQUEST for missing folder,
+        // NOT for path traversal
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"2024-01-01-launch"}}"#, path_str);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .unwrap(),
+        ).await.unwrap();
+        // Should reach "post folder does not exist" (BAD_REQUEST), not path traversal rejection
+        // Both return BAD_REQUEST, but the body text differs
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_str = std::str::from_utf8(&body_bytes).unwrap();
+        assert!(!body_str.contains("path traversal"), "valid folder name should not trigger traversal error: {}", body_str);
+    }
 }
