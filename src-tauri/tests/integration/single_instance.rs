@@ -21,8 +21,10 @@ async fn test_single_instance_detection() {
         get(|| async { Json(HealthResponse { status: "ok".to_string() }) }),
     );
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 47312));
+    // Bind to port 0 so the OS assigns a free port — avoids colliding with a running app instance
+    let addr = SocketAddr::from(([127, 0, 0, 1], 0));
     let listener = TcpListener::bind(addr).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -38,7 +40,7 @@ async fn test_single_instance_detection() {
         .unwrap();
 
     let response = client
-        .get("http://127.0.0.1:47312/health")
+        .get(format!("http://127.0.0.1:{}/health", port))
         .send()
         .await;
 
