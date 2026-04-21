@@ -130,12 +130,21 @@ describe('RepoDraftsView', () => {
       return Promise.resolve(() => {});
     });
 
-    mockInvoke.mockResolvedValueOnce([
-      makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'First load' }),
-    ]);
-    mockInvoke.mockResolvedValueOnce([
-      makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'After refresh' }),
-    ]);
+    let draftsCallCount = 0;
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_all_drafts') {
+        draftsCallCount++;
+        if (draftsCallCount === 1) {
+          return Promise.resolve([
+            makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'First load' }),
+          ]);
+        }
+        return Promise.resolve([
+          makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'After refresh' }),
+        ]);
+      }
+      return Promise.resolve(null);
+    });
 
     render(<RepoDraftsView repoId="r1" />);
     await waitFor(() => screen.getByText('First load'));

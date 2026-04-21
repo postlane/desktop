@@ -151,6 +151,10 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [ogFetchError, setOgFetchError] = useState<string | null>(null);
   const [redraftInstruction, setRedraftInstruction] = useState('');
   const [redraftQueued, setRedraftQueued] = useState(false);
+  const [contentLoadError, setContentLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [attributionEnabled, setAttributionEnabled] = useState(true);
 
   const platforms = platformsOnPost(post);
 
@@ -162,9 +166,23 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       postFolder: post.post_folder,
       platform: activeTab,
     })
-      .then((c) => setPostContent(typeof c === 'string' ? c : ''))
-      .catch(() => setPostContent(''));
+      .then((c) => {
+        setPostContent(typeof c === 'string' ? c : '');
+        setContentLoadError(null);
+      })
+      .catch((e) => {
+        setPostContent('');
+        setContentLoadError('Failed to load post content.');
+        console.error('get_post_content failed:', e);
+      });
   }, [expanded, activeTab, post.repo_path, post.post_folder]);
+
+  // Fetch attribution setting once on mount.
+  useEffect(() => {
+    invoke<boolean>('get_attribution')
+      .then((v) => setAttributionEnabled(v))
+      .catch(() => {}); // non-critical, defaults to true
+  }, []);
 
   const handleApprove = useCallback(async () => {
     setApproving(true);
@@ -191,7 +209,9 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
         newContent,
       });
       setPostContent(newContent);
+      setSaveError(null);
     } catch (e) {
+      setSaveError('Failed to save changes. Try again.');
       console.error('update_post_content failed:', e);
     }
   }, [post, activeTab]);
@@ -264,6 +284,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
 
   const handleRetry = useCallback(async () => {
     setRetrying(true);
+    setRetryError(null);
     try {
       await invoke('retry_post', {
         repoPath: post.repo_path,
@@ -271,7 +292,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       });
       onApproved();
     } catch (e) {
-      console.error('retry_post failed:', e);
+      setRetryError(e instanceof Error ? e.message : String(e));
     } finally {
       setRetrying(false);
     }
@@ -443,9 +464,31 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
             </div>
           )}
 
+          {/* Content load error */}
+          {contentLoadError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{contentLoadError}</p>
+          )}
+
+          {/* Attribution disabled notice */}
+          {!attributionEnabled && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Attribution footer disabled — toggle in Settings → App
+            </p>
+          )}
+
           {/* Approve error */}
           {approveError && (
             <p className="mt-2 text-xs text-red-600 dark:text-red-400">{approveError}</p>
+          )}
+
+          {/* Save error */}
+          {saveError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{saveError}</p>
+          )}
+
+          {/* Retry error */}
+          {retryError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{retryError}</p>
           )}
 
           {/* Queue for redraft */}
@@ -462,6 +505,11 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
               outline
               disabled={!redraftInstruction.trim()}
               onClick={async () => {
+                const confirmed = await confirm(
+                  `Queue for redraft with instruction: "${redraftInstruction.trim()}"?`,
+                  { title: 'Confirm redraft', kind: 'info' },
+                );
+                if (!confirmed) return;
                 try {
                   await invoke('queue_redraft', {
                     repoPath: post.repo_path,
@@ -481,6 +529,23 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
             <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
               Queued for redraft — open your IDE and run <code>/redraft-post</code>.
             </p>
+          )}
+          {redraftQueued && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await invoke('cancel_redraft', { repoPath: post.repo_path });
+                  setRedraftQueued(false);
+                  setRedraftInstruction('');
+                } catch (e) {
+                  console.error('cancel_redraft failed:', e);
+                }
+              }}
+              className="text-sm text-gray-500 underline hover:text-gray-700"
+            >
+              Cancel redraft
+            </button>
           )}
         </div>
       )}

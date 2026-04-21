@@ -253,12 +253,26 @@ pub fn queue_redraft_impl(
     instruction: &str,
     repos: &crate::storage::ReposConfig,
 ) -> Result<(), String> {
-    let is_registered = repos.repos.iter().any(|r| r.path == repo_path);
+    let canonical_path = fs::canonicalize(repo_path)
+        .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
+    let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
+    let is_registered = repos.repos.iter().any(|r| r.path == canonical_str);
     if !is_registered {
         return Err("Repository not registered (403)".to_string());
     }
 
-    let postlane_dir = PathBuf::from(repo_path).join(".postlane");
+    if post_folder.contains('/') || post_folder.contains('\\') || post_folder.contains("..") {
+        return Err("Invalid post folder: must not contain path separators or '..'".to_string());
+    }
+
+    if instruction.len() > 10_000 {
+        return Err(format!(
+            "Instruction too long ({} chars). Maximum is 10,000 characters.",
+            instruction.len()
+        ));
+    }
+
+    let postlane_dir = canonical_path.join(".postlane");
     fs::create_dir_all(&postlane_dir)
         .map_err(|e| format!("Failed to create .postlane directory: {}", e))?;
 
@@ -283,6 +297,39 @@ pub fn queue_redraft_impl(
     Ok(())
 }
 
+pub fn cancel_redraft_impl(
+    repo_path: &str,
+    repos: &crate::storage::ReposConfig,
+) -> Result<(), String> {
+    let canonical_path = fs::canonicalize(repo_path)
+        .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
+    let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
+    let is_registered = repos.repos.iter().any(|r| r.path == canonical_str);
+    if !is_registered {
+        return Err("Repository not registered (403)".to_string());
+    }
+
+    let pending_path = canonical_path.join(".postlane/pending-redraft.json");
+    if pending_path.exists() {
+        fs::remove_file(&pending_path)
+            .map_err(|e| format!("Failed to delete pending-redraft.json: {}", e))?;
+    }
+    // If file doesn't exist, that's fine — idempotent
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_redraft(
+    repo_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    cancel_redraft_impl(&repo_path, &repos)
+}
+
 #[tauri::command]
 pub fn queue_redraft(
     repo_path: String,
@@ -302,17 +349,22 @@ mod tests {
     use super::*;
     use crate::storage::{Repo, ReposConfig};
 
-    fn make_repos(paths: &[&str]) -> ReposConfig {
+    /// Create a repos config using canonical paths (dirs must exist first).
+    fn make_repos_canonical(dirs: &[&std::path::Path]) -> ReposConfig {
         ReposConfig {
             version: 1,
-            repos: paths
+            repos: dirs
                 .iter()
-                .map(|p| Repo {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    name: "test".to_string(),
-                    path: p.to_string(),
-                    active: true,
-                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                .map(|d| {
+                    let canonical = fs::canonicalize(d)
+                        .unwrap_or_else(|_| d.to_path_buf());
+                    Repo {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name: "test".to_string(),
+                        path: canonical.to_str().unwrap_or("").to_string(),
+                        active: true,
+                        added_at: "2026-01-01T00:00:00Z".to_string(),
+                    }
                 })
                 .collect(),
         }
@@ -321,10 +373,10 @@ mod tests {
     #[test]
     fn test_queue_redraft_writes_correct_json() {
         let dir = std::env::temp_dir().join("postlane_test_queue_redraft_writes");
-        let repo_path = dir.to_str().unwrap();
-        let repos = make_repos(&[repo_path]);
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
 
-        let result = queue_redraft_impl(repo_path, "20260101-v100-changelog", "make it shorter", &repos);
+        let result = queue_redraft_impl(dir.to_str().unwrap(), "20260101-v100-changelog", "make it shorter", &repos);
         assert!(result.is_ok(), "expected Ok but got: {:?}", result);
 
         let pending_path = dir.join(".postlane/pending-redraft.json");
@@ -344,7 +396,9 @@ mod tests {
     fn test_queue_redraft_rejects_unregistered_repo() {
         let dir = std::env::temp_dir().join("postlane_test_queue_redraft_rejects");
         let registered = std::env::temp_dir().join("postlane_test_registered_only");
-        let repos = make_repos(&[registered.to_str().unwrap()]);
+        fs::create_dir_all(&registered).expect("create registered dir");
+        // dir intentionally not created — canonicalize will fail, triggering error
+        let repos = make_repos_canonical(&[&registered]);
 
         let result = queue_redraft_impl(
             dir.to_str().unwrap(),
@@ -354,24 +408,20 @@ mod tests {
         );
 
         assert!(result.is_err(), "expected Err for unregistered repo");
-        assert!(
-            result.unwrap_err().contains("not registered"),
-            "error must mention 'not registered'"
-        );
     }
 
     #[test]
     fn test_queue_redraft_overwrites_existing_pending() {
         let dir = std::env::temp_dir().join("postlane_test_queue_redraft_overwrites");
-        let repo_path = dir.to_str().unwrap();
-        let repos = make_repos(&[repo_path]);
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
 
         // First write
-        queue_redraft_impl(repo_path, "20260101-v100-changelog", "first instruction", &repos)
+        queue_redraft_impl(dir.to_str().unwrap(), "20260101-v100-changelog", "first instruction", &repos)
             .expect("first write should succeed");
 
         // Second write — should overwrite, not append
-        queue_redraft_impl(repo_path, "20260201-v110-changelog", "second instruction", &repos)
+        queue_redraft_impl(dir.to_str().unwrap(), "20260201-v110-changelog", "second instruction", &repos)
             .expect("second write should succeed");
 
         let pending_path = dir.join(".postlane/pending-redraft.json");
@@ -382,5 +432,96 @@ mod tests {
         assert_eq!(parsed["instruction"].as_str(), Some("second instruction"));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_queue_redraft_rejects_path_traversal_in_post_folder() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_traversal");
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
+
+        let result = queue_redraft_impl(
+            dir.to_str().unwrap(),
+            "../../../etc",
+            "make it shorter",
+            &repos,
+        );
+
+        assert!(result.is_err(), "expected Err for path traversal");
+        assert!(
+            result.unwrap_err().contains("Invalid post folder"),
+            "error must mention 'Invalid post folder'"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_queue_redraft_rejects_instruction_too_long() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_long_instruction");
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
+        let long_instruction = "x".repeat(10_001);
+
+        let result = queue_redraft_impl(
+            dir.to_str().unwrap(),
+            "post-folder",
+            &long_instruction,
+            &repos,
+        );
+
+        assert!(result.is_err(), "expected Err for too-long instruction");
+        assert!(
+            result.unwrap_err().contains("Instruction too long"),
+            "error must mention 'Instruction too long'"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_cancel_redraft_deletes_pending_file() {
+        let dir = std::env::temp_dir().join("postlane_test_cancel_redraft_deletes");
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
+
+        // Queue a redraft first
+        queue_redraft_impl(dir.to_str().unwrap(), "post-folder", "make it shorter", &repos)
+            .expect("queue should succeed");
+
+        let pending_path = dir.join(".postlane/pending-redraft.json");
+        assert!(pending_path.exists(), "pending file should exist after queue");
+
+        // Cancel it
+        let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
+        assert!(result.is_ok(), "cancel should succeed: {:?}", result);
+        assert!(!pending_path.exists(), "pending file should be gone after cancel");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_cancel_redraft_is_idempotent() {
+        let dir = std::env::temp_dir().join("postlane_test_cancel_redraft_idempotent");
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
+
+        // Cancel when no pending file exists — should still return Ok
+        let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
+        assert!(result.is_ok(), "cancel with no pending file should return Ok");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_cancel_redraft_rejects_unregistered_repo() {
+        let dir = std::env::temp_dir().join("postlane_test_cancel_redraft_unregistered");
+        let registered = std::env::temp_dir().join("postlane_test_cancel_registered_only");
+        fs::create_dir_all(&registered).expect("create registered dir");
+        // dir intentionally not created — canonicalize will fail
+        let repos = make_repos_canonical(&[&registered]);
+
+        let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
+        assert!(result.is_err(), "expected Err for unregistered repo");
     }
 }

@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockInvoke.mockImplementation((cmd: string) => {
     if (cmd === 'get_post_content') return Promise.resolve('');
+    if (cmd === 'get_attribution') return Promise.resolve(true);
     return Promise.resolve(null);
   });
   mockConfirm.mockResolvedValue(true);
@@ -829,5 +830,98 @@ describe('PostCard — queue for redraft', () => {
     await waitFor(() =>
       expect(screen.getByText(/queued for redraft/i)).toBeInTheDocument(),
     );
+  });
+
+  it('shows "Cancel redraft" button after queueing', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'queue_redraft') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it shorter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /cancel redraft/i })).toBeInTheDocument(),
+    );
+  });
+
+  it('clicking "Cancel redraft" invokes cancel_redraft and hides the banner', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'queue_redraft') return Promise.resolve(null);
+      if (cmd === 'cancel_redraft') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    render(<PostCard post={makePost({ repo_path: '/repos/my-app' })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it punchier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /cancel redraft/i })).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel redraft/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('cancel_redraft', { repoPath: '/repos/my-app' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/queued for redraft/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it('shows a confirm dialog before queuing redraft', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'queue_redraft') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it shorter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+
+    await waitFor(() =>
+      expect(mockConfirm).toHaveBeenCalledWith(
+        expect.stringContaining('make it shorter'),
+        expect.objectContaining({ title: 'Confirm redraft' }),
+      ),
+    );
+  });
+
+  it('does not queue when user cancels the confirm dialog', async () => {
+    mockConfirm.mockResolvedValue(false);
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      return Promise.resolve(null);
+    });
+
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it shorter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledOnce());
+    expect(mockInvoke).not.toHaveBeenCalledWith('queue_redraft', expect.anything());
+    expect(screen.queryByText(/queued for redraft/i)).not.toBeInTheDocument();
   });
 });
