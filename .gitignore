@@ -45,3 +45,4 @@ yarn-debug.log*
 
 # Postlane — local post drafts and config, never commit
 .postlane/
+coverage/
