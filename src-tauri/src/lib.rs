@@ -146,6 +146,7 @@ pub fn run() {
             post_ops::dismiss_post,
             post_ops::delete_post,
             post_ops::retry_post,
+            post_ops::queue_redraft,
             repo_mgmt::add_repo,
             repo_mgmt::remove_repo,
             repo_mgmt::set_repo_active,

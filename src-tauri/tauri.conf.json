@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Postlane",
+        "title": "postlane",
         "width": 980,
         "height": 700,
         "minWidth": 820,

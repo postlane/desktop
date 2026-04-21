@@ -25,6 +25,7 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+.claude/
 
 # Logs
 *.log

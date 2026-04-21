@@ -246,3 +246,141 @@ pub fn retry_post(
 ) -> Result<SendResult, String> {
     retry_post_impl(&repo_path, &post_folder, &state)
 }
+
+pub fn queue_redraft_impl(
+    repo_path: &str,
+    post_folder: &str,
+    instruction: &str,
+    repos: &crate::storage::ReposConfig,
+) -> Result<(), String> {
+    let is_registered = repos.repos.iter().any(|r| r.path == repo_path);
+    if !is_registered {
+        return Err("Repository not registered (403)".to_string());
+    }
+
+    let postlane_dir = PathBuf::from(repo_path).join(".postlane");
+    fs::create_dir_all(&postlane_dir)
+        .map_err(|e| format!("Failed to create .postlane directory: {}", e))?;
+
+    let pending_path = postlane_dir.join("pending-redraft.json");
+    let tmp_path = postlane_dir.join("pending-redraft.json.tmp");
+
+    let queued_at = chrono::Utc::now().to_rfc3339();
+    let payload = serde_json::json!({
+        "post_folder": post_folder,
+        "instruction": instruction,
+        "queued_at": queued_at,
+    });
+
+    let json_content = serde_json::to_string_pretty(&payload)
+        .map_err(|e| format!("Failed to serialize pending-redraft.json: {}", e))?;
+
+    fs::write(&tmp_path, json_content)
+        .map_err(|e| format!("Failed to write pending-redraft.json.tmp: {}", e))?;
+    fs::rename(&tmp_path, &pending_path)
+        .map_err(|e| format!("Failed to rename pending-redraft.json: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn queue_redraft(
+    repo_path: String,
+    post_folder: String,
+    instruction: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    queue_redraft_impl(&repo_path, &post_folder, &instruction, &repos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::{Repo, ReposConfig};
+
+    fn make_repos(paths: &[&str]) -> ReposConfig {
+        ReposConfig {
+            version: 1,
+            repos: paths
+                .iter()
+                .map(|p| Repo {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name: "test".to_string(),
+                    path: p.to_string(),
+                    active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_queue_redraft_writes_correct_json() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_writes");
+        let repo_path = dir.to_str().unwrap();
+        let repos = make_repos(&[repo_path]);
+
+        let result = queue_redraft_impl(repo_path, "20260101-v100-changelog", "make it shorter", &repos);
+        assert!(result.is_ok(), "expected Ok but got: {:?}", result);
+
+        let pending_path = dir.join(".postlane/pending-redraft.json");
+        assert!(pending_path.exists(), "pending-redraft.json should exist");
+
+        let content = std::fs::read_to_string(&pending_path).expect("read pending-redraft.json");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse JSON");
+
+        assert_eq!(parsed["post_folder"].as_str(), Some("20260101-v100-changelog"));
+        assert_eq!(parsed["instruction"].as_str(), Some("make it shorter"));
+        assert!(parsed["queued_at"].as_str().is_some(), "queued_at must be present");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_queue_redraft_rejects_unregistered_repo() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_rejects");
+        let registered = std::env::temp_dir().join("postlane_test_registered_only");
+        let repos = make_repos(&[registered.to_str().unwrap()]);
+
+        let result = queue_redraft_impl(
+            dir.to_str().unwrap(),
+            "20260101-v100-changelog",
+            "make it shorter",
+            &repos,
+        );
+
+        assert!(result.is_err(), "expected Err for unregistered repo");
+        assert!(
+            result.unwrap_err().contains("not registered"),
+            "error must mention 'not registered'"
+        );
+    }
+
+    #[test]
+    fn test_queue_redraft_overwrites_existing_pending() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_overwrites");
+        let repo_path = dir.to_str().unwrap();
+        let repos = make_repos(&[repo_path]);
+
+        // First write
+        queue_redraft_impl(repo_path, "20260101-v100-changelog", "first instruction", &repos)
+            .expect("first write should succeed");
+
+        // Second write — should overwrite, not append
+        queue_redraft_impl(repo_path, "20260201-v110-changelog", "second instruction", &repos)
+            .expect("second write should succeed");
+
+        let pending_path = dir.join(".postlane/pending-redraft.json");
+        let content = std::fs::read_to_string(&pending_path).expect("read pending-redraft.json");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse JSON");
+
+        assert_eq!(parsed["post_folder"].as_str(), Some("20260201-v110-changelog"));
+        assert_eq!(parsed["instruction"].as_str(), Some("second instruction"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
