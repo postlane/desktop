@@ -755,6 +755,24 @@ describe('SettingsPanel — ReposTab action errors', () => {
     );
   });
 
+  it('shows error message when add_repo fails', async () => {
+    mockDialog.mockResolvedValue('/new/repo');
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo()];
+      if (cmd === 'add_repo') throw new Error('Path is not a git repo');
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'list_profiles_for_repo') return [];
+      if (cmd === 'get_account_ids') return {};
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /add repo/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add repo/i }));
+    await waitFor(() =>
+      expect(screen.getByText('Path is not a git repo')).toBeInTheDocument()
+    );
+  });
+
   it('clears previous error when a new action starts', async () => {
     let callCount = 0;
     mockInvoke.mockImplementation(async (cmd: unknown) => {
@@ -1146,6 +1164,68 @@ describe('SettingsPanel — attribution toggle', () => {
 
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('set_attribution', { enabled: true }),
+    );
+  });
+
+  it('does not crash when set_attribution throws', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_attribution') return true;
+      if (cmd === 'set_attribution') throw new Error('keyring unavailable');
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('tab', { name: /app/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /app/i }));
+
+    await waitFor(() => screen.getByRole('switch', { name: /post attribution/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /post attribution/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('set_attribution', { enabled: false }),
+    );
+    // Switch stays unchanged after error — no crash
+    expect(screen.getByRole('switch', { name: /post attribution/i })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Repos tab — credential change bumps version
+// ---------------------------------------------------------------------------
+
+describe('SettingsPanel — ReposTab credential version bump', () => {
+  it('saving a scheduler credential in the Repos tab bumps the credential version', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo({ provider: 'zernio' })];
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'save_scheduler_credential') return null;
+      if (cmd === 'list_profiles_for_repo') return [];
+      if (cmd === 'get_account_ids') return {};
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('my-app'));
+
+    // The Repos tab renders RepoSchedulerKey for repos with a provider
+    fireEvent.click(await screen.findByRole('button', { name: /override for this repo/i }));
+
+    const input = await screen.findByPlaceholderText(/paste api key/i);
+    fireEvent.change(input, { target: { value: 'sk-zernio-test' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        'save_scheduler_credential',
+        expect.objectContaining({ apiKey: 'sk-zernio-test' }),
+      ),
+    );
+    // list_profiles_for_repo is re-called after credential version bump
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('list_profiles_for_repo', expect.anything()),
     );
   });
 });
