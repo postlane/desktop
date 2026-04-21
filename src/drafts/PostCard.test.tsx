@@ -754,3 +754,80 @@ describe('PostCard — image form cancel', () => {
     expect(screen.queryByRole('textbox', { name: /image url/i })).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// §7.5.4 — Queue for redraft
+// ---------------------------------------------------------------------------
+
+describe('PostCard — queue for redraft', () => {
+  it('renders a "Queue for redraft" button in the expanded state', async () => {
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /queue for redraft/i })).toBeInTheDocument(),
+    );
+  });
+
+  it('"Queue for redraft" button is disabled when instruction field is empty', async () => {
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /queue for redraft/i }));
+    expect(screen.getByRole('button', { name: /queue for redraft/i })).toBeDisabled();
+  });
+
+  it('"Queue for redraft" button is enabled when instruction has text', async () => {
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it shorter' },
+    });
+    expect(screen.getByRole('button', { name: /queue for redraft/i })).not.toBeDisabled();
+  });
+
+  it('calls queue_redraft with correct args when button is clicked', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'queue_redraft') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    const post = makePost({ repo_path: '/repos/my-app', post_folder: 'post-001' });
+    render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it punchier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('queue_redraft', {
+        repoPath: '/repos/my-app',
+        postFolder: 'post-001',
+        instruction: 'make it punchier',
+      }),
+    );
+  });
+
+  it('shows a banner after successful queue_redraft', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'queue_redraft') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it shorter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/queued for redraft/i)).toBeInTheDocument(),
+    );
+  });
+});

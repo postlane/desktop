@@ -135,6 +135,8 @@ pub fn run() {
             model_stats::get_model_stats,
             nav_commands::get_app_version,
             nav_commands::get_autostart_enabled,
+            nav_commands::get_attribution,
+            nav_commands::set_attribution,
             account_config::list_profiles_for_repo,
             account_config::save_account_id,
             account_config::get_account_ids,

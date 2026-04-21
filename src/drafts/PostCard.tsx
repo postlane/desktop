@@ -149,6 +149,8 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [imageInput, setImageInput] = useState('');
   const [fetchingOg, setFetchingOg] = useState(false);
   const [ogFetchError, setOgFetchError] = useState<string | null>(null);
+  const [redraftInstruction, setRedraftInstruction] = useState('');
+  const [redraftQueued, setRedraftQueued] = useState(false);
 
   const platforms = platformsOnPost(post);
 
@@ -444,6 +446,41 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
           {/* Approve error */}
           {approveError && (
             <p className="mt-2 text-xs text-red-600 dark:text-red-400">{approveError}</p>
+          )}
+
+          {/* Queue for redraft */}
+          <div className="mt-4 flex items-center gap-2">
+            <input
+              type="search"
+              placeholder="Ask the LLM to revise… e.g. 'make it shorter'"
+              aria-label="Redraft instruction"
+              value={redraftInstruction}
+              onChange={(e) => { setRedraftInstruction(e.target.value); setRedraftQueued(false); }}
+              className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            />
+            <Button
+              outline
+              disabled={!redraftInstruction.trim()}
+              onClick={async () => {
+                try {
+                  await invoke('queue_redraft', {
+                    repoPath: post.repo_path,
+                    postFolder: post.post_folder,
+                    instruction: redraftInstruction.trim(),
+                  });
+                  setRedraftQueued(true);
+                } catch (e) {
+                  console.error('queue_redraft failed:', e);
+                }
+              }}
+            >
+              Queue for redraft
+            </Button>
+          </div>
+          {redraftQueued && (
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              Queued for redraft — open your IDE and run <code>/redraft-post</code>.
+            </p>
           )}
         </div>
       )}

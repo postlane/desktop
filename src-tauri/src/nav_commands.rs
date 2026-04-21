@@ -41,3 +41,53 @@ pub fn get_app_version() -> String {
 pub fn get_autostart_enabled() -> bool {
     false
 }
+
+pub fn attribution_config_path() -> Result<std::path::PathBuf, String> {
+    crate::init::postlane_dir().map(|d| d.join("config.json"))
+}
+
+pub fn read_attribution(config_path: &std::path::Path) -> bool {
+    if !config_path.exists() {
+        return true;
+    }
+    let content = match std::fs::read_to_string(config_path) {
+        Ok(c) => c,
+        Err(_) => return true,
+    };
+    let v: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return true,
+    };
+    v.get("attribution").and_then(|a| a.as_bool()).unwrap_or(true)
+}
+
+pub fn write_attribution(config_path: &std::path::Path, enabled: bool) -> Result<(), String> {
+    let mut config: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(config_path)
+            .map_err(|e| format!("Failed to read global config: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse global config: {}", e))?
+    } else {
+        serde_json::json!({})
+    };
+
+    config["attribution"] = serde_json::Value::Bool(enabled);
+
+    let json = serde_json::to_vec_pretty(&config)
+        .map_err(|e| format!("Failed to serialize global config: {}", e))?;
+    crate::init::atomic_write(config_path, &json)
+        .map_err(|e| format!("Failed to write global config: {}", e))
+}
+
+#[tauri::command]
+pub fn get_attribution() -> bool {
+    attribution_config_path()
+        .map(|p| read_attribution(&p))
+        .unwrap_or(true)
+}
+
+#[tauri::command]
+pub fn set_attribution(enabled: bool) -> Result<(), String> {
+    let path = attribution_config_path()?;
+    write_attribution(&path, enabled)
+}

@@ -1067,3 +1067,85 @@ describe('SettingsPanel — ReposTab toggle in-flight guard', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// §7.4.4 — Attribution toggle (App tab)
+// ---------------------------------------------------------------------------
+
+describe('SettingsPanel — attribution toggle', () => {
+  it('renders an attribution toggle in the App tab', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_attribution') return true;
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+
+    // Navigate to App tab
+    await waitFor(() => screen.getByRole('tab', { name: /app/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /app/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: /post attribution/i })).toBeInTheDocument(),
+    );
+  });
+
+  it('attribution toggle is on by default (when get_attribution returns true)', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_attribution') return true;
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('tab', { name: /app/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /app/i }));
+
+    await waitFor(() => screen.getByRole('switch', { name: /post attribution/i }));
+    expect(screen.getByRole('switch', { name: /post attribution/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('toggling attribution off calls set_attribution with false', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_attribution') return true;
+      if (cmd === 'set_attribution') return null;
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('tab', { name: /app/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /app/i }));
+
+    await waitFor(() => screen.getByRole('switch', { name: /post attribution/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /post attribution/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('set_attribution', { enabled: false }),
+    );
+  });
+
+  it('toggling attribution back on calls set_attribution with true', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_attribution') return false;
+      if (cmd === 'set_attribution') return null;
+      return null;
+    });
+
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('tab', { name: /app/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /app/i }));
+
+    await waitFor(() => screen.getByRole('switch', { name: /post attribution/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /post attribution/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('set_attribution', { enabled: true }),
+    );
+  });
+});

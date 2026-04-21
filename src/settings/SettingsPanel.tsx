@@ -626,11 +626,23 @@ function AppTab({ onTimezoneChange }: { onTimezoneChange?: (tz: string) => void 
   const [autostart, setAutostart] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateResult, setUpdateResult] = useState<string | null>(null);
+  const [attribution, setAttribution] = useState(true);
 
   useEffect(() => {
     invoke<string>('get_app_version').then(setVersion).catch(console.error);
     invoke<boolean>('get_autostart_enabled').then(setAutostart).catch(console.error);
+    invoke<boolean>('get_attribution').then(setAttribution).catch(console.error);
   }, []);
+
+  async function handleAttributionToggle() {
+    const next = !attribution;
+    try {
+      await invoke('set_attribution', { enabled: next });
+      setAttribution(next);
+    } catch (e) {
+      console.error('set_attribution failed:', e);
+    }
+  }
 
   async function handleTimezoneChange(tz: string) {
     try {
@@ -679,6 +691,27 @@ function AppTab({ onTimezoneChange }: { onTimezoneChange?: (tz: string) => void 
   return (
     <div className="space-y-6">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">App</h2>
+
+      {/* Post attribution */}
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="text-sm text-zinc-700 dark:text-zinc-300">Post attribution</span>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Append '📮 postlane.dev' to posts created with Postlane. Opt out at any time.
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-label="Post attribution"
+          aria-checked={attribution}
+          onClick={handleAttributionToggle}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${attribution ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'}`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${attribution ? 'translate-x-6' : 'translate-x-1'}`}
+          />
+        </button>
+      </div>
 
       {/* Launch at login */}
       <div className="flex items-center justify-between">
