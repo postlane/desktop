@@ -101,7 +101,14 @@ mod tests {
     fn test_watch_repo_detects_meta_json_changes() {
         let dir = std::env::temp_dir().join("postlane_test_watcher_meta");
         let posts_dir = dir.join(".postlane").join("posts");
-        fs::create_dir_all(&posts_dir).expect("Failed to create posts dir");
+        let meta_dir = posts_dir.join("test-post");
+
+        // Create the post subdirectory BEFORE starting the watcher so the
+        // recursive inotify watch covers it from the start.  Creating it after
+        // the watcher starts introduces a race: notify may not have added the
+        // subdirectory watch before meta.json is written, causing CI to miss
+        // the event.
+        fs::create_dir_all(&meta_dir).expect("Failed to create post dir");
 
         let watchers: WatcherMap = Mutex::new(HashMap::new());
         let (tx, rx) = mpsc::channel();
@@ -118,16 +125,14 @@ mod tests {
         .expect("Failed to start watcher");
 
         // Give watcher time to initialize — CI runners need more time than local dev
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(500));
 
-        // Write meta.json
-        let meta_path = posts_dir.join("test-post").join("meta.json");
-        fs::create_dir_all(meta_path.parent().unwrap()).expect("Failed to create post dir");
+        // Write meta.json into the pre-existing directory
+        let meta_path = meta_dir.join("meta.json");
         fs::write(&meta_path, r#"{"status": "draft"}"#).expect("Failed to write meta.json");
 
-        // Wait for event — 3s ceiling; the OS delivers inotify/FSEvents events within ~100ms
-        // locally but CI runners with heavy I/O load can take significantly longer.
-        let result = rx.recv_timeout(Duration::from_millis(3000));
+        // Wait for event — 5s ceiling is generous for even the slowest CI runners
+        let result = rx.recv_timeout(Duration::from_millis(5000));
         assert!(result.is_ok(), "Should receive meta.json change event");
 
         if let Ok(paths) = result {
