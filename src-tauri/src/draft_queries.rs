@@ -221,4 +221,64 @@ mod tests {
         assert_eq!(result[0].platforms, vec!["x", "bluesky"]);
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn test_get_all_drafts_sorts_same_status_by_created_at_descending() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_sort_ts");
+        write_meta(&dir, "old", r#"{"status":"ready","platforms":["x"],"created_at":"2026-01-01T00:00:00Z"}"#);
+        write_meta(&dir, "new", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+
+        let state = make_state(vec![Repo { id: "r1".to_string(), name: "Repo".to_string(), path: dir.to_str().unwrap().to_string(), active: true, added_at: "2024-01-01T00:00:00Z".to_string() }]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result[0].post_folder, "new");
+        assert_eq!(result[1].post_folder, "old");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_drafts_none_created_at_sorts_before_timestamped() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_none_ts");
+        write_meta(&dir, "with-ts", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+        write_meta(&dir, "no-ts", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_state(vec![Repo { id: "r1".to_string(), name: "Repo".to_string(), path: dir.to_str().unwrap().to_string(), active: true, added_at: "2024-01-01T00:00:00Z".to_string() }]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        // None created_at sorts first (treated as newer/pending)
+        assert!(result[0].created_at.is_none());
+        assert!(result[1].created_at.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_drafts_two_none_created_at_are_stable() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_two_none");
+        write_meta(&dir, "a", r#"{"status":"ready","platforms":["x"]}"#);
+        write_meta(&dir, "b", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_state(vec![Repo { id: "r1".to_string(), name: "Repo".to_string(), path: dir.to_str().unwrap().to_string(), active: true, added_at: "2024-01-01T00:00:00Z".to_string() }]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_drafts_optional_fields_error_and_image() {
+        let dir = std::env::temp_dir().join("postlane_test_drafts_opt_fields");
+        write_meta(&dir, "p1", r#"{
+            "status":"failed","platforms":["x"],
+            "error":"Provider timed out",
+            "image_url":"https://example.com/img.png",
+            "llm_model":"claude-3-5-sonnet",
+            "platform_results":{"x":"failed"}
+        }"#);
+
+        let state = make_state(vec![Repo { id: "r1".to_string(), name: "Repo".to_string(), path: dir.to_str().unwrap().to_string(), active: true, added_at: "2024-01-01T00:00:00Z".to_string() }]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].error.as_deref(), Some("Provider timed out"));
+        assert_eq!(result[0].image_url.as_deref(), Some("https://example.com/img.png"));
+        assert_eq!(result[0].llm_model.as_deref(), Some("claude-3-5-sonnet"));
+        assert_eq!(result[0].platform_results.as_ref().unwrap().get("x").map(String::as_str), Some("failed"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

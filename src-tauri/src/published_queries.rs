@@ -456,4 +456,185 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    // -----------------------------------------------------------------------
+    // get_all_published_impl
+    // -----------------------------------------------------------------------
+
+    fn make_repo(id: &str, name: &str, path: &str) -> crate::storage::Repo {
+        crate::storage::Repo {
+            id: id.to_string(),
+            name: name.to_string(),
+            path: path.to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_get_all_published_empty_repos() {
+        let state = make_state(vec![]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_all_published_repo_with_no_posts_dir() {
+        let state = make_state(vec![make_repo("r1", "repo", "/nonexistent/path")]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_all_published_filters_to_sent_and_queued_only() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_filter");
+        write_published_meta(&dir, "p1", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-04-15T10:00:00Z"}"#);
+        write_published_meta(&dir, "p2", r#"{"status":"queued","platforms":["x"]}"#);
+        write_published_meta(&dir, "p3", r#"{"status":"ready","platforms":["x"]}"#);
+        write_published_meta(&dir, "p4", r#"{"status":"failed","platforms":["x"]}"#);
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|p| p.status == "sent" || p.status == "queued"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_merges_across_multiple_repos() {
+        let dir1 = std::env::temp_dir().join("postlane_test_all_pub_multi_r1");
+        let dir2 = std::env::temp_dir().join("postlane_test_all_pub_multi_r2");
+        write_published_meta(&dir1, "p1", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-04-15T10:00:00Z"}"#);
+        write_published_meta(&dir2, "p2", r#"{"status":"sent","platforms":["bluesky"],"sent_at":"2026-04-14T10:00:00Z"}"#);
+
+        let state = make_state(vec![
+            make_repo("r1", "repo-one", dir1.to_str().unwrap()),
+            make_repo("r2", "repo-two", dir2.to_str().unwrap()),
+        ]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 2);
+        // Most recent first
+        assert_eq!(result[0].repo_id, "r1");
+        assert_eq!(result[1].repo_id, "r2");
+        let _ = fs::remove_dir_all(&dir1);
+        let _ = fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn test_get_all_published_sorts_by_sent_at_descending() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_sort");
+        write_published_meta(&dir, "old", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-01-01T00:00:00Z"}"#);
+        write_published_meta(&dir, "new", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-04-20T00:00:00Z"}"#);
+        write_published_meta(&dir, "mid", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-03-01T00:00:00Z"}"#);
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].post_folder, "new");
+        assert_eq!(result[1].post_folder, "mid");
+        assert_eq!(result[2].post_folder, "old");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_none_sent_at_sorts_first() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_none_sent");
+        write_published_meta(&dir, "with-time", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-04-20T00:00:00Z"}"#);
+        write_published_meta(&dir, "no-time", r#"{"status":"queued","platforms":["x"]}"#);
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 2);
+        // None sent_at (queued) sorts before Some sent_at (sent)
+        assert!(result[0].sent_at.is_none());
+        assert!(result[1].sent_at.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_two_none_sent_at_are_equal() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_two_none");
+        write_published_meta(&dir, "q1", r#"{"status":"queued","platforms":["x"]}"#);
+        write_published_meta(&dir, "q2", r#"{"status":"queued","platforms":["x"]}"#);
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_pagination() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_pages");
+        for i in 0..15u32 {
+            write_published_meta(
+                &dir,
+                &format!("post-{:02}", i),
+                &format!(r#"{{"status":"sent","platforms":["x"],"sent_at":"2026-04-{:02}T00:00:00Z"}}"#, (i % 28) + 1),
+            );
+        }
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let page1 = get_all_published_impl(0, 10, &state).expect("ok");
+        assert_eq!(page1.len(), 10);
+        let page2 = get_all_published_impl(10, 10, &state).expect("ok");
+        assert_eq!(page2.len(), 5);
+        // Pages are disjoint
+        let ids1: Vec<_> = page1.iter().map(|p| &p.post_folder).collect();
+        let ids2: Vec<_> = page2.iter().map(|p| &p.post_folder).collect();
+        assert!(ids1.iter().all(|id| !ids2.contains(id)));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_includes_optional_fields() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_fields");
+        write_published_meta(&dir, "p1", r#"{
+            "status":"sent","platforms":["x"],
+            "sent_at":"2026-04-15T10:00:00Z",
+            "platform_results":{"x":"sent"},
+            "scheduler_ids":{"x":"sched-123"},
+            "platform_urls":{"x":"https://x.com/post/123"},
+            "schedule":"2026-04-15T10:00:00Z",
+            "llm_model":"claude-3-5-sonnet"
+        }"#);
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 1);
+        let post = &result[0];
+        assert_eq!(post.platform_results.as_ref().unwrap().get("x").map(String::as_str), Some("sent"));
+        assert_eq!(post.scheduler_ids.as_ref().unwrap().get("x").map(String::as_str), Some("sched-123"));
+        assert_eq!(post.platform_urls.as_ref().unwrap().get("x").map(String::as_str), Some("https://x.com/post/123"));
+        assert_eq!(post.llm_model.as_deref(), Some("claude-3-5-sonnet"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_skips_invalid_meta_json() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_invalid");
+        write_published_meta(&dir, "valid", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-04-15T10:00:00Z"}"#);
+        // Write invalid JSON directly
+        let bad_dir = dir.join(".postlane/posts/bad-post");
+        fs::create_dir_all(&bad_dir).expect("create bad dir");
+        fs::write(bad_dir.join("meta.json"), b"not json").expect("write bad meta");
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 1, "invalid meta.json must be skipped");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_all_published_carries_repo_name_and_path() {
+        let dir = std::env::temp_dir().join("postlane_test_all_pub_meta");
+        write_published_meta(&dir, "p1", r#"{"status":"sent","platforms":["x"],"sent_at":"2026-04-15T10:00:00Z"}"#);
+
+        let state = make_state(vec![make_repo("r1", "my-project", dir.to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result[0].repo_id, "r1");
+        assert_eq!(result[0].repo_name, "my-project");
+        assert_eq!(result[0].repo_path, dir.to_str().unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

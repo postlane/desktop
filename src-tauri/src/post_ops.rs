@@ -347,6 +347,7 @@ pub fn queue_redraft(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_state::AppState;
     use crate::storage::{Repo, ReposConfig};
 
     /// Create a repos config using canonical paths (dirs must exist first).
@@ -523,5 +524,83 @@ mod tests {
 
         let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
         assert!(result.is_err(), "expected Err for unregistered repo");
+    }
+
+    // -----------------------------------------------------------------------
+    // get_drafts_impl sorting
+    // -----------------------------------------------------------------------
+
+    fn make_drafts_state(path: &str) -> AppState {
+        AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        })
+    }
+
+    fn write_draft(dir: &std::path::Path, folder: &str, json: &str) {
+        let p = dir.join(".postlane/posts").join(folder);
+        fs::create_dir_all(&p).expect("create dir");
+        fs::write(p.join("meta.json"), json).expect("write meta");
+    }
+
+    #[test]
+    fn test_get_drafts_sorts_failed_before_ready() {
+        let dir = std::env::temp_dir().join("postlane_test_get_drafts_sort_status");
+        write_draft(&dir, "r1", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+        write_draft(&dir, "f1", r#"{"status":"failed","platforms":["x"],"created_at":"2026-04-19T00:00:00Z"}"#);
+
+        let state = make_drafts_state(dir.to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result[0].status, "failed");
+        assert_eq!(result[1].status, "ready");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_drafts_sorts_by_created_at_descending() {
+        let dir = std::env::temp_dir().join("postlane_test_get_drafts_sort_ts");
+        write_draft(&dir, "old", r#"{"status":"ready","platforms":["x"],"created_at":"2026-01-01T00:00:00Z"}"#);
+        write_draft(&dir, "new", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+
+        let state = make_drafts_state(dir.to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2);
+        // Newer created_at should be first
+        assert!(result[0].created_at.as_deref() > result[1].created_at.as_deref());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_drafts_none_created_at_sorts_before_timestamped() {
+        let dir = std::env::temp_dir().join("postlane_test_get_drafts_none_ts");
+        write_draft(&dir, "with-ts", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+        write_draft(&dir, "no-ts", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2);
+        // None created_at sorts before Some (no-ts is treated as newer/pending)
+        assert!(result[0].created_at.is_none());
+        assert!(result[1].created_at.is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_drafts_two_none_created_at_stable() {
+        let dir = std::env::temp_dir().join("postlane_test_get_drafts_two_none");
+        write_draft(&dir, "a", r#"{"status":"ready","platforms":["x"]}"#);
+        write_draft(&dir, "b", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2);
+        assert!(result.iter().all(|p| p.created_at.is_none()));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
