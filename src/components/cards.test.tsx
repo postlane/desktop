@@ -460,6 +460,15 @@ describe('LinkedInCard — author display', () => {
 });
 
 // Critical fix: Unicode counting — all platforms must count emoji as 1 char
+// Low: emoji near 3000-char limit for LinkedIn
+describe('countLinkedInChars — emoji at limit', () => {
+  it('counts emoji as 1 character so 2999 ascii + emoji = 3000, not 3001', () => {
+    const content = 'a'.repeat(2999) + '🎉';
+    render(<LinkedInCard content={content} />);
+    expect(screen.getByText('3000/3000')).toBeInTheDocument();
+  });
+});
+
 describe('countCharsX — Unicode', () => {
   it('counts emoji as 1 character, not 2 UTF-16 code units', () => {
     expect(countCharsX('Hello 🎉')).toBe(7);
