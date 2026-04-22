@@ -8,6 +8,7 @@ import BlueskyCard from './BlueskyCard';
 import MastodonCard from './MastodonCard';
 import LinkedInCard from './LinkedInCard';
 import PostPreview from './PostPreview';
+import { countCharsX, countCharsBluesky, countCharsMastodon } from './charCount';
 
 // 50-character URL: https:// (8) + example.com/ (12) + 30 a's = 50 chars.
 // Matches parser.rs regex: https?://[^\s]+
@@ -449,5 +450,28 @@ describe('LinkedInCard — author display', () => {
   it('renders author handle with · 1st suffix', () => {
     render(<LinkedInCard authorName="Jane Doe" authorHandle="janedoe" />);
     expect(screen.getByText('janedoe · 1st')).toBeInTheDocument();
+  });
+});
+
+// Critical fix: Unicode counting — all platforms must count emoji as 1 char
+describe('countCharsX — Unicode', () => {
+  it('counts emoji as 1 character, not 2 UTF-16 code units', () => {
+    expect(countCharsX('Hello 🎉')).toBe(7);
+  });
+  it('counts emoji correctly alongside URL replacement', () => {
+    // emoji(1) + space(1) + URL(50 → 23) = 25
+    expect(countCharsX(`🎉 ${URL_50}`)).toBe(25);
+  });
+});
+
+describe('countCharsBluesky — Unicode', () => {
+  it('counts emoji as 1 character, not 2 UTF-16 code units', () => {
+    expect(countCharsBluesky('Hello 🎉')).toBe(7);
+  });
+});
+
+describe('countCharsMastodon — Unicode', () => {
+  it('counts emoji as 1 character, not 2 UTF-16 code units', () => {
+    expect(countCharsMastodon('Hello 🎉')).toBe(7);
   });
 });
