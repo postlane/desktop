@@ -138,11 +138,15 @@ pub fn get_post_content_impl(
     post_folder: &str,
     platform: &str,
 ) -> Result<String, String> {
-    const VALID_PLATFORMS: &[&str] = &["x", "bluesky", "mastodon"];
+    const VALID_PLATFORMS: &[&str] = &[
+        "x", "bluesky", "mastodon",
+        "linkedin", "substack_notes", "substack", "product_hunt", "show_hn", "changelog",
+    ];
     if !VALID_PLATFORMS.contains(&platform) {
         return Err(format!(
-            "Invalid platform: '{}'. Must be one of: x, bluesky, mastodon",
-            platform
+            "Invalid platform: '{}'. Must be one of: {}",
+            platform,
+            VALID_PLATFORMS.join(", ")
         ));
     }
 
@@ -277,12 +281,20 @@ pub fn queue_redraft_impl(
         .map_err(|e| format!("Failed to create .postlane directory: {}", e))?;
 
     let pending_path = postlane_dir.join("pending-redraft.json");
+    if pending_path.exists() {
+        return Err("A redraft is already queued. Cancel the existing redraft first.".to_string());
+    }
     let tmp_path = postlane_dir.join("pending-redraft.json.tmp");
+
+    let sanitized_instruction: String = instruction
+        .chars()
+        .filter(|c| !c.is_control() || *c == '\n')
+        .collect();
 
     let queued_at = chrono::Utc::now().to_rfc3339();
     let payload = serde_json::json!({
         "post_folder": post_folder,
-        "instruction": instruction,
+        "instruction": sanitized_instruction,
         "queued_at": queued_at,
     });
 
@@ -412,25 +424,30 @@ mod tests {
     }
 
     #[test]
-    fn test_queue_redraft_overwrites_existing_pending() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_overwrites");
+    fn test_queue_redraft_blocks_overwrite_of_existing_pending() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_blocks_overwrite");
         fs::create_dir_all(&dir).expect("create test dir");
         let repos = make_repos_canonical(&[&dir]);
 
-        // First write
-        queue_redraft_impl(dir.to_str().unwrap(), "20260101-v100-changelog", "first instruction", &repos)
-            .expect("first write should succeed");
+        // First write — should succeed
+        let first = queue_redraft_impl(dir.to_str().unwrap(), "20260101-v100-changelog", "first instruction", &repos);
+        assert!(first.is_ok(), "first queue_redraft should succeed");
 
-        // Second write — should overwrite, not append
-        queue_redraft_impl(dir.to_str().unwrap(), "20260201-v110-changelog", "second instruction", &repos)
-            .expect("second write should succeed");
+        // Second write — should fail because pending-redraft.json already exists
+        let second = queue_redraft_impl(dir.to_str().unwrap(), "20260201-v110-changelog", "second instruction", &repos);
+        assert!(second.is_err(), "second queue_redraft should return an error");
+        let err = second.unwrap_err();
+        assert!(
+            err.contains("already queued"),
+            "error must mention 'already queued', got: {}",
+            err
+        );
 
+        // The original file must still be intact
         let pending_path = dir.join(".postlane/pending-redraft.json");
         let content = std::fs::read_to_string(&pending_path).expect("read pending-redraft.json");
         let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse JSON");
-
-        assert_eq!(parsed["post_folder"].as_str(), Some("20260201-v110-changelog"));
-        assert_eq!(parsed["instruction"].as_str(), Some("second instruction"));
+        assert_eq!(parsed["post_folder"].as_str(), Some("20260101-v100-changelog"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -510,6 +527,32 @@ mod tests {
         // Cancel when no pending file exists — should still return Ok
         let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
         assert!(result.is_ok(), "cancel with no pending file should return Ok");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_queue_redraft_sanitizes_control_characters() {
+        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_sanitize");
+        fs::create_dir_all(&dir).expect("create test dir");
+        let repos = make_repos_canonical(&[&dir]);
+
+        let instruction_with_controls = "make it shorter\x00\x01\x08";
+        let result = queue_redraft_impl(
+            dir.to_str().unwrap(),
+            "post-folder",
+            instruction_with_controls,
+            &repos,
+        );
+        assert!(result.is_ok(), "should succeed: {:?}", result);
+
+        let pending_path = dir.join(".postlane/pending-redraft.json");
+        let content = std::fs::read_to_string(&pending_path).expect("read file");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse JSON");
+        let saved = parsed["instruction"].as_str().expect("instruction field");
+        assert!(!saved.contains('\x00'), "null bytes must be stripped");
+        assert!(!saved.contains('\x01'), "control chars must be stripped");
+        assert!(saved.contains("make it shorter"), "printable text must be kept");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -601,6 +644,55 @@ mod tests {
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|p| p.created_at.is_none()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- 8.1 platform validation ---
+
+    #[test]
+    fn test_get_post_content_rejects_invalid_platform() {
+        let dir = std::env::temp_dir().join("postlane_test_invalid_platform");
+        fs::create_dir_all(&dir).unwrap();
+        let result = get_post_content_impl(dir.to_str().unwrap(), "my-post", "twitter");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid platform"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_post_content_accepts_substack_notes() {
+        // "substack_notes" must be accepted as a valid platform — it should attempt
+        // to read the file and fail with a file-not-found error, not a validation error
+        let dir = std::env::temp_dir().join("postlane_test_substack_notes_platform");
+        fs::create_dir_all(&dir).unwrap();
+        let result = get_post_content_impl(dir.to_str().unwrap(), "my-post", "substack_notes");
+        // Must NOT be a validation error; it will be a file-read error (file doesn't exist)
+        let err = result.unwrap_err();
+        assert!(!err.contains("Invalid platform"), "got: {}", err);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- 8.3.5 LinkedIn URL non-suppression ---
+
+    #[test]
+    fn test_no_url_suppression_for_linkedin() {
+        // Content for LinkedIn posts must pass through get_post_content_impl verbatim.
+        // No URL shortening is applied — the URL must be returned at its true length.
+        let dir = std::env::temp_dir().join("postlane_test_linkedin_url_passthrough");
+        let post_dir = dir.join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_dir).unwrap();
+
+        let long_url = format!("https://example.com/{}", "a".repeat(30)); // 50-char URL
+        let content = format!("Check this out {}", long_url);
+        fs::write(post_dir.join("linkedin.md"), &content).unwrap();
+
+        let result = get_post_content_impl(dir.to_str().unwrap(), "my-post", "linkedin")
+            .expect("linkedin is a valid platform and file exists");
+
+        assert_eq!(result, content, "content must be returned verbatim");
+        assert!(result.contains(&long_url), "full URL must be present, not collapsed to 23 chars");
+        assert!(!result.contains(&"x".repeat(23)), "URL must not have been replaced with placeholder");
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

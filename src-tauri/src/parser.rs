@@ -37,11 +37,19 @@ pub fn char_limit(platform: &str) -> Result<usize, ValidationError> {
         "x" => Ok(280),
         "bluesky" => Ok(300),
         "mastodon" => Ok(500),
+        "linkedin" => Ok(3000),
+        "substack_notes" => Ok(300),
         _ => Err(ValidationError::ParseError(format!(
             "Unknown platform: {}",
             platform
         ))),
     }
+}
+
+/// Counts characters for LinkedIn: every character at full length, no URL collapsing.
+/// LinkedIn does not apply t.co-style URL shortening — URLs count at their true length.
+pub fn count_linkedin_chars(content: &str) -> usize {
+    content.chars().count()
 }
 
 /// Counts characters for a platform, handling URL shortening
@@ -329,6 +337,44 @@ mod tests {
         let count = count_chars(content, "unknown-platform");
         // Should count full length including full URL
         assert_eq!(count, content.chars().count());
+    }
+
+    // --- 8.2 LinkedIn character counting ---
+
+    #[test]
+    fn test_linkedin_char_limit() {
+        assert_eq!(char_limit("linkedin").unwrap(), 3000);
+    }
+
+    #[test]
+    fn test_substack_notes_char_limit() {
+        assert_eq!(char_limit("substack_notes").unwrap(), 300);
+    }
+
+    #[test]
+    fn test_linkedin_url_counted_at_full_length() {
+        // LinkedIn counts every character including URLs — no t.co-style shortening
+        let url = format!("https://example.com/{}", "a".repeat(30)); // 50-char URL
+        assert_eq!(count_linkedin_chars(&url), 50);
+    }
+
+    #[test]
+    fn test_linkedin_url_not_collapsed_to_23() {
+        let content = format!("Check out {}", format!("https://example.com/{}", "a".repeat(30)));
+        // "Check out " = 10 chars + 50-char URL = 60 total; must NOT be 10 + 23 = 33
+        assert_eq!(count_linkedin_chars(&content), 60);
+    }
+
+    #[test]
+    fn test_linkedin_multibyte_unicode_counts_as_one() {
+        // Each Unicode scalar counts as 1 character
+        assert_eq!(count_linkedin_chars("café"), 4);
+    }
+
+    #[test]
+    fn test_linkedin_3000_chars_at_limit() {
+        let content = "a".repeat(3000);
+        assert_eq!(count_linkedin_chars(&content), 3000);
     }
 
     #[test]

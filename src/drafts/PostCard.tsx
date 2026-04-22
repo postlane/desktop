@@ -18,11 +18,17 @@ interface Props {
   isFocused?: boolean;
 }
 
-const PLATFORM_LABELS: Record<string, string> = { x: 'X', bluesky: 'Bluesky', mastodon: 'Mastodon' };
-const PLATFORM_ORDER: Platform[] = ['x', 'bluesky', 'mastodon'];
+const PLATFORM_LABELS: Record<string, string> = {
+  x: 'X', bluesky: 'Bluesky', mastodon: 'Mastodon',
+  linkedin: 'LinkedIn', substack_notes: 'Substack Notes', substack: 'Substack',
+  product_hunt: 'Product Hunt', show_hn: 'Show HN', changelog: 'Changelog',
+};
+const PLATFORM_ORDER: Platform[] = ['x', 'bluesky', 'mastodon', 'linkedin', 'substack_notes', 'substack', 'product_hunt', 'show_hn', 'changelog'];
 
 function isPlatform(val: unknown): val is Platform {
-  return val === 'x' || val === 'bluesky' || val === 'mastodon';
+  return val === 'x' || val === 'bluesky' || val === 'mastodon'
+    || val === 'linkedin' || val === 'substack_notes' || val === 'substack'
+    || val === 'product_hunt' || val === 'show_hn' || val === 'changelog';
 }
 
 const IMAGE_CDN_HOSTNAMES = new Set([
@@ -111,13 +117,14 @@ function PostCardImageInput({ imageUrl, imageInput, fetchingOg, ogFetchError, on
   );
 }
 
-function PostCardRedraft({ post, redraftInstruction, redraftQueued, onInstructionChange, onQueue, onCancel }: { post: DraftPost; redraftInstruction: string; redraftQueued: boolean; onInstructionChange: (_v: string) => void; onQueue: () => void; onCancel: () => void }) {
+function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError, onInstructionChange, onQueue, onCancel }: { post: DraftPost; redraftInstruction: string; redraftQueued: boolean; redraftError: string | null; onInstructionChange: (_v: string) => void; onQueue: () => void; onCancel: () => void }) {
   return (
     <div className="mt-4 flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <input type="search" placeholder="Ask the LLM to revise… e.g. 'make it shorter'" aria-label="Redraft instruction" value={redraftInstruction} onChange={(e) => onInstructionChange(e.target.value)} className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
+        <input type="search" placeholder="Ask the LLM to revise… e.g. 'make it shorter'" aria-label="Redraft instruction" value={redraftInstruction} onChange={(e) => onInstructionChange(e.target.value)} maxLength={10000} className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
         <Button outline disabled={!redraftInstruction.trim()} onClick={onQueue}>Queue for redraft</Button>
       </div>
+      {redraftError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{redraftError}</p>}
       {redraftQueued && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Queued for redraft — open your IDE and run <code>/redraft-post</code>.</p>}
       {redraftQueued && <button type="button" onClick={onCancel} className="text-sm text-gray-500 underline hover:text-gray-700">Cancel redraft</button>}
       {/* post is used for redraft context */}
@@ -172,6 +179,27 @@ function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed
   return { approving, approveError, retrying, retryError, approve, dismiss, retry };
 }
 
+function usePostCardRedraft(post: DraftPost) {
+  const [redraftInstruction, setRedraftInstruction] = useState('');
+  const [redraftQueued, setRedraftQueued] = useState(false);
+  const [redraftError, setRedraftError] = useState<string | null>(null);
+
+  const handleQueueRedraft = useCallback(async () => {
+    const ok = await confirm(`Queue for redraft with instruction: "${redraftInstruction.trim()}"?`, { title: 'Confirm redraft', kind: 'info' });
+    if (!ok) return;
+    try { await invoke('queue_redraft', { repoPath: post.repo_path, postFolder: post.post_folder, instruction: redraftInstruction.trim() }); setRedraftQueued(true); setRedraftError(null); }
+    catch (e) { setRedraftError(e instanceof Error ? e.message : String(e)); }
+  }, [post, redraftInstruction]);
+
+  const handleCancelRedraft = useCallback(async () => {
+    try { await invoke('cancel_redraft', { repoPath: post.repo_path }); setRedraftQueued(false); setRedraftInstruction(''); setRedraftError(null); }
+    catch (e) { console.error('cancel_redraft failed:', e); }
+  }, [post]);
+
+  const handleInstructionChange = useCallback((v: string) => { setRedraftInstruction(v); setRedraftQueued(false); setRedraftError(null); }, []);
+  return { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange };
+}
+
 function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, onApprove, onDelete, onTabChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(post.image_url ?? null);
@@ -180,9 +208,8 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
   const [fetchingOg, setFetchingOg] = useState(false);
   const [ogFetchError, setOgFetchError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [redraftInstruction, setRedraftInstruction] = useState('');
-  const [redraftQueued, setRedraftQueued] = useState(false);
   const { postContent, setPostContent, contentLoadError, attributionEnabled } = usePostCardContent(post, activeTab);
+  const { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
 
   const handleSave = useCallback(async (newContent: string) => {
     try { await invoke('update_post_content', { repoPath: post.repo_path, postFolder: post.post_folder, platform: activeTab, newContent }); setPostContent(newContent); setSaveError(null); }
@@ -206,18 +233,6 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
     catch (e) { console.error('update_post_image failed:', e); }
   }, [post]);
 
-  async function handleQueueRedraft() {
-    const ok = await confirm(`Queue for redraft with instruction: "${redraftInstruction.trim()}"?`, { title: 'Confirm redraft', kind: 'info' });
-    if (!ok) return;
-    try { await invoke('queue_redraft', { repoPath: post.repo_path, postFolder: post.post_folder, instruction: redraftInstruction.trim() }); setRedraftQueued(true); }
-    catch (e) { console.error('queue_redraft failed:', e); }
-  }
-
-  async function handleCancelRedraft() {
-    try { await invoke('cancel_redraft', { repoPath: post.repo_path }); setRedraftQueued(false); setRedraftInstruction(''); }
-    catch (e) { console.error('cancel_redraft failed:', e); }
-  }
-
   const approveLabel = isFailed ? (retrying ? 'Retrying…' : 'Retry') : (approving ? 'Approving…' : 'Approve');
 
   return (
@@ -233,7 +248,7 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
       </div>
       {addingImage && <PostCardImageInput imageUrl={imageUrl} imageInput={imageInput} fetchingOg={fetchingOg} ogFetchError={ogFetchError} onInputChange={(v) => { setImageInput(v); setOgFetchError(null); }} onSave={handleSaveImage} onRemove={handleRemoveImage} onCancel={() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }} />}
       <PostCardErrors contentLoadError={contentLoadError} attributionEnabled={attributionEnabled} approveError={approveError} saveError={saveError} retryError={retryError} />
-      <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} onInstructionChange={(v) => { setRedraftInstruction(v); setRedraftQueued(false); }} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
+      <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} redraftError={redraftError} onInstructionChange={handleInstructionChange} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
     </div>
   );
 }
@@ -254,7 +269,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       case 'd': e.preventDefault(); dismiss(); break;
       case 'e': e.preventDefault(); setExpanded((v) => !v); break;
       case 'r': if (isFailed) { e.preventDefault(); retry(); } break;
-      case '1': case '2': case '3': { const i = parseInt(e.key, 10) - 1; if (platforms[i]) setActiveTab(platforms[i]); break; }
+      case '1': case '2': case '3': case '4': case '5': { const i = parseInt(e.key, 10) - 1; if (platforms[i]) setActiveTab(platforms[i]); break; }
       case 'escape': e.preventDefault(); setExpanded(false); break;
     }
   }

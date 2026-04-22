@@ -88,7 +88,7 @@ export interface DraftPost {
   created_at: string | null;
 }
 
-export type Platform = 'x' | 'bluesky' | 'mastodon';
+export type Platform = 'x' | 'bluesky' | 'mastodon' | 'linkedin' | 'substack_notes' | 'substack' | 'product_hunt' | 'show_hn' | 'changelog';
 
 /** Model edit-rate statistics — returned by get_model_stats */
 export interface ModelStats {

@@ -23,3 +23,9 @@ export function countCharsBluesky(content: string): number {
 export function countCharsMastodon(content: string): number {
   return content.replace(URL_REGEX, PLACEHOLDER).length;
 }
+
+/// LinkedIn: full character count, no URL replacement.
+/// LinkedIn counts every character including URLs at their true length.
+export function countLinkedInChars(content: string): number {
+  return [...content].length;
+}

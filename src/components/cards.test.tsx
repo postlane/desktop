@@ -6,6 +6,7 @@ import '@testing-library/jest-dom';
 import XCard from './XCard';
 import BlueskyCard from './BlueskyCard';
 import MastodonCard from './MastodonCard';
+import LinkedInCard from './LinkedInCard';
 import PostPreview from './PostPreview';
 
 // 50-character URL: https:// (8) + example.com/ (12) + 30 a's = 50 chars.
@@ -348,5 +349,92 @@ describe('PostPreview', () => {
     const { unmount: u3 } = render(<PostPreview platform="bluesky" content="Hello world" />);
     u3();
     render(<PostPreview platform="mastodon" content="Hello world" />);
+  });
+
+  it('renders LinkedInCard when platform is linkedin', () => {
+    render(<PostPreview platform="linkedin" content="Professional post" />);
+    expect(screen.getByText('Professional post')).toBeInTheDocument();
+    // LinkedIn limit is 3000 — counter must show /3000 not /280
+    expect(screen.getByText('17/3000')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8.2 / 8.3 — LinkedInCard
+// ---------------------------------------------------------------------------
+
+describe('LinkedInCard — URL counting', () => {
+  it('counts a 50-char URL at full length (no t.co collapsing)', () => {
+    render(<LinkedInCard content={URL_50} />);
+    expect(screen.getByText('50/3000')).toBeInTheDocument();
+  });
+
+  it('counts 3000 chars as exactly at limit', () => {
+    render(<LinkedInCard content={'a'.repeat(3000)} />);
+    expect(screen.getByText('3000/3000')).toBeInTheDocument();
+  });
+
+  it('shows red counter at 3001 chars', () => {
+    render(<LinkedInCard content={'a'.repeat(3001)} />);
+    expect(screen.getByText('3001/3000')).toBeInTheDocument();
+  });
+});
+
+describe('LinkedInCard — approve button', () => {
+  it('Approve is disabled when content exceeds 3000 chars', () => {
+    render(<LinkedInCard content={'a'.repeat(3001)} onApprove={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+  });
+
+  it('Approve is enabled at exactly 3000 chars', () => {
+    render(<LinkedInCard content={'a'.repeat(3000)} onApprove={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /approve/i })).not.toBeDisabled();
+  });
+});
+
+describe('LinkedInCard — avatar shape', () => {
+  it('renders without crashing with default props', () => {
+    render(<LinkedInCard />);
+    expect(screen.getByText('0/3000')).toBeInTheDocument();
+  });
+
+  it('avatar uses rounded-md (square with rounded corners, not a circle)', () => {
+    const { container } = render(<LinkedInCard />);
+    const avatar = container.querySelector('.rounded-md');
+    expect(avatar).toBeInTheDocument();
+    expect(container.querySelector('.rounded-full')).not.toBeInTheDocument();
+  });
+});
+
+describe('LinkedInCard — inline edit', () => {
+  it('clicking Edit reveals a textarea pre-filled with current content', () => {
+    render(<LinkedInCard content="My LinkedIn post" onSave={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    expect(screen.getByRole('textbox')).toHaveValue('My LinkedIn post');
+  });
+
+  it('character counter updates as user types', () => {
+    render(<LinkedInCard content="Hello" onSave={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Hi' } });
+    expect(screen.getByText('2/3000')).toBeInTheDocument();
+  });
+
+  it('Save calls onSave with edited content', () => {
+    const onSave = vi.fn();
+    render(<LinkedInCard content="Original" onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Updated' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onSave).toHaveBeenCalledWith('Updated');
+  });
+
+  it('Cancel returns to read mode without calling onSave', () => {
+    const onSave = vi.fn();
+    render(<LinkedInCard content="Original" onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 });
