@@ -1,0 +1,13 @@
+[advisories]
+# RUSTSEC-2026-0097 — rand unsound with custom logger + runtime rng()
+# Affected: rand 0.7.3 and 0.8.6, both pulled in at BUILD TIME only through
+# Tauri's kuchikiki → phf_generator chain (compile-time perfect-hash codegen).
+# The vulnerability requires runtime conditions (custom logger, trace-level
+# logging, reseeding cycle) that cannot occur in build-time code generation.
+# Our own code uses rand 0.9.4 which is not affected.
+ignore = ["RUSTSEC-2026-0097", "RUSTSEC-2024-0429"]
+
+# RUSTSEC-2024-0429 — glib::VariantStrIter unsoundness
+# glib 0.18.5 is pulled in on Linux through tauri → wry → webkit2gtk → gtk → glib.
+# The fix requires glib >= 0.20.0 but the current webkit2gtk binding locks it to
+# 0.18.x. This must be resolved upstream in Tauri; no action available to us.
