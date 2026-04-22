@@ -151,6 +151,7 @@ impl SchedulingProvider for ZernioProvider {
                     .await
                     .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
 
+                // lgtm[rust/cleartext-logging] -- logs response body only; api_key is in the request Authorization header and never echoed back
                 log::debug!("Zernio schedule_post response: {}", json);
 
                 // Zernio returns the post ID at post._id
@@ -208,6 +209,7 @@ impl SchedulingProvider for ZernioProvider {
             .await
             .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
 
+        // lgtm[rust/cleartext-logging] -- logs response body only; api_key is in the request Authorization header and never echoed back
         log::debug!("Zernio list_profiles response: {}", json);
 
         let accounts_array = json["accounts"]
