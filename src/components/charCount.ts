@@ -29,3 +29,8 @@ export function countCharsMastodon(content: string): number {
 export function countLinkedInChars(content: string): number {
   return [...content].length;
 }
+
+/// Substack Notes: full Unicode scalar count, no URL replacement.
+export function countSubstackNotesChars(content: string): number {
+  return [...content].length;
+}

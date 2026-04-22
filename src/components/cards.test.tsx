@@ -358,6 +358,12 @@ describe('PostPreview', () => {
     // LinkedIn limit is 3000 — counter must show /3000 not /280
     expect(screen.getByText('17/3000')).toBeInTheDocument();
   });
+
+  it('renders SubstackNotesCard when platform is substack_notes', () => {
+    render(<PostPreview platform="substack_notes" content="Hello" />);
+    // Substack Notes limit is 300 — must not fall through to XCard showing /280
+    expect(screen.getByText('5/300')).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
