@@ -6,7 +6,7 @@ use crate::types::PostMeta;
 
 const VALID_PLATFORMS: &[&str] = &[
     "x", "bluesky", "mastodon",
-    "linkedin", "substack", "product_hunt", "show_hn", "changelog",
+    "linkedin", "substack_notes", "substack", "product_hunt", "show_hn", "changelog",
 ];
 
 // Hostnames whose URLs are always direct images even without a file extension.
@@ -468,6 +468,14 @@ mod tests {
         let result = update_post_content_impl("/repo", "valid-folder", "changelog", "content");
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "changelog should be valid, got: {}", e);
+        }
+    }
+
+    #[test]
+    fn test_update_content_accepts_substack_notes() {
+        let result = update_post_content_impl("/repo", "valid-folder", "substack_notes", "content");
+        if let Err(e) = &result {
+            assert!(!e.contains("Invalid platform"), "substack_notes should be valid, got: {}", e);
         }
     }
 }
