@@ -145,7 +145,7 @@ pub fn get_model_stats_impl(state: &AppState) -> Result<Vec<ModelStatRow>, Strin
         })
         .collect();
 
-    result.sort_by(|a, b| b.total_posts.cmp(&a.total_posts));
+    result.sort_by_key(|b| std::cmp::Reverse(b.total_posts));
     Ok(result)
 }
 
