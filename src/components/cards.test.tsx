@@ -438,3 +438,16 @@ describe('LinkedInCard — inline edit', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 });
+
+// 8.3.1 — LinkedInCard author display
+describe('LinkedInCard — author display', () => {
+  it('renders author name when provided', () => {
+    render(<LinkedInCard authorName="Jane Doe" authorHandle="janedoe" />);
+    expect(screen.getByText('Jane Doe')).toBeInTheDocument();
+  });
+
+  it('renders author handle with · 1st suffix', () => {
+    render(<LinkedInCard authorName="Jane Doe" authorHandle="janedoe" />);
+    expect(screen.getByText('janedoe · 1st')).toBeInTheDocument();
+  });
+});

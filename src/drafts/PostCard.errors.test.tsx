@@ -344,3 +344,53 @@ describe('PostCard — queue for redraft — confirm dialog', () => {
     expect(screen.queryByText(/queued for redraft/i)).not.toBeInTheDocument();
   });
 });
+
+describe('PostCard — Fix 3: redraft instruction input constraints', () => {
+  it('redraft instruction input has maxLength of 10000', async () => {
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('searchbox', { name: /redraft instruction/i }));
+    const input = screen.getByRole('searchbox', { name: /redraft instruction/i });
+    expect(input).toHaveAttribute('maxlength', '10000');
+  });
+
+  it('shows error message in UI when queue_redraft invoke throws', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      if (cmd === 'queue_redraft') return Promise.reject(new Error('Failed to write file'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it punchier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/Failed to write file/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+describe('PostCard — Fix 4: redraft queue overwrite blocked', () => {
+  it('shows "already queued" error message in UI when queue_redraft returns that error', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      if (cmd === 'queue_redraft') return Promise.reject(new Error('A redraft is already queued. Cancel the existing redraft first.'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
+    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
+      target: { value: 'make it shorter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/A redraft is already queued/i)).toBeInTheDocument(),
+    );
+  });
+});

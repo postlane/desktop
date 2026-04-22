@@ -264,14 +264,20 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
 
   function handleKeyDown(e: KeyboardEvent<HTMLElement>) {
     if (!isFocused) return;
-    switch (e.key.toLowerCase()) {
-      case 'a': e.preventDefault(); approve(); break;
-      case 'd': e.preventDefault(); dismiss(); break;
-      case 'e': e.preventDefault(); setExpanded((v) => !v); break;
-      case 'r': if (isFailed) { e.preventDefault(); retry(); } break;
-      case '1': case '2': case '3': case '4': case '5': { const i = parseInt(e.key, 10) - 1; if (platforms[i]) setActiveTab(platforms[i]); break; }
-      case 'escape': e.preventDefault(); setExpanded(false); break;
+    const key = e.key.toLowerCase();
+    const numIdx = parseInt(key, 10) - 1;
+    if (numIdx >= 0 && numIdx < 5 && numIdx < platforms.length) {
+      setActiveTab(platforms[numIdx]);
+      return;
     }
+    const actions: Partial<Record<string, () => void>> = {
+      a: () => { e.preventDefault(); approve(); },
+      d: () => { e.preventDefault(); dismiss(); },
+      e: () => { e.preventDefault(); setExpanded((v) => !v); },
+      r: () => { if (isFailed) { e.preventDefault(); retry(); } },
+      escape: () => { e.preventDefault(); setExpanded(false); },
+    };
+    actions[key]?.();
   }
 
   return (

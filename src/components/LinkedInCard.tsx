@@ -9,6 +9,8 @@ const LIMIT = 3000;
 interface LinkedInCardProps {
   content?: string;
   imageUrl?: string;
+  authorName?: string;
+  authorHandle?: string;
   onSave?: (_newContent: string) => void;
   onImageClick?: () => void;
   onApprove?: () => void;
@@ -16,9 +18,36 @@ interface LinkedInCardProps {
   onDelete?: () => void;
 }
 
+interface ReadViewProps {
+  content: string;
+  authorName?: string;
+  authorHandle?: string;
+}
+
+function LinkedInReadView({ content, authorName, authorHandle }: ReadViewProps) {
+  return (
+    <div className="flex items-start gap-2">
+      <div className="h-10 w-10 flex-shrink-0 rounded-md bg-zinc-200 dark:bg-zinc-700" />
+      <div className="flex flex-col gap-0.5">
+        {authorName && (
+          <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{authorName}</span>
+        )}
+        {authorHandle && (
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">{authorHandle} · 1st</span>
+        )}
+        <div className="whitespace-pre-wrap break-all text-sm text-zinc-900 dark:text-zinc-100">
+          {content}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LinkedInCard({
   content = '',
   imageUrl,
+  authorName,
+  authorHandle,
   onSave,
   onImageClick,
   onApprove,
@@ -36,8 +65,7 @@ export default function LinkedInCard({
     el.style.height = `${el.scrollHeight}px`;
   }, [draft, editing]);
 
-  const displayed = editing ? draft : content;
-  const count = countLinkedInChars(displayed);
+  const count = countLinkedInChars(editing ? draft : content);
   const isOverLimit = count > LIMIT;
   const counterClass = isOverLimit
     ? 'text-sm font-medium text-red-600 dark:text-red-400'
@@ -55,12 +83,7 @@ export default function LinkedInCard({
           autoFocus
         />
       ) : (
-        <div className="flex items-start gap-2">
-          <div className="h-10 w-10 flex-shrink-0 rounded-md bg-zinc-200 dark:bg-zinc-700" />
-          <div className="whitespace-pre-wrap break-all text-sm text-zinc-900 dark:text-zinc-100">
-            {content}
-          </div>
-        </div>
+        <LinkedInReadView content={content} authorName={authorName} authorHandle={authorHandle} />
       )}
       {imageUrl && !editing && (
         <img src={imageUrl} alt="Post image" className="w-full rounded-xl object-cover" style={{ aspectRatio: '16/9' }} />
