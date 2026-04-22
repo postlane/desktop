@@ -342,8 +342,8 @@ pub fn generate_and_write_token() -> Result<String, String> {
 
     // Generate 43-character alphanumeric token for 256 bits of entropy
     // 43 chars * log2(62) ≈ 43 * 5.95 ≈ 256 bits
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
+    let token: String = rand::rng()
+        .sample_iter(rand::distr::Alphanumeric)
         .take(43)
         .map(char::from)
         .collect();
