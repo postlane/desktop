@@ -62,7 +62,7 @@ mod update_post_content_tests {
         let result = update_post_content_impl(
             repo_path.to_str().unwrap(),
             "post-003",
-            "linkedin",
+            "instagram",
             "content",
         );
 

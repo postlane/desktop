@@ -75,7 +75,7 @@ pub(crate) async fn get_or_init_provider(
 
     let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
     if !config_path.exists() {
-        return Err("config.json not found".to_string());
+        return Err(format!("config.json not found at {}", config_path.display()));
     }
 
     let config_content = fs::read_to_string(&config_path)
@@ -228,43 +228,64 @@ async fn send_via_provider(
     Ok(PlatformSendResults { platform_results, scheduler_ids, platform_urls })
 }
 
+/// Verifies repo is registered, loads and returns (canonical_path, post_path, meta_path, meta).
+fn load_approved_meta(
+    repo_path: &str,
+    post_folder: &str,
+    state: &AppState,
+) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf, PostMeta), String> {
+    let canonical_path = fs::canonicalize(repo_path)
+        .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
+    let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
+    let is_registered = {
+        let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+        repos.repos.iter().any(|r| r.path == canonical_str)
+    };
+    if !is_registered {
+        return Err("Repository not registered (403)".to_string());
+    }
+    let post_path = canonical_path.join(".postlane/posts").join(post_folder);
+    if !post_path.exists() {
+        return Err(format!("Post folder does not exist: {}", post_folder));
+    }
+    let meta_path = post_path.join("meta.json");
+    if !meta_path.exists() {
+        return Err(format!("meta.json not found at {}", meta_path.display()));
+    }
+    let meta_content = fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
+    let meta: PostMeta = serde_json::from_str(&meta_content)
+        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
+    Ok((canonical_path, post_path, meta_path, meta))
+}
+
+/// Writes updated meta atomically.
+fn write_sent_meta(meta_path: &std::path::Path, meta: &PostMeta) -> Result<(), String> {
+    let temp_path = meta_path.with_extension("json.tmp");
+    let json_content = serde_json::to_string_pretty(meta)
+        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
+    fs::write(&temp_path, json_content)
+        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
+    fs::rename(&temp_path, meta_path)
+        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
+    Ok(())
+}
+
 pub async fn approve_post_impl(
     repo_path: &str,
     post_folder: &str,
     state: &AppState,
     app: Option<&tauri::AppHandle>,
 ) -> Result<SendResult, String> {
-    let canonical_path = fs::canonicalize(repo_path)
-        .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
+    let (canonical_path, post_path, meta_path, mut meta) =
+        load_approved_meta(repo_path, post_folder, state)?;
+
+    // Idempotency guard: if already sent, return success without re-sending.
+    if meta.status == "sent" {
+        return Ok(SendResult { success: true, platform_results: meta.platform_results, error: None });
+    }
 
     let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
-    let is_registered = {
-        let repos = state
-            .repos
-            .lock()
-            .map_err(|e| format!("Failed to lock repos: {}", e))?;
-        repos.repos.iter().any(|r| r.path == canonical_str)
-    };
-
-    if !is_registered {
-        return Err("Repository not registered (403)".to_string());
-    }
-
-    let post_path = canonical_path.join(".postlane/posts").join(post_folder);
-    if !post_path.exists() {
-        return Err(format!("Post folder does not exist: {}", post_folder));
-    }
-
-    let meta_path = post_path.join("meta.json");
-    if !meta_path.exists() {
-        return Err("meta.json not found in post folder".to_string());
-    }
-
-    let meta_content = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
-    let mut meta: PostMeta = serde_json::from_str(&meta_content)
-        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
-
     let results = if let Some(app_handle) = app {
         send_via_provider(app_handle, repo_path, &canonical_path, &post_path, &meta, state, canonical_str).await?
     } else {
@@ -281,26 +302,11 @@ pub async fn approve_post_impl(
     meta.status = "sent".to_string();
     meta.platform_results = Some(results.platform_results.clone());
     meta.sent_at = Some(chrono::Utc::now().to_rfc3339());
-    if !results.scheduler_ids.is_empty() {
-        meta.scheduler_ids = Some(results.scheduler_ids);
-    }
-    if !results.platform_urls.is_empty() {
-        meta.platform_urls = Some(results.platform_urls);
-    }
+    if !results.scheduler_ids.is_empty() { meta.scheduler_ids = Some(results.scheduler_ids); }
+    if !results.platform_urls.is_empty() { meta.platform_urls = Some(results.platform_urls); }
 
-    let temp_path = meta_path.with_extension("json.tmp");
-    let json_content = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
-    fs::write(&temp_path, json_content)
-        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
-    fs::rename(&temp_path, &meta_path)
-        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
-
-    Ok(SendResult {
-        success: true,
-        platform_results: Some(results.platform_results),
-        error: None,
-    })
+    write_sent_meta(&meta_path, &meta)?;
+    Ok(SendResult { success: true, platform_results: Some(results.platform_results), error: None })
 }
 
 #[tauri::command]
@@ -311,4 +317,99 @@ pub async fn approve_post(
     app: tauri::AppHandle,
 ) -> Result<SendResult, String> {
     approve_post_impl(&repo_path, &post_folder, &state, Some(&app)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_state::AppState;
+    use crate::storage::{Repo, ReposConfig};
+
+    fn make_state(repo_path: &str) -> AppState {
+        AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: repo_path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        })
+    }
+
+    fn write_meta(dir: &std::path::Path, post_folder: &str, status: &str) {
+        let post_path = dir.join(".postlane/posts").join(post_folder);
+        std::fs::create_dir_all(&post_path).expect("create post dir");
+        let meta = serde_json::json!({
+            "status": status,
+            "platforms": ["x"],
+            "post_folder": post_folder,
+        });
+        std::fs::write(
+            post_path.join("meta.json"),
+            serde_json::to_string_pretty(&meta).expect("serialize"),
+        ).expect("write meta.json");
+        // also write x.md so content exists
+        std::fs::write(post_path.join("x.md"), "test content").expect("write x.md");
+    }
+
+    #[tokio::test]
+    async fn test_approve_already_sent_returns_success_without_scheduler() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_idempotent");
+        let canonical = std::fs::canonicalize(
+            std::env::temp_dir()
+        ).unwrap().join("postlane_test_approve_idempotent");
+        std::fs::create_dir_all(&canonical).expect("create dir");
+
+        write_meta(&canonical, "post-001", "sent");
+
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_state(&canonical_str);
+
+        // First call: already "sent" — should return Ok immediately
+        let result = approve_post_impl(&canonical_str, "post-001", &state, None).await;
+        assert!(result.is_ok(), "already-sent post should return Ok: {:?}", result);
+        assert!(result.unwrap().success, "success must be true");
+
+        let _ = std::fs::remove_dir_all(&canonical);
+    }
+
+    #[tokio::test]
+    async fn test_approve_ready_post_without_scheduler_succeeds() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_ready");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+
+        write_meta(&canonical, "post-002", "ready");
+        let state = make_state(&canonical_str);
+
+        let result = approve_post_impl(&canonical_str, "post-002", &state, None).await;
+        assert!(result.is_ok(), "ready post should be approved: {:?}", result);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_approve_missing_meta_error_includes_path() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_no_meta");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+
+        // Create post folder but NOT meta.json
+        let post_path = canonical.join(".postlane/posts/post-003");
+        std::fs::create_dir_all(&post_path).expect("create post dir");
+
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-003", &state, None).await;
+        assert!(result.is_err(), "missing meta.json should return Err");
+        let err = result.unwrap_err();
+        assert!(err.contains("meta.json"), "error must mention meta.json, got: {}", err);
+        // Should include the path
+        assert!(err.contains("post-003"), "error must include post folder path, got: {}", err);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
