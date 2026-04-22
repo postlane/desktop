@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -89,6 +92,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -110,7 +115,8 @@ jobs:
       - name: Generate latest.json
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          cat > latest.json <<EOF
+          mkdir -p pages
+          cat > pages/latest.json <<EOF
           {
             "version": "v$VERSION",
             "notes": "Release $VERSION",
@@ -140,6 +146,5 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .
+          publish_dir: pages
           keep_files: true
-          include: latest.json
