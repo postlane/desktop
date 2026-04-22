@@ -4,7 +4,10 @@ use std::path::PathBuf;
 use std::fs;
 use crate::types::PostMeta;
 
-const VALID_PLATFORMS: &[&str] = &["x", "bluesky", "mastodon"];
+const VALID_PLATFORMS: &[&str] = &[
+    "x", "bluesky", "mastodon",
+    "linkedin", "substack", "product_hunt", "show_hn", "changelog",
+];
 
 // Hostnames whose URLs are always direct images even without a file extension.
 const IMAGE_CDN_HOSTNAMES: &[&str] = &[
@@ -143,6 +146,9 @@ pub fn update_post_image_impl(
                 url
             ));
         }
+        if is_private_host(url) {
+            return Err("Invalid image URL: resolves to a private or reserved address".to_string());
+        }
     }
 
     let meta_path = PathBuf::from(repo_path)
@@ -200,6 +206,7 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
+    // lgtm[rust/non-https-url] -- unreachable for non-https: guard at top of fn returns Err first
     let response = client
         .get(&url)
         .send()
@@ -388,5 +395,79 @@ mod tests {
         let result = update_post_image_impl("/repo", "valid", Some("http://example.com/img.png"));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("https://"));
+    }
+
+    // --- update_post_image_impl: SSRF check ---
+
+    #[test]
+    fn test_update_image_rejects_private_ip() {
+        let result = update_post_image_impl("/repo", "valid", Some("https://169.254.169.254/metadata"));
+        assert!(result.is_err(), "link-local IP must be rejected");
+        assert!(result.unwrap_err().contains("private"), "error must mention 'private'");
+    }
+
+    #[test]
+    fn test_update_image_rejects_localhost() {
+        let result = update_post_image_impl("/repo", "valid", Some("https://localhost/img.png"));
+        assert!(result.is_err(), "localhost must be rejected");
+    }
+
+    #[test]
+    fn test_update_image_rejects_rfc1918() {
+        let result = update_post_image_impl("/repo", "valid", Some("https://192.168.1.1/img.png"));
+        assert!(result.is_err(), "RFC-1918 IP must be rejected");
+    }
+
+    #[test]
+    fn test_update_image_accepts_public_url() {
+        // Will fail at meta.json lookup, but must NOT fail on SSRF check
+        let result = update_post_image_impl("/nonexistent", "valid", Some("https://images.unsplash.com/photo.png"));
+        // The error (if any) should NOT mention "private"
+        if let Err(e) = result {
+            assert!(!e.contains("private"), "public URL should not be rejected as private, got: {}", e);
+        }
+    }
+
+    // --- VALID_PLATFORMS: new platform acceptance ---
+
+    #[test]
+    fn test_update_content_accepts_linkedin() {
+        let result = update_post_content_impl("/repo", "valid-folder", "linkedin", "content");
+        // Should not fail with "Invalid platform"
+        if let Err(e) = &result {
+            assert!(!e.contains("Invalid platform"), "linkedin should be valid, got: {}", e);
+        }
+    }
+
+    #[test]
+    fn test_update_content_accepts_substack() {
+        let result = update_post_content_impl("/repo", "valid-folder", "substack", "content");
+        if let Err(e) = &result {
+            assert!(!e.contains("Invalid platform"), "substack should be valid, got: {}", e);
+        }
+    }
+
+    #[test]
+    fn test_update_content_accepts_product_hunt() {
+        let result = update_post_content_impl("/repo", "valid-folder", "product_hunt", "content");
+        if let Err(e) = &result {
+            assert!(!e.contains("Invalid platform"), "product_hunt should be valid, got: {}", e);
+        }
+    }
+
+    #[test]
+    fn test_update_content_accepts_show_hn() {
+        let result = update_post_content_impl("/repo", "valid-folder", "show_hn", "content");
+        if let Err(e) = &result {
+            assert!(!e.contains("Invalid platform"), "show_hn should be valid, got: {}", e);
+        }
+    }
+
+    #[test]
+    fn test_update_content_accepts_changelog() {
+        let result = update_post_content_impl("/repo", "valid-folder", "changelog", "content");
+        if let Err(e) = &result {
+            assert!(!e.contains("Invalid platform"), "changelog should be valid, got: {}", e);
+        }
     }
 }
