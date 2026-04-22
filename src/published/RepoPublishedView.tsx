@@ -13,15 +13,10 @@ interface Props {
   repoId: string;
 }
 
-// ---------------------------------------------------------------------------
-// Scheduled sub-section
-// ---------------------------------------------------------------------------
-
 function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancelled: () => void; tz: string }) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
-  // Use first scheduler_id found
   const firstPlatform = post.platforms[0] ?? 'x';
   const postId = post.scheduler_ids?.[firstPlatform] ?? '';
 
@@ -29,23 +24,12 @@ function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancel
     setCancelling(true);
     setCancelError(null);
     try {
-      await invoke('cancel_post_command', {
-        repoPath: post.repo_path,
-        postFolder: post.post_folder,
-        postId,
-        platform: firstPlatform,
-      });
+      await invoke('cancel_post_command', { repoPath: post.repo_path, postFolder: post.post_folder, postId, platform: firstPlatform });
       onCancelled();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.toLowerCase().includes('not supported')) {
-        setCancelError(`Cancel via dashboard`);
-      } else {
-        setCancelError(msg);
-      }
-    } finally {
-      setCancelling(false);
-    }
+      setCancelError(msg.toLowerCase().includes('not supported') ? 'Cancel via dashboard' : msg);
+    } finally { setCancelling(false); }
   }
 
   return (
@@ -54,74 +38,42 @@ function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancel
       <TableCell>{post.platforms.join(', ')}</TableCell>
       <TableCell>{formatTimestamp(post.schedule, tz)}</TableCell>
       <TableCell>
-        {cancelError ? (
-          <span className="text-xs text-zinc-500">{cancelError}</span>
-        ) : (
-          <Button outline onClick={handleCancel} disabled={cancelling}>
-            {cancelling ? 'Cancelling…' : 'Cancel'}
-          </Button>
-        )}
+        {cancelError ? <span className="text-xs text-zinc-500">{cancelError}</span> : <Button outline onClick={handleCancel} disabled={cancelling}>{cancelling ? 'Cancelling…' : 'Cancel'}</Button>}
       </TableCell>
     </TableRow>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sent posts table
-// ---------------------------------------------------------------------------
-
 function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
   const sentPlatforms = post.platform_results
-    ? Object.entries(post.platform_results)
-        .filter(([, v]) => v === 'sent')
-        .map(([k]) => k)
+    ? Object.entries(post.platform_results).filter(([, v]) => v === 'sent').map(([k]) => k)
     : post.platforms;
-
   const viewLinks = sentPlatforms
     .map((platform) => ({ platform, url: post.platform_urls?.[platform] ?? null }))
     .filter((l): l is { platform: string; url: string } => l.url !== null);
 
   async function handleOpenLink(url: string) {
-    try {
-      await invoke('plugin:opener|open_url', { url });
-    } catch (e) {
-      console.error('Failed to open URL:', e);
-    }
+    try { await invoke('plugin:opener|open_url', { url }); }
+    catch (e) { console.error('Failed to open URL:', e); }
   }
 
   return (
     <TableRow>
       <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
-      <TableCell className="text-xs text-zinc-500">
-        {formatTimestamp(post.sent_at, tz)}
-      </TableCell>
+      <TableCell className="text-xs text-zinc-500">{formatTimestamp(post.sent_at, tz)}</TableCell>
       <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
       <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
       <TableCell className="text-xs text-zinc-400">—</TableCell>
       <TableCell className="text-xs">
-        {viewLinks.length > 0
-          ? viewLinks.map((l) => (
-              <button
-                key={l.platform}
-                onClick={() => handleOpenLink(l.url)}
-                aria-label={`View ${l.platform} post`}
-                className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200"
-              >
-                {l.platform} ↗
-              </button>
-            ))
-          : '—'}
+        {viewLinks.length > 0 ? viewLinks.map((l) => (
+          <button key={l.platform} onClick={() => handleOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200">{l.platform} ↗</button>
+        )) : '—'}
       </TableCell>
     </TableRow>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-export default function RepoPublishedView({ repoId }: Props) {
-  const tz = useTimezone();
+function useRepoPublished(repoId: string) {
   const [posts, setPosts] = useState<PublishedPost[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -129,114 +81,56 @@ export default function RepoPublishedView({ repoId }: Props) {
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
     try {
-      const result = await invoke<PublishedPost[]>('get_repo_published', {
-        repoId,
-        offset: pageIndex * PAGE_SIZE,
-        limit: PAGE_SIZE + 1, // fetch one extra to detect more
-      });
+      const result = await invoke<PublishedPost[]>('get_repo_published', { repoId, offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 });
       const hasMoreResults = result.length > PAGE_SIZE;
       const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
-    } catch (e) {
-      console.error('get_repo_published failed:', e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error('get_repo_published failed:', e); }
+    finally { setLoading(false); }
   }, [repoId]);
 
-  useEffect(() => {
-    setPage(0);
-    setPosts([]);
-    setLoading(true);
-    loadPage(0, false);
-  }, [repoId, loadPage]);
+  useEffect(() => { setPage(0); setPosts([]); setLoading(true); loadPage(0, false); }, [repoId, loadPage]);
 
-  function handleLoadMore() {
-    const next = page + 1;
-    setPage(next);
-    loadPage(next, true);
-  }
+  const loadMore = () => { const next = page + 1; setPage(next); loadPage(next, true); };
+  const refresh = useCallback(() => loadPage(0, false), [loadPage]);
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-zinc-400">Loading…</p>
-      </div>
-    );
-  }
+  return { posts, hasMore, loading, loadMore, refresh };
+}
+
+export default function RepoPublishedView({ repoId }: Props) {
+  const tz = useTimezone();
+  const { posts, hasMore, loading, loadMore, refresh } = useRepoPublished(repoId);
+
+  if (loading) return <div className="flex h-full items-center justify-center"><p className="text-sm text-zinc-400">Loading…</p></div>;
 
   const queued = posts.filter((p) => p.status === 'queued');
   const sent = posts.filter((p) => p.status === 'sent');
 
-  if (posts.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-        <p className="text-center text-sm text-zinc-500">
-          No posts sent yet. Draft your first post with{' '}
-          <code className="font-mono">/draft-post</code> in your IDE.
-        </p>
-      </div>
-    );
-  }
+  if (posts.length === 0) return (
+    <div className="flex h-full items-center justify-center p-8">
+      <p className="text-center text-sm text-zinc-500">No posts sent yet. Draft your first post with <code className="font-mono">/draft-post</code> in your IDE.</p>
+    </div>
+  );
 
   return (
     <div className="p-6 space-y-8">
-      {/* Scheduled sub-section */}
       {queued.length > 0 && (
         <section>
-          <h2 role="heading" className="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            Scheduled
-          </h2>
+          <h2 role="heading" className="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Scheduled</h2>
           <Table>
-            <TableHead>
-              <TableRow>
-                <TableHeader>Post</TableHeader>
-                <TableHeader>Platforms</TableHeader>
-                <TableHeader>Scheduled for</TableHeader>
-                <TableHeader></TableHeader>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {queued.map((post) => (
-                <ScheduledRow
-                  key={post.post_folder}
-                  post={post}
-                  tz={tz}
-                  onCancelled={() => loadPage(0, false)}
-                />
-              ))}
-            </TableBody>
+            <TableHead><TableRow><TableHeader>Post</TableHeader><TableHeader>Platforms</TableHeader><TableHeader>Scheduled for</TableHeader><TableHeader></TableHeader></TableRow></TableHead>
+            <TableBody>{queued.map((post) => <ScheduledRow key={post.post_folder} post={post} tz={tz} onCancelled={refresh} />)}</TableBody>
           </Table>
         </section>
       )}
-
-      {/* Sent posts table */}
       {sent.length > 0 && (
         <section>
           <Table>
-            <TableHead>
-              <TableRow>
-                <TableHeader>Slug</TableHeader>
-                <TableHeader>Sent</TableHeader>
-                <TableHeader>Platforms</TableHeader>
-                <TableHeader>Model</TableHeader>
-                <TableHeader>Engagement</TableHeader>
-                <TableHeader>Links</TableHeader>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {sent.map((post) => (
-                <SentRow key={post.post_folder} post={post} tz={tz} />
-              ))}
-            </TableBody>
+            <TableHead><TableRow><TableHeader>Slug</TableHeader><TableHeader>Sent</TableHeader><TableHeader>Platforms</TableHeader><TableHeader>Model</TableHeader><TableHeader>Engagement</TableHeader><TableHeader>Links</TableHeader></TableRow></TableHead>
+            <TableBody>{sent.map((post) => <SentRow key={post.post_folder} post={post} tz={tz} />)}</TableBody>
           </Table>
-
-          {hasMore && (
-            <div className="mt-4 text-center">
-              <Button outline onClick={handleLoadMore}>Load more</Button>
-            </div>
-          )}
+          {hasMore && <div className="mt-4 text-center"><Button outline onClick={loadMore}>Load more</Button></div>}
         </section>
       )}
     </div>

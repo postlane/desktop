@@ -35,7 +35,7 @@ function makePost(overrides: Partial<DraftPost> = {}): DraftPost {
   };
 }
 
-describe('RepoDraftsView', () => {
+describe('RepoDraftsView — rendering', () => {
   it('shows the repo name as a heading', async () => {
     mockInvoke.mockResolvedValue([makePost()]);
     render(<RepoDraftsView repoId="r1" />);
@@ -58,7 +58,6 @@ describe('RepoDraftsView', () => {
     mockInvoke.mockResolvedValue([makePost()]);
     render(<RepoDraftsView repoId="r1" />);
     await waitFor(() => screen.getByText('Test post'));
-    // Only one heading — the page heading, not a group label
     expect(screen.getAllByRole('heading').length).toBe(1);
   });
 
@@ -75,11 +74,8 @@ describe('RepoDraftsView', () => {
   });
 
   it('shows empty state when no posts for this repo', async () => {
-    mockInvoke.mockResolvedValue([
-      makePost({ repo_id: 'r2', repo_name: 'other' }),
-    ]);
+    mockInvoke.mockResolvedValue([makePost({ repo_id: 'r2', repo_name: 'other' })]);
     render(<RepoDraftsView repoId="r1" />);
-    // No posts for r1 — but we need the repo name. Mock a second call for repos.
     await waitFor(() =>
       expect(screen.getByText(/no drafts waiting/i)).toBeInTheDocument(),
     );
@@ -88,10 +84,11 @@ describe('RepoDraftsView', () => {
   it('uses PostCard — not a duplicate implementation', async () => {
     mockInvoke.mockResolvedValue([makePost()]);
     render(<RepoDraftsView repoId="r1" />);
-    // PostCard renders an article role — confirms the shared component is used
     await waitFor(() => expect(screen.getByRole('article')).toBeInTheDocument());
   });
+});
 
+describe('RepoDraftsView — sorting and errors', () => {
   it('puts failed post before ready when failed is first in array', async () => {
     mockInvoke.mockResolvedValue([
       makePost({ repo_id: 'r1', post_folder: 'p1', status: 'failed', trigger: 'Failed post', error: 'err', created_at: '2026-04-15T09:00:00Z' }),
@@ -122,9 +119,11 @@ describe('RepoDraftsView', () => {
       expect(screen.getByText(/no drafts waiting/i)).toBeInTheDocument(),
     );
   });
+});
 
+describe('RepoDraftsView — meta-changed events', () => {
   it('meta-changed event for matching repo triggers a refresh', async () => {
-    let capturedHandler: ((event: { payload: { repo_id: string; post_folder: string } }) => void) | null = null;
+    let capturedHandler: ((_event: { payload: { repo_id: string; post_folder: string } }) => void) | null = null;
     mockListen.mockImplementation((_event: string, handler: unknown) => {
       capturedHandler = handler as typeof capturedHandler;
       return Promise.resolve(() => {});
@@ -135,45 +134,32 @@ describe('RepoDraftsView', () => {
       if (cmd === 'get_all_drafts') {
         draftsCallCount++;
         if (draftsCallCount === 1) {
-          return Promise.resolve([
-            makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'First load' }),
-          ]);
+          return Promise.resolve([makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'First load' })]);
         }
-        return Promise.resolve([
-          makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'After refresh' }),
-        ]);
+        return Promise.resolve([makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'After refresh' })]);
       }
       return Promise.resolve(null);
     });
 
     render(<RepoDraftsView repoId="r1" />);
     await waitFor(() => screen.getByText('First load'));
-
-    // Fire the meta-changed event for the same repo
-    capturedHandler!({ payload: { repo_id: 'r1', post_folder: 'p1' } });
-
+    if (capturedHandler) capturedHandler({ payload: { repo_id: 'r1', post_folder: 'p1' } });
     await waitFor(() => expect(screen.getByText('After refresh')).toBeInTheDocument());
   });
 
   it('meta-changed event for a different repo does not trigger refresh', async () => {
-    let capturedHandler: ((event: { payload: { repo_id: string; post_folder: string } }) => void) | null = null;
+    let capturedHandler: ((_event: { payload: { repo_id: string; post_folder: string } }) => void) | null = null;
     mockListen.mockImplementation((_event: string, handler: unknown) => {
       capturedHandler = handler as typeof capturedHandler;
       return Promise.resolve(() => {});
     });
 
-    mockInvoke.mockResolvedValue([
-      makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'Only post' }),
-    ]);
-
+    mockInvoke.mockResolvedValue([makePost({ repo_id: 'r1', post_folder: 'p1', trigger: 'Only post' })]);
     render(<RepoDraftsView repoId="r1" />);
     await waitFor(() => screen.getByText('Only post'));
     const callsBefore = mockInvoke.mock.calls.length;
 
-    // Fire for a different repo — should not refresh
-    capturedHandler!({ payload: { repo_id: 'r2', post_folder: 'p2' } });
-
-    // Give time for any erroneous refresh to happen
+    if (capturedHandler) capturedHandler({ payload: { repo_id: 'r2', post_folder: 'p2' } });
     await new Promise((r) => setTimeout(r, 50));
     expect(mockInvoke.mock.calls.length).toBe(callsBefore);
   });

@@ -46,13 +46,7 @@ export default function RepoDraftsView({ repoId }: Props) {
     return () => { unlisten?.(); };
   }, [repoId, refresh]);
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-zinc-400">Loading…</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex h-full items-center justify-center"><p className="text-sm text-zinc-400">Loading…</p></div>;
 
   return (
     <>
@@ -64,21 +58,12 @@ export default function RepoDraftsView({ repoId }: Props) {
 
       {posts.length === 0 ? (
         <div className="flex h-full items-center justify-center p-8">
-          <p className="text-center text-sm text-zinc-500">
-            No drafts waiting.
-            <br />
-            Invoke <code className="font-mono">/draft-post</code> in your IDE to create one.
-          </p>
+          <p className="text-center text-sm text-zinc-500">No drafts waiting.<br />Invoke <code className="font-mono">/draft-post</code> in your IDE to create one.</p>
         </div>
       ) : (
         <div className="space-y-3 p-6">
           {posts.map((post) => (
-            <PostCard
-              key={`${post.repo_id}-${post.post_folder}`}
-              post={post}
-              onApproved={refresh}
-              onDismissed={refresh}
-            />
+            <PostCard key={`${post.repo_id}-${post.post_folder}`} post={post} onApproved={refresh} onDismissed={refresh} />
           ))}
         </div>
       )}
