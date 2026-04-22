@@ -131,6 +131,103 @@ pub(crate) async fn get_or_init_provider(
     Ok(())
 }
 
+struct PlatformSendResults {
+    platform_results: std::collections::HashMap<String, String>,
+    scheduler_ids: std::collections::HashMap<String, String>,
+    platform_urls: std::collections::HashMap<String, String>,
+}
+
+/// Reads the repo_id and loads `account_ids` from `.postlane/config.json`.
+async fn load_provider_config(
+    app_handle: &tauri::AppHandle,
+    repo_path: &str,
+    canonical_path: &std::path::Path,
+    state: &AppState,
+    canonical_str: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let repo_id = {
+        let repos = state
+            .repos
+            .lock()
+            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        repos
+            .repos
+            .iter()
+            .find(|r| r.path == canonical_str)
+            .ok_or("Repository not found in state")?
+            .id
+            .clone()
+    };
+
+    get_or_init_provider(app_handle, repo_path, &repo_id, state).await?;
+
+    let config_path = canonical_path.join(".postlane/config.json");
+    let config_content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+    let config: serde_json::Value = serde_json::from_str(&config_content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+    Ok(config["scheduler"]["account_ids"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Sends each platform's content via the scheduler provider.
+/// Returns per-platform results, scheduler IDs, and platform URLs.
+async fn send_via_provider(
+    app_handle: &tauri::AppHandle,
+    repo_path: &str,
+    canonical_path: &std::path::Path,
+    post_path: &std::path::Path,
+    meta: &PostMeta,
+    state: &AppState,
+    canonical_str: &str,
+) -> Result<PlatformSendResults, String> {
+    let account_ids = load_provider_config(app_handle, repo_path, canonical_path, state, canonical_str).await?;
+
+    let mut platform_results = std::collections::HashMap::new();
+    let mut scheduler_ids = std::collections::HashMap::new();
+    let mut platform_urls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for platform in &meta.platforms {
+        let content_file = post_path.join(format!("{}.md", platform));
+        if !content_file.exists() {
+            return Err(format!("Content file {}.md not found", platform));
+        }
+        let content = fs::read_to_string(&content_file)
+            .map_err(|e| format!("Failed to read {}.md: {}", platform, e))?;
+
+        let scheduled_for = meta.schedule.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        });
+        let account_id = account_ids.get(platform).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+
+        let result = {
+            let scheduler = state.scheduler.lock().await;
+            let provider = scheduler.as_ref().ok_or("Provider not initialized")?;
+            provider.schedule_post(&content, platform, scheduled_for, meta.image_url.as_deref(), account_id).await
+        };
+
+        match result {
+            Ok(post_result) => {
+                platform_results.insert(platform.clone(), "success".to_string());
+                scheduler_ids.insert(platform.clone(), post_result.scheduler_id);
+                if let Some(url) = post_result.platform_url {
+                    platform_urls.insert(platform.clone(), url);
+                }
+            }
+            Err(e) => {
+                platform_results.insert(platform.clone(), format!("error: {}", e));
+            }
+        }
+    }
+
+    Ok(PlatformSendResults { platform_results, scheduler_ids, platform_urls })
+}
+
 pub async fn approve_post_impl(
     repo_path: &str,
     post_folder: &str,
@@ -154,7 +251,6 @@ pub async fn approve_post_impl(
     }
 
     let post_path = canonical_path.join(".postlane/posts").join(post_folder);
-
     if !post_path.exists() {
         return Err(format!("Post folder does not exist: {}", post_folder));
     }
@@ -166,97 +262,30 @@ pub async fn approve_post_impl(
 
     let meta_content = fs::read_to_string(&meta_path)
         .map_err(|e| format!("Failed to read meta.json: {}", e))?;
-
     let mut meta: PostMeta = serde_json::from_str(&meta_content)
         .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
 
-    let mut platform_results = std::collections::HashMap::new();
-    let mut scheduler_ids = std::collections::HashMap::new();
-    let mut platform_urls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-
-    if let Some(app_handle) = app {
-        let repo_id = {
-            let repos = state
-                .repos
-                .lock()
-                .map_err(|e| format!("Failed to lock repos: {}", e))?;
-            let repo = repos
-                .repos
-                .iter()
-                .find(|r| r.path == canonical_str)
-                .ok_or("Repository not found in state")?;
-            repo.id.clone()
-        };
-
-        get_or_init_provider(app_handle, repo_path, &repo_id, state).await?;
-
-        let config_path = canonical_path.join(".postlane/config.json");
-        let config_content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read config.json: {}", e))?;
-
-        let config: serde_json::Value = serde_json::from_str(&config_content)
-            .map_err(|e| format!("Failed to parse config.json: {}", e))?;
-
-        let account_ids = config["scheduler"]["account_ids"]
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-
-        for platform in &meta.platforms {
-            let content_file = post_path.join(format!("{}.md", platform));
-            let content = if content_file.exists() {
-                fs::read_to_string(&content_file)
-                    .map_err(|e| format!("Failed to read {}.md: {}", platform, e))?
-            } else {
-                return Err(format!("Content file {}.md not found", platform));
-            };
-
-            let scheduled_for = meta.schedule.as_ref().and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&chrono::Utc))
-            });
-
-            let account_id = account_ids
-                .get(platform)
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty());
-
-            let result = {
-                let scheduler = state.scheduler.lock().await;
-                let provider = scheduler.as_ref().ok_or("Provider not initialized")?;
-                provider
-                    .schedule_post(&content, platform, scheduled_for, meta.image_url.as_deref(), account_id)
-                    .await
-            };
-
-            match result {
-                Ok(post_result) => {
-                    platform_results.insert(platform.clone(), "success".to_string());
-                    scheduler_ids.insert(platform.clone(), post_result.scheduler_id);
-                    if let Some(url) = post_result.platform_url {
-                        platform_urls.insert(platform.clone(), url);
-                    }
-                }
-                Err(e) => {
-                    platform_results.insert(platform.clone(), format!("error: {}", e));
-                }
-            }
-        }
+    let results = if let Some(app_handle) = app {
+        send_via_provider(app_handle, repo_path, &canonical_path, &post_path, &meta, state, canonical_str).await?
     } else {
-        for platform in &meta.platforms {
-            platform_results.insert(platform.clone(), "success".to_string());
+        let platform_results = meta.platforms.iter()
+            .map(|p| (p.clone(), "success".to_string()))
+            .collect();
+        PlatformSendResults {
+            platform_results,
+            scheduler_ids: std::collections::HashMap::new(),
+            platform_urls: std::collections::HashMap::new(),
         }
-    }
+    };
 
     meta.status = "sent".to_string();
-    meta.platform_results = Some(platform_results.clone());
+    meta.platform_results = Some(results.platform_results.clone());
     meta.sent_at = Some(chrono::Utc::now().to_rfc3339());
-    if !scheduler_ids.is_empty() {
-        meta.scheduler_ids = Some(scheduler_ids);
+    if !results.scheduler_ids.is_empty() {
+        meta.scheduler_ids = Some(results.scheduler_ids);
     }
-    if !platform_urls.is_empty() {
-        meta.platform_urls = Some(platform_urls);
+    if !results.platform_urls.is_empty() {
+        meta.platform_urls = Some(results.platform_urls);
     }
 
     let temp_path = meta_path.with_extension("json.tmp");
@@ -269,7 +298,7 @@ pub async fn approve_post_impl(
 
     Ok(SendResult {
         success: true,
-        platform_results: Some(platform_results),
+        platform_results: Some(results.platform_results),
         error: None,
     })
 }

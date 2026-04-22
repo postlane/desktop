@@ -23,6 +23,82 @@ pub struct DraftPost {
     pub created_at: Option<String>,
 }
 
+/// Parse a single post directory into a `DraftPost`, returning `None` if the
+/// post should be skipped (missing/invalid meta, wrong status, etc.).
+fn parse_draft_post(
+    post_path: &std::path::Path,
+    repo_id: &str,
+    repo_name: &str,
+    repo_path: &str,
+) -> Option<DraftPost> {
+    if !post_path.is_dir() {
+        return None;
+    }
+    let meta_path = post_path.join("meta.json");
+    if !meta_path.exists() {
+        return None;
+    }
+
+    let content = fs::read_to_string(&meta_path).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let status = match meta.get("status").and_then(|s| s.as_str()) {
+        Some(s @ "ready") | Some(s @ "failed") => s.to_string(),
+        _ => return None,
+    };
+
+    let post_folder = post_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    let platforms: Vec<String> = meta
+        .get("platforms")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let platform_results = meta.get("platform_results").and_then(|v| {
+        v.as_object().map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+    });
+
+    Some(DraftPost {
+        repo_id: repo_id.to_string(),
+        repo_name: repo_name.to_string(),
+        repo_path: repo_path.to_string(),
+        post_folder,
+        status,
+        platforms,
+        schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
+        trigger: meta.get("trigger").and_then(|v| v.as_str()).map(String::from),
+        platform_results,
+        error: meta.get("error").and_then(|v| v.as_str()).map(String::from),
+        image_url: meta.get("image_url").and_then(|v| v.as_str()).map(String::from),
+        llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
+        created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+    })
+}
+
+fn sort_drafts(drafts: &mut [DraftPost]) {
+    drafts.sort_by(|a, b| {
+        match (a.status.as_str(), b.status.as_str()) {
+            ("failed", "ready") => std::cmp::Ordering::Less,
+            ("ready", "failed") => std::cmp::Ordering::Greater,
+            _ => match (&b.created_at, &a.created_at) {
+                (Some(bt), Some(at)) => bt.cmp(at),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            },
+        }
+    });
+}
+
 pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
     let repos = state
         .repos
@@ -43,80 +119,18 @@ pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
         };
 
         for entry in entries.flatten() {
-            let post_path = entry.path();
-            if !post_path.is_dir() {
-                continue;
+            if let Some(draft) = parse_draft_post(
+                &entry.path(),
+                &repo.id,
+                &repo.name,
+                &repo.path,
+            ) {
+                drafts.push(draft);
             }
-            let meta_path = post_path.join("meta.json");
-            if !meta_path.exists() {
-                continue;
-            }
-
-            let content = match fs::read_to_string(&meta_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let meta: serde_json::Value = match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            let status = match meta.get("status").and_then(|s| s.as_str()) {
-                Some(s @ "ready") | Some(s @ "failed") => s.to_string(),
-                _ => continue,
-            };
-
-            let post_folder = post_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            let platforms: Vec<String> = meta
-                .get("platforms")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-
-            let platform_results = meta.get("platform_results").and_then(|v| {
-                v.as_object().map(|obj| {
-                    obj.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                        .collect()
-                })
-            });
-
-            drafts.push(DraftPost {
-                repo_id: repo.id.clone(),
-                repo_name: repo.name.clone(),
-                repo_path: repo.path.clone(),
-                post_folder,
-                status,
-                platforms,
-                schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
-                trigger: meta.get("trigger").and_then(|v| v.as_str()).map(String::from),
-                platform_results,
-                error: meta.get("error").and_then(|v| v.as_str()).map(String::from),
-                image_url: meta.get("image_url").and_then(|v| v.as_str()).map(String::from),
-                llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
-                created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
-            });
         }
     }
 
-    drafts.sort_by(|a, b| {
-        match (a.status.as_str(), b.status.as_str()) {
-            ("failed", "ready") => std::cmp::Ordering::Less,
-            ("ready", "failed") => std::cmp::Ordering::Greater,
-            _ => match (&b.created_at, &a.created_at) {
-                (Some(bt), Some(at)) => bt.cmp(at),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
-        }
-    });
-
+    sort_drafts(&mut drafts);
     Ok(drafts)
 }
 

@@ -73,277 +73,177 @@ async fn health_handler() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
+/// Converts a `(StatusCode, error_message)` pair into an HTTP error `Response`.
+fn error_response(status: StatusCode, message: String) -> Response {
+    (status, Json(ErrorResponse { error: message })).into_response()
+}
+
+/// Validates that a path is registered in repos and returns the canonicalized path.
+/// Returns `Err((StatusCode, message))` if the path is not found or not registered.
+async fn validate_registered_path(
+    repos: &tokio::sync::MutexGuard<'_, crate::storage::ReposConfig>,
+    repo_path: &str,
+) -> Result<std::path::PathBuf, (StatusCode, String)> {
+    let canonical_path = std::fs::canonicalize(repo_path)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Path not found or not accessible".to_string()))?;
+
+    let path_str = canonical_path.to_string_lossy();
+    if !repos.repos.iter().any(|r| r.path == path_str.as_ref()) {
+        return Err((StatusCode::FORBIDDEN, "Path not registered in repos.json".to_string()));
+    }
+
+    Ok(canonical_path)
+}
+
+/// Validates that `post_folder` contains no path-traversal characters and that the
+/// folder + its `meta.json` exist under `canonical_path/.postlane/posts/`.
+/// Returns the `meta.json` path on success, or `Err((StatusCode, message))` on failure.
+fn validate_post_folder(
+    canonical_path: &std::path::Path,
+    post_folder: &str,
+) -> Result<std::path::PathBuf, (StatusCode, String)> {
+    if post_folder.contains('/') || post_folder.contains('\\') || post_folder.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid post folder: path traversal not permitted".to_string()));
+    }
+
+    let post_path = canonical_path.join(".postlane/posts").join(post_folder);
+    if !post_path.exists() {
+        return Err((StatusCode::BAD_REQUEST, format!("Post folder does not exist: {}", post_folder)));
+    }
+
+    let meta_path = post_path.join("meta.json");
+    if !meta_path.exists() {
+        return Err((StatusCode::BAD_REQUEST, "meta.json not found in post folder".to_string()));
+    }
+
+    Ok(meta_path)
+}
+
+/// Reads and parses `meta.json`, stamps `status=sent` and `sent_at`, then writes back
+/// atomically. Returns `Err((StatusCode, message))` on any I/O or parse error.
+fn mark_meta_as_sent(meta_path: &std::path::Path) -> Result<(), (StatusCode, String)> {
+    let meta_content = std::fs::read_to_string(meta_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read meta.json: {}", e)))?;
+
+    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse meta.json: {}", e)))?;
+
+    meta["status"] = serde_json::json!("sent");
+    meta["sent_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+
+    let json_str = serde_json::to_string_pretty(&meta)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize meta.json: {}", e)))?;
+
+    let temp_path = meta_path.with_extension("json.tmp");
+    std::fs::write(&temp_path, &json_str)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write meta.json: {}", e)))?;
+
+    std::fs::rename(&temp_path, meta_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to rename meta.json: {}", e)))?;
+
+    Ok(())
+}
+
 async fn send_handler(
     State(state): State<ServerState>,
     Json(payload): Json<SendRequest>,
 ) -> Response {
-    // Validate path is registered
     let repos = state.repos.lock().await;
 
-    // Canonicalize the path
-    let canonical_path = match std::fs::canonicalize(&payload.repo_path) {
-        Ok(p) => p,
-        Err(_) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse {
-                    error: "Path not found or not accessible".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let path_str = canonical_path.to_string_lossy().to_string();
-    let is_registered = repos.repos.iter().any(|r| r.path == path_str);
-
-    if !is_registered {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "Path not registered in repos.json".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Drop the lock before doing file operations
-    drop(repos);
-
-    // SECURITY NOTE: TOCTOU race window exists between checking is_registered (line 105)
-    // and using the path (below). Another thread could unregister the repo after our check
+    // SECURITY NOTE: TOCTOU race window exists between checking is_registered and
+    // using the path (below). Another thread could unregister the repo after our check
     // but before we use the path. However, practical risk is low because:
     // 1. Unregistration requires explicit user action (rare during active operations)
     // 2. Path validation continues to work even if repo is unregistered
     // 3. Worst case: we process a post for an unregistered repo (benign - no security impact)
     // 4. Alternative (holding lock during file I/O) would block all other operations
     // We accept this minimal race window to avoid blocking operations.
+    let canonical_path = match validate_registered_path(&repos, &payload.repo_path).await {
+        Ok(p) => p,
+        Err((status, msg)) => return error_response(status, msg),
+    };
+    drop(repos);
 
-    // Reject path traversal attempts in post_folder
-    if payload.post_folder.contains('/') || payload.post_folder.contains('\\') || payload.post_folder.contains("..") {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid post folder: path traversal not permitted".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Validate post folder exists and has meta.json
-    let post_path = canonical_path
-        .join(".postlane/posts")
-        .join(&payload.post_folder);
-
-    if !post_path.exists() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: format!("Post folder does not exist: {}", payload.post_folder),
-            }),
-        )
-            .into_response();
-    }
-
-    let meta_path = post_path.join("meta.json");
-    if !meta_path.exists() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "meta.json not found in post folder".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Read and update meta.json (stub send - always succeeds in M3)
-    let meta_content = match std::fs::read_to_string(&meta_path) {
-        Ok(content) => content,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to read meta.json: {}", e),
-                }),
-            )
-                .into_response();
-        }
+    let meta_path = match validate_post_folder(&canonical_path, &payload.post_folder) {
+        Ok(p) => p,
+        Err((status, msg)) => return error_response(status, msg),
     };
 
-    let mut meta: serde_json::Value = match serde_json::from_str(&meta_content) {
-        Ok(m) => m,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to parse meta.json: {}", e),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    // Update status to sent (stub - real scheduler integration in M4)
-    meta["status"] = serde_json::json!("sent");
-    meta["sent_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
-
-    // Write updated meta.json atomically
-    let temp_path = meta_path.with_extension("json.tmp");
-    let json_str = match serde_json::to_string_pretty(&meta) {
-        Ok(s) => s,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to serialize meta.json: {}", e),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    if let Err(e) = std::fs::write(&temp_path, json_str) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to write meta.json: {}", e),
-            }),
-        )
-            .into_response();
-    }
-
-    if let Err(e) = std::fs::rename(&temp_path, &meta_path) {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to rename meta.json: {}", e),
-            }),
-        )
-            .into_response();
+    if let Err((status, msg)) = mark_meta_as_sent(&meta_path) {
+        return error_response(status, msg);
     }
 
     (StatusCode::OK, Json(SendResponse { success: true })).into_response()
+}
+
+/// Validates that `path` is a git repo with `.postlane/config.json`.
+/// Returns `(canonical_str, repo_name)` on success, or `Err((StatusCode, message))` on failure.
+fn validate_repo_path_for_register(path: &str) -> Result<(String, String), (StatusCode, String)> {
+    let canonical_path = std::fs::canonicalize(path)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Path not found or not accessible".to_string()))?;
+
+    if !canonical_path.join(".git").exists() {
+        return Err((StatusCode::BAD_REQUEST, "Not a git repository".to_string()));
+    }
+
+    if !canonical_path.join(".postlane").join("config.json").exists() {
+        return Err((StatusCode::BAD_REQUEST, ".postlane/config.json not found - run postlane init first".to_string()));
+    }
+
+    let canonical_str = canonical_path
+        .to_str()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Path contains invalid UTF-8 characters".to_string()))?;
+
+    let name = canonical_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Unable to extract repository name from path".to_string()))?;
+
+    Ok((canonical_str.to_string(), name.to_string()))
 }
 
 async fn register_handler(
     State(state): State<ServerState>,
     Json(payload): Json<RegisterRequest>,
 ) -> Response {
-    // Canonicalize the path
-    let canonical_path = match std::fs::canonicalize(&payload.path) {
-        Ok(p) => p,
-        Err(_) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(ErrorResponse {
-                    error: "Path not found or not accessible".to_string(),
-                }),
-            )
-                .into_response();
-        }
+    let (canonical_str, name) = match validate_repo_path_for_register(&payload.path) {
+        Ok(v) => v,
+        Err((status, msg)) => return error_response(status, msg),
     };
 
-    // Check .git/ exists
-    let git_path = canonical_path.join(".git");
-    if !git_path.exists() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Not a git repository".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Check .postlane/config.json exists
-    let config_path = canonical_path.join(".postlane").join("config.json");
-    if !config_path.exists() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: ".postlane/config.json not found - run postlane init first".to_string(),
-            }),
-        )
-            .into_response();
-    }
-
-    // Add repo (generates UUID, derives name, writes to repos.json)
-    let canonical_str = match canonical_path.to_str() {
-        Some(s) => s,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Path contains invalid UTF-8 characters".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let name = match canonical_path.file_name().and_then(|n| n.to_str()) {
-        Some(n) => n.to_string(),
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Unable to extract repository name from path".to_string(),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    // Generate UUID and create repo
-    let id = uuid::Uuid::new_v4().to_string();
     let repo = crate::storage::Repo {
-        id,
+        id: uuid::Uuid::new_v4().to_string(),
         name: name.clone(),
-        path: canonical_str.to_string(),
+        path: canonical_str,
         active: true,
         added_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    // Add to repos and write to disk
     let mut repos = state.repos.lock().await;
-
     repos.repos.push(repo);
 
-    // Write to repos.json
     let postlane_dir = match crate::init::postlane_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            return (
+            return error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("Failed to get postlane directory: {}", e),
-                }),
-            )
-                .into_response();
+                format!("Failed to get postlane directory: {}", e),
+            );
         }
     };
+
     let repos_path = postlane_dir.join("repos.json");
     if let Err(e) = crate::storage::write_repos(&repos_path, &repos) {
-        return (
+        return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("Failed to write repos.json: {:?}", e),
-            }),
-        )
-            .into_response();
+            format!("Failed to write repos.json: {:?}", e),
+        );
     }
 
     // TODO: Start watcher (deferred - not critical for HTTP endpoint)
     // TODO: Emit Tauri event for UI refresh (deferred - HTTP endpoint doesn't have Tauri app handle)
 
-    (
-        StatusCode::OK,
-        Json(RegisterResponse {
-            success: true,
-            name,
-        }),
-    )
-        .into_response()
+    (StatusCode::OK, Json(RegisterResponse { success: true, name })).into_response()
 }
 
 pub fn create_router(state: ServerState) -> Router {

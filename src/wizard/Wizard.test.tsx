@@ -113,23 +113,24 @@ describe('Wizard — Step 1', () => {
 // Step 2: Connect a scheduler
 // ---------------------------------------------------------------------------
 
+async function goToStep2(credentialExists: boolean) {
+  mockOpenDialog.mockResolvedValue('/valid/repo');
+  mockInvoke.mockImplementation(async (cmd: unknown) => {
+    if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
+    if (cmd === 'get_scheduler_credential') {
+      if (credentialExists) return 'sk-••••abcd';
+      throw new Error('not found');
+    }
+    return null;
+  });
+  renderWizard();
+  fireEvent.click(screen.getByRole('button', { name: /yes/i }));
+  const browse = await screen.findByRole('button', { name: /browse for the folder/i });
+  fireEvent.click(browse);
+  await screen.findByText(/connect a scheduler/i);
+}
+
 describe('Wizard — Step 2', () => {
-  async function goToStep2(credentialExists: boolean) {
-    mockOpenDialog.mockResolvedValue('/valid/repo');
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
-      if (cmd === 'get_scheduler_credential') {
-        if (credentialExists) return 'sk-••••abcd';
-        throw new Error('not found');
-      }
-      return null;
-    });
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    await screen.findByText(/connect a scheduler/i);
-  }
 
   it('shows connected state when credential exists', async () => {
     await goToStep2(true);

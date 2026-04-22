@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Thresholds for complexity lints — must match CLAUDE.md code limits table.
+too-many-lines-threshold = 60
+cognitive-complexity-threshold = 12

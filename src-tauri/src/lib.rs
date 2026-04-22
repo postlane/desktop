@@ -34,9 +34,87 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+/// Initialises `AppState`, tray, close-to-tray behaviour, and starts background
+/// tasks (provider init + HTTP server). Called inside `tauri::Builder::setup`.
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let repos_path = init::postlane_dir()?.join("repos.json");
+    let repos_config = storage::read_repos_with_recovery(&repos_path)
+        .map_err(|e| format!("Failed to load repos: {:?}", e))?;
+
+    let libsecret_available = commands::check_libsecret_availability(Some(app.handle().clone()));
+
+    let app_state = AppState::new(repos_config.clone());
+    {
+        let mut flag = app_state.libsecret_available.lock()
+            .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
+        *flag = Some(libsecret_available);
+    }
+    app.manage(app_state);
+
+    tray::setup_tray(app.handle())
+        .map_err(|e| format!("Failed to set up tray: {}", e))?;
+
+    register_close_to_tray(app);
+    spawn_eager_provider_init(app.handle().clone());
+    spawn_http_server(app.handle().clone(), repos_config)?;
+
+    Ok(())
+}
+
+/// Registers a window event handler that hides the main window on close
+/// instead of quitting. The app lives in the tray.
+fn register_close_to_tray(app: &tauri::App) {
+    if let Some(window) = app.get_webview_window("main") {
+        let win = window.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = win.hide();
+            }
+        });
+    }
+}
+
+/// Spawns an async task that eagerly initialises the scheduler provider when
+/// credentials are already stored. Eliminates first-send latency.
+fn spawn_eager_provider_init(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state: tauri::State<AppState> = app_handle.state();
+        if let Err(e) = commands::eager_init_provider_if_configured(&state, Some(&app_handle)).await {
+            log::warn!("Eager provider initialization failed: {}", e);
+        }
+    });
+}
+
+/// Generates the session token and starts the HTTP server on port 47312.
+fn spawn_http_server(
+    _app_handle: tauri::AppHandle,
+    repos_config: storage::ReposConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let token = http_server::generate_and_write_token()?;
+    let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
+    let server_state = http_server::ServerState { token, repos: repos_arc };
+
+    tauri::async_runtime::spawn(async move {
+        match http_server::start_server(server_state, 47312).await {
+            Ok(port) => {
+                if let Err(e) = http_server::write_port_file(port) {
+                    log::error!("Failed to write port file: {}", e);
+                } else {
+                    log::info!("HTTP server started on port {}", port);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to start HTTP server: {}", e);
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Check for existing instance before starting
     if let Err(e) = check_single_instance() {
         eprintln!("{}", e);
         show_alert_and_exit(&e);
@@ -50,82 +128,7 @@ pub fn run() {
         .on_menu_event(|app, event| {
             tray::handle_menu_event(app, event.id.0.as_str());
         })
-        .setup(|app| {
-            // Load repos from disk
-            let repos_path = init::postlane_dir()?.join("repos.json");
-            let repos_config = storage::read_repos_with_recovery(&repos_path)
-                .map_err(|e| format!("Failed to load repos: {:?}", e))?;
-
-            // Check libsecret availability (Linux only)
-            let libsecret_available = commands::check_libsecret_availability(Some(app.handle().clone()));
-
-            // Create AppState
-            let app_state = AppState::new(repos_config.clone());
-
-            // Set libsecret availability flag
-            {
-                let mut flag = app_state.libsecret_available.lock()
-                    .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
-                *flag = Some(libsecret_available);
-            }
-
-            // Manage AppState
-            app.manage(app_state);
-
-            // Set up system tray (reads AppState, so must come after manage).
-            tray::setup_tray(app.handle())
-                .map_err(|e| format!("Failed to set up tray: {}", e))?;
-
-            // Hide the main window on close rather than quitting — the app
-            // lives in the tray and the user quits via "Quit" in the tray menu.
-            if let Some(window) = app.get_webview_window("main") {
-                let win = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = win.hide();
-                    }
-                });
-            }
-
-            // Eagerly instantiate provider if credentials exist
-            // This eliminates first-send delay when user already has credentials configured
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                // Get AppState from app handle
-                let state: tauri::State<AppState> = app_handle.state();
-                if let Err(e) = commands::eager_init_provider_if_configured(&state, Some(&app_handle)).await {
-                    log::warn!("Eager provider initialization failed: {}", e);
-                }
-            });
-
-            // Generate session token
-            let token = http_server::generate_and_write_token()?;
-
-            // Start HTTP server
-            let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
-            let server_state = http_server::ServerState {
-                token,
-                repos: repos_arc.clone(),
-            };
-
-            tauri::async_runtime::spawn(async move {
-                match http_server::start_server(server_state, 47312).await {
-                    Ok(port) => {
-                        if let Err(e) = http_server::write_port_file(port) {
-                            log::error!("Failed to write port file: {}", e);
-                        } else {
-                            log::info!("HTTP server started on port {}", port);
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to start HTTP server: {}", e);
-                    }
-                }
-            });
-
-            Ok(())
-        })
+        .setup(|app| setup_app(app))
         .invoke_handler(tauri::generate_handler![
             greet,
             repo_queries::get_repos,

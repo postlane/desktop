@@ -29,7 +29,7 @@ export default function AddRepoModal({ onClose }: Props) {
     try {
       await invoke('add_repo', { path: selected });
       onClose();
-    } catch (e) {
+    } catch {
       setError("This folder hasn't been set up yet. Run `npx postlane init` inside it first.");
     } finally {
       setLoading(false);

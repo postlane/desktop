@@ -10,7 +10,7 @@ interface PostPreviewProps {
   content?: string;
   platform?: Platform;
   imageUrl?: string;
-  onSave?: (newContent: string) => void;
+  onSave?: (_newContent: string) => void;
   onImageClick?: () => void;
   onApprove?: () => void;
   approveLabel?: string;

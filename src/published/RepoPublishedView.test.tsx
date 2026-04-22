@@ -144,21 +144,13 @@ describe('RepoPublishedView — sent posts table', () => {
 
   it('clicking view link invokes opener with the URL', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_repo_published')
-        return [makeSent({
-          platform_results: { x: 'sent' },
-          platform_urls: { x: 'https://x.com/i/web/status/999' },
-        })];
+      if (cmd === 'get_repo_published') return [makeSent({ platform_results: { x: 'sent' }, platform_urls: { x: 'https://x.com/i/web/status/999' } })];
       return undefined;
     });
     render(<RepoPublishedView repoId="r1" />);
     await waitFor(() => screen.getByRole('button', { name: /view x post/i }));
     fireEvent.click(screen.getByRole('button', { name: /view x post/i }));
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('plugin:opener|open_url', {
-        url: 'https://x.com/i/web/status/999',
-      }),
-    );
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('plugin:opener|open_url', { url: 'https://x.com/i/web/status/999' }));
   });
 
   it('filters to only sent posts in the sent table — queued posts are only in Scheduled section', async () => {

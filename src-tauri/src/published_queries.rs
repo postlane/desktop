@@ -6,6 +6,86 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 
+/// Extracts a string-keyed, string-valued map from a JSON object field.
+fn extract_string_map(
+    meta: &serde_json::Value,
+    key: &str,
+) -> Option<std::collections::HashMap<String, String>> {
+    meta.get(key)?.as_object().map(|obj| {
+        obj.iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect()
+    })
+}
+
+/// Parse a single post directory into a `PublishedPost`, returning `None` if the
+/// post should be skipped (missing/invalid meta, wrong status, etc.).
+fn parse_published_post(
+    post_path: &std::path::Path,
+    repo_id: &str,
+    repo_name: &str,
+    repo_path: &str,
+) -> Option<PublishedPost> {
+    if !post_path.is_dir() {
+        return None;
+    }
+    let meta_path = post_path.join("meta.json");
+    if !meta_path.exists() {
+        return None;
+    }
+    let content = fs::read_to_string(&meta_path).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    let status = match meta.get("status").and_then(|s| s.as_str()) {
+        Some(s @ "sent") | Some(s @ "queued") => s.to_string(),
+        _ => return None,
+    };
+
+    let post_folder = post_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    let platforms: Vec<String> = meta
+        .get("platforms")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    Some(PublishedPost {
+        repo_id: repo_id.to_string(),
+        repo_name: repo_name.to_string(),
+        repo_path: repo_path.to_string(),
+        post_folder,
+        status,
+        platforms,
+        platform_results: extract_string_map(&meta, "platform_results"),
+        schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
+        scheduler_ids: extract_string_map(&meta, "scheduler_ids"),
+        platform_urls: extract_string_map(&meta, "platform_urls"),
+        provider: read_repo_provider(repo_path),
+        llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
+        sent_at: meta.get("sent_at").and_then(|v| v.as_str()).map(String::from),
+        created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+    })
+}
+
+fn sort_published_by_status_then_sent_at(posts: &mut [PublishedPost]) {
+    posts.sort_by(|a, b| {
+        match (a.status.as_str(), b.status.as_str()) {
+            ("queued", "sent") => std::cmp::Ordering::Less,
+            ("sent", "queued") => std::cmp::Ordering::Greater,
+            _ => match (&b.sent_at, &a.sent_at) {
+                (Some(bt), Some(at)) => bt.cmp(at),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            },
+        }
+    });
+}
+
 /// Reads the scheduler provider from `.postlane/config.json` for a given repo path.
 /// Returns `None` if the file is missing, unreadable, or has no `scheduler.provider` field.
 fn read_repo_provider(repo_path: &str) -> Option<String> {
@@ -65,100 +145,14 @@ pub fn get_repo_published_impl(
         Err(_) => return Ok(vec![]),
     };
 
-    let mut posts: Vec<PublishedPost> = Vec::new();
+    let mut posts: Vec<PublishedPost> = entries
+        .flatten()
+        .filter_map(|e| parse_published_post(&e.path(), &repo.id, &repo.name, &repo.path))
+        .collect();
 
-    for entry in entries.flatten() {
-        let post_path = entry.path();
-        if !post_path.is_dir() {
-            continue;
-        }
-        let meta_path = post_path.join("meta.json");
-        if !meta_path.exists() {
-            continue;
-        }
-        let content = match fs::read_to_string(&meta_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let meta: serde_json::Value = match serde_json::from_str(&content) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+    sort_published_by_status_then_sent_at(&mut posts);
 
-        let status = match meta.get("status").and_then(|s| s.as_str()) {
-            Some(s @ "sent") | Some(s @ "queued") => s.to_string(),
-            _ => continue,
-        };
-
-        let post_folder = post_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        let platforms: Vec<String> = meta
-            .get("platforms")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default();
-
-        let platform_results = meta.get("platform_results").and_then(|v| {
-            v.as_object().map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-        });
-
-        let scheduler_ids = meta.get("scheduler_ids").and_then(|v| {
-            v.as_object().map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-        });
-
-        let platform_urls = meta.get("platform_urls").and_then(|v| {
-            v.as_object().map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect()
-            })
-        });
-
-        posts.push(PublishedPost {
-            repo_id: repo.id.clone(),
-            repo_name: repo.name.clone(),
-            repo_path: repo.path.clone(),
-            post_folder,
-            status,
-            platforms,
-            platform_results,
-            schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
-            scheduler_ids,
-            platform_urls,
-            provider: read_repo_provider(&repo.path),
-            llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
-            sent_at: meta.get("sent_at").and_then(|v| v.as_str()).map(String::from),
-            created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
-        });
-    }
-
-    posts.sort_by(|a, b| {
-        match (a.status.as_str(), b.status.as_str()) {
-            ("queued", "sent") => std::cmp::Ordering::Less,
-            ("sent", "queued") => std::cmp::Ordering::Greater,
-            _ => match (&b.sent_at, &a.sent_at) {
-                (Some(bt), Some(at)) => bt.cmp(at),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
-        }
-    });
-
-    let page: Vec<PublishedPost> = posts.into_iter().skip(offset).take(limit).collect();
-    Ok(page)
+    Ok(posts.into_iter().skip(offset).take(limit).collect())
 }
 
 pub fn get_all_published_impl(
@@ -178,88 +172,14 @@ pub fn get_all_published_impl(
         if !posts_dir.exists() {
             continue;
         }
-
         let entries = match fs::read_dir(&posts_dir) {
             Ok(e) => e,
             Err(_) => continue,
         };
-
         for entry in entries.flatten() {
-            let post_path = entry.path();
-            if !post_path.is_dir() {
-                continue;
+            if let Some(post) = parse_published_post(&entry.path(), &repo.id, &repo.name, &repo.path) {
+                posts.push(post);
             }
-            let meta_path = post_path.join("meta.json");
-            if !meta_path.exists() {
-                continue;
-            }
-
-            let content = match fs::read_to_string(&meta_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let meta: serde_json::Value = match serde_json::from_str(&content) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            let status = match meta.get("status").and_then(|s| s.as_str()) {
-                Some(s @ "sent") | Some(s @ "queued") => s.to_string(),
-                _ => continue,
-            };
-
-            let post_folder = post_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            let platforms: Vec<String> = meta
-                .get("platforms")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                .unwrap_or_default();
-
-            let platform_results = meta.get("platform_results").and_then(|v| {
-                v.as_object().map(|obj| {
-                    obj.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                        .collect()
-                })
-            });
-
-            let scheduler_ids = meta.get("scheduler_ids").and_then(|v| {
-                v.as_object().map(|obj| {
-                    obj.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                        .collect()
-                })
-            });
-
-            let platform_urls = meta.get("platform_urls").and_then(|v| {
-                v.as_object().map(|obj| {
-                    obj.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                        .collect()
-                })
-            });
-
-            posts.push(PublishedPost {
-                repo_id: repo.id.clone(),
-                repo_name: repo.name.clone(),
-                repo_path: repo.path.clone(),
-                post_folder,
-                status,
-                platforms,
-                platform_results,
-                schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
-                scheduler_ids,
-                platform_urls,
-                provider: read_repo_provider(&repo.path),
-                llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
-                sent_at: meta.get("sent_at").and_then(|v| v.as_str()).map(String::from),
-                created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
-            });
         }
     }
 

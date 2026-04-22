@@ -130,27 +130,19 @@ describe('AllReposDraftsView — approve all ready', () => {
   });
 
   it('approves all posts in sequence on confirm', async () => {
-    const drafts = [
-      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
-      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
-    ];
+    const drafts = [makePost({ post_folder: 'p1', trigger: 'Post 1' }), makePost({ post_folder: 'p2', trigger: 'Post 2' })];
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_drafts') return drafts;
       if (cmd === 'approve_post') return { success: true };
       return null;
     });
-
     render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
     await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
     fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
     await waitFor(() => screen.getByRole('dialog'));
     fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({ postFolder: 'p1' })),
-    );
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({ postFolder: 'p2' })),
-    );
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({ postFolder: 'p1' })));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({ postFolder: 'p2' })));
   });
 });
 

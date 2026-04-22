@@ -44,6 +44,42 @@ impl ZernioProvider {
         }
     }
 
+    /// Build the JSON request body for the `/api/v1/posts` endpoint.
+    fn build_schedule_body(
+        content: &str,
+        platform: &str,
+        scheduled_for: Option<DateTime<Utc>>,
+        image_url: Option<&str>,
+        profile_id: Option<&str>,
+    ) -> serde_json::Value {
+        let mut platform_entry = serde_json::json!({
+            "platform": Self::zernio_platform(platform),
+        });
+        if let Some(account) = profile_id {
+            if !account.is_empty() {
+                platform_entry["accountId"] = serde_json::json!(account);
+            }
+        }
+
+        let mut body = serde_json::json!({
+            "content": content,
+            "platforms": [platform_entry],
+        });
+
+        if let Some(scheduled) = scheduled_for {
+            body["scheduledFor"] = serde_json::json!(scheduled.to_rfc3339());
+            body["timezone"] = serde_json::json!("UTC");
+        } else {
+            body["publishNow"] = serde_json::json!(true);
+        }
+
+        if let Some(image) = image_url {
+            body["imageUrl"] = serde_json::json!(image);
+        }
+
+        body
+    }
+
     /// Helper to check HTTP status and return appropriate error
     fn check_response_status(response: &reqwest::Response) -> Result<(), ProviderError> {
         let status = response.status();
@@ -84,38 +120,11 @@ impl SchedulingProvider for ZernioProvider {
     ) -> Result<PostScheduleResult, ProviderError> {
         use super::with_retry;
 
-        // Wrap in retry logic
+        let body = Self::build_schedule_body(content, platform, scheduled_for, image_url, profile_id);
+
         with_retry(
             || async {
                 let url = format!("{}/api/v1/posts", self.base_url());
-
-                // Build the platforms array Zernio expects:
-                // [{"platform": "twitter", "accountId": "..."}]
-                let mut platform_entry = serde_json::json!({
-                    "platform": Self::zernio_platform(platform),
-                });
-                if let Some(account) = profile_id {
-                    if !account.is_empty() {
-                        platform_entry["accountId"] = serde_json::json!(account);
-                    }
-                }
-
-                let mut body = serde_json::json!({
-                    "content": content,
-                    "platforms": [platform_entry],
-                });
-
-                // publishNow for immediate posts; scheduledFor + timezone for scheduled posts.
-                if let Some(scheduled) = scheduled_for {
-                    body["scheduledFor"] = serde_json::json!(scheduled.to_rfc3339());
-                    body["timezone"] = serde_json::json!("UTC");
-                } else {
-                    body["publishNow"] = serde_json::json!(true);
-                }
-
-                if let Some(image) = image_url {
-                    body["imageUrl"] = serde_json::json!(image);
-                }
 
                 let response = self
                     .client

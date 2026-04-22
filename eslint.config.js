@@ -32,6 +32,15 @@ export default [
       // Enforce TypeScript strict rules
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', {
+        vars: 'all',
+        args: 'all',
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        ignoreRestSiblings: true,
+      }],
 
       // Code complexity limits from CLAUDE.md
       'complexity': ['error', 12],

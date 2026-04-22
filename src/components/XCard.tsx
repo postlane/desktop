@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useRef } from 'react';
-import { Button } from './catalyst/button';
 import { countCharsX } from './charCount';
+import CardActions from './CardActions';
 
 const LIMIT = 280;
 const AMBER_THRESHOLD = 250;
@@ -10,7 +10,7 @@ const AMBER_THRESHOLD = 250;
 interface XCardProps {
   content?: string;
   imageUrl?: string;
-  onSave?: (newContent: string) => void;
+  onSave?: (_newContent: string) => void;
   onImageClick?: () => void;
   onApprove?: () => void;
   approveLabel?: string;
@@ -41,22 +41,7 @@ export default function XCard({
   const count = countCharsX(displayed);
   const isOverLimit = count > LIMIT;
   const isAmber = count > AMBER_THRESHOLD && !isOverLimit;
-
-  const counterClass = isOverLimit
-    ? 'text-sm font-medium text-red-600 dark:text-red-400'
-    : isAmber
-      ? 'text-sm font-medium text-amber-600 dark:text-amber-400'
-      : 'text-sm text-zinc-500 dark:text-zinc-400';
-
-  function startEditing() {
-    setDraft(content);
-    setEditing(true);
-  }
-
-  function handleSave() {
-    onSave?.(draft);
-    setEditing(false);
-  }
+  const counterClass = isOverLimit ? 'text-sm font-medium text-red-600 dark:text-red-400' : isAmber ? 'text-sm font-medium text-amber-600 dark:text-amber-400' : 'text-sm text-zinc-500 dark:text-zinc-400';
 
   return (
     <div className="flex flex-col gap-3">
@@ -75,37 +60,23 @@ export default function XCard({
         </div>
       )}
       {imageUrl && !editing && (
-        <img
-          src={imageUrl}
-          alt="Post image"
-          className="w-full rounded-xl object-cover"
-          style={{ aspectRatio: '16/9' }}
-        />
+        <img src={imageUrl} alt="Post image" className="w-full rounded-xl object-cover" style={{ aspectRatio: '16/9' }} />
       )}
-      <div className="flex items-center gap-2">
-        <span className={counterClass}>{count}/{LIMIT}</span>
-        <div className="ml-auto flex items-center gap-2">
-          {editing ? (
-            <>
-              <Button plain onClick={() => setEditing(false)}>Cancel</Button>
-              <Button color="zinc" onClick={handleSave} disabled={isOverLimit}>Save</Button>
-            </>
-          ) : (
-            <>
-              {onSave && <Button plain onClick={startEditing} aria-label="Edit">Edit</Button>}
-              {onImageClick && <Button plain onClick={onImageClick} aria-label="Image">Image</Button>}
-              {onApprove && (
-                <Button color="green" onClick={onApprove} disabled={isOverLimit}>
-                  {approveLabel}
-                </Button>
-              )}
-              {onDelete && (
-                <Button color="rose" onClick={onDelete}>Delete</Button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+      <CardActions
+        editing={editing}
+        count={count}
+        limit={LIMIT}
+        counterClass={counterClass}
+        isOverLimit={isOverLimit}
+        onSave={onSave}
+        onImageClick={onImageClick}
+        onApprove={onApprove}
+        approveLabel={approveLabel}
+        onDelete={onDelete}
+        onCancelEdit={() => setEditing(false)}
+        onSaveEdit={() => { onSave?.(draft); setEditing(false); }}
+        onStartEdit={() => { setDraft(content); setEditing(true); }}
+      />
     </div>
   );
 }

@@ -38,6 +38,12 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 url = "2"
 
+[lints.clippy]
+# Opt-in to pedantic/nursery lints that enforce CLAUDE.md code limits.
+# Thresholds are set in clippy.toml (60 lines/fn, complexity 12).
+too_many_lines = "warn"
+cognitive_complexity = "warn"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 tempfile = "3"

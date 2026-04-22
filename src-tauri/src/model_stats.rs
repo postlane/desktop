@@ -38,6 +38,69 @@ pub struct ModelStatRow {
     pub limited_data: bool,
 }
 
+/// Returns `true` if any platform's approved text differs from the original by
+/// more than 5% (Levenshtein distance).
+fn post_was_edited(post_path: &std::path::Path, original: &serde_json::Value) -> bool {
+    const PLATFORMS: [&str; 3] = ["x", "bluesky", "mastodon"];
+    for platform in &PLATFORMS {
+        let Some(original_text) = original.get(platform).and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let approved_path = post_path.join(format!("{}.md", platform));
+        let Ok(approved_text) = fs::read_to_string(&approved_path) else {
+            continue;
+        };
+        let threshold = (original_text.chars().count() as f64 * 0.05).ceil() as usize;
+        if levenshtein(original_text, approved_text.trim()) > threshold {
+            return true;
+        }
+    }
+    false
+}
+
+/// Tries to load `original.json` for a post and check whether it was edited.
+/// Returns `Some(true/false)` if the file exists and is valid; `None` otherwise.
+fn check_edit_status(post_path: &std::path::Path) -> Option<bool> {
+    let original_path = post_path.join("original.json");
+    if !original_path.exists() {
+        return None;
+    }
+    let content = fs::read_to_string(&original_path).ok()?;
+    let original: serde_json::Value = serde_json::from_str(&content).ok()?;
+    Some(post_was_edited(post_path, &original))
+}
+
+/// Accumulates `(total, edited)` counts for a single post directory into `counts`.
+fn tally_post_stats(
+    post_path: &std::path::Path,
+    counts: &mut std::collections::HashMap<String, (u32, u32)>,
+) {
+    if !post_path.is_dir() {
+        return;
+    }
+    let meta_path = post_path.join("meta.json");
+    if !meta_path.exists() {
+        return;
+    }
+    let Ok(meta_content) = fs::read_to_string(&meta_path) else { return };
+    let Ok(meta) = serde_json::from_str::<serde_json::Value>(&meta_content) else { return };
+
+    if meta.get("status").and_then(|s| s.as_str()) != Some("sent") {
+        return;
+    }
+    let model = match meta.get("llm_model").and_then(|v| v.as_str()) {
+        Some(m) if !m.is_empty() => m.to_string(),
+        _ => return,
+    };
+
+    let entry_counts = counts.entry(model).or_insert((0, 0));
+    entry_counts.0 += 1;
+
+    if check_edit_status(post_path).unwrap_or(false) {
+        entry_counts.1 += 1;
+    }
+}
+
 pub fn get_model_stats_impl(state: &AppState) -> Result<Vec<ModelStatRow>, String> {
     let repos = state
         .repos
@@ -51,82 +114,12 @@ pub fn get_model_stats_impl(state: &AppState) -> Result<Vec<ModelStatRow>, Strin
         if !posts_dir.exists() {
             continue;
         }
-
         let entries = match fs::read_dir(&posts_dir) {
             Ok(e) => e,
             Err(_) => continue,
         };
-
         for entry in entries.flatten() {
-            let post_path = entry.path();
-            if !post_path.is_dir() {
-                continue;
-            }
-
-            let meta_path = post_path.join("meta.json");
-            if !meta_path.exists() {
-                continue;
-            }
-
-            let meta_content = match fs::read_to_string(&meta_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let meta: serde_json::Value = match serde_json::from_str(&meta_content) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            if meta.get("status").and_then(|s| s.as_str()) != Some("sent") {
-                continue;
-            }
-
-            let model = match meta.get("llm_model").and_then(|v| v.as_str()) {
-                Some(m) if !m.is_empty() => m.to_string(),
-                _ => continue,
-            };
-
-            let entry_counts = counts.entry(model).or_insert((0, 0));
-            entry_counts.0 += 1;
-
-            let original_path = post_path.join("original.json");
-            if !original_path.exists() {
-                continue;
-            }
-
-            let original_content = match fs::read_to_string(&original_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            let original: serde_json::Value = match serde_json::from_str(&original_content) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            let platforms = ["x", "bluesky", "mastodon"];
-            let mut is_edited = false;
-
-            'platform: for platform in &platforms {
-                let original_text = match original.get(platform).and_then(|v| v.as_str()) {
-                    Some(t) => t.to_string(),
-                    None => continue,
-                };
-                let approved_path = post_path.join(format!("{}.md", platform));
-                let approved_text = match fs::read_to_string(&approved_path) {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-                let threshold = (original_text.chars().count() as f64 * 0.05).ceil() as usize;
-                let dist = levenshtein(&original_text, approved_text.trim());
-                if dist > threshold {
-                    is_edited = true;
-                    break 'platform;
-                }
-            }
-
-            if is_edited {
-                entry_counts.1 += 1;
-            }
+            tally_post_stats(&entry.path(), &mut counts);
         }
     }
 
