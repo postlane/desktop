@@ -103,12 +103,13 @@ mod tests {
         let posts_dir = dir.join(".postlane").join("posts");
         let meta_dir = posts_dir.join("test-post");
 
-        // Create the post subdirectory BEFORE starting the watcher so the
-        // recursive inotify watch covers it from the start.  Creating it after
-        // the watcher starts introduces a race: notify may not have added the
-        // subdirectory watch before meta.json is written, causing CI to miss
-        // the event.
+        // Pre-create directory AND file before starting the watcher.
+        // inotify IN_CREATE (new file) is less reliable on CI than IN_MODIFY
+        // (existing file changed). By writing a placeholder first we ensure
+        // the event we actually wait for is a modify, not a create.
         fs::create_dir_all(&meta_dir).expect("Failed to create post dir");
+        let meta_path = meta_dir.join("meta.json");
+        fs::write(&meta_path, r#"{"status": "initial"}"#).expect("Failed to write initial meta.json");
 
         let watchers: WatcherMap = Mutex::new(HashMap::new());
         let (tx, rx) = mpsc::channel();
@@ -127,9 +128,8 @@ mod tests {
         // Give watcher time to initialize — CI runners need more time than local dev
         thread::sleep(Duration::from_millis(500));
 
-        // Write meta.json into the pre-existing directory
-        let meta_path = meta_dir.join("meta.json");
-        fs::write(&meta_path, r#"{"status": "draft"}"#).expect("Failed to write meta.json");
+        // Modify the existing file — triggers IN_MODIFY which is reliable on all platforms
+        fs::write(&meta_path, r#"{"status": "draft"}"#).expect("Failed to modify meta.json");
 
         // Wait for event — 5s ceiling is generous for even the slowest CI runners
         let result = rx.recv_timeout(Duration::from_millis(5000));
