@@ -26,6 +26,7 @@ function makeSent(overrides: Partial<PublishedPost> = {}): PublishedPost {
     scheduler_ids: { x: 'tweet-123' },
     platform_urls: null,
     llm_model: 'claude-sonnet-4-6',
+    provider: null,
     sent_at: '2026-04-15T10:00:00Z',
     created_at: '2026-04-15T09:00:00Z',
     ...overrides,

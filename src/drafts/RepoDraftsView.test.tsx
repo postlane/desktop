@@ -123,9 +123,10 @@ describe('RepoDraftsView — sorting and errors', () => {
 
 describe('RepoDraftsView — meta-changed events', () => {
   it('meta-changed event for matching repo triggers a refresh', async () => {
-    let capturedHandler: ((_event: { payload: { repo_id: string; post_folder: string } }) => void) | null = null;
+    type MetaHandler = (_event: { payload: { repo_id: string; post_folder: string } }) => void;
+    const captured: { handler: MetaHandler | null } = { handler: null };
     mockListen.mockImplementation((_event: string, handler: unknown) => {
-      capturedHandler = handler as typeof capturedHandler;
+      captured.handler = handler as MetaHandler;
       return Promise.resolve(() => {});
     });
 
@@ -143,14 +144,15 @@ describe('RepoDraftsView — meta-changed events', () => {
 
     render(<RepoDraftsView repoId="r1" />);
     await waitFor(() => screen.getByText('First load'));
-    if (capturedHandler) capturedHandler({ payload: { repo_id: 'r1', post_folder: 'p1' } });
+    captured.handler?.({ payload: { repo_id: 'r1', post_folder: 'p1' } });
     await waitFor(() => expect(screen.getByText('After refresh')).toBeInTheDocument());
   });
 
   it('meta-changed event for a different repo does not trigger refresh', async () => {
-    let capturedHandler: ((_event: { payload: { repo_id: string; post_folder: string } }) => void) | null = null;
+    type MetaHandler = (_event: { payload: { repo_id: string; post_folder: string } }) => void;
+    const captured: { handler: MetaHandler | null } = { handler: null };
     mockListen.mockImplementation((_event: string, handler: unknown) => {
-      capturedHandler = handler as typeof capturedHandler;
+      captured.handler = handler as MetaHandler;
       return Promise.resolve(() => {});
     });
 
@@ -159,7 +161,7 @@ describe('RepoDraftsView — meta-changed events', () => {
     await waitFor(() => screen.getByText('Only post'));
     const callsBefore = mockInvoke.mock.calls.length;
 
-    if (capturedHandler) capturedHandler({ payload: { repo_id: 'r2', post_folder: 'p2' } });
+    captured.handler?.({ payload: { repo_id: 'r2', post_folder: 'p2' } });
     await new Promise((r) => setTimeout(r, 50));
     expect(mockInvoke.mock.calls.length).toBe(callsBefore);
   });
