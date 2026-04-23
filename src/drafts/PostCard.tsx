@@ -200,6 +200,21 @@ function usePostCardRedraft(post: DraftPost) {
   return { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange };
 }
 
+function useMastodonCharLimit(activeTab: Platform) {
+  const [charLimit, setCharLimit] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (activeTab !== 'mastodon') { setCharLimit(undefined); return; }
+    invoke<string | null>('get_mastodon_connected_instance')
+      .then((instance) => {
+        if (!instance) return;
+        return invoke<number>('get_mastodon_char_limit', { instance });
+      })
+      .then((limit) => { if (limit !== undefined) setCharLimit(limit); })
+      .catch(() => {});
+  }, [activeTab]);
+  return charLimit;
+}
+
 function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, onApprove, onDelete, onTabChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(post.image_url ?? null);
@@ -210,6 +225,7 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
   const [saveError, setSaveError] = useState<string | null>(null);
   const { postContent, setPostContent, contentLoadError, attributionEnabled } = usePostCardContent(post, activeTab);
   const { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
+  const mastodonCharLimit = useMastodonCharLimit(activeTab);
 
   const handleSave = useCallback(async (newContent: string) => {
     try { await invoke('update_post_content', { repoPath: post.repo_path, postFolder: post.post_folder, platform: activeTab, newContent }); setPostContent(newContent); setSaveError(null); }
@@ -242,7 +258,8 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
         <ViewToggle mobileView={mobileView} onChange={setMobileView} />
       </div>
       <div data-testid="preview-container" className={`mt-3 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800 ${mobileView ? 'max-w-[375px]' : 'max-w-[600px]'}`}>
-        <PostPreview content={postContent} platform={activeTab} imageUrl={imageUrl ?? undefined} onSave={handleSave}
+        <PostPreview content={postContent} platform={activeTab} imageUrl={imageUrl ?? undefined}
+          charLimit={mastodonCharLimit} onSave={handleSave}
           onImageClick={() => { setImageInput(imageUrl ?? ''); setAddingImage(true); setOgFetchError(null); }}
           onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete} />
       </div>

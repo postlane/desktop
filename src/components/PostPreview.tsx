@@ -11,6 +11,7 @@ interface PostPreviewProps {
   content?: string;
   platform?: Platform;
   imageUrl?: string;
+  charLimit?: number;
   onSave?: (_newContent: string) => void;
   onImageClick?: () => void;
   onApprove?: () => void;
@@ -22,6 +23,7 @@ export default function PostPreview({
   content = '',
   platform = 'x',
   imageUrl,
+  charLimit,
   onSave,
   onImageClick,
   onApprove,
@@ -30,7 +32,7 @@ export default function PostPreview({
 }: PostPreviewProps) {
   const sharedProps = { content, imageUrl, onSave, onImageClick, onApprove, approveLabel, onDelete };
   if (platform === 'bluesky') return <BlueskyCard {...sharedProps} />;
-  if (platform === 'mastodon') return <MastodonCard {...sharedProps} />;
+  if (platform === 'mastodon') return <MastodonCard {...sharedProps} charLimit={charLimit} />;
   if (platform === 'linkedin') return <LinkedInCard {...sharedProps} />;
   if (platform === 'substack_notes') return <SubstackNotesCard {...sharedProps} />;
   return <XCard {...sharedProps} />;

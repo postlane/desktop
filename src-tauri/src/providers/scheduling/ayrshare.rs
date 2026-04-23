@@ -327,6 +327,7 @@ impl SchedulingProvider for AyrshareProvider {
             reposts: json["retweets"].as_u64().unwrap_or(0),
             replies: json["comments"].as_u64().unwrap_or(0),
             impressions: json["impressions"].as_u64(),
+            platform_url: None,
         })
     }
 

@@ -302,3 +302,39 @@ describe('PostCard — platform default (isPlatform type guard)', () => {
     });
   });
 });
+
+// Issue 8 — PostCardBody fetches the instance-specific charLimit for mastodon posts
+describe('PostCard — mastodon charLimit', () => {
+  it('calls get_mastodon_connected_instance and get_mastodon_char_limit when mastodon tab is active', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('hello');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      if (cmd === 'get_mastodon_connected_instance') return Promise.resolve('fosstodon.org');
+      if (cmd === 'get_mastodon_char_limit') return Promise.resolve(300);
+      return Promise.resolve(null);
+    });
+    const post = makePost({ platforms: ['mastodon'] });
+    render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('get_mastodon_connected_instance')
+    );
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('get_mastodon_char_limit', { instance: 'fosstodon.org' })
+    );
+    await waitFor(() => expect(screen.getByText('5/300')).toBeInTheDocument());
+  });
+
+  it('uses the default 500-char limit when no mastodon instance is connected', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_post_content') return Promise.resolve('hello');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      if (cmd === 'get_mastodon_connected_instance') return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+    const post = makePost({ platforms: ['mastodon'] });
+    render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => expect(screen.getByText('5/500')).toBeInTheDocument());
+  });
+});

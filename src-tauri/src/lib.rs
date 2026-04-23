@@ -7,6 +7,7 @@ pub mod draft_queries;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
+pub mod mastodon_oauth;
 pub mod model_stats;
 pub mod nav_commands;
 pub mod parser;
@@ -113,13 +114,7 @@ fn spawn_http_server(
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    if let Err(e) = check_single_instance() {
-        eprintln!("{}", e);
-        show_alert_and_exit(&e);
-    }
-
+fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_keyring::init())
@@ -169,7 +164,21 @@ pub fn run() {
             post_editor::update_post_content,
             post_editor::update_post_image,
             post_editor::fetch_og_image,
+            mastodon_oauth::get_mastodon_char_limit,
+            mastodon_oauth::get_mastodon_connected_instance,
+            mastodon_oauth::register_mastodon_app,
+            mastodon_oauth::exchange_mastodon_code,
+            mastodon_oauth::disconnect_mastodon,
         ])
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    if let Err(e) = check_single_instance() {
+        eprintln!("{}", e);
+        show_alert_and_exit(&e);
+    }
+    build_tauri_app()
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
