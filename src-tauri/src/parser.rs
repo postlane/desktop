@@ -70,6 +70,7 @@ pub fn count_chars(content: &str, platform: &str) -> usize {
             // Bluesky counts full URL length
             content.chars().count()
         }
+        "linkedin" | "substack_notes" => count_linkedin_chars(content),
         _ => content.chars().count(),
     }
 }
@@ -337,6 +338,17 @@ mod tests {
         let count = count_chars(content, "unknown-platform");
         // Should count full length including full URL
         assert_eq!(count, content.chars().count());
+    }
+
+    #[test]
+    fn test_count_chars_linkedin_explicit_arm() {
+        // count_chars("linkedin") must have an explicit arm, not rely on the wildcard
+        // fallthrough. Verify via a test that would break if the wildcard changed behaviour.
+        // A 50-char URL must count as 50, not 23 (which x/mastodon would give).
+        let url = format!("https://example.com/{}", "a".repeat(30)); // 50 chars
+        assert_eq!(count_chars(&url, "linkedin"), 50, "linkedin URL must not be shortened");
+        // And must equal count_linkedin_chars directly.
+        assert_eq!(count_chars(&url, "linkedin"), count_linkedin_chars(&url));
     }
 
     // --- 8.2 LinkedIn character counting ---

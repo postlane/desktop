@@ -356,7 +356,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_approve_already_sent_returns_success_without_scheduler() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_idempotent");
         let canonical = std::fs::canonicalize(
             std::env::temp_dir()
         ).unwrap().join("postlane_test_approve_idempotent");
