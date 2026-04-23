@@ -83,7 +83,7 @@ function ConnectedView({ acct, disconnecting, onDisconnect }: ConnectedViewProps
   );
 }
 
-export default function MastodonOAuthPanel() {
+function useMastodonOAuth() {
   const [step, setStep] = useState<OAuthStep>('idle');
   const [instance, setInstance] = useState('');
   const [code, setCode] = useState('');
@@ -143,6 +143,11 @@ export default function MastodonOAuthPanel() {
     }
   }
 
+  return { step, instance, code, acct, error, connecting, saving, disconnecting, setInstance, setCode, handleConnect, handleSave, handleDisconnect };
+}
+
+export default function MastodonOAuthPanel() {
+  const { step, instance, code, acct, error, connecting, saving, disconnecting, setInstance, setCode, handleConnect, handleSave, handleDisconnect } = useMastodonOAuth();
   return (
     <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
       <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Mastodon</h3>
