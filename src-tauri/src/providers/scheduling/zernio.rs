@@ -381,6 +381,7 @@ impl SchedulingProvider for ZernioProvider {
             reposts: json["reposts"].as_u64().unwrap_or(0),
             replies: json["replies"].as_u64().unwrap_or(0),
             impressions: json["impressions"].as_u64(),
+            platform_url: None,
         })
     }
 

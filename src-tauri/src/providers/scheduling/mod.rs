@@ -2,6 +2,7 @@
 
 pub mod ayrshare;
 pub mod buffer;
+pub mod mastodon;
 pub mod zernio;
 
 use async_trait::async_trait;
@@ -21,7 +22,9 @@ pub enum ProviderError {
     /// Authentication error (invalid API key)
     AuthError(String),
     /// Operation not supported by this provider
-    NotSupported,
+    NotSupported(String),
+    /// Instance domain is invalid (e.g. resolves to a private IP)
+    InvalidInstance(String),
     /// Unknown error
     Unknown(String),
 }
@@ -37,7 +40,8 @@ impl std::fmt::Display for ProviderError {
             }
             ProviderError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             ProviderError::AuthError(msg) => write!(f, "Authentication error: {}", msg),
-            ProviderError::NotSupported => write!(f, "Operation not supported"),
+            ProviderError::NotSupported(msg) => write!(f, "Operation not supported: {}", msg),
+            ProviderError::InvalidInstance(msg) => write!(f, "Invalid instance: {}", msg),
             ProviderError::Unknown(msg) => write!(f, "Unknown error: {}", msg),
         }
     }
@@ -72,6 +76,11 @@ pub struct Engagement {
     pub reposts: u64,
     pub replies: u64,
     pub impressions: Option<u64>,
+    /// Public URL of the post, if returned by the provider.
+    /// Populated by Mastodon's get_engagement so scheduled posts can recover
+    /// their URL after they publish (it is None at schedule time).
+    #[serde(default)]
+    pub platform_url: Option<String>,
 }
 
 /// Result from scheduling a post

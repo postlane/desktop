@@ -320,6 +320,7 @@ impl SchedulingProvider for BufferProvider {
             reposts: statistics["shares"].as_u64().unwrap_or(0),
             replies: statistics["comments"].as_u64().unwrap_or(0),
             impressions: statistics["reach"].as_u64(),
+            platform_url: None,
         })
     }
 

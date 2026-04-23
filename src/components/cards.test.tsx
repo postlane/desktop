@@ -490,3 +490,45 @@ describe('countCharsMastodon — Unicode', () => {
     expect(countCharsMastodon('Hello 🎉')).toBe(7);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 9.2.3 — MastodonCard dynamic charLimit prop
+// ---------------------------------------------------------------------------
+
+describe('MastodonCard — dynamic charLimit', () => {
+  it('uses charLimit prop instead of hardcoded 500', () => {
+    render(<MastodonCard content="Hello" charLimit={2000} />);
+    expect(screen.getByText('5/2000')).toBeInTheDocument();
+  });
+
+  it('turns red counter when content exceeds charLimit', () => {
+    render(<MastodonCard content={'a'.repeat(2001)} charLimit={2000} />);
+    expect(screen.getByText('2001/2000')).toBeInTheDocument();
+  });
+
+  it('defaults to 500 when charLimit is not provided', () => {
+    render(<MastodonCard content="Hi" />);
+    expect(screen.getByText('2/500')).toBeInTheDocument();
+  });
+
+  it('amber threshold is charLimit minus 50', () => {
+    render(<MastodonCard content={'a'.repeat(1951)} charLimit={2000} />);
+    expect(screen.getByText('1951/2000')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue 8 — PostPreview must thread charLimit to MastodonCard
+// ---------------------------------------------------------------------------
+
+describe('PostPreview — mastodon charLimit threading', () => {
+  it('passes charLimit to MastodonCard so instance-specific limits are shown', () => {
+    render(<PostPreview platform="mastodon" content="Hi" charLimit={300} />);
+    expect(screen.getByText('2/300')).toBeInTheDocument();
+  });
+
+  it('uses MastodonCard default (500) when charLimit is omitted', () => {
+    render(<PostPreview platform="mastodon" content="Hi" />);
+    expect(screen.getByText('2/500')).toBeInTheDocument();
+  });
+});

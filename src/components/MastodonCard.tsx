@@ -5,12 +5,13 @@ import type { ReactNode, RefObject } from 'react';
 import { countCharsMastodon } from './charCount';
 import CardActions from './CardActions';
 
-const LIMIT = 500;
+const DEFAULT_LIMIT = 500;
 const CW_PREFIX = 'CW:';
 
 interface MastodonCardProps {
   content?: string;
   imageUrl?: string;
+  charLimit?: number;
   onSave?: (_newContent: string) => void;
   onImageClick?: () => void;
   onApprove?: () => void;
@@ -75,7 +76,7 @@ function MastodonDisplay({ editing, draft, textareaRef, hasCW, cwText, bodyConte
   );
 }
 
-export default function MastodonCard({ content = '', imageUrl, onSave, onImageClick, onApprove, approveLabel = 'Approve', onDelete }: MastodonCardProps) {
+export default function MastodonCard({ content = '', imageUrl, charLimit = DEFAULT_LIMIT, onSave, onImageClick, onApprove, approveLabel = 'Approve', onDelete }: MastodonCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -92,8 +93,13 @@ export default function MastodonCard({ content = '', imageUrl, onSave, onImageCl
   const cwText = hasCW ? content.slice(CW_PREFIX.length).trim().split('\n')[0] : null;
   const bodyContent = hasCW ? content.slice(content.indexOf('\n') + 1) : content;
   const count = countCharsMastodon(displayed);
-  const isOverLimit = count > LIMIT;
-  const counterClass = isOverLimit ? 'text-sm font-medium text-red-600 dark:text-red-400' : 'text-sm text-zinc-500 dark:text-zinc-400';
+  const isOverLimit = count > charLimit;
+  const amberThreshold = charLimit - 50;
+  const counterClass = isOverLimit
+    ? 'text-sm font-medium text-red-600 dark:text-red-400'
+    : count >= amberThreshold
+      ? 'text-sm font-medium text-amber-600 dark:text-amber-400'
+      : 'text-sm text-zinc-500 dark:text-zinc-400';
 
   return (
     <div className="flex flex-col gap-3">
@@ -104,7 +110,7 @@ export default function MastodonCard({ content = '', imageUrl, onSave, onImageCl
       {imageUrl && !editing && (
         <img src={imageUrl} alt="Post image" className="w-full rounded-xl object-cover" style={{ aspectRatio: '16/9' }} />
       )}
-      <CardActions editing={editing} count={count} limit={LIMIT} counterClass={counterClass}
+      <CardActions editing={editing} count={count} limit={charLimit} counterClass={counterClass}
         isOverLimit={isOverLimit} onSave={onSave} onImageClick={onImageClick}
         onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete}
         onCancelEdit={() => setEditing(false)}

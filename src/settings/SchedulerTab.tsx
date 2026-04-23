@@ -6,6 +6,7 @@ import { Button } from '../components/catalyst/button';
 import {
   Dialog, DialogActions, DialogBody, DialogDescription, DialogTitle,
 } from '../components/catalyst/dialog';
+import MastodonOAuthPanel from './MastodonOAuthPanel';
 
 export const PROVIDERS = ['zernio', 'buffer', 'ayrshare'] as const;
 export type Provider = (typeof PROVIDERS)[number];
@@ -160,6 +161,10 @@ export default function SchedulerTab() {
           onRemove={() => { setRemoveInput(''); setRemoveProvider(provider); }}
         />
       ))}
+      <div className="mt-6">
+        <h2 className="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Mastodon (direct API)</h2>
+        <MastodonOAuthPanel />
+      </div>
       <RemoveKeyDialog
         provider={removeProvider}
         input={removeInput}

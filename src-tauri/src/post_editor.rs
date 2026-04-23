@@ -213,6 +213,17 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
         .await
         .map_err(|e| format!("Failed to fetch URL: {}", e))?;
 
+    // If the URL points directly to an image, return it as-is without reading the body.
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    if content_type.starts_with("image/") {
+        return Ok(Some(url));
+    }
+
     let bytes = response
         .bytes()
         .await

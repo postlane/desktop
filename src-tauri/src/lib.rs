@@ -7,6 +7,7 @@ pub mod draft_queries;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
+pub mod mastodon_oauth;
 pub mod model_stats;
 pub mod nav_commands;
 pub mod parser;
@@ -169,6 +170,11 @@ pub fn run() {
             post_editor::update_post_content,
             post_editor::update_post_image,
             post_editor::fetch_og_image,
+            mastodon_oauth::get_mastodon_char_limit,
+            mastodon_oauth::get_mastodon_connected_instance,
+            mastodon_oauth::register_mastodon_app,
+            mastodon_oauth::exchange_mastodon_code,
+            mastodon_oauth::disconnect_mastodon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
