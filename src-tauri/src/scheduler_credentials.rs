@@ -55,7 +55,7 @@ pub fn save_scheduler_credential_impl(
 ) -> Result<(), String> {
     check_libsecret_before_save(libsecret_available)?;
 
-    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    let valid_providers = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
     if !valid_providers.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
@@ -64,7 +64,7 @@ pub fn save_scheduler_credential_impl(
 }
 
 pub fn get_scheduler_credential_impl(provider: &str) -> Result<(), String> {
-    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    let valid_providers = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
     if !valid_providers.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
@@ -72,7 +72,7 @@ pub fn get_scheduler_credential_impl(provider: &str) -> Result<(), String> {
 }
 
 pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
-    let valid_providers = ["zernio", "buffer", "ayrshare"];
+    let valid_providers = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
     if !valid_providers.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
@@ -157,4 +157,48 @@ pub fn get_libsecret_status(state: State<AppState>) -> Result<Option<bool>, Stri
         .lock()
         .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
     Ok(*flag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_save_accepts_publer() {
+        assert!(save_scheduler_credential_impl("publer", "key", None).is_ok());
+    }
+
+    #[test]
+    fn test_save_accepts_outstand() {
+        assert!(save_scheduler_credential_impl("outstand", "key", None).is_ok());
+    }
+
+    #[test]
+    fn test_save_accepts_substack_notes() {
+        assert!(save_scheduler_credential_impl("substack_notes", "cookie", None).is_ok());
+    }
+
+    #[test]
+    fn test_save_accepts_webhook() {
+        assert!(save_scheduler_credential_impl("webhook", "https://hooks.zapier.com/x", None).is_ok());
+    }
+
+    #[test]
+    fn test_save_rejects_unknown_provider() {
+        assert!(save_scheduler_credential_impl("unknown_provider", "key", None).is_err());
+    }
+
+    #[test]
+    fn test_get_accepts_all_seven_providers() {
+        for provider in &["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"] {
+            assert!(get_scheduler_credential_impl(provider).is_ok(), "failed for {}", provider);
+        }
+    }
+
+    #[test]
+    fn test_delete_accepts_all_seven_providers() {
+        for provider in &["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"] {
+            assert!(delete_scheduler_credential_impl(provider).is_ok(), "failed for {}", provider);
+        }
+    }
 }
