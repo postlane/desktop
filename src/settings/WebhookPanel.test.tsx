@@ -79,6 +79,32 @@ describe('WebhookPanel — save', () => {
   });
 });
 
+describe('WebhookPanel — save error', () => {
+  it('shows an error message when save_scheduler_credential fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'save_scheduler_credential') throw new Error('Keychain locked');
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /add/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+    const input = await screen.findByPlaceholderText(/https:\/\//i);
+    fireEvent.change(input, { target: { value: 'https://hooks.zapier.com/hooks/catch/abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/keychain locked/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('shows masked URL in configured state (not full URL)', async () => {
+    mockInvoke.mockResolvedValue('https://hooks.zapier.com/hooks/catch/abc123secret');
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /test/i }));
+    expect(screen.queryByText('https://hooks.zapier.com/hooks/catch/abc123secret')).not.toBeInTheDocument();
+  });
+});
+
 describe('WebhookPanel — configured state', () => {
   it('shows Test and Remove buttons when credential is configured', async () => {
     mockInvoke.mockResolvedValue('https://hooks.zapier.com/hooks/catch/abc');

@@ -69,6 +69,25 @@ describe('SubstackNotesPanel — credential input', () => {
   });
 });
 
+describe('SubstackNotesPanel — save error', () => {
+  it('shows an error message when save_scheduler_credential fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'save_scheduler_credential') throw new Error('Keychain locked');
+      return null;
+    });
+    render(<SubstackNotesPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /add/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+    const textarea = await screen.findByRole('textbox');
+    fireEvent.change(textarea, { target: { value: 'my-cookie' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/keychain locked/i)).toBeInTheDocument(),
+    );
+  });
+});
+
 describe('SubstackNotesPanel — configured state', () => {
   it('shows Test and Remove buttons when credential is present', async () => {
     mockInvoke.mockResolvedValue('••••xyzw');

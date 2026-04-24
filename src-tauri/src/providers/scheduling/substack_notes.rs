@@ -43,8 +43,10 @@ impl SubstackNotesProvider {
         &self.base_url
     }
 
+    /// Build the Cookie header value, stripping control characters to prevent header injection.
     fn cookie_header(&self) -> String {
-        format!("connect.sid={}", self.cookie)
+        let safe: String = self.cookie.chars().filter(|c| !c.is_ascii_control()).collect();
+        format!("connect.sid={}", safe)
     }
 
     /// Check HTTP status and return appropriate `ProviderError`.
@@ -320,5 +322,14 @@ mod tests {
     fn test_post_url_returns_none_when_username_unknown() {
         let provider = SubstackNotesProvider::new("cookie".to_string());
         assert_eq!(provider.post_url("substack", "note-123"), None);
+    }
+
+    #[test]
+    fn test_cookie_header_strips_control_characters() {
+        let provider = SubstackNotesProvider::new("valid\r\nX-Injected: evil".to_string());
+        let header = provider.cookie_header();
+        assert!(!header.contains('\r'), "CR must be stripped");
+        assert!(!header.contains('\n'), "LF must be stripped");
+        assert_eq!(header, "connect.sid=validX-Injected: evil");
     }
 }

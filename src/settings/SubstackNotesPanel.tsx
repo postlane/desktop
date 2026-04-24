@@ -33,12 +33,13 @@ function IdleView({ onStartAdd }: IdleFormProps) {
 interface AddingFormProps {
   cookie: string;
   saving: boolean;
+  saveError: string | null;
   onCookieChange: (_v: string) => void;
   onSave: () => void;
   onCancel: () => void;
 }
 
-function AddingForm({ cookie, saving, onCookieChange, onSave, onCancel }: AddingFormProps) {
+function AddingForm({ cookie, saving, saveError, onCookieChange, onSave, onCancel }: AddingFormProps) {
   return (
     <div className="space-y-3">
       <SubstackWarnings />
@@ -53,6 +54,7 @@ function AddingForm({ cookie, saving, onCookieChange, onSave, onCancel }: Adding
         rows={3}
         className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       />
+      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
       <div className="flex gap-2">
         <Button onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
         <Button plain onClick={onCancel}>Cancel</Button>
@@ -89,11 +91,12 @@ function ConfiguredView({ preview, testing, testResult, testError, onTest, onCha
   );
 }
 
-export default function SubstackNotesPanel() {
+function useSubstackPanel() {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [cookie, setCookie] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
@@ -106,44 +109,46 @@ export default function SubstackNotesPanel() {
 
   async function handleSave() {
     if (!cookie) return;
-    setSaving(true);
+    setSaving(true); setSaveError(null);
     try {
       await invoke('save_scheduler_credential', { provider: 'substack_notes', apiKey: cookie });
-      setPreview(`••••${cookie.slice(-4)}`);
-      setCookie('');
-      setPanelState('configured');
-    } catch { /* silent — user can retry */ }
-    finally { setSaving(false); }
+      setPreview(`••••${cookie.slice(-4)}`); setCookie(''); setPanelState('configured');
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save credential');
+    } finally { setSaving(false); }
   }
 
   async function handleTest() {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      await invoke('test_scheduler', { provider: 'substack_notes' });
-      setTestResult('ok');
-    } catch (e) {
-      setTestResult('error');
-      setTestError(e instanceof Error ? e.message : 'Test failed');
-    } finally { setTesting(false); }
+    setTesting(true); setTestResult(null);
+    try { await invoke('test_scheduler', { provider: 'substack_notes' }); setTestResult('ok'); }
+    catch (e) { setTestResult('error'); setTestError(e instanceof Error ? e.message : 'Test failed'); }
+    finally { setTesting(false); }
   }
 
   async function handleRemove() {
     try {
       await invoke('delete_scheduler_credential', { provider: 'substack_notes' });
-      setPreview(null);
-      setPanelState('idle');
-      setTestResult(null);
+      setPreview(null); setPanelState('idle'); setTestResult(null);
     } catch { /* silent */ }
   }
+
+  function handleCancel() {
+    setPanelState(preview ? 'configured' : 'idle'); setCookie(''); setSaveError(null);
+  }
+
+  return { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel };
+}
+
+export default function SubstackNotesPanel() {
+  const { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel } = useSubstackPanel();
 
   return (
     <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
       <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Substack Notes</h3>
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}
       {panelState === 'adding' && (
-        <AddingForm cookie={cookie} saving={saving} onCookieChange={setCookie}
-          onSave={handleSave} onCancel={() => { setPanelState(preview ? 'configured' : 'idle'); setCookie(''); }} />
+        <AddingForm cookie={cookie} saving={saving} saveError={saveError} onCookieChange={setCookie}
+          onSave={handleSave} onCancel={handleCancel} />
       )}
       {panelState === 'configured' && preview && (
         <ConfiguredView preview={preview} testing={testing} testResult={testResult} testError={testError}

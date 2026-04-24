@@ -3,6 +3,7 @@
 use super::{build_client, Engagement, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use std::net::IpAddr;
 
 /// Generic webhook provider — covers Zapier, Make (Integromat), and any webhook-capable tool.
 ///
@@ -22,19 +23,46 @@ impl WebhookProvider {
         }
     }
 
-    /// Validate that the URL uses `https://` before making any outbound request.
-    /// Loopback addresses are allowed in tests (httpmock runs on http://127.0.0.1).
+    /// Validate the webhook URL: must use `https://` and must not target private/loopback
+    /// addresses (Security Rules 4 and 5). Loopback is allowed in test builds only.
     fn validate_url(url: &str) -> Result<(), ProviderError> {
         #[cfg(test)]
-        if url.contains("127.0.0.1") || url.contains("localhost") {
+        if url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost") {
             return Ok(());
         }
         if !url.starts_with("https://") {
             return Err(ProviderError::InvalidInstance(
-                format!("Webhook URL must use https://. Received: {}", url),
+                "Webhook URL must use https://".to_string(),
+            ));
+        }
+        let parsed = url::Url::parse(url)
+            .map_err(|_| ProviderError::InvalidInstance("Webhook URL is not a valid URL.".to_string()))?;
+        let host = parsed.host_str().unwrap_or("");
+        if Self::is_private_host(host) {
+            return Err(ProviderError::InvalidInstance(
+                "Webhook URL must not target a private or loopback address.".to_string(),
             ));
         }
         Ok(())
+    }
+
+    /// Returns true for loopback hostnames and literal private/link-local IP addresses.
+    fn is_private_host(host: &str) -> bool {
+        if matches!(host, "localhost" | "ip6-localhost" | "ip6-loopback") {
+            return true;
+        }
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return match ip {
+                IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+                IpAddr::V6(v6) => {
+                    let segs = v6.segments();
+                    v6.is_loopback()
+                        || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 unique local
+                        || (segs[0] & 0xffc0) == 0xfe80  // fe80::/10 link-local
+                }
+            };
+        }
+        false
     }
 
     /// Check HTTP status and return appropriate `ProviderError`.
@@ -86,7 +114,7 @@ impl SchedulingProvider for WebhookProvider {
             let body = response.text().await.unwrap_or_default();
             return Err(ProviderError::HttpError { status, body });
         }
-        Ok(PostScheduleResult { scheduler_id: uuid_v4(), platform_url: None })
+        Ok(PostScheduleResult { scheduler_id: local_post_id(), platform_url: None })
     }
 
     async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> {
@@ -113,7 +141,7 @@ impl SchedulingProvider for WebhookProvider {
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
         if !response.status().is_success() {
             return Err(ProviderError::AuthError(
-                format!("Webhook returned {} — check the URL is correct.", response.status().as_u16()),
+                format!("Webhook returned {} — verify the URL is correct and the endpoint accepts POST requests.", response.status().as_u16()),
             ));
         }
         Ok(())
@@ -130,9 +158,9 @@ impl SchedulingProvider for WebhookProvider {
     }
 }
 
-/// Generate a random UUID v4 as the scheduler_id for webhook posts.
-/// Webhook tools do not return a post ID, so we generate one locally.
-fn uuid_v4() -> String {
+/// Generate a local timestamp-based ID for webhook posts.
+/// Webhook tools do not return a post ID, so we generate one locally for tracking.
+fn local_post_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -166,6 +194,23 @@ mod tests {
         let provider = WebhookProvider::new("http://insecure.example.com/hook".to_string());
         let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
         assert!(matches!(result, Err(ProviderError::InvalidInstance(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_rejects_private_ip_ssrf() {
+        for url in &[
+            "https://169.254.169.254/latest/meta-data/",  // AWS metadata
+            "https://10.0.0.1/internal",
+            "https://192.168.1.1/admin",
+            "https://172.16.0.1/secret",
+        ] {
+            let provider = WebhookProvider::new(url.to_string());
+            let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+            assert!(
+                matches!(result, Err(ProviderError::InvalidInstance(_))),
+                "expected SSRF rejection for {}, got {:?}", url, result,
+            );
+        }
     }
 
     #[tokio::test]

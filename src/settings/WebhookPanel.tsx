@@ -17,13 +17,14 @@ function IdleView({ onStartAdd }: IdleViewProps) {
 interface AddingFormProps {
   url: string;
   urlError: string | null;
+  saveError: string | null;
   saving: boolean;
   onUrlChange: (_v: string) => void;
   onSave: () => void;
   onCancel: () => void;
 }
 
-function AddingForm({ url, urlError, saving, onUrlChange, onSave, onCancel }: AddingFormProps) {
+function AddingForm({ url, urlError, saveError, saving, onUrlChange, onSave, onCancel }: AddingFormProps) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -38,6 +39,7 @@ function AddingForm({ url, urlError, saving, onUrlChange, onSave, onCancel }: Ad
           className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         />
         {urlError && <p className="text-xs text-red-600">{urlError}</p>}
+        {saveError && <p className="text-xs text-red-600">{saveError}</p>}
       </div>
       <div className="flex gap-2">
         <Button onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
@@ -78,10 +80,21 @@ function validateUrl(url: string): string | null {
   return null;
 }
 
+function maskWebhookUrl(url: string): string {
+  try {
+    const { protocol, hostname } = new URL(url);
+    const tail = url.slice(-8);
+    return `${protocol}//${hostname}/…${tail}`;
+  } catch {
+    return `…${url.slice(-12)}`;
+  }
+}
+
 function useWebhookPanel() {
   const [panelState, setPanelState] = useState<PanelState>('idle');
   const [url, setUrl] = useState('');
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -90,7 +103,7 @@ function useWebhookPanel() {
 
   useEffect(() => {
     invoke<string>('get_scheduler_credential', { provider: 'webhook' })
-      .then((p) => { setPreview(p); setPanelState('configured'); })
+      .then((p) => { setPreview(maskWebhookUrl(p)); setPanelState('configured'); })
       .catch(() => { setPanelState('idle'); });
   }, []);
 
@@ -101,10 +114,13 @@ function useWebhookPanel() {
     if (err) { setUrlError(err); return; }
     if (!url) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await invoke('save_scheduler_credential', { provider: 'webhook', apiKey: url });
-      setPreview(url); setUrl(''); setUrlError(null); setPanelState('configured');
-    } catch { /* silent — user can retry */ } finally { setSaving(false); }
+      setPreview(maskWebhookUrl(url)); setUrl(''); setUrlError(null); setPanelState('configured');
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save credential');
+    } finally { setSaving(false); }
   }
 
   async function handleTest() {
@@ -125,18 +141,18 @@ function useWebhookPanel() {
     setPanelState(preview ? 'configured' : 'idle'); setUrl(''); setUrlError(null);
   }
 
-  return { panelState, setPanelState, url, urlError, preview, saving, testing, testResult, testError, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel };
+  return { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel };
 }
 
 export default function WebhookPanel() {
-  const { panelState, setPanelState, url, urlError, preview, saving, testing, testResult, testError, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
+  const { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
 
   return (
     <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
       <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Webhook</h3>
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}
       {panelState === 'adding' && (
-        <AddingForm url={url} urlError={urlError} saving={saving} onUrlChange={handleUrlChange}
+        <AddingForm url={url} urlError={urlError} saveError={saveError} saving={saving} onUrlChange={handleUrlChange}
           onSave={handleSave} onCancel={handleCancel} />
       )}
       {panelState === 'configured' && preview && (

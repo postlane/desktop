@@ -92,7 +92,7 @@ impl PublerProvider {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs();
-                    std::time::Duration::from_secs(ts.saturating_sub(now).max(1))
+                    std::time::Duration::from_secs(ts.saturating_sub(now).clamp(1, 3600))
                 }
                 None => std::time::Duration::from_secs(60),
             };
@@ -126,7 +126,10 @@ impl PublerProvider {
             }
         }
         log::warn!("Publer job {} did not complete within {}s", job_id, MAX_POLLS * POLL_INTERVAL_SECS as u32);
-        Err(ProviderError::Unknown(format!("Publer job {} timed out after {} polls", job_id, MAX_POLLS)))
+        Err(ProviderError::Unknown(format!(
+            "Publer job {} did not complete after {} polls. Check your Publer dashboard for post status.",
+            job_id, MAX_POLLS
+        )))
     }
 }
 
@@ -473,6 +476,25 @@ mod tests {
         assert_eq!(eng.likes, 5);
         assert_eq!(eng.reposts, 0);
         assert_eq!(eng.impressions, None);
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_429_rate_limit_capped_at_one_hour() {
+        let server = MockServer::start();
+        // X-RateLimit-Reset timestamp far in the future — must be capped at 3600s
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/posts/schedule");
+            then.status(429).header("X-RateLimit-Reset", "9999999999");
+        });
+        let provider = make_provider(&server);
+        with_workspace(&provider).await;
+        let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+        match result {
+            Err(ProviderError::RateLimit(d)) => {
+                assert!(d.as_secs() <= 3600, "duration must be capped at 3600s, got {}s", d.as_secs());
+            }
+            other => panic!("expected RateLimit, got {:?}", other),
+        }
     }
 
     #[test]

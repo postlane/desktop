@@ -48,32 +48,29 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
     }
 }
 
+const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
+
 pub fn save_scheduler_credential_impl(
     provider: &str,
     _api_key: &str,
     libsecret_available: Option<bool>,
 ) -> Result<(), String> {
     check_libsecret_before_save(libsecret_available)?;
-
-    let valid_providers = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
-    if !valid_providers.contains(&provider) {
+    if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
-
     Ok(())
 }
 
 pub fn get_scheduler_credential_impl(provider: &str) -> Result<(), String> {
-    let valid_providers = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
-    if !valid_providers.contains(&provider) {
+    if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
     Ok(())
 }
 
 pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
-    let valid_providers = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
-    if !valid_providers.contains(&provider) {
+    if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
     Ok(())
