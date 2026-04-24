@@ -70,7 +70,9 @@ pub(crate) async fn get_or_init_provider(
     state: &AppState,
 ) -> Result<(), String> {
     use crate::providers::scheduling::{
-        ayrshare::AyrshareProvider, buffer::BufferProvider, zernio::ZernioProvider,
+        ayrshare::AyrshareProvider, buffer::BufferProvider, outstand::OutstandProvider,
+        publer::PublerProvider, substack_notes::SubstackNotesProvider, webhook::WebhookProvider,
+        zernio::ZernioProvider,
     };
 
     let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
@@ -122,6 +124,10 @@ pub(crate) async fn get_or_init_provider(
         "zernio" => Box::new(ZernioProvider::new(api_key)),
         "buffer" => Box::new(BufferProvider::new(api_key)),
         "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
+        "publer" => Box::new(PublerProvider::new(api_key)),
+        "outstand" => Box::new(OutstandProvider::new(api_key)),
+        "substack_notes" => Box::new(SubstackNotesProvider::new(api_key)),
+        "webhook" => Box::new(WebhookProvider::new(api_key)),
         _ => return Err(format!("Unknown provider: {}", provider_name)),
     };
 

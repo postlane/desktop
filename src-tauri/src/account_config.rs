@@ -81,6 +81,10 @@ pub async fn list_profiles_for_repo(
     use crate::providers::scheduling::{ProviderError, SchedulingProvider};
     use crate::providers::scheduling::ayrshare::AyrshareProvider;
     use crate::providers::scheduling::buffer::BufferProvider;
+    use crate::providers::scheduling::outstand::OutstandProvider;
+    use crate::providers::scheduling::publer::PublerProvider;
+    use crate::providers::scheduling::substack_notes::SubstackNotesProvider;
+    use crate::providers::scheduling::webhook::WebhookProvider;
     use crate::providers::scheduling::zernio::ZernioProvider;
     use crate::scheduler_credentials::get_credential_keyring_key;
     use tauri_plugin_keyring::KeyringExt;
@@ -103,6 +107,10 @@ pub async fn list_profiles_for_repo(
         "zernio" => Box::new(ZernioProvider::new(api_key)),
         "buffer" => Box::new(BufferProvider::new(api_key)),
         "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
+        "publer" => Box::new(PublerProvider::new(api_key)),
+        "outstand" => Box::new(OutstandProvider::new(api_key)),
+        "substack_notes" => Box::new(SubstackNotesProvider::new(api_key)),
+        "webhook" => Box::new(WebhookProvider::new(api_key)),
         other => return Err(format!("Unknown scheduler provider: {}", other)),
     };
 
