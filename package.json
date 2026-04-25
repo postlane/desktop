@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "test": "eslint src && vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "build:cdn": "esbuild src/analytics/p.js --bundle --minify --format=iife --outfile=dist-cdn/p.js"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.10",
@@ -37,6 +38,7 @@
     "@vitest/coverage-v8": "^4.1.4",
     "@vitest/ui": "^4.1.4",
     "autoprefixer": "^10.4.27",
+    "esbuild": "^0.28.0",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",

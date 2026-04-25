@@ -10,6 +10,9 @@ release/
 # Electron builder
 dist-electron/
 
+# CDN build output
+dist-cdn/
+
 # Environment
 .env
 .env.local
