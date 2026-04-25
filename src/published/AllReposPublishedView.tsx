@@ -6,7 +6,7 @@ import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import { Button } from '../components/catalyst/button';
 import { Badge } from '../components/catalyst/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/catalyst/table';
-import type { PublishedPost, ModelStats } from '../types';
+import type { PublishedPost, ModelStats, PostAnalytics } from '../types';
 
 const PAGE_SIZE = 100;
 
@@ -76,6 +76,23 @@ function useAllPublished() {
   return { posts, stats, hasMore, loading, loadNextPage };
 }
 
+function usePostAnalytics(repoId: string, postFolder: string) {
+  const [analytics, setAnalytics] = useState<PostAnalytics | null>(null);
+  useEffect(() => {
+    invoke<PostAnalytics>('get_post_analytics', { repoId, postFolder })
+      .then(setAnalytics)
+      .catch(() => setAnalytics(null));
+  }, [repoId, postFolder]);
+  return analytics;
+}
+
+function AnalyticsCell({ repoId, postFolder }: { repoId: string; postFolder: string }) {
+  const a = usePostAnalytics(repoId, postFolder);
+  if (!a) return <span className="text-zinc-400">—</span>;
+  if (a.unique_sessions === 0) return <span className="text-zinc-400">0</span>;
+  return <span title={a.top_referrer ?? undefined}>{a.unique_sessions}</span>;
+}
+
 function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: PublishedPost; onOpenLink: (_url: string) => void; onNavigateToRepo: (_repoId: string) => void }) {
   const tz = useTimezone();
   const sentPlatforms = post.platform_results
@@ -93,7 +110,7 @@ function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: Publis
       <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
       <TableCell className="text-xs capitalize">{post.provider ?? '—'}</TableCell>
       <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
-      <TableCell className="text-xs text-zinc-400">—</TableCell>
+      <TableCell className="text-xs"><AnalyticsCell repoId={post.repo_id} postFolder={post.post_folder} /></TableCell>
       <TableCell className="text-xs">
         {viewLinks.length > 0 ? viewLinks.map((l) => (
           <button key={l.platform} onClick={() => onOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200">{l.platform} ↗</button>

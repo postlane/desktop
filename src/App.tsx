@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
 import AddRepoModal from './wizard/AddRepoModal';
+import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
 import LeftNav from './nav/LeftNav';
 import AllReposDraftsView from './drafts/AllReposDraftsView';
 import AllReposPublishedView from './published/AllReposPublishedView';
@@ -82,18 +83,19 @@ function useCmdHShortcut(onActivate: () => void) {
   }, [onActivate]);
 }
 
-export default function App() {
+function useAppState() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
   const [timezone, setTimezone] = useState<string>('');
   const [repoVersion, setRepoVersion] = useState(0);
   const [postWizardNudge, setPostWizardNudge] = useState(false);
 
   useEffect(() => {
     invoke<AppStateFile>('read_app_state_command')
-      .then((s) => setTimezone(s.timezone ?? ''))
+      .then((s) => { setTimezone(s.timezone ?? ''); if (!s.consent_asked) setShowConsentModal(true); })
       .catch(console.error);
   }, []);
 
@@ -103,21 +105,36 @@ export default function App() {
       .catch(console.error);
   }, []);
 
-  useCmdHShortcut(() => {
-    setCurrentView({ view: 'all_repos', repoId: null, section: 'published' });
-    setSettingsOpen(false);
-  });
-
-  useWindowSizePersistence();
-
   async function handleWizardComplete() {
     try {
       const appState = await invoke<AppStateFile>('read_app_state_command');
       await invoke('save_app_state_command', { state: { ...appState, wizard_completed: true } });
     } catch (e) { console.error('Failed to mark wizard complete:', e); }
-    setShowWizard(false);
-    setPostWizardNudge(true);
+    setShowWizard(false); setPostWizardNudge(true);
   }
+
+  async function handleConsentChoice(consent: boolean) {
+    try { await invoke('set_telemetry_consent', { consent }); }
+    catch (e) { console.error('set_telemetry_consent failed:', e); }
+    setShowConsentModal(false);
+  }
+
+  return {
+    currentView, setCurrentView, settingsOpen, setSettingsOpen, showWizard, showAddRepo,
+    setShowAddRepo, showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
+    postWizardNudge, setPostWizardNudge, handleWizardComplete, handleConsentChoice,
+  };
+}
+
+export default function App() {
+  const {
+    currentView, setCurrentView, settingsOpen, setSettingsOpen, showWizard, showAddRepo,
+    setShowAddRepo, showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
+    postWizardNudge, setPostWizardNudge, handleWizardComplete, handleConsentChoice,
+  } = useAppState();
+
+  useCmdHShortcut(() => { setCurrentView({ view: 'all_repos', repoId: null, section: 'published' }); setSettingsOpen(false); });
+  useWindowSizePersistence();
 
   if (showWizard) return <Wizard onComplete={handleWizardComplete} />;
 
@@ -131,16 +148,13 @@ export default function App() {
           onAddRepo={() => setShowAddRepo(true)}
           refreshKey={repoVersion}
         />
+        {showConsentModal && <TelemetryConsentModal onAccept={() => handleConsentChoice(true)} onDecline={() => handleConsentChoice(false)} />}
         {showAddRepo && <AddRepoModal onClose={() => setShowAddRepo(false)} />}
         <main className="flex-1 overflow-y-auto">
           <MainContent
-            view={currentView}
-            settingsOpen={settingsOpen}
-            postWizardNudge={postWizardNudge}
-            onCloseSettings={() => setSettingsOpen(false)}
-            onNudgeDismissed={() => setPostWizardNudge(false)}
-            onTimezoneChange={setTimezone}
-            onRepoChange={() => setRepoVersion((v) => v + 1)}
+            view={currentView} settingsOpen={settingsOpen} postWizardNudge={postWizardNudge}
+            onCloseSettings={() => setSettingsOpen(false)} onNudgeDismissed={() => setPostWizardNudge(false)}
+            onTimezoneChange={setTimezone} onRepoChange={() => setRepoVersion((v) => v + 1)}
             onNavigateToRepo={(repoId) => { setCurrentView({ view: 'repo', repoId, section: 'published' }); setSettingsOpen(false); }}
           />
         </main>

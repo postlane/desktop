@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod account_config;
+pub mod analytics;
 pub mod app_state;
 pub mod commands;
 pub mod draft_queries;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
+pub mod license;
 pub mod mastodon_oauth;
 pub mod model_stats;
 pub mod nav_commands;
@@ -21,6 +23,7 @@ pub mod repo_mgmt;
 pub mod repo_queries;
 pub mod scheduler_credentials;
 pub mod storage;
+pub mod telemetry;
 pub mod tray;
 pub mod types;
 pub mod watcher;
@@ -28,6 +31,28 @@ pub mod watcher;
 use std::sync::Arc;
 use app_state::AppState;
 use tauri::Manager;
+
+mod telemetry_commands {
+    use crate::app_state::AppState;
+    use crate::app_state::{read_app_state, write_app_state};
+    use tauri::State;
+
+    /// Returns whether the user has given telemetry consent.
+    #[tauri::command]
+    pub fn get_telemetry_consent(state: State<AppState>) -> Result<bool, String> {
+        let _ = state;
+        Ok(read_app_state().telemetry_consent)
+    }
+
+    /// Saves the user's telemetry consent choice and marks consent_asked = true.
+    #[tauri::command]
+    pub fn set_telemetry_consent(consent: bool) -> Result<(), String> {
+        let mut s = read_app_state();
+        s.telemetry_consent = consent;
+        s.consent_asked = true;
+        write_app_state(&s)
+    }
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -58,6 +83,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     register_close_to_tray(app);
     spawn_eager_provider_init(app.handle().clone());
     spawn_http_server(app.handle().clone(), repos_config)?;
+    spawn_daily_engagement_sync(app.handle().clone());
+    spawn_telemetry_flush(app.handle().clone());
 
     Ok(())
 }
@@ -112,6 +139,39 @@ fn spawn_http_server(
     });
 
     Ok(())
+}
+
+/// Spawns a background task that flushes queued telemetry every 30 minutes.
+/// No-ops if consent is false or if not signed in.
+fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
+    use tauri_plugin_keyring::KeyringExt;
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        interval.tick().await; // discard the immediate first tick
+        loop {
+            interval.tick().await;
+            if !crate::app_state::read_app_state().telemetry_consent { continue; }
+            let token = match app_handle.keyring().get_password("postlane", "license") {
+                Ok(Some(t)) => t,
+                _ => continue,
+            };
+            let state: tauri::State<AppState> = app_handle.state();
+            state.telemetry.flush(&token).await;
+        }
+    });
+}
+
+/// Spawns a background task that runs engagement sync once daily at startup
+/// and then every 24 hours. Errors are logged but do not crash the app.
+fn spawn_daily_engagement_sync(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if let Err(e) = analytics::engagement_sync::sync_engagement(&app_handle).await {
+                log::warn!("Engagement sync failed: {}", e);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
+        }
+    });
 }
 
 fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
@@ -169,6 +229,10 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             mastodon_oauth::register_mastodon_app,
             mastodon_oauth::exchange_mastodon_code,
             mastodon_oauth::disconnect_mastodon,
+            analytics::client::get_site_token,
+            analytics::client::get_post_analytics,
+            telemetry_commands::get_telemetry_consent,
+            telemetry_commands::set_telemetry_consent,
         ])
 }
 

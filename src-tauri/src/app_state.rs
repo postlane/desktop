@@ -3,11 +3,12 @@
 use crate::init::postlane_dir;
 use crate::providers::scheduling::SchedulingProvider;
 use crate::storage::ReposConfig;
+use crate::telemetry::client::TelemetryClient;
 use notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Application state shared across Tauri commands, watchers, and HTTP handlers
 pub struct AppState {
@@ -18,6 +19,8 @@ pub struct AppState {
     /// Linux libsecret availability flag
     /// None = not checked yet, Some(true) = available, Some(false) = unavailable
     pub libsecret_available: Mutex<Option<bool>>,
+    /// Opt-in product telemetry queue
+    pub telemetry: Arc<TelemetryClient>,
 }
 
 impl AppState {
@@ -27,6 +30,7 @@ impl AppState {
             watchers: Mutex::new(HashMap::new()),
             scheduler: tokio::sync::Mutex::new(None),
             libsecret_available: Mutex::new(None),
+            telemetry: Arc::new(TelemetryClient::new()),
         }
     }
 }
@@ -63,6 +67,12 @@ pub struct AppStateFile {
     /// IANA timezone identifier (e.g. "America/New_York"). Empty string = system timezone.
     #[serde(default)]
     pub timezone: String,
+    /// Whether the user has given consent for opt-in product telemetry.
+    #[serde(default)]
+    pub telemetry_consent: bool,
+    /// Whether the consent prompt has been shown. If false, show it on next launch.
+    #[serde(default)]
+    pub consent_asked: bool,
 }
 
 impl Default for AppStateFile {
@@ -83,6 +93,8 @@ impl Default for AppStateFile {
             },
             wizard_completed: false,
             timezone: String::new(),
+            telemetry_consent: false,
+            consent_asked: false,
         }
     }
 }
@@ -199,6 +211,8 @@ mod tests {
             },
             wizard_completed: false,
             timezone: String::new(),
+            telemetry_consent: false,
+            consent_asked: false,
         };
 
         let path = dir.join("app_state.json");
@@ -272,6 +286,8 @@ mod tests {
             },
             wizard_completed: false,
             timezone: String::new(),
+            telemetry_consent: false,
+            consent_asked: false,
         };
 
         // Clean up before test
@@ -394,6 +410,8 @@ mod tests {
             },
             wizard_completed: false,
             timezone: String::new(),
+            telemetry_consent: false,
+            consent_asked: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");

@@ -4,17 +4,19 @@ import { useState } from 'react';
 import { Button } from '../components/catalyst/button';
 import ReposTab from './ReposTab';
 import SchedulerTab from './SchedulerTab';
+import AnalyticsTab from './AnalyticsTab';
 import AppTab from './AppTab';
 
-type Tab = 'repos' | 'scheduler' | 'app';
+type Tab = 'repos' | 'scheduler' | 'analytics' | 'app';
 
 interface Props {
   onClose: () => void;
   onTimezoneChange?: (_tz: string) => void;
   onRepoChange?: () => void;
+  activeRepoId?: string | null;
 }
 
-export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange }: Props) {
+export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange, activeRepoId }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('repos');
 
   return (
@@ -24,7 +26,7 @@ export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange 
         <Button plain onClick={onClose} aria-label="Close settings">✕</Button>
       </div>
       <div className="flex border-b border-zinc-200 px-6 dark:border-zinc-700" role="tablist">
-        {(['repos', 'scheduler', 'app'] as Tab[]).map((tab) => (
+        {(['repos', 'scheduler', 'analytics', 'app'] as Tab[]).map((tab) => (
           <button
             key={tab}
             role="tab"
@@ -44,6 +46,7 @@ export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange 
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'repos' && <ReposTab onRepoChange={() => onRepoChange?.()} />}
         {activeTab === 'scheduler' && <SchedulerTab />}
+        {activeTab === 'analytics' && <AnalyticsTab repoId={activeRepoId ?? null} />}
         {activeTab === 'app' && <AppTab onTimezoneChange={onTimezoneChange} />}
       </div>
     </div>
