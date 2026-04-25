@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::providers::scheduling::{build_client, SchedulingProvider};
+use crate::scheduler_credentials::get_credential_keyring_key;
 use crate::storage::ReposConfig;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -144,6 +145,43 @@ pub async fn post_snapshots(
     Ok(total)
 }
 
+/// Builds a provider for a post by looking up credentials from the OS keyring.
+fn build_provider_for_post(
+    post: &PostForSync,
+    app: &AppHandle,
+) -> Result<Box<dyn SchedulingProvider>, String> {
+    use tauri_plugin_keyring::KeyringExt;
+    let keys = get_credential_keyring_key(&post.provider, Some(&post.repo_uuid));
+    let mut api_key: Option<String> = None;
+    for key in &keys {
+        if let Ok(Some(k)) = app.keyring().get_password("postlane", key) {
+            api_key = Some(k);
+            break;
+        }
+    }
+    let api_key = api_key.ok_or_else(|| {
+        format!("No {} credentials for repo {}", post.provider, post.repo_uuid)
+    })?;
+    crate::account_config::build_scheduling_provider(&post.provider, api_key)
+}
+
+/// Fetches engagement snapshots for all posts using a provider builder function.
+/// Testable independently of AppHandle.
+async fn fetch_snapshots_for_posts<F>(posts: &[PostForSync], build: F) -> Vec<EngagementSnapshot>
+where
+    F: Fn(&PostForSync) -> Result<Box<dyn SchedulingProvider>, String>,
+{
+    let mut snapshots = Vec::with_capacity(posts.len());
+    for post in posts {
+        let snapshot = match build(post) {
+            Ok(provider) => fetch_snapshot(post, &*provider).await,
+            Err(_) => zero_snapshot(post),
+        };
+        snapshots.push(snapshot);
+    }
+    snapshots
+}
+
 /// Reads all repos and collects posts eligible for engagement sync.
 fn collect_posts_for_sync(repos: &ReposConfig) -> Vec<PostForSync> {
     let cutoff = Utc::now() - Duration::days(30);
@@ -167,27 +205,66 @@ pub async fn sync_engagement(app: &AppHandle) -> Result<usize, String> {
         return Ok(0);
     }
     let client = build_client();
-    let mut snapshots = Vec::with_capacity(posts.len());
-    for post in &posts {
-        snapshots.push(EngagementSnapshot {
-            repo_uuid: post.repo_uuid.clone(),
-            post_folder: post.post_folder.clone(),
-            provider: post.provider.clone(),
-            platform_post_id: post.platform_post_id.clone(),
-            platform: post.platform.clone(),
-            likes: 0, shares: 0, comments: 0, impressions: None,
-            fetched_at: Utc::now(),
-        });
-    }
+    let snapshots = fetch_snapshots_for_posts(&posts, |post| build_provider_for_post(post, app)).await;
     post_snapshots(&snapshots, &license_token, &client, API_BASE).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::scheduling::{
+        Engagement, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider,
+    };
+    use async_trait::async_trait;
     use httpmock::prelude::*;
     use std::io::Write;
     use tempfile::TempDir;
+
+    struct MockEngagementProvider { likes: u64, reposts: u64, replies: u64 }
+
+    #[async_trait]
+    impl SchedulingProvider for MockEngagementProvider {
+        fn name(&self) -> &str { "mock" }
+        async fn schedule_post(&self, _: &str, _: &str, _: Option<chrono::DateTime<Utc>>, _: Option<&str>, _: Option<&str>) -> Result<PostScheduleResult, ProviderError> {
+            Err(ProviderError::NotSupported("mock".into()))
+        }
+        async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> { Err(ProviderError::NotSupported("mock".into())) }
+        async fn cancel_post(&self, _: &str, _: &str) -> Result<(), ProviderError> { Err(ProviderError::NotSupported("mock".into())) }
+        async fn get_queue(&self) -> Result<Vec<crate::types::QueuedPost>, ProviderError> { Err(ProviderError::NotSupported("mock".into())) }
+        async fn test_connection(&self) -> Result<(), ProviderError> { Err(ProviderError::NotSupported("mock".into())) }
+        async fn get_engagement(&self, _: &str, _: &str) -> Result<Engagement, ProviderError> {
+            Ok(Engagement { likes: self.likes, reposts: self.reposts, replies: self.replies, impressions: Some(500), platform_url: None })
+        }
+        fn post_url(&self, _: &str, _: &str) -> Option<String> { None }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_snapshots_uses_provider_engagement_not_zeros() {
+        let posts = vec![PostForSync {
+            repo_uuid: "r1".into(), post_folder: "p1".into(),
+            provider: "mock".into(), platform: "x".into(), platform_post_id: "id1".into(),
+        }];
+        let snapshots = fetch_snapshots_for_posts(&posts, |_| {
+            Ok(Box::new(MockEngagementProvider { likes: 42, reposts: 7, replies: 3 }) as Box<dyn SchedulingProvider>)
+        }).await;
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].likes, 42, "Should use provider data, not hard-coded zero");
+        assert_eq!(snapshots[0].shares, 7);
+        assert_eq!(snapshots[0].comments, 3);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_snapshots_falls_back_to_zero_on_provider_error() {
+        let posts = vec![PostForSync {
+            repo_uuid: "r1".into(), post_folder: "p1".into(),
+            provider: "nokey".into(), platform: "x".into(), platform_post_id: "id1".into(),
+        }];
+        let snapshots = fetch_snapshots_for_posts(&posts, |_| {
+            Err("No credentials".to_string())
+        }).await;
+        assert_eq!(snapshots[0].likes, 0);
+        assert_eq!(snapshots[0].shares, 0);
+    }
 
     fn make_sent_meta(provider: &str, platform: &str, post_id: &str, sent_at: &str) -> String {
         serde_json::json!({

@@ -84,6 +84,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     spawn_eager_provider_init(app.handle().clone());
     spawn_http_server(app.handle().clone(), repos_config)?;
     spawn_daily_engagement_sync(app.handle().clone());
+    spawn_telemetry_flush(app.handle().clone());
 
     Ok(())
 }
@@ -138,6 +139,26 @@ fn spawn_http_server(
     });
 
     Ok(())
+}
+
+/// Spawns a background task that flushes queued telemetry every 30 minutes.
+/// No-ops if consent is false or if not signed in.
+fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
+    use tauri_plugin_keyring::KeyringExt;
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        interval.tick().await; // discard the immediate first tick
+        loop {
+            interval.tick().await;
+            if !crate::app_state::read_app_state().telemetry_consent { continue; }
+            let token = match app_handle.keyring().get_password("postlane", "license") {
+                Ok(Some(t)) => t,
+                _ => continue,
+            };
+            let state: tauri::State<AppState> = app_handle.state();
+            state.telemetry.flush(&token).await;
+        }
+    });
 }
 
 /// Spawns a background task that runs engagement sync once daily at startup

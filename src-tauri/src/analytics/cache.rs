@@ -48,9 +48,11 @@ pub fn is_entry_valid(entry: &AnalyticsCacheEntry) -> bool {
     true
 }
 
-/// Creates a new cache entry with 1-hour TTL.
+/// Creates a new cache entry. Zero-result entries use a 5-minute TTL so that
+/// users who just installed the snippet see real data within minutes rather than an hour.
 pub fn new_entry(data: PostAnalytics) -> AnalyticsCacheEntry {
-    AnalyticsCacheEntry { data, expires_at: Utc::now() + Duration::hours(1) }
+    let ttl = if data.unique_sessions == 0 { Duration::minutes(5) } else { Duration::hours(1) };
+    AnalyticsCacheEntry { data, expires_at: Utc::now() + ttl }
 }
 
 /// Reads analytics_cache.json; silently returns empty cache on any error.
@@ -89,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_analytics_cache_returns_hit_within_ttl() {
-        let entry = new_entry(PostAnalytics { sessions: 5, unique_sessions: 3, top_referrer: None });
+        let entry = new_entry(PostAnalytics { configured: true, sessions: 5, unique_sessions: 3, top_referrer: None });
         assert!(is_entry_valid(&entry));
         assert_eq!(entry.data.sessions, 5);
     }
@@ -117,6 +119,21 @@ mod tests {
     }
 
     #[test]
+    fn test_analytics_cache_zero_result_has_short_ttl() {
+        let entry = new_entry(PostAnalytics::default()); // unique_sessions == 0
+        let ttl = entry.expires_at - Utc::now();
+        assert!(ttl < Duration::minutes(10), "Zero-result entry TTL should be < 10 minutes");
+        assert!(ttl > Duration::minutes(4), "Zero-result entry TTL should be > 4 minutes");
+    }
+
+    #[test]
+    fn test_analytics_cache_nonzero_result_has_long_ttl() {
+        let entry = new_entry(PostAnalytics { configured: true, sessions: 5, unique_sessions: 3, top_referrer: None });
+        let ttl = entry.expires_at - Utc::now();
+        assert!(ttl > Duration::minutes(50), "Non-zero entry should keep 1-hour TTL");
+    }
+
+    #[test]
     fn test_analytics_cache_round_trip() {
         let _g = lock().lock().unwrap();
         crate::init::init_postlane_dir().expect("init");
@@ -125,7 +142,7 @@ mod tests {
         let mut cache = AnalyticsCache::default();
         cache.entries.insert(
             cache_key("r1", "post-1"),
-            new_entry(PostAnalytics { sessions: 10, unique_sessions: 7, top_referrer: Some("t.co".into()) }),
+            new_entry(PostAnalytics { configured: true, sessions: 10, unique_sessions: 7, top_referrer: Some("t.co".into()) }),
         );
         write_analytics_cache(&cache).expect("write");
         let loaded = read_analytics_cache();

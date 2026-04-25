@@ -73,15 +73,17 @@ async fn fetch_post_analytics_inner(
         .send()
         .await
         .map_err(|e| format!("Network error: {}", e))?;
+    let configured_zero = PostAnalytics { configured: true, ..Default::default() };
     if !resp.status().is_success() {
-        return Ok(PostAnalytics::default());
+        return Ok(configured_zero);
     }
     let entries: Vec<PostAnalyticsEntry> = resp.json().await.unwrap_or_default();
     Ok(entries.into_iter().next().map(|e| PostAnalytics {
+        configured: true,
         sessions: e.sessions,
         unique_sessions: e.unique_sessions,
         top_referrer: e.top_referrer,
-    }).unwrap_or_default())
+    }).unwrap_or(configured_zero))
 }
 
 /// Tauri command — fetches or creates the site token for a repo.
@@ -177,6 +179,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_fetch_post_analytics_configured_true_on_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/analytics/posts");
+            then.status(200).json_body(serde_json::json!([
+                { "utm_content": "p", "sessions": 3, "unique_sessions": 2, "top_referrer": null }
+            ]));
+        });
+        let client = build_client();
+        let result = fetch_post_analytics_inner("tok", "p", "license", &client, &server.base_url()).await;
+        assert!(result.unwrap().configured, "configured must be true on successful fetch");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_post_analytics_backend_unavailable_returns_configured_true() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/analytics/posts");
+            then.status(503);
+        });
+        let client = build_client();
+        let result = fetch_post_analytics_inner("tok", "post", "license", &client, &server.base_url()).await;
+        let a = result.unwrap();
+        assert!(a.configured, "configured must be true even when backend is unavailable (site token exists)");
+    }
+
+    #[tokio::test]
     async fn test_fetch_post_analytics_backend_unavailable_returns_zero() {
         let server = MockServer::start();
         server.mock(|when, then| {
@@ -189,5 +218,6 @@ mod tests {
         assert_eq!(a.sessions, 0);
         assert_eq!(a.unique_sessions, 0);
         assert!(a.top_referrer.is_none());
+        assert!(a.configured, "Site token exists so configured must stay true even when backend is down");
     }
 }

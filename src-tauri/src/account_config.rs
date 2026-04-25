@@ -78,14 +78,7 @@ pub async fn list_profiles_for_repo(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<crate::providers::scheduling::SchedulerProfile>, String> {
-    use crate::providers::scheduling::{ProviderError, SchedulingProvider};
-    use crate::providers::scheduling::ayrshare::AyrshareProvider;
-    use crate::providers::scheduling::buffer::BufferProvider;
-    use crate::providers::scheduling::outstand::OutstandProvider;
-    use crate::providers::scheduling::publer::PublerProvider;
-    use crate::providers::scheduling::substack_notes::SubstackNotesProvider;
-    use crate::providers::scheduling::webhook::WebhookProvider;
-    use crate::providers::scheduling::zernio::ZernioProvider;
+    use crate::providers::scheduling::ProviderError;
     use crate::scheduler_credentials::get_credential_keyring_key;
     use tauri_plugin_keyring::KeyringExt;
 
@@ -103,17 +96,7 @@ pub async fn list_profiles_for_repo(
         format!("No {} API key configured. Add it in Settings → Scheduler.", provider_name)
     })?;
 
-    let provider: Box<dyn SchedulingProvider> = match provider_name.as_str() {
-        "zernio" => Box::new(ZernioProvider::new(api_key)),
-        "buffer" => Box::new(BufferProvider::new(api_key)),
-        "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
-        "publer" => Box::new(PublerProvider::new(api_key)),
-        "outstand" => Box::new(OutstandProvider::new(api_key)),
-        "substack_notes" => Box::new(SubstackNotesProvider::new(api_key)),
-        "webhook" => Box::new(WebhookProvider::new(api_key)),
-        other => return Err(format!("Unknown scheduler provider: {}", other)),
-    };
-
+    let provider = build_scheduling_provider(&provider_name, api_key)?;
     provider.list_profiles().await.map_err(|e: ProviderError| e.to_string())
 }
 
@@ -176,6 +159,31 @@ pub fn get_account_ids(
     Ok(account_ids)
 }
 
+/// Builds a scheduling provider from its name and API key.
+/// Shared by `list_profiles_for_repo` and `engagement_sync`.
+pub fn build_scheduling_provider(
+    name: &str,
+    api_key: String,
+) -> Result<Box<dyn crate::providers::scheduling::SchedulingProvider>, String> {
+    use crate::providers::scheduling::ayrshare::AyrshareProvider;
+    use crate::providers::scheduling::buffer::BufferProvider;
+    use crate::providers::scheduling::outstand::OutstandProvider;
+    use crate::providers::scheduling::publer::PublerProvider;
+    use crate::providers::scheduling::substack_notes::SubstackNotesProvider;
+    use crate::providers::scheduling::webhook::WebhookProvider;
+    use crate::providers::scheduling::zernio::ZernioProvider;
+    Ok(match name {
+        "zernio" => Box::new(ZernioProvider::new(api_key)),
+        "buffer" => Box::new(BufferProvider::new(api_key)),
+        "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
+        "publer" => Box::new(PublerProvider::new(api_key)),
+        "outstand" => Box::new(OutstandProvider::new(api_key)),
+        "substack_notes" => Box::new(SubstackNotesProvider::new(api_key)),
+        "webhook" => Box::new(WebhookProvider::new(api_key)),
+        other => return Err(format!("Unknown scheduler provider: {}", other)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +202,18 @@ mod tests {
         let config_path = config_dir.join("config.json");
         fs::write(&config_path, json).expect("write config.json");
         config_path
+    }
+
+    #[test]
+    fn test_build_scheduling_provider_unknown_returns_error() {
+        let err = build_scheduling_provider("nonexistent-provider", "key".to_string())
+            .err().expect("should return error for unknown provider");
+        assert!(err.contains("Unknown scheduler provider"), "Error: {}", err);
+    }
+
+    #[test]
+    fn test_build_scheduling_provider_known_succeeds() {
+        assert!(build_scheduling_provider("zernio", "test-key".to_string()).is_ok());
     }
 
     #[test]

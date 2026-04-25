@@ -9,7 +9,7 @@ beforeEach(() => {
   vi.stubGlobal('navigator', { ...globalThis.navigator, sendBeacon });
   sendBeacon.mockClear();
   sessionStorage.clear();
-  document.head.innerHTML = '<script data-site="test-site-token-abc"></script>';
+  document.head.innerHTML = '<script src="https://cdn.postlane.dev/p.js" data-site="test-site-token-abc"></script>';
   history.pushState({}, '', '/');
 });
 
@@ -35,6 +35,36 @@ describe('p.js — test_snippet_fires_only_on_postlane_utm', () => {
     history.pushState({}, '', '/blog?utm_source=postlane');
     _init();
     expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it('does not use data-site from a script without the cdn.postlane.dev src', () => {
+    document.head.innerHTML = '<script data-site="attacker-token"></script>';
+    history.pushState({}, '', '/page?utm_source=postlane');
+    _init();
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
+});
+
+describe('p.js — payload length caps', () => {
+  it('truncates path longer than 2048 chars', () => {
+    const longPath = '/' + 'a'.repeat(3000);
+    history.pushState({}, '', longPath + '?utm_source=postlane');
+    _init();
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    const [, body] = sendBeacon.mock.calls[0] as [string, string];
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    expect((payload.path as string).length).toBeLessThanOrEqual(2048);
+  });
+
+  it('truncates referrer longer than 2048 chars', () => {
+    history.pushState({}, '', '/page?utm_source=postlane');
+    Object.defineProperty(document, 'referrer', { value: 'r'.repeat(3000), configurable: true, writable: true });
+    _init();
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    const [, body] = sendBeacon.mock.calls[0] as [string, string];
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    expect((payload.referrer as string).length).toBeLessThanOrEqual(2048);
+    Object.defineProperty(document, 'referrer', { value: '', configurable: true, writable: true });
   });
 });
 
