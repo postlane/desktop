@@ -199,13 +199,21 @@ describe('RepoPublishedView — pagination', () => {
     const firstPage = Array.from({ length: 101 }, (_, i) =>
       makeSent({ post_folder: `post-${String(i).padStart(3, '0')}` }),
     );
-    mockInvoke
-      .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce([makeSent({ post_folder: 'page-2-post' })]);
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repo_published') {
+        return mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_published').length === 1
+          ? firstPage
+          : [makeSent({ post_folder: 'page-2-post' })];
+      }
+      if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
+      return null;
+    });
     render(<RepoPublishedView repoId="r1" />);
     await waitFor(() => screen.getByRole('button', { name: /load more/i }));
     fireEvent.click(screen.getByRole('button', { name: /load more/i }));
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('get_repo_published', expect.objectContaining({ offset: 100 })),
+    );
   });
 });
 

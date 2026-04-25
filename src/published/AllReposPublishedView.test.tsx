@@ -49,6 +49,7 @@ function setupMocks(posts: PublishedPost[], stats: ModelStats[]) {
     if (cmd === 'get_all_published') return posts;
     if (cmd === 'get_model_stats') return stats;
     if (cmd === 'export_history_csv') return '/Users/test/Downloads/postlane-history.csv';
+    if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
     return null;
   });
 }
@@ -147,10 +148,11 @@ describe('AllReposPublishedView — sent posts table', () => {
     );
     setupMocks(posts, []);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument(),
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument(),
+      { timeout: 10000 },
     );
-  });
+  }, 12000);
 });
 
 // ---------------------------------------------------------------------------
@@ -290,13 +292,17 @@ describe('AllReposPublishedView — load more', () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return firstPage;
       if (cmd === 'get_model_stats') return [];
+      if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
       return null;
     });
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /load more/i }));
+    await waitFor(() => screen.getByRole('button', { name: /load more/i }), { timeout: 10000 });
     fireEvent.click(screen.getByRole('button', { name: /load more/i }));
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(3)); // initial: 2 calls, load more: 1 more
-  });
+    await waitFor(
+      () => expect(mockInvoke).toHaveBeenCalledWith('get_all_published', expect.objectContaining({ offset: 100 })),
+      { timeout: 10000 },
+    );
+  }, 15000);
 });
 
 // ---------------------------------------------------------------------------

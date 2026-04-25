@@ -18,15 +18,17 @@ interface AppTabViewProps {
   checkingUpdates: boolean;
   updateResult: string | null;
   attribution: boolean;
+  telemetryConsent: boolean;
   currentTimezone: string;
   onAttributionToggle: () => void;
+  onTelemetryToggle: () => void;
   onTimezoneChange: (_tz: string) => void;
   onAutostartToggle: () => void;
   onOpenLogs: () => void;
   onCheckUpdates: () => void;
 }
 
-function AppTabView({ version, autostart, checkingUpdates, updateResult, attribution, currentTimezone, onAttributionToggle, onTimezoneChange, onAutostartToggle, onOpenLogs, onCheckUpdates }: AppTabViewProps) {
+function AppTabView({ version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent, currentTimezone, onAttributionToggle, onTelemetryToggle, onTimezoneChange, onAutostartToggle, onOpenLogs, onCheckUpdates }: AppTabViewProps) {
   return (
     <div className="space-y-6">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">App</h2>
@@ -39,6 +41,14 @@ function AppTabView({ version, autostart, checkingUpdates, updateResult, attribu
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${attribution ? 'bg-blue-600' : 'bg-zinc-300 dark:bg-zinc-600'}`}>
           <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${attribution ? 'translate-x-6' : 'translate-x-1'}`} />
         </button>
+      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <label htmlFor="telemetry" className="text-sm text-zinc-700 dark:text-zinc-300">Send anonymous usage data</label>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">Which skills you use, post approvals, scheduler used. No post content.</p>
+        </div>
+        <input id="telemetry" type="checkbox" role="checkbox" aria-label="Send anonymous usage data"
+          checked={telemetryConsent} onChange={onTelemetryToggle} className="h-4 w-4 rounded border-zinc-300" />
       </div>
       <div className="flex items-center justify-between">
         <label htmlFor="autostart" className="text-sm text-zinc-700 dark:text-zinc-300">Launch at login</label>
@@ -69,24 +79,32 @@ function AppTabView({ version, autostart, checkingUpdates, updateResult, attribu
   );
 }
 
-export default function AppTab({ onTimezoneChange }: { onTimezoneChange?: (_tz: string) => void }) {
+function useAppTab(onTimezoneChange?: (_tz: string) => void) {
   const currentTimezone = useTimezone();
   const [version, setVersion] = useState('');
   const [autostart, setAutostart] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateResult, setUpdateResult] = useState<string | null>(null);
   const [attribution, setAttribution] = useState(true);
+  const [telemetryConsent, setTelemetryConsent] = useState(false);
 
   useEffect(() => {
     invoke<string>('get_app_version').then(setVersion).catch(console.error);
     invoke<boolean>('get_autostart_enabled').then(setAutostart).catch(console.error);
     invoke<boolean>('get_attribution').then(setAttribution).catch(console.error);
+    invoke<boolean>('get_telemetry_consent').then(setTelemetryConsent).catch(console.error);
   }, []);
 
   async function handleAttributionToggle() {
     const next = !attribution;
     try { await invoke('set_attribution', { enabled: next }); setAttribution(next); }
     catch (e) { console.error('set_attribution failed:', e); }
+  }
+
+  async function handleTelemetryToggle() {
+    const next = !telemetryConsent;
+    try { await invoke('set_telemetry_consent', { consent: next }); setTelemetryConsent(next); }
+    catch (e) { console.error('set_telemetry_consent failed:', e); }
   }
 
   async function handleTimezoneChange(tz: string) {
@@ -110,8 +128,7 @@ export default function AppTab({ onTimezoneChange }: { onTimezoneChange?: (_tz: 
   }
 
   async function handleCheckUpdates() {
-    setCheckingUpdates(true);
-    setUpdateResult(null);
+    setCheckingUpdates(true); setUpdateResult(null);
     try {
       const result = await invoke<string | null>('plugin:updater|check');
       setUpdateResult(result ? `Update available: ${result}` : 'You are up to date.');
@@ -119,13 +136,27 @@ export default function AppTab({ onTimezoneChange }: { onTimezoneChange?: (_tz: 
     finally { setCheckingUpdates(false); }
   }
 
+  return {
+    version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent,
+    currentTimezone, handleAttributionToggle, handleTelemetryToggle, handleTimezoneChange,
+    handleAutostartToggle, handleOpenLogs, handleCheckUpdates,
+  };
+}
+
+export default function AppTab({ onTimezoneChange }: { onTimezoneChange?: (_tz: string) => void }) {
+  const {
+    version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent,
+    currentTimezone, handleAttributionToggle, handleTelemetryToggle, handleTimezoneChange,
+    handleAutostartToggle, handleOpenLogs, handleCheckUpdates,
+  } = useAppTab(onTimezoneChange);
   return (
     <AppTabView
       version={version} autostart={autostart} checkingUpdates={checkingUpdates}
-      updateResult={updateResult} attribution={attribution} currentTimezone={currentTimezone}
-      onAttributionToggle={handleAttributionToggle} onTimezoneChange={handleTimezoneChange}
-      onAutostartToggle={handleAutostartToggle} onOpenLogs={handleOpenLogs}
-      onCheckUpdates={handleCheckUpdates}
+      updateResult={updateResult} attribution={attribution} telemetryConsent={telemetryConsent}
+      currentTimezone={currentTimezone}
+      onAttributionToggle={handleAttributionToggle} onTelemetryToggle={handleTelemetryToggle}
+      onTimezoneChange={handleTimezoneChange} onAutostartToggle={handleAutostartToggle}
+      onOpenLogs={handleOpenLogs} onCheckUpdates={handleCheckUpdates}
     />
   );
 }

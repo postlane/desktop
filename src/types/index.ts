@@ -40,6 +40,15 @@ export interface AppStateFile {
   wizard_completed: boolean;
   /** IANA timezone identifier. Empty string = system timezone. */
   timezone: string;
+  telemetry_consent: boolean;
+  consent_asked: boolean;
+}
+
+/** Mirrors analytics::PostAnalytics */
+export interface PostAnalytics {
+  sessions: number;
+  unique_sessions: number;
+  top_referrer: string | null;
 }
 
 /** Mirrors providers::scheduling::SchedulerProfile */
