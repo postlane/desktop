@@ -235,6 +235,7 @@ mod approve_post_tests {
             "post1",
             &state,
             None,
+            false,
         ).await;
 
         // Assert: Should fail with path not registered error
@@ -268,6 +269,7 @@ mod approve_post_tests {
             "nonexistent",
             &state,
             None,
+            false,
         ).await;
 
         // Assert: Should fail with validation error
@@ -302,6 +304,7 @@ mod approve_post_tests {
             "post1",
             &state,
             None,
+            false,
         ).await;
 
         // Assert: Should fail with validation error
@@ -346,9 +349,12 @@ mod dismiss_post_tests {
         .unwrap();
 
         // Test: Dismiss the post
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
         let result = dismiss_post_impl(
             repo_path.to_str().unwrap(),
             "post1",
+            &state,
+            false,
         );
 
         // Assert: Should succeed
@@ -371,9 +377,12 @@ mod dismiss_post_tests {
         fs::create_dir_all(&post_folder).unwrap();
 
         // Test: Try to dismiss post without meta.json
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
         let result = dismiss_post_impl(
             repo_path.to_str().unwrap(),
             "post1",
+            &state,
+            false,
         );
 
         // Assert: Should fail
@@ -1125,6 +1134,7 @@ mod provider_instantiation_tests {
             "test-post",
             &app_state,
             None,  // No AppHandle in tests - uses stub path
+            false,
         ).await;
 
         // Verify: In test mode (app=None), succeeds with stub implementation
@@ -1224,6 +1234,7 @@ mod provider_instantiation_tests {
             "test-post",
             &app_state,
             None,  // No AppHandle in tests - will use stub path
+            false,
         ).await;
 
         // For now, this will still hit the stub implementation
