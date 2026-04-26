@@ -53,7 +53,7 @@ fn read_license_cache() -> Option<LicenseCache> {
     serde_json::from_str::<LicenseCache>(&content).ok().filter(|c| c.version == 1)
 }
 
-fn write_license_cache(cache: &LicenseCache) -> Result<(), String> {
+pub fn write_license_cache(cache: &LicenseCache) -> Result<(), String> {
     let path = cache_path()?;
     let json = serde_json::to_string_pretty(cache)
         .map_err(|e| format!("Failed to serialize license cache: {}", e))?;
