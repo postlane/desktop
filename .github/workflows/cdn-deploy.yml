@@ -1,0 +1,38 @@
+name: Deploy CDN
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/analytics/p.js'
+      - '.github/workflows/cdn-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build CDN bundle
+        run: npm run build:cdn
+
+      - name: Deploy to Cloudflare Pages
+        run: npx wrangler pages deploy dist-cdn/ --project-name postlane-cdn --branch main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

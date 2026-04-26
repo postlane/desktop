@@ -75,7 +75,7 @@ pub fn get_drafts(state: State<AppState>) -> Result<Vec<PostMeta>, String> {
     get_drafts_impl(&state)
 }
 
-pub fn dismiss_post_impl(repo_path: &str, post_folder: &str) -> Result<(), String> {
+pub fn dismiss_post_impl(repo_path: &str, post_folder: &str, state: &AppState, consent: bool) -> Result<(), String> {
     let post_path = PathBuf::from(repo_path)
         .join(".postlane/posts")
         .join(post_folder);
@@ -100,13 +100,14 @@ pub fn dismiss_post_impl(repo_path: &str, post_folder: &str) -> Result<(), Strin
         .map_err(|e| format!("Failed to write meta.json: {}", e))?;
     fs::rename(&temp_path, &meta_path)
         .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
-
+    state.telemetry.record(consent, "post_dismissed", serde_json::json!({}));
     Ok(())
 }
 
 #[tauri::command]
-pub fn dismiss_post(repo_path: String, post_folder: String) -> Result<(), String> {
-    dismiss_post_impl(&repo_path, &post_folder)
+pub fn dismiss_post(repo_path: String, post_folder: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    dismiss_post_impl(&repo_path, &post_folder, &state, consent)
 }
 
 pub fn delete_post_impl(repo_path: &str, post_folder: &str) -> Result<(), String> {
@@ -694,5 +695,37 @@ mod tests {
         assert!(!result.contains(&"x".repeat(23)), "URL must not have been replaced with placeholder");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- 11.11.5 telemetry ---
+
+    fn make_dismiss_dir(suffix: &str) -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("postlane_test_dismiss_tel_{}", suffix));
+        let post_dir = dir.join(".postlane/posts/post-d");
+        std::fs::create_dir_all(&post_dir).expect("create dir");
+        let meta = serde_json::json!({"status": "ready", "platforms": ["x"]});
+        std::fs::write(post_dir.join("meta.json"), serde_json::to_string_pretty(&meta).unwrap()).unwrap();
+        let path = dir.to_str().unwrap().to_string();
+        (dir, path)
+    }
+
+    #[test]
+    fn test_dismiss_records_telemetry_when_consent_given() {
+        let (dir, path) = make_dismiss_dir("yes");
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = dismiss_post_impl(&path, "post-d", &state, true);
+        assert!(result.is_ok(), "{:?}", result);
+        assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_dismiss_no_telemetry_when_consent_not_given() {
+        let (dir, path) = make_dismiss_dir("no");
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = dismiss_post_impl(&path, "post-d", &state, false);
+        assert!(result.is_ok(), "{:?}", result);
+        assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

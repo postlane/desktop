@@ -33,4 +33,11 @@ describe('TelemetryConsentModal — keyboard and backdrop dismiss', () => {
     fireEvent.click(screen.getByRole('button', { name: /yes, send anonymous data/i }));
     expect(onAccept).toHaveBeenCalled();
   });
+
+  it('renders a link to the privacy policy', () => {
+    render(<TelemetryConsentModal onAccept={vi.fn()} onDecline={vi.fn()} />);
+    const link = screen.getByRole('link', { name: /privacy policy/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute('href', expect.stringContaining('privacy'));
+  });
 });

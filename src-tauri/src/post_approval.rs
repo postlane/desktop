@@ -282,6 +282,7 @@ pub async fn approve_post_impl(
     post_folder: &str,
     state: &AppState,
     app: Option<&tauri::AppHandle>,
+    consent: bool,
 ) -> Result<SendResult, String> {
     let (canonical_path, post_path, meta_path, mut meta) =
         load_approved_meta(repo_path, post_folder, state)?;
@@ -312,6 +313,7 @@ pub async fn approve_post_impl(
     if !results.platform_urls.is_empty() { meta.platform_urls = Some(results.platform_urls); }
 
     write_sent_meta(&meta_path, &meta)?;
+    state.telemetry.record(consent, "post_approved", serde_json::json!({"platforms": meta.platforms}));
     Ok(SendResult { success: true, platform_results: Some(results.platform_results), error: None })
 }
 
@@ -322,7 +324,8 @@ pub async fn approve_post(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<SendResult, String> {
-    approve_post_impl(&repo_path, &post_folder, &state, Some(&app)).await
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    approve_post_impl(&repo_path, &post_folder, &state, Some(&app), consent).await
 }
 
 #[cfg(test)]
@@ -373,7 +376,7 @@ mod tests {
         let state = make_state(&canonical_str);
 
         // First call: already "sent" — should return Ok immediately
-        let result = approve_post_impl(&canonical_str, "post-001", &state, None).await;
+        let result = approve_post_impl(&canonical_str, "post-001", &state, None, false).await;
         assert!(result.is_ok(), "already-sent post should return Ok: {:?}", result);
         assert!(result.unwrap().success, "success must be true");
 
@@ -390,7 +393,7 @@ mod tests {
         write_meta(&canonical, "post-002", "ready");
         let state = make_state(&canonical_str);
 
-        let result = approve_post_impl(&canonical_str, "post-002", &state, None).await;
+        let result = approve_post_impl(&canonical_str, "post-002", &state, None, false).await;
         assert!(result.is_ok(), "ready post should be approved: {:?}", result);
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -408,13 +411,40 @@ mod tests {
         std::fs::create_dir_all(&post_path).expect("create post dir");
 
         let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-003", &state, None).await;
+        let result = approve_post_impl(&canonical_str, "post-003", &state, None, false).await;
         assert!(result.is_err(), "missing meta.json should return Err");
         let err = result.unwrap_err();
         assert!(err.contains("meta.json"), "error must mention meta.json, got: {}", err);
-        // Should include the path
         assert!(err.contains("post-003"), "error must include post folder path, got: {}", err);
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_approve_records_telemetry_when_consent_given() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_telemetry_yes");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_meta(&canonical, "post-tel-a", "ready");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-tel-a", &state, None, true).await;
+        assert!(result.is_ok(), "{:?}", result);
+        assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_approve_no_telemetry_when_consent_not_given() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_telemetry_no");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_meta(&canonical, "post-tel-b", "ready");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-tel-b", &state, None, false).await;
+        assert!(result.is_ok(), "{:?}", result);
+        assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

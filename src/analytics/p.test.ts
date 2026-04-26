@@ -100,3 +100,35 @@ describe('p.js — test_snippet_deduplicates_within_session', () => {
     expect(p1.session_id).toBe(p2.session_id);
   });
 });
+
+describe('p.js — utm parameter length caps', () => {
+  it('truncates utm_content longer than 2048 chars', () => {
+    const long = 'c'.repeat(3000);
+    history.pushState({}, '', `/page?utm_source=postlane&utm_content=${long}`);
+    _init();
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    const [, body] = sendBeacon.mock.calls[0] as [string, string];
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    expect((payload.utm_content as string).length).toBeLessThanOrEqual(2048);
+  });
+
+  it('truncates utm_medium longer than 2048 chars', () => {
+    const long = 'm'.repeat(3000);
+    history.pushState({}, '', `/page?utm_source=postlane&utm_medium=${long}`);
+    _init();
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    const [, body] = sendBeacon.mock.calls[0] as [string, string];
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    expect((payload.utm_medium as string).length).toBeLessThanOrEqual(2048);
+  });
+
+  it('truncates utm_campaign longer than 2048 chars', () => {
+    const long = 'k'.repeat(3000);
+    history.pushState({}, '', `/page?utm_source=postlane&utm_campaign=${long}`);
+    _init();
+    expect(sendBeacon).toHaveBeenCalledOnce();
+    const [, body] = sendBeacon.mock.calls[0] as [string, string];
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    expect((payload.utm_campaign as string).length).toBeLessThanOrEqual(2048);
+  });
+});

@@ -30,6 +30,14 @@ export default function TelemetryConsentModal({ onAccept, onDecline }: Props) {
           which scheduler you use. No post content. No repo names. No personal information.
           You can change this in Settings &rarr; App.
         </p>
+        <a
+          href="https://postlane.dev/docs/privacy"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+        >
+          Privacy policy &rarr;
+        </a>
         <div className="flex gap-3">
           <Button onClick={onAccept}>Yes, send anonymous data</Button>
           <Button plain onClick={onDecline}>No thanks</Button>

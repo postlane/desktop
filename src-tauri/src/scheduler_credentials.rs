@@ -50,6 +50,10 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
 
 const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
+pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str) {
+    state.telemetry.record(consent, "provider_configured", serde_json::json!({"provider": provider}));
+}
+
 pub fn save_scheduler_credential_impl(
     provider: &str,
     _api_key: &str,
@@ -123,7 +127,8 @@ pub fn save_scheduler_credential(
     app.keyring()
         .set_password("postlane", &keyring_key, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
-
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_provider_configured(&state, consent, &provider);
     Ok(())
 }
 
@@ -197,5 +202,25 @@ mod tests {
         for provider in &["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"] {
             assert!(delete_scheduler_credential_impl(provider).is_ok(), "failed for {}", provider);
         }
+    }
+
+    // --- 11.11.5 telemetry ---
+
+    #[test]
+    fn test_record_provider_configured_queues_when_consent_given() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        record_provider_configured(&state, true, "zernio");
+        assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+    }
+
+    #[test]
+    fn test_record_provider_configured_no_op_when_consent_not_given() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        record_provider_configured(&state, false, "zernio");
+        assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
 }
