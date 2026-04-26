@@ -248,6 +248,43 @@ describe('RepoPublishedView — cancel error paths', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Analytics lazy load + UX states
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — analytics lazy load', () => {
+  it('does not call get_post_analytics on initial render', async () => {
+    mockInvoke.mockResolvedValue([makeSent()]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(mockInvoke).not.toHaveBeenCalledWith('get_post_analytics', expect.anything());
+  });
+
+  it('shows not-configured CTA after clicking the load trigger', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repo_published') return [makeSent()];
+      if (cmd === 'get_post_analytics') return { configured: false, sessions: 0, unique_sessions: 0, top_referrer: null };
+      return null;
+    });
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByText('post-001'));
+    fireEvent.click(screen.getByRole('button', { name: /load analytics/i }));
+    await waitFor(() => expect(screen.getByText(/set up analytics/i)).toBeInTheDocument());
+  });
+
+  it('shows zero-sessions message when configured but no traffic', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repo_published') return [makeSent()];
+      if (cmd === 'get_post_analytics') return { configured: true, sessions: 0, unique_sessions: 0, top_referrer: null };
+      return null;
+    });
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByText('post-001'));
+    fireEvent.click(screen.getByRole('button', { name: /load analytics/i }));
+    await waitFor(() => expect(screen.getByText(/no postlane-referred sessions/i)).toBeInTheDocument());
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fetch error
 // ---------------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import AnalyticsTab from './AnalyticsTab';
 
@@ -55,5 +55,21 @@ describe('AnalyticsTab — no repoId', () => {
   it('shows a prompt to select a repo when repoId is null', () => {
     render(<AnalyticsTab repoId={null} />);
     expect(screen.getByText(/select a repo/i)).toBeInTheDocument();
+  });
+});
+
+describe('AnalyticsTab — copy error', () => {
+  it('shows error when clipboard write fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_site_token') return 'tok-abc123';
+      return null;
+    });
+    const writeText = vi.fn().mockRejectedValue(new Error('Permission denied'));
+    vi.stubGlobal('navigator', { ...globalThis.navigator, clipboard: { writeText } });
+    render(<AnalyticsTab repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /copy/i }));
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    await waitFor(() => expect(screen.getByText(/failed to copy/i)).toBeInTheDocument());
+    vi.unstubAllGlobals();
   });
 });

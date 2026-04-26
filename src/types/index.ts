@@ -46,6 +46,7 @@ export interface AppStateFile {
 
 /** Mirrors analytics::PostAnalytics */
 export interface PostAnalytics {
+  configured: boolean;
   sessions: number;
   unique_sessions: number;
   top_referrer: string | null;

@@ -11,18 +11,28 @@ interface Props {
 function ScriptTag({ token }: { token: string }) {
   const tag = `<script src="https://cdn.postlane.dev/p.js" data-site="${token}" defer></script>`;
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(tag);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(tag);
+      setCopied(true);
+      setCopyError(null);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyError('Failed to copy — please select and copy the text manually.');
+    }
   }
 
   return (
     <div className="space-y-3">
       <p className="text-xs text-zinc-500 dark:text-zinc-400">Add this tag to the <code>&lt;head&gt;</code> of your site.</p>
       <pre className="overflow-x-auto rounded-lg bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800 whitespace-pre-wrap break-all">{tag}</pre>
-      <Button outline onClick={handleCopy}>{copied ? 'Copied!' : 'Copy'}</Button>
+      <div className="flex items-center gap-3">
+        <Button outline onClick={handleCopy}>{copied ? 'Copied!' : 'Copy'}</Button>
+        {copyError && <span className="text-xs text-zinc-500">{copyError}</span>}
+      </div>
+      <a href="https://postlane.dev/docs/analytics" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline dark:text-blue-400">How attribution works →</a>
     </div>
   );
 }

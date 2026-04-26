@@ -46,6 +46,7 @@ function AppTabView({ version, autostart, checkingUpdates, updateResult, attribu
         <div>
           <label htmlFor="telemetry" className="text-sm text-zinc-700 dark:text-zinc-300">Send anonymous usage data</label>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">Which skills you use, post approvals, scheduler used. No post content.</p>
+          <a href="https://postlane.dev/docs/privacy" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline dark:text-blue-400">What data is sent? →</a>
         </div>
         <input id="telemetry" type="checkbox" role="checkbox" aria-label="Send anonymous usage data"
           checked={telemetryConsent} onChange={onTelemetryToggle} className="h-4 w-4 rounded border-zinc-300" />
