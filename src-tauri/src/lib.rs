@@ -85,6 +85,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     spawn_http_server(app.handle().clone(), repos_config)?;
     spawn_daily_engagement_sync(app.handle().clone());
     spawn_telemetry_flush(app.handle().clone());
+    spawn_license_revalidation(app.handle().clone());
 
     Ok(())
 }
@@ -158,6 +159,26 @@ fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
             let state: tauri::State<AppState> = app_handle.state();
             state.telemetry.flush(&token).await;
         }
+    });
+}
+
+/// Spawns the 24-hour license revalidation loop.
+/// No-ops silently if no license token is in the keyring.
+fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
+    use tauri_plugin_keyring::KeyringExt;
+    tauri::async_runtime::spawn(async move {
+        let token = match app_handle.keyring().get_password("postlane", "license") {
+            Ok(Some(t)) => t,
+            _ => return,
+        };
+        let client = crate::providers::scheduling::build_client();
+        crate::license::validator::start_revalidation_loop(
+            std::time::Duration::from_secs(24 * 3600),
+            &token,
+            &client,
+            "https://api.postlane.dev",
+        )
+        .await
     });
 }
 
