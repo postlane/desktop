@@ -37,9 +37,9 @@ async fn fetch_site_token_inner(
     client: &reqwest::Client,
     base_url: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/v1/analytics/site-token?repo_uuid={}", base_url, repo_id);
     let resp = client
-        .get(&url)
+        .get(format!("{}/v1/analytics/site-token", base_url))
+        .query(&[("repo_uuid", repo_id)])
         .bearer_auth(license_token)
         .send()
         .await
@@ -63,12 +63,9 @@ async fn fetch_post_analytics_inner(
     base_url: &str,
 ) -> Result<PostAnalytics, String> {
     let from = (Utc::now() - chrono::Duration::days(30)).to_rfc3339();
-    let url = format!(
-        "{}/v1/analytics/posts?site_token={}&utm_content={}&from={}",
-        base_url, site_token, post_folder, from
-    );
     let resp = client
-        .get(&url)
+        .get(format!("{}/v1/analytics/posts", base_url))
+        .query(&[("site_token", site_token), ("utm_content", post_folder), ("from", from.as_str())])
         .bearer_auth(license_token)
         .send()
         .await
@@ -77,7 +74,10 @@ async fn fetch_post_analytics_inner(
     if !resp.status().is_success() {
         return Ok(configured_zero);
     }
-    let entries: Vec<PostAnalyticsEntry> = resp.json().await.unwrap_or_default();
+    let entries: Vec<PostAnalyticsEntry> = resp.json().await.unwrap_or_else(|e| {
+        log::warn!("analytics posts response parse error: {}", e);
+        vec![]
+    });
     Ok(entries.into_iter().next().map(|e| PostAnalytics {
         configured: true,
         sessions: e.sessions,
@@ -126,7 +126,7 @@ pub async fn get_post_analytics(
     let data = fetch_post_analytics_inner(&site_token, &post_folder, &license_token, &client, API_BASE)
         .await
         .unwrap_or_default();
-    let mut updated = cache::read_analytics_cache();
+    let mut updated = cache;
     updated.entries.insert(key, cache::new_entry(data.clone()));
     let _ = cache::write_analytics_cache(&updated);
     Ok(data)
@@ -219,5 +219,18 @@ mod tests {
         assert_eq!(a.unique_sessions, 0);
         assert!(a.top_referrer.is_none());
         assert!(a.configured, "Site token exists so configured must stay true even when backend is down");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_post_analytics_encodes_special_chars_in_post_folder() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/analytics/posts")
+                .query_param("utm_content", "my post & more");
+            then.status(200).json_body(serde_json::json!([]));
+        });
+        let client = build_client();
+        let result = fetch_post_analytics_inner("tok", "my post & more", "license", &client, &server.base_url()).await;
+        assert!(result.is_ok(), "should handle special chars: {:?}", result);
     }
 }
