@@ -44,7 +44,7 @@ function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancel
   );
 }
 
-function AnalyticsToggleCell({ repoId, postFolder }: { repoId: string; postFolder: string }) {
+function AnalyticsToggleCell({ repoId, postFolder, sentAt }: { repoId: string; postFolder: string; sentAt?: string | null }) {
   const [analytics, setAnalytics] = useState<PostAnalytics | null>(null);
   const [loading, setLoading] = useState(false);
   const [triggered, setTriggered] = useState(false);
@@ -59,11 +59,23 @@ function AnalyticsToggleCell({ repoId, postFolder }: { repoId: string; postFolde
     finally { setLoading(false); }
   }
 
-  if (!triggered) return <button aria-label="Load analytics" onClick={handleLoad} className="text-xs text-zinc-400 hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">—</button>;
+  if (!triggered) return (
+    <button
+      aria-label="Load analytics"
+      title="Click to load analytics"
+      onClick={handleLoad}
+      className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+    >
+      —
+    </button>
+  );
   if (loading) return <span className="text-xs text-zinc-400">…</span>;
   if (!analytics?.configured) return <span className="text-xs text-zinc-400">Set up Analytics — Settings → Analytics</span>;
-  if (analytics.unique_sessions === 0) return <span className="text-xs text-zinc-400">No Postlane-referred sessions in the last 30 days</span>;
-  return <span className="text-xs">{analytics.unique_sessions} sessions{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
+  if (analytics.unique_sessions === 0) {
+    const isRecent = sentAt != null && (Date.now() - new Date(sentAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+    return <span className="text-xs text-zinc-400">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
+  }
+  return <span className="text-xs">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
 }
 
 function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
@@ -85,7 +97,7 @@ function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
       <TableCell className="text-xs text-zinc-500">{formatTimestamp(post.sent_at, tz)}</TableCell>
       <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
       <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
-      <TableCell className="text-xs"><AnalyticsToggleCell repoId={post.repo_id} postFolder={post.post_folder} /></TableCell>
+      <TableCell className="text-xs"><AnalyticsToggleCell repoId={post.repo_id} postFolder={post.post_folder} sentAt={post.sent_at} /></TableCell>
       <TableCell className="text-xs">
         {viewLinks.length > 0 ? viewLinks.map((l) => (
           <button key={l.platform} onClick={() => handleOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200">{l.platform} ↗</button>

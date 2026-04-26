@@ -357,3 +357,47 @@ describe('AllReposPublishedView — fetch error', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Analytics UX improvements
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — analytics UX improvements', () => {
+  it('shows a title tooltip on the load analytics trigger', async () => {
+    setupMocks([makeSent()], []);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    const trigger = screen.getByRole('button', { name: /load analytics/i });
+    expect(trigger).toHaveAttribute('title');
+  });
+
+  it('shows unique and total session counts when analytics are loaded with traffic', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return [makeSent()];
+      if (cmd === 'get_model_stats') return [];
+      if (cmd === 'get_post_analytics') return { configured: true, sessions: 100, unique_sessions: 42, top_referrer: null };
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    fireEvent.click(screen.getByRole('button', { name: /load analytics/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/42 unique/)).toBeInTheDocument();
+      expect(screen.getByText(/100 total/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows "No sessions yet" for a post published less than 7 days ago with zero sessions', async () => {
+    const recentSentAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return [makeSent({ sent_at: recentSentAt })];
+      if (cmd === 'get_model_stats') return [];
+      if (cmd === 'get_post_analytics') return { configured: true, sessions: 0, unique_sessions: 0, top_referrer: null };
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('post-001'));
+    fireEvent.click(screen.getByRole('button', { name: /load analytics/i }));
+    await waitFor(() => expect(screen.getByText(/no sessions yet/i)).toBeInTheDocument());
+  });
+});
