@@ -47,7 +47,7 @@ function useAnalyticsTab(repoId: string | null) {
     setLoading(true);
     invoke<string>('get_site_token', { repoId })
       .then((t) => { setSiteToken(t); setError(null); })
-      .catch(() => setError('Sign in at postlane.dev to enable analytics.'))
+      .catch(() => setError('not-signed-in'))
       .finally(() => setLoading(false));
   }, [repoId]);
 
@@ -69,7 +69,15 @@ export default function AnalyticsTab({ repoId }: Props) {
         <code> utm_source=postlane</code> is present — no cookies, no PII.
       </p>
       {loading && <p className="text-xs text-zinc-400">Loading…</p>}
-      {error && <p className="text-xs text-zinc-500">{error}</p>}
+      {error && (
+        <p className="text-xs text-zinc-500">
+          Sign in at{' '}
+          <a href="https://postlane.dev" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+            postlane.dev
+          </a>{' '}
+          to enable analytics.
+        </p>
+      )}
       {siteToken && <ScriptTag token={siteToken} />}
     </div>
   );

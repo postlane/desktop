@@ -19,6 +19,14 @@ describe('AnalyticsTab — not signed in', () => {
       expect(screen.getByText(/sign in/i)).toBeInTheDocument(),
     );
   });
+
+  it('shows a link to postlane.dev when not signed in', async () => {
+    mockInvoke.mockRejectedValue(new Error('Not signed in'));
+    render(<AnalyticsTab repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /postlane\.dev/i })).toBeInTheDocument(),
+    );
+  });
 });
 
 describe('AnalyticsTab — configured', () => {
