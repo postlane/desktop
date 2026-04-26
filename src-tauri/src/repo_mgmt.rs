@@ -9,6 +9,10 @@ use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
 
+pub fn record_repo_connected(state: &AppState, consent: bool, name: &str) {
+    state.telemetry.record(consent, "repo_connected", serde_json::json!({"name": name}));
+}
+
 pub fn add_repo_impl(path: &str, state: &AppState) -> Result<Repo, String> {
     let canonical_path = fs::canonicalize(path)
         .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
@@ -52,6 +56,8 @@ pub fn add_repo_impl(path: &str, state: &AppState) -> Result<Repo, String> {
     write_repos(&repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_repo_connected(state, consent, &name);
     Ok(repo)
 }
 
@@ -249,5 +255,30 @@ fn start_repo_watcher(
         },
     ) {
         log::warn!("Failed to start watcher for repo {}: {}", repo_id, e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_state::AppState;
+    use crate::storage::ReposConfig;
+
+    fn make_empty_state() -> AppState {
+        AppState::new(ReposConfig { version: 1, repos: vec![] })
+    }
+
+    #[test]
+    fn test_record_repo_connected_queues_when_consent_given() {
+        let state = make_empty_state();
+        record_repo_connected(&state, true, "my-repo");
+        assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+    }
+
+    #[test]
+    fn test_record_repo_connected_no_op_when_consent_not_given() {
+        let state = make_empty_state();
+        record_repo_connected(&state, false, "my-repo");
+        assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
 }

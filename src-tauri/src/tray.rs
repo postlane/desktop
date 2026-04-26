@@ -295,11 +295,13 @@ pub fn approve_all_from_tray(app: AppHandle) {
                 tauri::async_runtime::spawn(async move {
                     let state: tauri::State<AppState> = app_inner.state();
                     for (repo_path, post_folder) in &ready {
+                        let consent = crate::app_state::read_app_state().telemetry_consent;
                         if let Err(e) = approve_post_impl(
                             repo_path,
                             post_folder,
                             &state,
                             Some(&app_inner),
+                            consent,
                         )
                         .await
                         {
