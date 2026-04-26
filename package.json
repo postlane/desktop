@@ -11,7 +11,7 @@
     "test": "eslint src && vitest run",
     "test:watch": "vitest",
     "lint": "eslint src",
-    "build:cdn": "esbuild src/analytics/p.js --bundle --minify --format=iife --outfile=dist-cdn/p.js"
+    "build:cdn": "esbuild src/analytics/p.cdn.js --bundle --minify --format=iife --outfile=dist-cdn/p.js"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.10",
