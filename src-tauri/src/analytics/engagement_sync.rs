@@ -42,46 +42,65 @@ pub fn read_posts_for_sync(
     repo_path: &Path,
     cutoff: DateTime<Utc>,
 ) -> Vec<PostForSync> {
-    let postlane_dir = repo_path.join(".postlane");
-    let entries = match std::fs::read_dir(&postlane_dir) {
+    let posts_dir = repo_path.join(".postlane").join("posts");
+    let entries = match std::fs::read_dir(&posts_dir) {
         Ok(e) => e,
         Err(_) => return vec![],
     };
-    let mut posts = Vec::new();
-    for entry in entries.flatten() {
-        if let Some(post) = read_post_for_sync(repo_uuid, &entry.path(), cutoff) {
-            posts.push(post);
-        }
-    }
-    posts
+    entries.flatten()
+        .flat_map(|entry| read_post_for_sync(repo_uuid, &entry.path(), cutoff))
+        .collect()
 }
 
 fn read_post_for_sync(
     repo_uuid: &str,
     folder: &Path,
     cutoff: DateTime<Utc>,
-) -> Option<PostForSync> {
+) -> Vec<PostForSync> {
     let meta_path = folder.join("meta.json");
-    let content = std::fs::read_to_string(&meta_path).ok()?;
-    let meta: serde_json::Value = serde_json::from_str(&content).ok()?;
-    if meta.get("status")?.as_str()? != "sent" {
-        return None;
-    }
-    let sent_at_str = meta.get("sent_at")?.as_str()?;
-    let sent_at: DateTime<Utc> = sent_at_str.parse().ok()?;
-    if sent_at < cutoff {
-        return None;
-    }
-    let provider = meta.get("provider")?.as_str()?.to_string();
-    let scheduler_ids = meta.get("scheduler_ids")?.as_object()?;
-    let (platform, post_id) = scheduler_ids.iter().next().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))?;
-    Some(PostForSync {
-        repo_uuid: repo_uuid.to_string(),
-        post_folder: folder.file_name()?.to_str()?.to_string(),
-        provider,
-        platform,
-        platform_post_id: post_id,
-    })
+    let content = match std::fs::read_to_string(&meta_path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let meta: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(m) => m,
+        Err(_) => return vec![],
+    };
+    if meta.get("status").and_then(|s| s.as_str()) != Some("sent") { return vec![]; }
+    let sent_at_str = match meta.get("sent_at").and_then(|s| s.as_str()) {
+        Some(s) => s,
+        None => return vec![],
+    };
+    let sent_at: DateTime<Utc> = match sent_at_str.parse() {
+        Ok(dt) => dt,
+        Err(_) => return vec![],
+    };
+    if sent_at < cutoff { return vec![]; }
+    let provider = match meta.get("provider").and_then(|p| p.as_str()) {
+        Some(p) => p.to_string(),
+        None => return vec![],
+    };
+    let scheduler_ids = match meta.get("scheduler_ids").and_then(|s| s.as_object()) {
+        Some(ids) => ids,
+        None => return vec![],
+    };
+    let post_folder = match folder.file_name().and_then(|n| n.to_str()) {
+        Some(f) => f.to_string(),
+        None => return vec![],
+    };
+    scheduler_ids.iter()
+        .filter_map(|(platform, id_val)| {
+            let platform_post_id = id_val.as_str()?.to_string();
+            if platform_post_id.is_empty() { return None; }
+            Some(PostForSync {
+                repo_uuid: repo_uuid.to_string(),
+                post_folder: post_folder.clone(),
+                provider: provider.clone(),
+                platform: platform.clone(),
+                platform_post_id,
+            })
+        })
+        .collect()
 }
 
 fn zero_snapshot(post: &PostForSync) -> EngagementSnapshot {
@@ -276,7 +295,7 @@ mod tests {
     }
 
     fn write_post(dir: &TempDir, folder: &str, meta: &str) {
-        let path = dir.path().join(".postlane").join(folder);
+        let path = dir.path().join(".postlane").join("posts").join(folder);
         std::fs::create_dir_all(&path).unwrap();
         let mut f = std::fs::File::create(path.join("meta.json")).unwrap();
         f.write_all(meta.as_bytes()).unwrap();
@@ -331,5 +350,44 @@ mod tests {
         let cutoff = Utc::now() - Duration::days(30);
         let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
         assert!(posts.is_empty());
+    }
+
+    #[test]
+    fn test_read_posts_for_sync_reads_from_posts_subdirectory() {
+        let tmp = TempDir::new().unwrap();
+        let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+        // Correct location: .postlane/posts/
+        let post_dir = tmp.path().join(".postlane").join("posts").join("correct-post");
+        std::fs::create_dir_all(&post_dir).unwrap();
+        let mut f = std::fs::File::create(post_dir.join("meta.json")).unwrap();
+        f.write_all(make_sent_meta("zernio", "x", "id1", &recent).as_bytes()).unwrap();
+        // Wrong location: .postlane/ directly (should be ignored)
+        let wrong_dir = tmp.path().join(".postlane").join("wrong-post");
+        std::fs::create_dir_all(&wrong_dir).unwrap();
+        let mut f2 = std::fs::File::create(wrong_dir.join("meta.json")).unwrap();
+        f2.write_all(make_sent_meta("zernio", "x", "id2", &recent).as_bytes()).unwrap();
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert_eq!(posts.len(), 1, "must only find posts in .postlane/posts/");
+        assert_eq!(posts[0].platform_post_id, "id1");
+    }
+
+    #[test]
+    fn test_read_posts_for_sync_multi_platform_creates_one_entry_per_platform() {
+        let tmp = TempDir::new().unwrap();
+        let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+        let meta = serde_json::json!({
+            "status": "sent", "provider": "zernio", "sent_at": recent,
+            "scheduler_ids": { "x": "xid1", "linkedin": "lid1" }
+        }).to_string();
+        let post_dir = tmp.path().join(".postlane").join("posts").join("multi-post");
+        std::fs::create_dir_all(&post_dir).unwrap();
+        std::fs::write(post_dir.join("meta.json"), &meta).unwrap();
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert_eq!(posts.len(), 2, "multi-platform post must create one entry per platform");
+        let platforms: std::collections::HashSet<_> = posts.iter().map(|p| p.platform.as_str()).collect();
+        assert!(platforms.contains("x"));
+        assert!(platforms.contains("linkedin"));
     }
 }
