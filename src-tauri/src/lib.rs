@@ -215,6 +215,7 @@ fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
 /// Spawns the 24-hour license revalidation loop.
 /// No-ops silently if no license token is in the keyring.
 fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
+    use tauri::Emitter;
     use tauri_plugin_keyring::KeyringExt;
     tauri::async_runtime::spawn(async move {
         let token = match app_handle.keyring().get_password("postlane", "license") {
@@ -227,6 +228,9 @@ fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
             &token,
             &client,
             "https://api.postlane.dev",
+            move || {
+                let _ = app_handle.emit("license:expired", serde_json::json!({}));
+            },
         )
         .await
     });

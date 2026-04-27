@@ -50,16 +50,16 @@ describe('LicenseSection', () => {
 
   it('shows the activation confirmation banner when license:activated event fires', async () => {
     mockInvoke.mockResolvedValue(false);
-    let capturedHandler: ((e: { payload: { display_name: string } }) => void) | null = null;
-    mockListen.mockImplementation((_event: string, handler: typeof capturedHandler) => {
-      capturedHandler = handler;
+    let activatedHandler: ((e: { payload: { display_name: string } }) => void) | null = null;
+    mockListen.mockImplementation((event: string, handler: (e: { payload: { display_name: string } }) => void) => {
+      if (event === 'license:activated') activatedHandler = handler;
       return Promise.resolve(() => {});
     });
 
     render(<LicenseSection />);
-    await waitFor(() => expect(capturedHandler).not.toBeNull());
+    await waitFor(() => expect(activatedHandler).not.toBeNull());
 
-    capturedHandler!({ payload: { display_name: 'Ada Lovelace' } });
+    activatedHandler!({ payload: { display_name: 'Ada Lovelace' } });
 
     await waitFor(() =>
       expect(
@@ -70,18 +70,38 @@ describe('LicenseSection', () => {
 
   it('hides the sign-in button after activation', async () => {
     mockInvoke.mockResolvedValue(false);
-    let capturedHandler: ((e: { payload: { display_name: string } }) => void) | null = null;
-    mockListen.mockImplementation((_event: string, handler: typeof capturedHandler) => {
-      capturedHandler = handler;
+    let activatedHandler: ((e: { payload: { display_name: string } }) => void) | null = null;
+    mockListen.mockImplementation((event: string, handler: (e: { payload: { display_name: string } }) => void) => {
+      if (event === 'license:activated') activatedHandler = handler;
       return Promise.resolve(() => {});
     });
 
     render(<LicenseSection />);
-    await waitFor(() => expect(capturedHandler).not.toBeNull());
-    capturedHandler!({ payload: { display_name: 'Ada' } });
+    await waitFor(() => expect(activatedHandler).not.toBeNull());
+    activatedHandler!({ payload: { display_name: 'Ada' } });
 
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('shows expired banner when license:expired event fires', async () => {
+    mockInvoke.mockResolvedValue(true);
+    let expiredHandler: (() => void) | null = null;
+    mockListen.mockImplementation((event: string, handler: () => void) => {
+      if (event === 'license:expired') expiredHandler = handler;
+      return Promise.resolve(() => {});
+    });
+
+    render(<LicenseSection />);
+    await waitFor(() => expect(expiredHandler).not.toBeNull());
+
+    expiredHandler!();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/your postlane license has expired/i),
+      ).toBeInTheDocument(),
     );
   });
 });

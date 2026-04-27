@@ -16,8 +16,6 @@ pub fn get_license_signed_in(app_handle: tauri::AppHandle) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // get_license_signed_in cannot be unit-tested without a real Tauri AppHandle.
     // It is covered by the integration test in the Tauri test harness and manually
     // during deep link activation testing. The keyring interaction is the only logic.

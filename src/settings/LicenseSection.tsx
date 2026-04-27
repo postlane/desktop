@@ -12,19 +12,25 @@ interface ActivatedEvent {
 export function LicenseSection() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
 
   useEffect(() => {
     invoke<boolean>('get_license_signed_in')
       .then(setSignedIn)
       .catch(console.error);
 
-    const unlistenPromise = listen<ActivatedEvent>('license:activated', (event) => {
+    const unlistenActivated = listen<ActivatedEvent>('license:activated', (event) => {
       setSignedIn(true);
       setBanner(`Postlane activated. Signed in as ${event.payload.display_name}.`);
     });
 
+    const unlistenExpired = listen('license:expired', () => {
+      setExpired(true);
+    });
+
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      unlistenActivated.then((unlisten) => unlisten());
+      unlistenExpired.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -40,6 +46,11 @@ export function LicenseSection() {
 
   return (
     <div className="space-y-3">
+      {expired && (
+        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+          Your Postlane license has expired. Sign in at postlane.dev/login.
+        </p>
+      )}
       {banner && (
         <p role="status" className="text-sm text-green-700 dark:text-green-400">
           {banner}
