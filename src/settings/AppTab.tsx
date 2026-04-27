@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useTimezone } from '../TimezoneContext';
 import type { AppStateFile } from '../types';
 import { Button } from '../components/catalyst/button';
+import { LicenseSection } from './LicenseSection';
 
 const COMMON_TIMEZONES = [
   'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -32,6 +33,7 @@ function AppTabView({ version, autostart, checkingUpdates, updateResult, attribu
   return (
     <div className="space-y-6">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">App</h2>
+      <LicenseSection />
       <div className="flex items-center justify-between">
         <div>
           <span className="text-sm text-zinc-700 dark:text-zinc-300">Post attribution</span>

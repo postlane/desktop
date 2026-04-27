@@ -54,11 +54,6 @@ mod telemetry_commands {
     }
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 /// Initialises `AppState`, tray, close-to-tray behaviour, and starts background
 /// tasks (provider init + HTTP server). Called inside `tauri::Builder::setup`.
@@ -81,10 +76,12 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("Failed to set up tray: {}", e))?;
 
     register_close_to_tray(app);
+    register_deep_link_handler(app.handle().clone());
     spawn_eager_provider_init(app.handle().clone());
     spawn_http_server(app.handle().clone(), repos_config)?;
     spawn_daily_engagement_sync(app.handle().clone());
     spawn_telemetry_flush(app.handle().clone());
+    spawn_license_revalidation(app.handle().clone());
 
     Ok(())
 }
@@ -101,6 +98,60 @@ fn register_close_to_tray(app: &tauri::App) {
             }
         });
     }
+}
+
+/// Registers the `postlane://activate?token=...` deep link handler.
+/// On a valid 200 response: stores the token in the OS keyring and writes the cache.
+/// Emits `license:activated` with `{ display_name }` on success, or `license:error` with
+/// `{ message }` on failure — the frontend listens for these to show the confirmation banner.
+fn register_deep_link_handler(app_handle: tauri::AppHandle) {
+    use tauri_plugin_deep_link::DeepLinkExt;
+    use tauri_plugin_keyring::KeyringExt;
+    use tauri::Emitter;
+
+    app_handle.clone().deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            let url_str = url.to_string();
+            let handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let token = match license::deep_link::parse_activate_url(&url_str) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        log::warn!("Deep link rejected: {}", e);
+                        let _ = handle.emit("license:error", serde_json::json!({ "message": e.to_string() }));
+                        return;
+                    }
+                };
+                let client = providers::scheduling::build_client();
+                let keyring_handle = handle.clone();
+                let result = license::deep_link::handle_activate(
+                    &token,
+                    &client,
+                    "https://api.postlane.dev",
+                    move |t| keyring_handle.keyring().set_password("postlane", "license", t)
+                        .map_err(|e| e.to_string()),
+                    license::validator::write_license_cache,
+                )
+                .await;
+                match result {
+                    Ok(display_name) => {
+                        log::info!("License activated for {}", display_name);
+                        let _ = handle.emit(
+                            "license:activated",
+                            serde_json::json!({ "display_name": display_name }),
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!("License activation failed: {}", e);
+                        let _ = handle.emit(
+                            "license:error",
+                            serde_json::json!({ "message": e.to_string() }),
+                        );
+                    }
+                }
+            });
+        }
+    });
 }
 
 /// Spawns an async task that eagerly initialises the scheduler provider when
@@ -161,6 +212,30 @@ fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
     });
 }
 
+/// Spawns the 24-hour license revalidation loop.
+/// No-ops silently if no license token is in the keyring.
+fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
+    use tauri::Emitter;
+    use tauri_plugin_keyring::KeyringExt;
+    tauri::async_runtime::spawn(async move {
+        let token = match app_handle.keyring().get_password("postlane", "license") {
+            Ok(Some(t)) => t,
+            _ => return,
+        };
+        let client = crate::providers::scheduling::build_client();
+        crate::license::validator::start_revalidation_loop(
+            std::time::Duration::from_secs(24 * 3600),
+            &token,
+            &client,
+            "https://api.postlane.dev",
+            move || {
+                let _ = app_handle.emit("license:expired", serde_json::json!({}));
+            },
+        )
+        .await
+    });
+}
+
 /// Spawns a background task that runs engagement sync once daily at startup
 /// and then every 24 hours. Errors are logged but do not crash the app.
 fn spawn_daily_engagement_sync(app_handle: tauri::AppHandle) {
@@ -176,6 +251,7 @@ fn spawn_daily_engagement_sync(app_handle: tauri::AppHandle) {
 
 fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -185,7 +261,6 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         })
         .setup(|app| setup_app(app))
         .invoke_handler(tauri::generate_handler![
-            greet,
             repo_queries::get_repos,
             draft_queries::get_all_drafts,
             published_queries::get_repo_published,
@@ -233,6 +308,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             analytics::client::get_post_analytics,
             telemetry_commands::get_telemetry_consent,
             telemetry_commands::set_telemetry_consent,
+            license::get_license_signed_in,
         ])
 }
 
