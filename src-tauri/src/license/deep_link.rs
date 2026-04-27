@@ -77,8 +77,11 @@ pub async fn handle_activate(
             Ok(user.display_name)
         }
         Ok(LicenseState::Expired) => Err(DeepLinkError::TokenRejected),
-        Ok(LicenseState::Unconfigured) => Err(DeepLinkError::MalformedToken),
-        Ok(LicenseState::Offline { .. }) | Err(_) => Err(DeepLinkError::BackendUnavailable),
+        // Unconfigured here means backend unreachable with no cache — token structure
+        // was already validated by parse_activate_url before this call.
+        Ok(LicenseState::Offline { .. }) | Ok(LicenseState::Unconfigured) | Err(_) => {
+            Err(DeepLinkError::BackendUnavailable)
+        }
     }
 }
 
