@@ -49,20 +49,25 @@ describe('LicenseSection — sign-in state', () => {
   });
 });
 
-describe('LicenseSection — activation events', () => {
-  type ActivatedHandler = (e: { payload: { display_name: string } }) => void;
+type ActivatedHandler = (e: { payload: { display_name: string } }) => void;
 
+function captureActivatedHandler(): { handler: ActivatedHandler | null } {
+  const captured: { handler: ActivatedHandler | null } = { handler: null };
+  mockListen.mockImplementation((event: string, handler: ActivatedHandler) => {
+    if (event === 'license:activated') captured.handler = handler;
+    return Promise.resolve(() => {});
+  });
+  return captured;
+}
+
+describe('LicenseSection — activation events', () => {
   it('shows the activation confirmation banner when license:activated event fires', async () => {
     mockInvoke.mockResolvedValue(false);
-    let activatedHandler: ActivatedHandler | null = null;
-    mockListen.mockImplementation((event: string, handler: ActivatedHandler) => {
-      if (event === 'license:activated') activatedHandler = handler;
-      return Promise.resolve(() => {});
-    });
+    const captured = captureActivatedHandler();
     render(<LicenseSection />);
-    await waitFor(() => expect(activatedHandler).not.toBeNull());
-    if (activatedHandler === null) throw new Error('license:activated handler was not registered');
-    activatedHandler({ payload: { display_name: 'Ada Lovelace' } });
+    await waitFor(() => expect(captured.handler).not.toBeNull());
+    if (captured.handler === null) throw new Error('license:activated handler was not registered');
+    captured.handler({ payload: { display_name: 'Ada Lovelace' } });
     await waitFor(() =>
       expect(screen.getByText(/postlane activated.*ada lovelace/i)).toBeInTheDocument(),
     );
@@ -70,33 +75,34 @@ describe('LicenseSection — activation events', () => {
 
   it('hides the sign-in button after activation', async () => {
     mockInvoke.mockResolvedValue(false);
-    let activatedHandler: ActivatedHandler | null = null;
-    mockListen.mockImplementation((event: string, handler: ActivatedHandler) => {
-      if (event === 'license:activated') activatedHandler = handler;
-      return Promise.resolve(() => {});
-    });
+    const captured = captureActivatedHandler();
     render(<LicenseSection />);
-    await waitFor(() => expect(activatedHandler).not.toBeNull());
-    if (activatedHandler === null) throw new Error('license:activated handler was not registered');
-    activatedHandler({ payload: { display_name: 'Ada' } });
+    await waitFor(() => expect(captured.handler).not.toBeNull());
+    if (captured.handler === null) throw new Error('license:activated handler was not registered');
+    captured.handler({ payload: { display_name: 'Ada' } });
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument(),
     );
   });
 });
 
+function captureExpiredHandler(): { handler: (() => void) | null } {
+  const captured: { handler: (() => void) | null } = { handler: null };
+  mockListen.mockImplementation((event: string, handler: () => void) => {
+    if (event === 'license:expired') captured.handler = handler;
+    return Promise.resolve(() => {});
+  });
+  return captured;
+}
+
 describe('LicenseSection — expiry events', () => {
   it('shows expired banner when license:expired event fires', async () => {
     mockInvoke.mockResolvedValue(true);
-    let expiredHandler: (() => void) | null = null;
-    mockListen.mockImplementation((event: string, handler: () => void) => {
-      if (event === 'license:expired') expiredHandler = handler;
-      return Promise.resolve(() => {});
-    });
+    const captured = captureExpiredHandler();
     render(<LicenseSection />);
-    await waitFor(() => expect(expiredHandler).not.toBeNull());
-    if (expiredHandler === null) throw new Error('license:expired handler was not registered');
-    expiredHandler();
+    await waitFor(() => expect(captured.handler).not.toBeNull());
+    if (captured.handler === null) throw new Error('license:expired handler was not registered');
+    captured.handler();
     await waitFor(() =>
       expect(screen.getByText(/your postlane license has expired/i)).toBeInTheDocument(),
     );
