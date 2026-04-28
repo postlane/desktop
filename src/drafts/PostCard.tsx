@@ -9,7 +9,7 @@ import { DevicePhoneMobileIcon, ComputerDesktopIcon } from '@heroicons/react/24/
 import { Button } from '../components/catalyst/button';
 import { Badge } from '../components/catalyst/badge';
 import PostPreview from '../components/PostPreview';
-import type { DraftPost, Platform } from '../types';
+import type { DraftPost, Platform, SendResult } from '../types';
 
 interface Props {
   post: DraftPost;
@@ -152,15 +152,21 @@ function usePostCardContent(post: DraftPost, activeTab: Platform) {
 function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed: () => void) {
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
 
   const approve = useCallback(async () => {
     setApproving(true); setApproveError(null);
-    try { await invoke('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder }); onApproved(); }
+    try {
+      const result = await invoke<SendResult>('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder });
+      if (result.fallback_provider) { setFallbackNotice(result.fallback_provider); } else { onApproved(); }
+    }
     catch (e) { setApproveError(e instanceof Error ? e.message : String(e)); }
     finally { setApproving(false); }
   }, [post, onApproved]);
+
+  const dismissFallbackNotice = useCallback(() => { setFallbackNotice(null); onApproved(); }, [onApproved]);
 
   const dismiss = useCallback(async () => {
     const yes = await confirm('Delete this post? This cannot be undone.', { title: 'Delete post', kind: 'warning' });
@@ -176,7 +182,7 @@ function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed
     finally { setRetrying(false); }
   }, [post, onApproved]);
 
-  return { approving, approveError, retrying, retryError, approve, dismiss, retry };
+  return { approving, approveError, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry };
 }
 
 function usePostCardRedraft(post: DraftPost) {
@@ -270,23 +276,26 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
   );
 }
 
-export default function PostCard({ post, onApproved, onDismissed, isFocused = false }: Props) {
-  const tz = useTimezone();
-  const isFailed = post.status === 'failed';
-  const [expanded, setExpanded] = useState(isFailed);
-  const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
-  const platforms = platformsOnPost(post);
-  const { approving, approveError, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
-  const focusClass = isFocused ? 'ring-2 ring-blue-500 bg-blue-50/40 dark:bg-blue-900/10' : '';
+function FailedErrorBanner({ error, platformResults }: { error: string | null; platformResults: Record<string, string> | null }) {
+  if (!error) return null;
+  return (
+    <div className="mt-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
+      <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
+      {platformResults && <div className="mt-2"><PlatformResults results={platformResults} /></div>}
+    </div>
+  );
+}
 
-  function handleKeyDown(e: KeyboardEvent<HTMLElement>) {
+function usePostCardKeyboard(
+  isFocused: boolean, isFailed: boolean, platforms: Platform[],
+  approve: () => void, dismiss: () => void, retry: () => void,
+  setActiveTab: (_p: Platform) => void, setExpanded: (_fn: (_v: boolean) => boolean) => void,
+) {
+  return useCallback((e: KeyboardEvent<HTMLElement>) => {
     if (!isFocused) return;
     const key = e.key.toLowerCase();
     const numIdx = parseInt(key, 10) - 1;
-    if (numIdx >= 0 && numIdx < 5 && numIdx < platforms.length) {
-      setActiveTab(platforms[numIdx]);
-      return;
-    }
+    if (numIdx >= 0 && numIdx < Math.min(5, platforms.length)) { setActiveTab(platforms[numIdx]); return; }
     const actions: Partial<Record<string, () => void>> = {
       a: () => { e.preventDefault(); approve(); },
       d: () => { e.preventDefault(); dismiss(); },
@@ -295,7 +304,27 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       escape: () => { e.preventDefault(); setExpanded(false); },
     };
     actions[key]?.();
-  }
+  }, [isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded]);
+}
+
+function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: () => void }) {
+  return (
+    <div role="alert" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+      Posted via {provider} — your primary provider has reached its limit.{' '}
+      <button type="button" onClick={onDismiss} className="font-medium underline">Got it</button>
+    </div>
+  );
+}
+
+export default function PostCard({ post, onApproved, onDismissed, isFocused = false }: Props) {
+  const tz = useTimezone();
+  const isFailed = post.status === 'failed';
+  const [expanded, setExpanded] = useState(isFailed);
+  const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
+  const platforms = platformsOnPost(post);
+  const { approving, approveError, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
+  const focusClass = isFocused ? 'ring-2 ring-blue-500 bg-blue-50/40 dark:bg-blue-900/10' : '';
+  const handleKeyDown = usePostCardKeyboard(isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded);
 
   return (
     <article role="article" data-post-card onKeyDown={handleKeyDown} tabIndex={0} className={`rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900 focus:outline-none ${focusClass}`}>
@@ -318,12 +347,8 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
           </Button>
         </div>
       </div>
-      {isFailed && post.error && (
-        <div className="mt-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
-          <p className="text-xs text-red-700 dark:text-red-400">{post.error}</p>
-          {post.platform_results && <div className="mt-2"><PlatformResults results={post.platform_results} /></div>}
-        </div>
-      )}
+      {isFailed && <FailedErrorBanner error={post.error} platformResults={post.platform_results} />}
+      {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (
         <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} />
       )}

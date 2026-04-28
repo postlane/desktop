@@ -24,23 +24,27 @@ const DEFAULT_VIEW: ViewSelection = {
 function MainContent({
   view,
   settingsOpen,
+  schedulerTab,
   postWizardNudge,
   onCloseSettings,
   onNudgeDismissed,
   onNavigateToRepo,
   onTimezoneChange,
   onRepoChange,
+  onOpenSchedulerSettings,
 }: {
   view: ViewSelection;
   settingsOpen: boolean;
+  schedulerTab: boolean;
   postWizardNudge: boolean;
   onCloseSettings: () => void;
   onNudgeDismissed: () => void;
   onNavigateToRepo: (_repoId: string) => void;
   onTimezoneChange: (_tz: string) => void;
   onRepoChange: () => void;
+  onOpenSchedulerSettings: () => void;
 }) {
-  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} onTimezoneChange={onTimezoneChange} onRepoChange={onRepoChange} />;
+  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} onTimezoneChange={onTimezoneChange} onRepoChange={onRepoChange} initialTab={schedulerTab ? 'scheduler' : undefined} />;
   if (view.view === 'all_repos') {
     return view.section === 'published'
       ? <AllReposPublishedView onNavigateToRepo={onNavigateToRepo} />
@@ -49,7 +53,7 @@ function MainContent({
   if (!view.repoId) return <AllReposDraftsView postWizardNudge={false} onNudgeDismissed={onNudgeDismissed} />;
   return view.section === 'published'
     ? <RepoPublishedView repoId={view.repoId} />
-    : <RepoDraftsView repoId={view.repoId} />;
+    : <RepoDraftsView repoId={view.repoId} onOpenSchedulerSettings={onOpenSchedulerSettings} />;
 }
 
 function useWindowSizePersistence() {
@@ -86,6 +90,7 @@ function useCmdHShortcut(onActivate: () => void) {
 function useAppState() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [schedulerTab, setSchedulerTab] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -119,21 +124,27 @@ function useAppState() {
     setShowConsentModal(false);
   }
 
+  function openSettings() { setSettingsOpen(true); setSchedulerTab(false); }
+  function openSchedulerSettings() { setSettingsOpen(true); setSchedulerTab(true); }
+  function closeSettings() { setSettingsOpen(false); setSchedulerTab(false); }
+
   return {
-    currentView, setCurrentView, settingsOpen, setSettingsOpen, showWizard, showAddRepo,
+    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showAddRepo,
     setShowAddRepo, showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
     postWizardNudge, setPostWizardNudge, handleWizardComplete, handleConsentChoice,
+    openSettings, openSchedulerSettings, closeSettings,
   };
 }
 
 export default function App() {
   const {
-    currentView, setCurrentView, settingsOpen, setSettingsOpen, showWizard, showAddRepo,
+    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showAddRepo,
     setShowAddRepo, showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
     postWizardNudge, setPostWizardNudge, handleWizardComplete, handleConsentChoice,
+    openSettings, openSchedulerSettings, closeSettings,
   } = useAppState();
 
-  useCmdHShortcut(() => { setCurrentView({ view: 'all_repos', repoId: null, section: 'published' }); setSettingsOpen(false); });
+  useCmdHShortcut(() => { setCurrentView({ view: 'all_repos', repoId: null, section: 'published' }); closeSettings(); });
   useWindowSizePersistence();
 
   if (showWizard) return <Wizard onComplete={handleWizardComplete} />;
@@ -143,8 +154,8 @@ export default function App() {
       <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-900">
         <LeftNav
           currentView={currentView}
-          onNavigate={(sel) => { setCurrentView(sel); setSettingsOpen(false); }}
-          onSettingsOpen={() => setSettingsOpen(true)}
+          onNavigate={(sel) => { setCurrentView(sel); closeSettings(); }}
+          onSettingsOpen={openSettings}
           onAddRepo={() => setShowAddRepo(true)}
           refreshKey={repoVersion}
         />
@@ -152,10 +163,11 @@ export default function App() {
         {showAddRepo && <AddRepoModal onClose={() => setShowAddRepo(false)} />}
         <main className="flex-1 overflow-y-auto">
           <MainContent
-            view={currentView} settingsOpen={settingsOpen} postWizardNudge={postWizardNudge}
-            onCloseSettings={() => setSettingsOpen(false)} onNudgeDismissed={() => setPostWizardNudge(false)}
-            onTimezoneChange={setTimezone} onRepoChange={() => setRepoVersion((v) => v + 1)}
-            onNavigateToRepo={(repoId) => { setCurrentView({ view: 'repo', repoId, section: 'published' }); setSettingsOpen(false); }}
+            view={currentView} settingsOpen={settingsOpen} schedulerTab={schedulerTab}
+            postWizardNudge={postWizardNudge} onCloseSettings={closeSettings}
+            onNudgeDismissed={() => setPostWizardNudge(false)} onTimezoneChange={setTimezone}
+            onRepoChange={() => setRepoVersion((v) => v + 1)} onOpenSchedulerSettings={openSchedulerSettings}
+            onNavigateToRepo={(repoId) => { setCurrentView({ view: 'repo', repoId, section: 'published' }); closeSettings(); }}
           />
         </main>
       </div>

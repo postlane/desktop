@@ -258,6 +258,49 @@ fn start_repo_watcher(
     }
 }
 
+/// Updates `scheduler.provider` and `scheduler.fallback_order` in a repo's config.json.
+pub fn update_scheduler_config_impl(
+    repo_id: &str,
+    primary_provider: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    let repo_path = {
+        let repos = state
+            .repos
+            .lock()
+            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        repos
+            .repos
+            .iter()
+            .find(|r| r.id == repo_id)
+            .ok_or_else(|| format!("Repo {} not found", repo_id))?
+            .path
+            .clone()
+    };
+    let config_path = std::path::PathBuf::from(&repo_path).join(".postlane/config.json");
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+    let mut config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    config["scheduler"]["provider"] = serde_json::json!(primary_provider);
+    config["scheduler"]["fallback_order"] = serde_json::json!([primary_provider]);
+    let tmp = config_path.with_extension("json.tmp");
+    fs::write(&tmp, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("Failed to write config.json.tmp: {}", e))?;
+    fs::rename(&tmp, &config_path)
+        .map_err(|e| format!("Failed to rename config.json: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_scheduler_config(
+    repo_id: String,
+    primary_provider: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    update_scheduler_config_impl(&repo_id, &primary_provider, &state)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,6 +309,40 @@ mod tests {
 
     fn make_empty_state() -> AppState {
         AppState::new(ReposConfig { version: 1, repos: vec![] })
+    }
+
+    #[test]
+    fn test_update_scheduler_config_writes_provider_and_fallback_order() {
+        let dir = std::env::temp_dir().join("postlane_test_scheduler_cfg");
+        std::fs::create_dir_all(dir.join(".postlane")).expect("create dir");
+        let config_path = dir.join(".postlane/config.json");
+        std::fs::write(&config_path, r#"{"scheduler":{"provider":"old"}}"#).expect("write");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r99".to_string(), name: "test".to_string(), path: canonical_str,
+                active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        });
+        let result = update_scheduler_config_impl("r99", "zernio", &state);
+        assert!(result.is_ok(), "{:?}", result);
+        let content = std::fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["provider"].as_str().unwrap(), "zernio");
+        let order: Vec<&str> = config["scheduler"]["fallback_order"]
+            .as_array().unwrap().iter()
+            .filter_map(|v| v.as_str()).collect();
+        assert_eq!(order, vec!["zernio"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_update_scheduler_config_errors_on_missing_repo() {
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = update_scheduler_config_impl("nonexistent", "zernio", &state);
+        assert!(result.is_err());
     }
 
     #[test]

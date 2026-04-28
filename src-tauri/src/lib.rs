@@ -22,8 +22,10 @@ pub mod published_queries;
 pub mod repo_mgmt;
 pub mod repo_queries;
 pub mod scheduler_credentials;
+pub mod scheduling;
 pub mod storage;
 pub mod telemetry;
+pub mod telemetry_commands;
 pub mod tray;
 pub mod types;
 pub mod watcher;
@@ -32,28 +34,33 @@ use std::sync::Arc;
 use app_state::AppState;
 use tauri::Manager;
 
-mod telemetry_commands {
-    use crate::app_state::AppState;
-    use crate::app_state::{read_app_state, write_app_state};
-    use tauri::State;
+mod scheduling_commands {
+    use crate::scheduling::usage_tracker::{get_known_limit, get_usage, UsageRecord};
+    use serde::Serialize;
 
-    /// Returns whether the user has given telemetry consent.
-    #[tauri::command]
-    pub fn get_telemetry_consent(state: State<AppState>) -> Result<bool, String> {
-        let _ = state;
-        Ok(read_app_state().telemetry_consent)
+    #[derive(Serialize)]
+    pub struct UsageResponse {
+        pub provider: String,
+        pub count: u32,
+        pub month: u32,
+        pub year: u32,
+        pub limit: Option<u32>,
     }
 
-    /// Saves the user's telemetry consent choice and marks consent_asked = true.
+    /// Returns the current usage and known limit for a scheduler provider.
+    /// Used by Settings → Scheduler to display usage inline.
     #[tauri::command]
-    pub fn set_telemetry_consent(consent: bool) -> Result<(), String> {
-        let mut s = read_app_state();
-        s.telemetry_consent = consent;
-        s.consent_asked = true;
-        write_app_state(&s)
+    pub fn get_scheduler_usage(provider: String) -> Result<UsageResponse, String> {
+        let record: UsageRecord = get_usage(&provider)?;
+        Ok(UsageResponse {
+            provider: record.provider,
+            count: record.count,
+            month: record.month,
+            year: record.year,
+            limit: get_known_limit(&provider),
+        })
     }
 }
-
 
 /// Initialises `AppState`, tray, close-to-tray behaviour, and starts background
 /// tasks (provider init + HTTP server). Called inside `tauri::Builder::setup`.
@@ -77,7 +84,6 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     register_close_to_tray(app);
     register_deep_link_handler(app.handle().clone());
-    spawn_eager_provider_init(app.handle().clone());
     spawn_http_server(app.handle().clone(), repos_config)?;
     spawn_daily_engagement_sync(app.handle().clone());
     spawn_telemetry_flush(app.handle().clone());
@@ -150,17 +156,6 @@ fn register_deep_link_handler(app_handle: tauri::AppHandle) {
                     }
                 }
             });
-        }
-    });
-}
-
-/// Spawns an async task that eagerly initialises the scheduler provider when
-/// credentials are already stored. Eliminates first-send latency.
-fn spawn_eager_provider_init(app_handle: tauri::AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        let state: tauri::State<AppState> = app_handle.state();
-        if let Err(e) = commands::eager_init_provider_if_configured(&state, Some(&app_handle)).await {
-            log::warn!("Eager provider initialization failed: {}", e);
         }
     });
 }
@@ -249,17 +244,19 @@ fn spawn_daily_engagement_sync(app_handle: tauri::AppHandle) {
     });
 }
 
-fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default()
+fn add_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_keyring::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
-        .on_menu_event(|app, event| {
-            tray::handle_menu_event(app, event.id.0.as_str());
-        })
+        .on_menu_event(|app, event| tray::handle_menu_event(app, event.id.0.as_str()))
         .setup(|app| setup_app(app))
+}
+
+fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
+    add_plugins(tauri::Builder::default())
         .invoke_handler(tauri::generate_handler![
             repo_queries::get_repos,
             draft_queries::get_all_drafts,
@@ -288,6 +285,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             repo_mgmt::set_repo_active,
             repo_mgmt::check_repo_health,
             scheduler_credentials::get_libsecret_status,
+            scheduler_credentials::has_scheduler_configured,
             scheduler_credentials::save_scheduler_credential,
             scheduler_credentials::get_scheduler_credential,
             scheduler_credentials::delete_scheduler_credential,
@@ -296,6 +294,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             commands::get_queue_command,
             post_export::export_history_csv,
             repo_mgmt::update_repo_path,
+            repo_mgmt::update_scheduler_config,
             post_editor::update_post_content,
             post_editor::update_post_image,
             post_editor::fetch_og_image,
@@ -308,6 +307,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             analytics::client::get_post_analytics,
             telemetry_commands::get_telemetry_consent,
             telemetry_commands::set_telemetry_consent,
+            scheduling_commands::get_scheduler_usage,
             license::get_license_signed_in,
         ])
 }

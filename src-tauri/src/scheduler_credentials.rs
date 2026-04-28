@@ -152,6 +152,26 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
+/// Returns true if any provider has a credential for the given repo.
+/// Used by the per-repo scheduler setup modal to decide whether to show.
+pub fn has_scheduler_configured_impl(repo_id: &str, app: &tauri::AppHandle) -> bool {
+    use tauri_plugin_keyring::KeyringExt;
+    for provider in &VALID_PROVIDERS {
+        let keys = get_credential_keyring_key(provider, Some(repo_id));
+        for key in keys {
+            if let Ok(Some(_)) = app.keyring().get_password("postlane", &key) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[tauri::command]
+pub fn has_scheduler_configured(repo_id: String, app: tauri::AppHandle) -> bool {
+    has_scheduler_configured_impl(&repo_id, &app)
+}
+
 #[tauri::command]
 pub fn get_libsecret_status(state: State<AppState>) -> Result<Option<bool>, String> {
     let flag = state

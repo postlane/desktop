@@ -9,6 +9,7 @@ pub struct SendResult {
     pub success: bool,
     pub platform_results: Option<HashMap<String, String>>,
     pub error: Option<String>,
+    pub fallback_provider: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
