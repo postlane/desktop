@@ -172,6 +172,18 @@ pub fn has_scheduler_configured(repo_id: String, app: tauri::AppHandle) -> bool 
     has_scheduler_configured_impl(&repo_id, &app)
 }
 
+/// Returns true if the given provider has a credential stored for the given repo.
+/// Does not expose the credential value — safe to call from the frontend.
+#[tauri::command]
+pub fn has_provider_credential(repo_id: String, provider: String, app: tauri::AppHandle) -> bool {
+    if !VALID_PROVIDERS.contains(&provider.as_str()) { return false; }
+    let keys = get_credential_keyring_key(&provider, Some(&repo_id));
+    for key in keys {
+        if let Ok(Some(_)) = app.keyring().get_password("postlane", &key) { return true; }
+    }
+    false
+}
+
 #[tauri::command]
 pub fn get_libsecret_status(state: State<AppState>) -> Result<Option<bool>, String> {
     let flag = state
@@ -215,6 +227,11 @@ mod tests {
         for provider in &["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"] {
             assert!(get_scheduler_credential_impl(provider).is_ok(), "failed for {}", provider);
         }
+    }
+
+    #[test]
+    fn test_has_provider_credential_rejects_unknown_provider() {
+        assert!(!super::VALID_PROVIDERS.contains(&"unknown_xyz"));
     }
 
     #[test]

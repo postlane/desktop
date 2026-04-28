@@ -286,6 +286,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             repo_mgmt::check_repo_health,
             scheduler_credentials::get_libsecret_status,
             scheduler_credentials::has_scheduler_configured,
+            scheduler_credentials::has_provider_credential,
             scheduler_credentials::save_scheduler_credential,
             scheduler_credentials::get_scheduler_credential,
             scheduler_credentials::delete_scheduler_credential,
