@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
+use crate::post_io::{collect_posts_from_dir, sort_by_status_priority_then_timestamp};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -85,18 +86,7 @@ fn parse_draft_post(
 }
 
 fn sort_drafts(drafts: &mut [DraftPost]) {
-    drafts.sort_by(|a, b| {
-        match (a.status.as_str(), b.status.as_str()) {
-            ("failed", "ready") => std::cmp::Ordering::Less,
-            ("ready", "failed") => std::cmp::Ordering::Greater,
-            _ => match (&b.created_at, &a.created_at) {
-                (Some(bt), Some(at)) => bt.cmp(at),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
-        }
-    });
+    sort_by_status_priority_then_timestamp(drafts, "failed", "ready", |d| &d.status, |d| d.created_at.as_deref());
 }
 
 pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
@@ -113,21 +103,9 @@ pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
             continue;
         }
 
-        let entries = match fs::read_dir(&posts_dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            if let Some(draft) = parse_draft_post(
-                &entry.path(),
-                &repo.id,
-                &repo.name,
-                &repo.path,
-            ) {
-                drafts.push(draft);
-            }
-        }
+        drafts.extend(collect_posts_from_dir(&posts_dir, |p| {
+            parse_draft_post(p, &repo.id, &repo.name, &repo.path)
+        }));
     }
 
     sort_drafts(&mut drafts);
