@@ -51,7 +51,8 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
 pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
 pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str, repo_id: Option<&str>) {
-    let mut props = serde_json::json!({"provider": provider});
+    let scope = if repo_id.is_some() { "repo" } else { "global" };
+    let mut props = serde_json::json!({"provider": provider, "scope": scope});
     if let Some(id) = repo_id {
         props["repo_id"] = serde_json::Value::String(id.to_string());
     }
@@ -461,15 +462,25 @@ mod tests {
     // --- telemetry payload ---
 
     #[test]
-    fn test_save_repo_scheduler_key_telemetry_includes_repo_id() {
+    fn test_save_repo_scheduler_key_telemetry_includes_repo_id_and_scope() {
         let state = make_state_with_repo("r1");
         save_repo_scheduler_key_impl("r1", "zernio", &state, true).unwrap();
         let events = state.telemetry.peek_queue();
         assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0].properties["repo_id"], "r1",
-            "per-repo telemetry must include repo_id"
-        );
+        assert_eq!(events[0].properties["repo_id"], "r1", "per-repo event must include repo_id");
+        assert_eq!(events[0].properties["scope"], "repo", "per-repo event must have scope=repo");
+    }
+
+    #[test]
+    fn test_record_provider_configured_global_has_scope_global_and_no_repo_id() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        record_provider_configured(&state, true, "zernio", None);
+        let events = state.telemetry.peek_queue();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].properties["scope"], "global", "global event must have scope=global");
+        assert!(events[0].properties.get("repo_id").is_none(), "global event must not include repo_id");
     }
 
     // --- validate_scheduler_registration_impl Security Rule 2 ---
