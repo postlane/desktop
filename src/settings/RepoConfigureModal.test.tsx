@@ -321,8 +321,17 @@ describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows instructions pointing to Settings → Default scheduler when currentProvider is null', () => {
+  it('shows instructions pointing to the Default scheduler tab when currentProvider is null', () => {
     render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
-    expect(screen.getByText(/settings → default scheduler/i)).toBeInTheDocument();
+    expect(screen.getByText(/default scheduler tab/i)).toBeInTheDocument();
+  });
+
+  it('shows a button to close the modal and go set up the default scheduler', () => {
+    const onClose = vi.fn();
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={onClose} />);
+    const btn = screen.getByRole('button', { name: /close and open default scheduler/i });
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
