@@ -138,6 +138,25 @@ pub trait SchedulingProvider: Send + Sync {
     fn post_url(&self, platform: &str, post_id: &str) -> Option<String>;
 }
 
+/// Parse a raw `Retry-After` header value string into seconds.
+///
+/// Falls back to 60 s if absent/unparseable. Caps at 3600 s.
+pub(crate) fn parse_retry_after_secs(header_value: Option<&str>) -> u64 {
+    header_value
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(60)
+        .min(3600)
+}
+
+/// Extract and parse the `Retry-After` header from an HTTP response as a `Duration`.
+pub fn parse_retry_after(response: &reqwest::Response) -> Duration {
+    let header = response
+        .headers()
+        .get("Retry-After")
+        .and_then(|v| v.to_str().ok());
+    Duration::from_secs(parse_retry_after_secs(header))
+}
+
 /// Build a shared reqwest::Client for provider HTTP requests
 ///
 /// Creates a client with:
@@ -200,6 +219,26 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+
+    #[test]
+    fn parse_retry_after_returns_header_value_as_seconds() {
+        assert_eq!(parse_retry_after_secs(Some("120")), 120);
+    }
+
+    #[test]
+    fn parse_retry_after_defaults_to_60s_when_header_missing() {
+        assert_eq!(parse_retry_after_secs(None), 60);
+    }
+
+    #[test]
+    fn parse_retry_after_defaults_to_60s_when_header_unparseable() {
+        assert_eq!(parse_retry_after_secs(Some("soon")), 60);
+    }
+
+    #[test]
+    fn parse_retry_after_caps_at_3600s() {
+        assert_eq!(parse_retry_after_secs(Some("9999")), 3600);
+    }
 
     #[test]
     fn test_build_client_creates_client_with_timeouts() {

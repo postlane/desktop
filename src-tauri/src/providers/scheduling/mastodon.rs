@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use super::{build_client, Engagement, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider};
+use super::{build_client, parse_retry_after, Engagement, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::net::IpAddr;
@@ -50,14 +50,7 @@ impl MastodonProvider {
             return Err(ProviderError::AuthError("Invalid access token".to_string()));
         }
         if status == 429 {
-            let retry_after = response
-                .headers()
-                .get("Retry-After")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(60)
-                .min(3600); // cap at 1 hour — malicious instances cannot cause indefinite freezes
-            return Err(ProviderError::RateLimit(std::time::Duration::from_secs(retry_after)));
+            return Err(ProviderError::RateLimit(parse_retry_after(response)));
         }
         Ok(())
     }
