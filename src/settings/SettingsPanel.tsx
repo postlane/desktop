@@ -10,10 +10,10 @@ import AppTab from './AppTab';
 type Tab = 'repos' | 'scheduler' | 'analytics' | 'app';
 
 const TAB_LABELS: Record<Tab, string> = {
-  repos: 'repos',
+  repos: 'Repos',
   scheduler: 'Default scheduler',
-  analytics: 'analytics',
-  app: 'app',
+  analytics: 'Analytics',
+  app: 'App',
 };
 
 interface Props {

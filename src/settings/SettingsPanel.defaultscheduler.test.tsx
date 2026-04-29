@@ -29,3 +29,20 @@ describe('SettingsPanel — Default scheduler tab label (§15.1.1)', () => {
     expect(screen.queryByRole('tab', { name: /^scheduler$/i })).not.toBeInTheDocument();
   });
 });
+
+describe('SettingsPanel — tab casing (§15 review fix 12)', () => {
+  it('renders "Repos" tab with capital R', () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /^repos$/i })).toHaveTextContent('Repos');
+  });
+
+  it('renders "Analytics" tab with capital A', () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /^analytics$/i })).toHaveTextContent('Analytics');
+  });
+
+  it('renders "App" tab with capital A', () => {
+    render(<SettingsPanel onClose={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /^app$/i })).toHaveTextContent('App');
+  });
+});
