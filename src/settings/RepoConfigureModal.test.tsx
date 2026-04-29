@@ -11,6 +11,28 @@ const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
 
+describe('RepoConfigureModal — provider dropdown (§15 review fix 1)', () => {
+  it('shows Substack Notes as a provider option in the form', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    const select = await screen.findByRole('combobox', { name: /provider/i });
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options).toContain('Substack Notes');
+  });
+
+  it('does not show Webhook as a provider option', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    const select = await screen.findByRole('combobox', { name: /provider/i });
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options).not.toContain('Webhook');
+  });
+});
+
 describe('RepoConfigureModal — default state', () => {
   it('shows "Use default" when no per-repo credential exists', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
