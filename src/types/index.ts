@@ -100,6 +100,14 @@ export interface DraftPost {
 
 export type Platform = 'x' | 'bluesky' | 'mastodon' | 'linkedin' | 'substack_notes' | 'substack' | 'product_hunt' | 'show_hn' | 'changelog';
 
+/** Mirrors types::SendResult — returned by approve_post */
+export interface SendResult {
+  success: boolean;
+  platform_results: Record<string, string> | null;
+  error: string | null;
+  fallback_provider: string | null;
+}
+
 /** Model edit-rate statistics — returned by get_model_stats */
 export interface ModelStats {
   model: string;

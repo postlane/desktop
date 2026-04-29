@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-pub use crate::post_approval::{approve_post, approve_post_impl, eager_init_provider_if_configured};
+pub use crate::post_approval::{approve_post, approve_post_impl};
 pub use crate::post_export::{export_history_csv, export_history_csv_impl};
 pub use crate::post_ops::{
     delete_post, delete_post_impl, dismiss_post, dismiss_post_impl, get_drafts, get_drafts_impl,
@@ -13,8 +13,9 @@ pub use crate::repo_mgmt::{
 pub use crate::scheduler_credentials::{
     check_libsecret_availability, check_libsecret_before_save, delete_scheduler_credential,
     delete_scheduler_credential_impl, get_credential_keyring_key, get_libsecret_status,
-    get_scheduler_credential, get_scheduler_credential_impl, mask_credential,
-    save_scheduler_credential, save_scheduler_credential_impl,
+    get_scheduler_credential, get_scheduler_credential_impl, has_scheduler_configured,
+    has_scheduler_configured_impl, mask_credential, save_scheduler_credential,
+    save_scheduler_credential_impl,
 };
 
 use crate::app_state::AppState;

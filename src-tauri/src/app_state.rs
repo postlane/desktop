@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::init::postlane_dir;
-use crate::providers::scheduling::SchedulingProvider;
 use crate::storage::ReposConfig;
 use crate::telemetry::client::TelemetryClient;
 use notify::RecommendedWatcher;
@@ -14,8 +13,6 @@ use std::sync::{Arc, Mutex};
 pub struct AppState {
     pub repos: Mutex<ReposConfig>,
     pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
-    /// Scheduler uses tokio::sync::Mutex for async compatibility
-    pub scheduler: tokio::sync::Mutex<Option<Box<dyn SchedulingProvider>>>,
     /// Linux libsecret availability flag
     /// None = not checked yet, Some(true) = available, Some(false) = unavailable
     pub libsecret_available: Mutex<Option<bool>>,
@@ -28,7 +25,6 @@ impl AppState {
         Self {
             repos: Mutex::new(repos),
             watchers: Mutex::new(HashMap::new()),
-            scheduler: tokio::sync::Mutex::new(None),
             libsecret_available: Mutex::new(None),
             telemetry: Arc::new(TelemetryClient::new()),
         }
@@ -260,7 +256,6 @@ mod tests {
         assert_eq!(app_state.repos.lock().unwrap().version, 1);
         assert_eq!(app_state.repos.lock().unwrap().repos.len(), 0);
         assert_eq!(app_state.watchers.lock().unwrap().len(), 0);
-        assert!(app_state.scheduler.blocking_lock().is_none());
     }
 
     #[test]

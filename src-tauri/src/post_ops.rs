@@ -240,6 +240,7 @@ pub fn retry_post_impl(
         success: true,
         platform_results: Some(platform_results),
         error: None,
+        fallback_provider: None,
     })
 }
 

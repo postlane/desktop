@@ -14,10 +14,11 @@ interface Props {
   onTimezoneChange?: (_tz: string) => void;
   onRepoChange?: () => void;
   activeRepoId?: string | null;
+  initialTab?: Tab;
 }
 
-export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange, activeRepoId }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>('repos');
+export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange, activeRepoId, initialTab }: Props) {
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'repos');
 
   return (
     <div className="flex h-full flex-col bg-white dark:bg-zinc-900">
