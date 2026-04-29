@@ -105,9 +105,10 @@ export default function SchedulerSetupModal({ repoName, repoId, onSetupLater, on
     finally { setChecking(null); }
   }, [repoId]);
 
-  const handleRemove = useCallback((key: string) => {
+  const handleRemove = useCallback(async (key: string) => {
+    try { await invoke('delete_scheduler_credential', { provider: key, repoId: repoId ?? null }); } catch { /* non-critical */ }
     setOrdered((prev) => prev.filter((p) => p !== key));
-  }, []);
+  }, [repoId]);
 
   const handleDone = useCallback(async () => {
     try { await invoke('update_scheduler_config', { repoId, fallbackOrder: ordered }); }

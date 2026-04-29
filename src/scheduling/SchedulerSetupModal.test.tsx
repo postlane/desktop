@@ -154,3 +154,23 @@ describe('SchedulerSetupModal — multiple providers (§13.3.2 optional)', () =>
     await waitFor(() => expect(screen.queryByText(/#1/)).not.toBeInTheDocument());
   });
 });
+
+describe('SchedulerSetupModal — Remove deletes from keyring (§fix)', () => {
+  it('calls delete_scheduler_credential when Remove is clicked on a configured provider', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'has_provider_credential') return true;
+      return null;
+    });
+    render(<SchedulerSetupModal repoName="test" repoId="r1" onSetupLater={vi.fn()} onOpenSchedulerSettings={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /set up zernio/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /check zernio/i }));
+    await waitFor(() => screen.getByText(/#1/));
+    fireEvent.click(screen.getByRole('button', { name: /remove zernio/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith(
+        'delete_scheduler_credential',
+        expect.objectContaining({ provider: 'zernio' }),
+      ),
+    );
+  });
+});

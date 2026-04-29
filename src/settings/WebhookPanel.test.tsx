@@ -98,16 +98,61 @@ describe('WebhookPanel — save error', () => {
   });
 
   it('shows masked URL in configured state (not full URL)', async () => {
-    mockInvoke.mockResolvedValue('https://hooks.zapier.com/hooks/catch/abc123secret');
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') return 'https://hooks.zapier.com/hooks/catch/abc123secret';
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: null, month: 4, year: 2026 };
+      return null;
+    });
     render(<WebhookPanel />);
     await waitFor(() => screen.getByRole('button', { name: /test/i }));
     expect(screen.queryByText('https://hooks.zapier.com/hooks/catch/abc123secret')).not.toBeInTheDocument();
   });
 });
 
+describe('WebhookPanel — usage display (§13.1.3)', () => {
+  it('shows webhook usage count when get_scheduler_usage returns data', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 50, limit: 100, month: 4, year: 2026 };
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() =>
+      expect(screen.getByText(/50\/100 posts used this month/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('shows zero usage when count is 0 and limit is known', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: 100, month: 4, year: 2026 };
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() =>
+      expect(screen.getByText(/0\/100 posts used this month/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('does not show usage when limit is null', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: null, month: 4, year: 2026 };
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /add/i }));
+    expect(screen.queryByText(/posts used this month/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('WebhookPanel — configured state', () => {
   it('shows Test and Remove buttons when credential is configured', async () => {
-    mockInvoke.mockResolvedValue('https://hooks.zapier.com/hooks/catch/abc');
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') return 'https://hooks.zapier.com/hooks/catch/abc';
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: null, month: 4, year: 2026 };
+      return null;
+    });
     render(<WebhookPanel />);
     await waitFor(() => screen.getByRole('button', { name: /test/i }));
     expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument();

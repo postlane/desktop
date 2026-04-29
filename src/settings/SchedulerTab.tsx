@@ -18,7 +18,7 @@ const PROVIDER_NOTES: Partial<Record<Provider, string>> = {
   outstand: '$5/month for 1,000 posts, then $0.01 per additional post.',
 };
 
-interface UsageResponse {
+export interface UsageResponse {
   provider: string;
   count: number;
   limit: number | null;
@@ -26,8 +26,8 @@ interface UsageResponse {
   year: number;
 }
 
-function UsageBadge({ usage }: { usage: UsageResponse | undefined }) {
-  if (!usage || usage.limit === null || usage.count === 0) return null;
+export function UsageBadge({ usage }: { usage: UsageResponse | undefined }) {
+  if (!usage || usage.limit === null) return null;
   const { count, limit } = usage;
   const atLimit = count >= limit;
   const nearLimit = count >= Math.floor(limit * 0.8);

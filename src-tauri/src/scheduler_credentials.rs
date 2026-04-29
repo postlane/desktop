@@ -48,7 +48,7 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
     }
 }
 
-const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
+pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
 pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str) {
     state.telemetry.record(consent, "provider_configured", serde_json::json!({"provider": provider}));

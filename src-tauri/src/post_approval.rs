@@ -14,6 +14,35 @@ struct PlatformSendResults {
     fallback_provider: Option<String>,
 }
 
+/// Bundles the per-approval context passed into each platform send attempt.
+struct SendContext<'a> {
+    app_handle: &'a tauri::AppHandle,
+    fallback_order: &'a [String],
+    repo_id: &'a str,
+    post_path: &'a std::path::Path,
+    account_ids: &'a serde_json::Map<String, serde_json::Value>,
+}
+
+/// Returns true if any platform result indicates a send failure.
+fn any_platform_failed(results: &std::collections::HashMap<String, String>) -> bool {
+    results.values().any(|v| v.starts_with("error:"))
+}
+
+/// Rejects post folder names that contain path separators or traversal sequences.
+fn validate_post_folder(post_folder: &str) -> Result<(), String> {
+    if post_folder.is_empty()
+        || post_folder.contains('/')
+        || post_folder.contains('\\')
+        || post_folder.contains("..")
+    {
+        return Err(format!(
+            "Invalid post folder name '{}': must not be empty or contain path separators.",
+            post_folder
+        ));
+    }
+    Ok(())
+}
+
 /// Returns the scheduler account_ids map from `.postlane/config.json`.
 fn load_account_ids(
     canonical_path: &std::path::Path,
@@ -71,31 +100,29 @@ fn get_keyring_cred(app: &tauri::AppHandle, provider: &str, repo_id: &str) -> Op
 
 /// Tries to send one platform's content through the fallback provider chain.
 /// Returns `(provider_name, PostScheduleResult)` on success.
-/// On `ProviderError::RateLimit`, marks the provider as temporarily exhausted and tries the next.
+/// On `ProviderError::RateLimit`, records the provider in `rate_limited` and tries the next.
+/// `rate_limited` is shared across all platforms in one approval call so 429s are not retried
+/// for subsequent platforms in the same request.
 async fn send_platform_with_fallback(
-    app_handle: &tauri::AppHandle,
-    fallback_order: &[String],
-    repo_id: &str,
-    post_path: &std::path::Path,
+    ctx: &SendContext<'_>,
     platform: &str,
     meta: &PostMeta,
-    account_ids: &serde_json::Map<String, serde_json::Value>,
+    rate_limited: &mut std::collections::HashSet<String>,
 ) -> Result<(String, crate::providers::scheduling::PostScheduleResult), String> {
     use crate::providers::scheduling::ProviderError;
     use chrono::Datelike;
 
-    let content = read_platform_content(post_path, platform)?;
+    let content = read_platform_content(ctx.post_path, platform)?;
     let scheduled_for = parse_schedule(meta.schedule.as_deref());
-    let account_id = account_ids
+    let account_id = ctx.account_ids
         .get(platform)
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
     let usage_path = crate::scheduling::usage_tracker::default_store_path()?;
     let now = chrono::Utc::now();
     let (month, year) = (now.month(), now.year() as u32);
-    let mut rate_limited = std::collections::HashSet::new();
 
-    for provider_name in fallback_order {
+    for provider_name in ctx.fallback_order {
         if rate_limited.contains(provider_name) {
             continue;
         }
@@ -107,7 +134,7 @@ async fn send_platform_with_fallback(
         ) {
             continue;
         }
-        let api_key = match get_keyring_cred(app_handle, provider_name, repo_id) {
+        let api_key = match get_keyring_cred(ctx.app_handle, provider_name, ctx.repo_id) {
             Some(k) => k,
             None => continue,
         };
@@ -155,24 +182,22 @@ async fn send_via_provider(
     let fallback_order =
         crate::scheduling::credential_router::read_fallback_order(&config_path);
     let primary = fallback_order.first().cloned();
+    let ctx = SendContext {
+        app_handle,
+        fallback_order: &fallback_order,
+        repo_id: &repo_id,
+        post_path,
+        account_ids: &account_ids,
+    };
 
     let mut platform_results = std::collections::HashMap::new();
     let mut scheduler_ids = std::collections::HashMap::new();
     let mut platform_urls = std::collections::HashMap::new();
     let mut fallback_used: Option<String> = None;
+    let mut rate_limited = std::collections::HashSet::new();
 
     for platform in &meta.platforms {
-        match send_platform_with_fallback(
-            app_handle,
-            &fallback_order,
-            &repo_id,
-            post_path,
-            platform,
-            meta,
-            &account_ids,
-        )
-        .await
-        {
+        match send_platform_with_fallback(&ctx, platform, meta, &mut rate_limited).await {
             Ok((provider_name, post_result)) => {
                 if Some(&provider_name) != primary.as_ref() {
                     fallback_used = Some(provider_name.clone());
@@ -204,6 +229,7 @@ fn load_approved_meta(
     post_folder: &str,
     state: &AppState,
 ) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf, PostMeta), String> {
+    validate_post_folder(post_folder)?;
     let canonical_path = fs::canonicalize(repo_path)
         .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
     let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
@@ -229,16 +255,12 @@ fn load_approved_meta(
     Ok((canonical_path, post_path, meta_path, meta))
 }
 
-/// Writes updated meta atomically.
+/// Writes updated meta atomically using the project's atomic_write utility.
 fn write_sent_meta(meta_path: &std::path::Path, meta: &PostMeta) -> Result<(), String> {
-    let temp_path = meta_path.with_extension("json.tmp");
     let json_content = serde_json::to_string_pretty(meta)
         .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
-    fs::write(&temp_path, json_content)
-        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
-    fs::rename(&temp_path, meta_path)
-        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
-    Ok(())
+    crate::init::atomic_write(meta_path, json_content.as_bytes())
+        .map_err(|e| format!("Failed to write meta.json: {}", e))
 }
 
 pub async fn approve_post_impl(
@@ -277,7 +299,8 @@ pub async fn approve_post_impl(
         }
     };
 
-    meta.status = "sent".to_string();
+    let partial_failure = any_platform_failed(&results.platform_results);
+    meta.status = if partial_failure { "failed" } else { "sent" }.to_string();
     meta.platform_results = Some(results.platform_results.clone());
     meta.sent_at = Some(chrono::Utc::now().to_rfc3339());
     if !results.scheduler_ids.is_empty() {
@@ -288,6 +311,18 @@ pub async fn approve_post_impl(
     }
 
     write_sent_meta(&meta_path, &meta)?;
+
+    if partial_failure {
+        return Ok(SendResult {
+            success: false,
+            platform_results: Some(results.platform_results),
+            error: Some(
+                "One or more platforms failed. Retry to attempt the failed platforms.".to_string(),
+            ),
+            fallback_provider: results.fallback_provider,
+        });
+    }
+
     state
         .telemetry
         .record(consent, "post_approved", serde_json::json!({"platforms": meta.platforms}));
@@ -315,6 +350,69 @@ mod tests {
     use super::*;
     use crate::app_state::AppState;
     use crate::storage::{Repo, ReposConfig};
+
+    // --- §fix: validate_post_folder ---
+
+    #[tokio::test]
+    async fn test_rejects_path_traversal_in_post_folder() {
+        let dir = std::env::temp_dir().join("postlane_test_traversal");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "../../../etc/passwd", &state, None, false).await;
+        assert!(result.is_err(), "path traversal must be rejected");
+        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"), "error must name the problem");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rejects_slash_in_post_folder() {
+        let dir = std::env::temp_dir().join("postlane_test_slash_folder");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "valid/../../escape", &state, None, false).await;
+        assert!(result.is_err(), "slash in folder must be rejected");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rejects_empty_post_folder() {
+        let dir = std::env::temp_dir().join("postlane_test_empty_folder");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "", &state, None, false).await;
+        assert!(result.is_err(), "empty folder must be rejected");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- §fix: any_platform_failed ---
+
+    #[test]
+    fn test_any_platform_failed_true_when_error_present() {
+        let mut results = std::collections::HashMap::new();
+        results.insert("x".to_string(), "success".to_string());
+        results.insert("linkedin".to_string(), "error: rate limited".to_string());
+        assert!(any_platform_failed(&results));
+    }
+
+    #[test]
+    fn test_any_platform_failed_false_when_all_succeed() {
+        let mut results = std::collections::HashMap::new();
+        results.insert("x".to_string(), "success".to_string());
+        results.insert("linkedin".to_string(), "success".to_string());
+        assert!(!any_platform_failed(&results));
+    }
+
+    #[test]
+    fn test_any_platform_failed_false_when_empty() {
+        let results: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        assert!(!any_platform_failed(&results));
+    }
 
     fn make_state(repo_path: &str) -> AppState {
         AppState::new(ReposConfig {

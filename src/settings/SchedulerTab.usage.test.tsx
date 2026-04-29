@@ -62,6 +62,14 @@ describe('SchedulerTab — usage display (§13.1.3)', () => {
     );
   });
 
+  it('shows limit text at zero usage when limit is known', async () => {
+    setupMocks({ publer: { count: 0, limit: 10 } });
+    render(<SchedulerTab />);
+    await waitFor(() =>
+      expect(screen.getByText(/0\/10 posts used this month/i)).toBeInTheDocument(),
+    );
+  });
+
   it('does not show usage text for providers with no known limit', async () => {
     setupMocks({});
     render(<SchedulerTab />);

@@ -268,6 +268,11 @@ pub fn update_scheduler_config_impl(
     if fallback_order.is_empty() {
         return Err("fallback_order must contain at least one provider".to_string());
     }
+    for provider in fallback_order {
+        if !crate::scheduler_credentials::VALID_PROVIDERS.contains(&provider.as_str()) {
+            return Err(format!("Unknown provider in fallback_order: '{}'", provider));
+        }
+    }
     let repo_path = {
         let repos = state
             .repos
@@ -368,6 +373,32 @@ mod tests {
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
         let result = update_scheduler_config_impl("r99", &[], &state);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_update_scheduler_config_rejects_unknown_provider() {
+        let dir = std::env::temp_dir().join("postlane_test_cfg_unknown_prov");
+        write_test_config(&dir);
+        let state = make_test_state_with_dir(&dir);
+        let result = update_scheduler_config_impl("r99", &["unknown_xyz".to_string()], &state);
+        assert!(result.is_err(), "unknown provider must be rejected");
+        let err = result.unwrap_err();
+        assert!(err.contains("unknown_xyz"), "error must identify the bad provider, got: {}", err);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_update_scheduler_config_rejects_provider_in_mixed_list() {
+        let dir = std::env::temp_dir().join("postlane_test_cfg_mixed_prov");
+        write_test_config(&dir);
+        let state = make_test_state_with_dir(&dir);
+        let result = update_scheduler_config_impl(
+            "r99",
+            &["zernio".to_string(), "bad_provider".to_string()],
+            &state,
+        );
+        assert!(result.is_err(), "list with unknown provider must be rejected");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
