@@ -9,6 +9,13 @@ import AppTab from './AppTab';
 
 type Tab = 'repos' | 'scheduler' | 'analytics' | 'app';
 
+const TAB_LABELS: Record<Tab, string> = {
+  repos: 'repos',
+  scheduler: 'Default scheduler',
+  analytics: 'analytics',
+  app: 'app',
+};
+
 interface Props {
   onClose: () => void;
   onTimezoneChange?: (_tz: string) => void;
@@ -34,13 +41,13 @@ export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange,
             aria-selected={activeTab === tab}
             onClick={() => setActiveTab(tab)}
             className={[
-              'px-4 py-3 text-sm font-medium border-b-2 -mb-px capitalize focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+              'px-4 py-3 text-sm font-medium border-b-2 -mb-px focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
               activeTab === tab
                 ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
                 : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300',
             ].join(' ')}
           >
-            {tab}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
