@@ -173,6 +173,37 @@ describe('RepoConfigureModal — remove flow (§15.3.4)', () => {
   });
 });
 
+describe('RepoConfigureModal — onCredentialChange callback (§15 review fix 4)', () => {
+  it('calls onCredentialChange after a successful save', async () => {
+    const onCredentialChange = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'save_repo_scheduler_key') return null;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} onCredentialChange={onCredentialChange} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    const keyInput = await screen.findByPlaceholderText(/api key/i);
+    fireEvent.change(keyInput, { target: { value: 'sk-test-abc123' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(onCredentialChange).toHaveBeenCalledOnce());
+  });
+
+  it('calls onCredentialChange after a successful remove', async () => {
+    const onCredentialChange = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
+      if (cmd === 'remove_repo_scheduler_key') return null;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} onCredentialChange={onCredentialChange} />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() => expect(onCredentialChange).toHaveBeenCalledOnce());
+  });
+});
+
 describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
   it('shows a Test connection button in the form', async () => {
     mockInvoke.mockResolvedValue(null);
