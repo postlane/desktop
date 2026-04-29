@@ -280,3 +280,20 @@ describe('RepoConfigureModal — save flow', () => {
     );
   });
 });
+
+describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () => {
+  it('shows a "no scheduler configured" message when currentProvider is null', () => {
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
+    expect(screen.getByText(/no scheduler configured/i)).toBeInTheDocument();
+  });
+
+  it('does not show loading indicator when currentProvider is null', () => {
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows a "Configure" button linking to Default scheduler tab when currentProvider is null', () => {
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /set up default scheduler/i })).toBeInTheDocument();
+  });
+});
