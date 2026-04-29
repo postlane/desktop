@@ -50,8 +50,13 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
 
 pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
-pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str) {
-    state.telemetry.record(consent, "provider_configured", serde_json::json!({"provider": provider}));
+pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str, repo_id: Option<&str>) {
+    let scope = if repo_id.is_some() { "repo" } else { "global" };
+    let mut props = serde_json::json!({"provider": provider, "scope": scope});
+    if let Some(id) = repo_id {
+        props["repo_id"] = serde_json::Value::String(id.to_string());
+    }
+    state.telemetry.record(consent, "provider_configured", props);
 }
 
 pub fn save_scheduler_credential_impl(
@@ -128,7 +133,7 @@ pub fn save_scheduler_credential(
         .set_password("postlane", &keyring_key, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    record_provider_configured(&state, consent, &provider);
+    record_provider_configured(&state, consent, &provider, None);
     Ok(())
 }
 
@@ -205,7 +210,7 @@ pub fn save_repo_scheduler_key_impl(
     if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
-    record_provider_configured(state, consent, provider);
+    record_provider_configured(state, consent, provider, Some(repo_id));
     Ok(())
 }
 
@@ -235,6 +240,18 @@ pub fn save_repo_scheduler_key(
     app.keyring()
         .set_password("postlane", &keyring_key, &key)
         .map_err(|e| format!("Failed to store per-repo credential: {}", e))
+}
+
+/// Validates provider is known and, when a repo_id is provided, that it is registered.
+/// Global callers (SchedulerTab, WebhookPanel, Wizard) pass None; per-repo callers pass Some.
+pub fn validate_scheduler_registration_impl(repo_id: Option<&str>, provider: &str, state: &AppState) -> Result<bool, String> {
+    if let Some(id) = repo_id {
+        validate_repo_registered(id, state)?;
+    }
+    if !VALID_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    Ok(true)
 }
 
 pub fn is_keyring_not_found(error_msg: &str) -> bool {
@@ -429,7 +446,7 @@ mod tests {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, true, "zernio");
+        record_provider_configured(&state, true, "zernio", None);
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
@@ -438,7 +455,74 @@ mod tests {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, false, "zernio");
+        record_provider_configured(&state, false, "zernio", None);
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+    }
+
+    // --- telemetry payload ---
+
+    #[test]
+    fn test_save_repo_scheduler_key_telemetry_includes_repo_id_and_scope() {
+        let state = make_state_with_repo("r1");
+        save_repo_scheduler_key_impl("r1", "zernio", &state, true).unwrap();
+        let events = state.telemetry.peek_queue();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].properties["repo_id"], "r1", "per-repo event must include repo_id");
+        assert_eq!(events[0].properties["scope"], "repo", "per-repo event must have scope=repo");
+    }
+
+    #[test]
+    fn test_record_provider_configured_global_has_scope_global_and_no_repo_id() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        record_provider_configured(&state, true, "zernio", None);
+        let events = state.telemetry.peek_queue();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].properties["scope"], "global", "global event must have scope=global");
+        assert!(events[0].properties.get("repo_id").is_none(), "global event must not include repo_id");
+    }
+
+    // --- validate_scheduler_registration_impl Security Rule 2 ---
+
+    #[test]
+    fn test_validate_scheduler_registration_rejects_unregistered_repo() {
+        let state = make_state_with_repo("r1");
+        let result = validate_scheduler_registration_impl(Some("attacker-id"), "zernio", &state);
+        assert!(result.is_err(), "must reject repo_id not in repos.json (Security Rule 2)");
+    }
+
+    #[test]
+    fn test_validate_scheduler_registration_accepts_registered_repo_with_valid_provider() {
+        let state = make_state_with_repo("r1");
+        let result = validate_scheduler_registration_impl(Some("r1"), "zernio", &state);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_scheduler_registration_rejects_invalid_provider() {
+        let state = make_state_with_repo("r1");
+        let result = validate_scheduler_registration_impl(Some("r1"), "not_a_provider", &state);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_scheduler_registration_without_repo_id_skips_repo_validation() {
+        // Global callers (SchedulerTab, WebhookPanel, Wizard) pass no repo_id.
+        // They must still pass if the provider is known.
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = validate_scheduler_registration_impl(None, "zernio", &empty_state);
+        assert!(result.is_ok(), "global callers without repo_id must succeed for valid providers");
+    }
+
+    #[test]
+    fn test_validate_scheduler_registration_without_repo_id_still_rejects_unknown_provider() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = validate_scheduler_registration_impl(None, "not_a_provider", &empty_state);
+        assert!(result.is_err());
     }
 }

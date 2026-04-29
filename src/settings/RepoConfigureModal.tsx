@@ -7,6 +7,15 @@ import {
   Dialog, DialogActions, DialogBody, DialogTitle,
 } from '../components/catalyst/dialog';
 const CONFIGURE_PROVIDERS = ['zernio', 'buffer', 'ayrshare', 'publer', 'outstand', 'substack_notes'] as const;
+
+function friendlyKeychainError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes('locked')) return 'Keychain locked — unlock it and try again.';
+  if (lower.includes('permission denied') || lower.includes('access denied')) {
+    return 'Access denied to keychain — check your system permissions.';
+  }
+  return raw;
+}
 type ConfigureProvider = typeof CONFIGURE_PROVIDERS[number];
 
 interface Props {
@@ -27,8 +36,10 @@ const PROVIDER_LABELS: Record<ConfigureProvider, string> = {
 function NoProviderView({ onClose }: { onClose: () => void }) {
   return (
     <div className="space-y-3">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">No scheduler configured for this repo.</p>
-      <Button outline onClick={onClose}>Set up default scheduler</Button>
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        No scheduler configured. Switch to the Default scheduler tab to set one up, then come back here.
+      </p>
+      <Button outline onClick={onClose}>Close and open Default scheduler</Button>
     </div>
   );
 }
@@ -91,6 +102,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   async function handleSave() {
     if (!keyInput.trim()) return;
@@ -100,20 +112,24 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
       const masked = `••••••••${keyInput.slice(-4)}`;
       onSaved(provider, masked);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save');
+      setSaveError(friendlyKeychainError(e instanceof Error ? e.message : 'Failed to save'));
     } finally { setSaving(false); }
   }
 
   async function handleTest() {
-    setTesting(true); setTestResult(null);
-    try { await invoke('test_scheduler', { provider }); setTestResult('ok'); }
-    catch { setTestResult('error'); }
-    finally { setTesting(false); }
+    setTesting(true); setTestResult(null); setTestError(null);
+    try {
+      await invoke('test_scheduler', { provider, repoId });
+      setTestResult('ok');
+    } catch (e) {
+      setTestError(friendlyKeychainError(e instanceof Error ? e.message : 'Test failed'));
+      setTestResult('error');
+    } finally { setTesting(false); }
   }
 
   return (
     <div className="space-y-3">
-      <ProviderSelect value={provider} onChange={(v) => { setProvider(v); setTestResult(null); }} />
+      <ProviderSelect value={provider} onChange={(v) => { setProvider(v); setTestResult(null); setTestError(null); }} />
       <input
         type="password"
         value={keyInput}
@@ -125,8 +141,8 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
       <div className="flex items-center gap-2">
         <Button onClick={handleSave} disabled={saving || !keyInput.trim()}>{saving ? 'Saving…' : 'Save'}</Button>
         <Button outline onClick={handleTest} disabled={testing}>Test connection</Button>
-        {testResult === 'ok' && <span className="text-xs text-green-600">✓</span>}
-        {testResult === 'error' && <span className="text-xs text-red-600">Failed</span>}
+        {testResult === 'ok' && <span className="text-xs text-green-600">Provider recognized</span>}
+        {testResult === 'error' && <span className="text-xs text-red-600">{testError ?? 'Failed'}</span>}
         <Button plain onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -174,7 +190,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
       setMaskedKey(null); setMode('default'); setShowForm(false);
       onCredentialChange?.();
     } catch (e) {
-      setRemoveError(e instanceof Error ? e.message : 'Failed to remove credential');
+      setRemoveError(friendlyKeychainError(e instanceof Error ? e.message : 'Failed to remove credential'));
     }
   }
 

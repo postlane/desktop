@@ -213,7 +213,7 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     expect(await screen.findByRole('button', { name: /test connection/i })).toBeInTheDocument();
   });
 
-  it('Test connection button calls test_scheduler with the selected provider', async () => {
+  it('Test connection button calls test_scheduler with the selected provider and repoId', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'test_scheduler') return true;
@@ -224,11 +224,11 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
     fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'zernio' }),
+      expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'zernio', repoId: 'r1' }),
     );
   });
 
-  it('shows success tick after a passing connection test', async () => {
+  it('shows success indicator after a passing connection test', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'test_scheduler') return true;
@@ -238,7 +238,20 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
     fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
     fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
-    await waitFor(() => expect(screen.getByText(/✓/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/provider recognized/i)).toBeInTheDocument());
+  });
+
+  it('shows error message when test_scheduler throws', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'test_scheduler') throw new Error('Repo not registered');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
+    await waitFor(() => expect(screen.getByText(/repo not registered/i)).toBeInTheDocument());
   });
 });
 
@@ -281,6 +294,22 @@ describe('RepoConfigureModal — save flow', () => {
   });
 });
 
+describe('RepoConfigureModal — friendly keychain errors (§15 review fix 8)', () => {
+  it('maps a raw keychain lock error to an actionable message on remove', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
+      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain is locked');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/unlock.*try again/i)).toBeInTheDocument(),
+    );
+  });
+});
+
 describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () => {
   it('shows a "no scheduler configured" message when currentProvider is null', () => {
     render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
@@ -292,8 +321,17 @@ describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows a "Configure" button linking to Default scheduler tab when currentProvider is null', () => {
+  it('shows instructions pointing to the Default scheduler tab when currentProvider is null', () => {
     render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /set up default scheduler/i })).toBeInTheDocument();
+    expect(screen.getByText(/default scheduler tab/i)).toBeInTheDocument();
+  });
+
+  it('shows a button to close the modal and go set up the default scheduler', () => {
+    const onClose = vi.fn();
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={onClose} />);
+    const btn = screen.getByRole('button', { name: /close and open default scheduler/i });
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

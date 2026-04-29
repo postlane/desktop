@@ -85,73 +85,6 @@ function ProfileSelector({ repoId, credentialVersion }: ProfileSelectorProps) {
   );
 }
 
-interface RepoSchedulerKeyProps {
-  repoId: string;
-  provider: string;
-  onCredentialChange: () => void;
-}
-
-function RepoSchedulerKey({ repoId, provider, onCredentialChange }: RepoSchedulerKeyProps) {
-  const [maskedKey, setMaskedKey] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [keyInput, setKeyInput] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try { const result = await invoke<string | null>('get_scheduler_credential', { provider, repoId }); setMaskedKey(result ?? null); }
-    catch { setMaskedKey(null); }
-  }, [provider, repoId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  async function handleSave() {
-    if (!keyInput.trim()) return;
-    setSaving(true); setSaveError(null);
-    try {
-      await invoke('save_scheduler_credential', { provider, apiKey: keyInput.trim(), repoId });
-      setKeyInput(''); setAdding(false); await load(); onCredentialChange();
-    } catch (e) { setSaveError(e instanceof Error ? e.message : String(e)); }
-    finally { setSaving(false); }
-  }
-
-  async function handleRemove() {
-    try { await invoke('delete_scheduler_credential', { provider, repoId }); await load(); onCredentialChange(); }
-    catch (e) { console.error('delete_scheduler_credential failed:', e); }
-  }
-
-  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
-
-  return (
-    <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-700">
-      <p className="mb-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">{providerLabel} API key</p>
-      {adding ? (
-        <div className="space-y-2">
-          <input type="password" value={keyInput} onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="Paste API key…"
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          />
-          {saveError && <p className="text-xs text-red-500">{saveError}</p>}
-          <div className="flex gap-2">
-            <Button onClick={handleSave} disabled={saving || !keyInput.trim()}>{saving ? 'Saving…' : 'Save'}</Button>
-            <Button outline onClick={() => { setAdding(false); setKeyInput(''); setSaveError(null); }}>Cancel</Button>
-          </div>
-        </div>
-      ) : maskedKey ? (
-        <div className="flex items-center gap-3">
-          <span className="flex-1 font-mono text-xs text-zinc-500">{maskedKey}</span>
-          <Button outline onClick={handleRemove}>Remove override</Button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-3">
-          <span className="flex-1 text-xs text-zinc-400">Using global key</span>
-          <Button outline onClick={() => setAdding(true)}>Override for this repo</Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveConfirm }: {
   repo: RepoWithStatus;
   togglingIds: Set<string>;
@@ -197,9 +130,6 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
           )}
         </div>
       </div>
-      {!isNotFound && repo.provider && (
-        <RepoSchedulerKey repoId={repo.id} provider={repo.provider} onCredentialChange={() => setCredentialVersion((v) => v + 1)} />
-      )}
       {!isNotFound && <ProfileSelector repoId={repo.id} credentialVersion={credentialVersion} />}
       {configureOpen && <RepoConfigureModal repoId={repo.id} repoName={repo.name}
         currentProvider={repo.provider} onClose={() => setConfigureOpen(false)}
