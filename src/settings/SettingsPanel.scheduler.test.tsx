@@ -366,11 +366,11 @@ describe('SettingsPanel — attribution toggle — on and error', () => {
 });
 
 describe('SettingsPanel — ReposTab credential version bump', () => {
-  it('saving a scheduler credential in the Repos tab bumps the credential version', async () => {
+  it('saving a per-repo key via Configure modal triggers a profile list refresh', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_repos') return [makeRepo({ provider: 'zernio' })];
-      if (cmd === 'get_scheduler_credential') throw new Error('not found');
-      if (cmd === 'save_scheduler_credential') return null;
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'save_repo_scheduler_key') return null;
       if (cmd === 'list_profiles_for_repo') return [];
       if (cmd === 'get_account_ids') return {};
       if (cmd === 'get_app_version') return '0.1.0';
@@ -379,18 +379,21 @@ describe('SettingsPanel — ReposTab credential version bump', () => {
     });
     render(<SettingsPanel onClose={vi.fn()} />);
     await waitFor(() => screen.getByText('my-app'));
-    fireEvent.click(await screen.findByRole('button', { name: /override for this repo/i }));
-    const input = await screen.findByPlaceholderText(/paste api key/i);
+    fireEvent.click(await screen.findByRole('button', { name: /configure/i }));
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    const input = await screen.findByPlaceholderText(/api key/i);
     fireEvent.change(input, { target: { value: 'sk-zernio-test' } });
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith(
-        'save_scheduler_credential',
-        expect.objectContaining({ apiKey: 'sk-zernio-test' }),
+        'save_repo_scheduler_key',
+        expect.objectContaining({ key: 'sk-zernio-test' }),
       ),
     );
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('list_profiles_for_repo', expect.anything()),
-    );
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'list_profiles_for_repo');
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });

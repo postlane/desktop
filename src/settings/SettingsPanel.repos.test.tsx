@@ -294,6 +294,22 @@ describe('SettingsPanel — ReposTab action errors — part 2', () => {
   });
 });
 
+describe('SettingsPanel — no inline scheduler key section (§15 review fix 1)', () => {
+  it('does not render an inline API key section for a repo with a provider', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [makeRepo({ provider: 'zernio' })];
+      if (cmd === 'list_profiles_for_repo') return [];
+      if (cmd === 'get_account_ids') return {};
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText('my-app'));
+    expect(screen.queryByText(/zernio api key/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('SettingsPanel — ReposTab toggle in-flight guard', () => {
   it('second toggle click is ignored while first is in flight', async () => {
     let resolve!: () => void;
