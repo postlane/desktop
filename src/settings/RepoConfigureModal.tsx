@@ -6,7 +6,8 @@ import { Button } from '../components/catalyst/button';
 import {
   Dialog, DialogActions, DialogBody, DialogTitle,
 } from '../components/catalyst/dialog';
-import { PROVIDERS } from './SchedulerTab';
+const CONFIGURE_PROVIDERS = ['zernio', 'buffer', 'ayrshare', 'publer', 'outstand', 'substack_notes'] as const;
+type ConfigureProvider = typeof CONFIGURE_PROVIDERS[number];
 
 interface Props {
   repoId: string;
@@ -17,7 +18,7 @@ interface Props {
 
 type SchedulerMode = 'default' | 'custom';
 
-const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<ConfigureProvider, string> = {
   zernio: 'Zernio', buffer: 'Buffer', ayrshare: 'Ayrshare',
   publer: 'Publer', outstand: 'Outstand', substack_notes: 'Substack Notes',
 };
@@ -85,7 +86,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
           onChange={(e) => setProvider(e.target.value)}
           className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         >
-          {PROVIDERS.map((p) => (
+          {CONFIGURE_PROVIDERS.map((p) => (
             <option key={p} value={p}>{PROVIDER_LABELS[p] ?? p}</option>
           ))}
         </select>
@@ -109,7 +110,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
 export default function RepoConfigureModal({ repoId, repoName, currentProvider, onClose }: Props) {
   const [mode, setMode] = useState<SchedulerMode>('default');
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
-  const [activeProvider, setActiveProvider] = useState(currentProvider ?? PROVIDERS[0]);
+  const [activeProvider, setActiveProvider] = useState(currentProvider ?? CONFIGURE_PROVIDERS[0]);
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
