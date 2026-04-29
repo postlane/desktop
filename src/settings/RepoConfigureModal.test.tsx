@@ -281,6 +281,22 @@ describe('RepoConfigureModal — save flow', () => {
   });
 });
 
+describe('RepoConfigureModal — friendly keychain errors (§15 review fix 8)', () => {
+  it('maps a raw keychain lock error to an actionable message on remove', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
+      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain is locked');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/unlock.*try again/i)).toBeInTheDocument(),
+    );
+  });
+});
+
 describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () => {
   it('shows a "no scheduler configured" message when currentProvider is null', () => {
     render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);

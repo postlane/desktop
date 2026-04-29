@@ -7,6 +7,15 @@ import {
   Dialog, DialogActions, DialogBody, DialogTitle,
 } from '../components/catalyst/dialog';
 const CONFIGURE_PROVIDERS = ['zernio', 'buffer', 'ayrshare', 'publer', 'outstand', 'substack_notes'] as const;
+
+function friendlyKeychainError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes('locked')) return 'Keychain locked — unlock it and try again.';
+  if (lower.includes('permission denied') || lower.includes('access denied')) {
+    return 'Access denied to keychain — check your system permissions.';
+  }
+  return raw;
+}
 type ConfigureProvider = typeof CONFIGURE_PROVIDERS[number];
 
 interface Props {
@@ -99,7 +108,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
       const masked = `••••••••${keyInput.slice(-4)}`;
       onSaved(provider, masked);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save');
+      setSaveError(friendlyKeychainError(e instanceof Error ? e.message : 'Failed to save'));
     } finally { setSaving(false); }
   }
 
@@ -173,7 +182,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
       setMaskedKey(null); setMode('default'); setShowForm(false);
       onCredentialChange?.();
     } catch (e) {
-      setRemoveError(e instanceof Error ? e.message : 'Failed to remove credential');
+      setRemoveError(friendlyKeychainError(e instanceof Error ? e.message : 'Failed to remove credential'));
     }
   }
 
