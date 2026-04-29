@@ -290,6 +290,8 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
             scheduler_credentials::save_scheduler_credential,
             scheduler_credentials::get_scheduler_credential,
             scheduler_credentials::delete_scheduler_credential,
+            scheduler_credentials::save_repo_scheduler_key,
+            scheduler_credentials::remove_repo_scheduler_key,
             commands::test_scheduler,
             commands::cancel_post_command,
             commands::get_queue_command,
