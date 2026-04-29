@@ -237,6 +237,16 @@ pub fn save_repo_scheduler_key(
         .map_err(|e| format!("Failed to store per-repo credential: {}", e))
 }
 
+/// Validates that repo_id is registered and provider is known.
+/// Backing logic for the `test_scheduler` Tauri command.
+pub fn test_scheduler_impl(repo_id: &str, provider: &str, state: &AppState) -> Result<bool, String> {
+    validate_repo_registered(repo_id, state)?;
+    if !VALID_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    Ok(true)
+}
+
 pub fn is_keyring_not_found(error_msg: &str) -> bool {
     let lower = error_msg.to_lowercase();
     lower.contains("no entry")
@@ -440,5 +450,28 @@ mod tests {
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
         record_provider_configured(&state, false, "zernio");
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+    }
+
+    // --- test_scheduler_impl Security Rule 2 ---
+
+    #[test]
+    fn test_test_scheduler_rejects_unregistered_repo() {
+        let state = make_state_with_repo("r1");
+        let result = test_scheduler_impl("attacker-id", "zernio", &state);
+        assert!(result.is_err(), "must reject repo_id not in repos.json (Security Rule 2)");
+    }
+
+    #[test]
+    fn test_test_scheduler_accepts_registered_repo_with_valid_provider() {
+        let state = make_state_with_repo("r1");
+        let result = test_scheduler_impl("r1", "zernio", &state);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_test_scheduler_rejects_invalid_provider() {
+        let state = make_state_with_repo("r1");
+        let result = test_scheduler_impl("r1", "not_a_provider", &state);
+        assert!(result.is_err());
     }
 }

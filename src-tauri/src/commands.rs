@@ -15,19 +15,15 @@ pub use crate::scheduler_credentials::{
     delete_scheduler_credential_impl, get_credential_keyring_key, get_libsecret_status,
     get_scheduler_credential, get_scheduler_credential_impl, has_scheduler_configured,
     has_scheduler_configured_impl, mask_credential, save_scheduler_credential,
-    save_scheduler_credential_impl,
+    save_scheduler_credential_impl, test_scheduler_impl,
 };
 
 use crate::app_state::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub fn test_scheduler(provider: String, _state: State<AppState>) -> Result<bool, String> {
-    let valid_providers = ["zernio", "buffer", "ayrshare"];
-    if !valid_providers.contains(&provider.as_str()) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
-    Ok(true)
+pub fn test_scheduler(repo_id: String, provider: String, state: State<AppState>) -> Result<bool, String> {
+    test_scheduler_impl(&repo_id, &provider, &state)
 }
 
 #[tauri::command]
