@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
+use crate::post_io::read_repo_config_provider;
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
@@ -20,13 +21,6 @@ pub struct RepoWithStatus {
     pub provider: Option<String>,
 }
 
-fn read_repo_provider(repo_path: &str) -> Option<String> {
-    let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
-    let content = fs::read_to_string(config_path).ok()?;
-    let config: serde_json::Value = serde_json::from_str(&content).ok()?;
-    config["scheduler"]["provider"].as_str().map(|s| s.to_string())
-}
-
 pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
     let repos = state
         .repos
@@ -39,7 +33,7 @@ pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
         .map(|repo| {
             let path_exists = std::path::Path::new(&repo.path).exists();
             let (ready_count, failed_count, last_post_at) = scan_post_statuses(&repo.path);
-            let provider = read_repo_provider(&repo.path);
+            let provider = read_repo_config_provider(&repo.path);
             RepoWithStatus {
                 id: repo.id.clone(),
                 name: repo.name.clone(),

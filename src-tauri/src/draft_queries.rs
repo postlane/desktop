@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::post_io::{collect_posts_from_dir, sort_by_status_priority_then_timestamp};
+use crate::post_io::{collect_posts_from_repos, sort_by_status_priority_then_timestamp};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
 use tauri::State;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -90,24 +89,8 @@ fn sort_drafts(drafts: &mut [DraftPost]) {
 }
 
 pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-
-    let mut drafts: Vec<DraftPost> = Vec::new();
-
-    for repo in repos.repos.iter().filter(|r| r.active) {
-        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
-        if !posts_dir.exists() {
-            continue;
-        }
-
-        drafts.extend(collect_posts_from_dir(&posts_dir, |p| {
-            parse_draft_post(p, &repo.id, &repo.name, &repo.path)
-        }));
-    }
-
+    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut drafts = collect_posts_from_repos(&repos.repos, true, parse_draft_post);
     sort_drafts(&mut drafts);
     Ok(drafts)
 }

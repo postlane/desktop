@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use std::{cmp::Ordering, fs, path::Path};
+use std::{cmp::Ordering, fs, path::{Path, PathBuf}};
 
 /// Collect posts from a directory by applying `parse` to each entry path.
 /// Returns an empty vec if the directory cannot be read.
@@ -12,6 +12,40 @@ pub(crate) fn collect_posts_from_dir<T>(
         Ok(entries) => entries.flatten().filter_map(|e| parse(&e.path())).collect(),
         Err(_) => vec![],
     }
+}
+
+/// Read `scheduler.provider` from a repo's `.postlane/config.json`.
+/// Returns `None` if the file is absent, unreadable, or the field is missing.
+pub(crate) fn read_repo_config_provider(repo_path: &str) -> Option<String> {
+    let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
+    let content = fs::read_to_string(config_path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    v.get("scheduler")
+        .and_then(|s| s.get("provider"))
+        .and_then(|p| p.as_str())
+        .map(String::from)
+}
+
+/// Iterate repos, entering each `.postlane/posts` directory, and collect results
+/// by calling `parse(post_path, repo_id, repo_name, repo_path)` for every entry.
+///
+/// When `active_only` is true, inactive repos are skipped entirely.
+pub(crate) fn collect_posts_from_repos<T>(
+    repos: &[crate::storage::Repo],
+    active_only: bool,
+    parse: impl Fn(&Path, &str, &str, &str) -> Option<T>,
+) -> Vec<T> {
+    let mut results = Vec::new();
+    for repo in repos.iter().filter(|r| !active_only || r.active) {
+        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
+        if !posts_dir.exists() {
+            continue;
+        }
+        results.extend(collect_posts_from_dir(&posts_dir, |p| {
+            parse(p, &repo.id, &repo.name, &repo.path)
+        }));
+    }
+    results
 }
 
 /// Sort a slice so that items with `priority_status` come before items with `other_status`,
@@ -138,5 +172,67 @@ mod tests {
         );
         assert!(items[0].ts.is_none());
         assert_eq!(items[1].ts.as_deref(), Some("2024-01-01"));
+    }
+
+    // --- collect_posts_from_repos ---
+
+    fn make_repo(id: &str, path: &str, active: bool) -> crate::storage::Repo {
+        crate::storage::Repo {
+            id: id.into(), name: id.into(),
+            path: path.into(), active,
+            added_at: "2024-01-01T00:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn collect_posts_from_repos_gathers_from_all_repos() {
+        let dir1 = std::env::temp_dir().join("postlane_test_cfr_r1");
+        let dir2 = std::env::temp_dir().join("postlane_test_cfr_r2");
+        for d in [&dir1, &dir2] {
+            let posts = d.join(".postlane/posts/p1");
+            fs::create_dir_all(&posts).unwrap();
+            fs::write(posts.join("meta.json"), "{}").unwrap();
+        }
+
+        let repos = vec![
+            make_repo("r1", dir1.to_str().unwrap(), true),
+            make_repo("r2", dir2.to_str().unwrap(), true),
+        ];
+        let results: Vec<String> = collect_posts_from_repos(&repos, false, |_p, id, _name, _path| Some(id.to_string()));
+        assert_eq!(results.len(), 2);
+
+        let _ = fs::remove_dir_all(&dir1);
+        let _ = fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn collect_posts_from_repos_skips_inactive_when_active_only() {
+        let dir = std::env::temp_dir().join("postlane_test_cfr_inactive");
+        let posts = dir.join(".postlane/posts/p1");
+        fs::create_dir_all(&posts).unwrap();
+        fs::write(posts.join("meta.json"), "{}").unwrap();
+
+        let repos = vec![make_repo("r1", dir.to_str().unwrap(), false)];
+        let results: Vec<String> = collect_posts_from_repos(&repos, true, |_p, id, _name, _path| Some(id.to_string()));
+        assert!(results.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- read_repo_config_provider ---
+
+    #[test]
+    fn read_repo_config_provider_returns_provider_from_config() {
+        let dir = std::env::temp_dir().join("postlane_test_rrcp");
+        let config_dir = dir.join(".postlane");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).unwrap();
+        assert_eq!(read_repo_config_provider(dir.to_str().unwrap()), Some("zernio".into()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_repo_config_provider_returns_none_when_missing() {
+        assert_eq!(read_repo_config_provider("/nonexistent/path"), None);
     }
 }
