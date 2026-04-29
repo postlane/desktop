@@ -51,6 +51,24 @@ function ConfiguredView({ maskedKey, removeError, onChange, onRemove }: {
   );
 }
 
+function ProviderSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label htmlFor="scheduler-provider" className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
+        Provider
+      </label>
+      <select id="scheduler-provider" aria-label="Provider" value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      >
+        {CONFIGURE_PROVIDERS.map((p) => (
+          <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   repoId: string;
   initialProvider: string;
@@ -61,6 +79,8 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
 
   async function handleSave() {
     if (!keyInput.trim()) return;
@@ -74,24 +94,16 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
     } finally { setSaving(false); }
   }
 
+  async function handleTest() {
+    setTesting(true); setTestResult(null);
+    try { await invoke('test_scheduler', { provider }); setTestResult('ok'); }
+    catch { setTestResult('error'); }
+    finally { setTesting(false); }
+  }
+
   return (
     <div className="space-y-3">
-      <div>
-        <label htmlFor="scheduler-provider" className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-1">
-          Provider
-        </label>
-        <select
-          id="scheduler-provider"
-          aria-label="Provider"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        >
-          {CONFIGURE_PROVIDERS.map((p) => (
-            <option key={p} value={p}>{PROVIDER_LABELS[p] ?? p}</option>
-          ))}
-        </select>
-      </div>
+      <ProviderSelect value={provider} onChange={(v) => { setProvider(v); setTestResult(null); }} />
       <input
         type="password"
         value={keyInput}
@@ -100,8 +112,11 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
         className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       />
       {saveError && <p className="text-xs text-red-600">{saveError}</p>}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <Button onClick={handleSave} disabled={saving || !keyInput.trim()}>{saving ? 'Saving…' : 'Save'}</Button>
+        <Button outline onClick={handleTest} disabled={testing}>Test connection</Button>
+        {testResult === 'ok' && <span className="text-xs text-green-600">✓</span>}
+        {testResult === 'error' && <span className="text-xs text-red-600">Failed</span>}
         <Button plain onClick={onCancel}>Cancel</Button>
       </div>
     </div>
