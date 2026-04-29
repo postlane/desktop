@@ -24,6 +24,15 @@ const PROVIDER_LABELS: Record<ConfigureProvider, string> = {
   publer: 'Publer', outstand: 'Outstand', substack_notes: 'Substack Notes',
 };
 
+function NoProviderView({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">No scheduler configured for this repo.</p>
+      <Button outline onClick={onClose}>Set up default scheduler</Button>
+    </div>
+  );
+}
+
 function DefaultView({ onSwitchToCustom }: { onSwitchToCustom: () => void }) {
   return (
     <div className="space-y-3">
@@ -124,6 +133,22 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   );
 }
 
+type SchedulerBodyProps = {
+  currentProvider: string | null; loading: boolean; mode: SchedulerMode;
+  maskedKey: string | null; showForm: boolean; removeError: string | null;
+  repoId: string; activeProvider: string;
+  onClose: () => void; onSwitchToCustom: () => void;
+  onRemove: () => void; onSaved: (provider: string, masked: string) => void; onCancelForm: () => void;
+};
+
+function SchedulerBody(p: SchedulerBodyProps) {
+  if (!p.currentProvider) return <NoProviderView onClose={p.onClose} />;
+  if (p.loading) return <p role="status" className="text-xs text-zinc-400">Loading…</p>;
+  if (p.showForm) return <CustomForm repoId={p.repoId} initialProvider={p.activeProvider} onSaved={p.onSaved} onCancel={p.onCancelForm} />;
+  if (p.mode === 'custom' && p.maskedKey) return <ConfiguredView maskedKey={p.maskedKey} removeError={p.removeError} onChange={p.onSwitchToCustom} onRemove={p.onRemove} />;
+  return <DefaultView onSwitchToCustom={p.onSwitchToCustom} />;
+}
+
 export default function RepoConfigureModal({ repoId, repoName, currentProvider, onClose, onCredentialChange }: Props) {
   const [mode, setMode] = useState<SchedulerMode>('default');
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
@@ -163,21 +188,13 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
       <DialogTitle>Configure {repoName}</DialogTitle>
       <DialogBody>
         <h3 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">Scheduler</h3>
-        {loading && <p role="status" className="text-xs text-zinc-400">Loading…</p>}
-        {!loading && mode === 'default' && !showForm && (
-          <DefaultView onSwitchToCustom={() => setShowForm(true)} />
-        )}
-        {!loading && mode === 'custom' && maskedKey && !showForm && (
-          <ConfiguredView maskedKey={maskedKey} removeError={removeError} onChange={() => setShowForm(true)} onRemove={handleRemove} />
-        )}
-        {showForm && (
-          <CustomForm
-            repoId={repoId}
-            initialProvider={activeProvider}
-            onSaved={handleSaved}
-            onCancel={() => setShowForm(false)}
-          />
-        )}
+        <SchedulerBody
+          currentProvider={currentProvider} loading={loading} mode={mode}
+          maskedKey={maskedKey} showForm={showForm} removeError={removeError}
+          repoId={repoId} activeProvider={activeProvider}
+          onClose={onClose} onSwitchToCustom={() => setShowForm(true)}
+          onRemove={handleRemove} onSaved={handleSaved} onCancelForm={() => setShowForm(false)}
+        />
       </DialogBody>
       <DialogActions>
         <Button plain onClick={onClose}>Close</Button>
