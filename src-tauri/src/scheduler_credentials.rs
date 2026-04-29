@@ -152,6 +152,72 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
+pub fn validate_repo_registered(repo_id: &str, state: &AppState) -> Result<(), String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    repos
+        .repos
+        .iter()
+        .find(|r| r.id == repo_id)
+        .ok_or_else(|| format!("Repo {} not found in repos.json", repo_id))?;
+    Ok(())
+}
+
+pub fn save_repo_scheduler_key_impl(
+    repo_id: &str,
+    provider: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    validate_repo_registered(repo_id, state)?;
+    if !VALID_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    Ok(())
+}
+
+pub fn remove_repo_scheduler_key_impl(
+    repo_id: &str,
+    provider: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    validate_repo_registered(repo_id, state)?;
+    if !VALID_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_repo_scheduler_key(
+    repo_id: String,
+    provider: String,
+    key: String,
+    app: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    save_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
+    let keyring_key = format!("{}/{}", provider, repo_id);
+    app.keyring()
+        .set_password("postlane", &keyring_key, &key)
+        .map_err(|e| format!("Failed to store per-repo credential: {}", e))
+}
+
+#[tauri::command]
+pub fn remove_repo_scheduler_key(
+    repo_id: String,
+    provider: String,
+    app: tauri::AppHandle,
+    state: State<AppState>,
+) -> Result<(), String> {
+    remove_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
+    let keyring_key = format!("{}/{}", provider, repo_id);
+    match app.keyring().delete_password("postlane", &keyring_key) {
+        Ok(_) | Err(_) => Ok(()),
+    }
+}
+
 /// Returns true if any provider has a credential for the given repo.
 /// Used by the per-repo scheduler setup modal to decide whether to show.
 pub fn has_scheduler_configured_impl(repo_id: &str, app: &tauri::AppHandle) -> bool {
@@ -239,6 +305,46 @@ mod tests {
         for provider in &["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"] {
             assert!(delete_scheduler_credential_impl(provider).is_ok(), "failed for {}", provider);
         }
+    }
+
+    // --- §15.3 per-repo scheduler key ---
+
+    fn make_state_with_repo(repo_id: &str) -> crate::app_state::AppState {
+        use crate::storage::{Repo, ReposConfig};
+        crate::app_state::AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: repo_id.to_string(),
+                name: "test-repo".to_string(),
+                path: "/tmp/test-repo".to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        })
+    }
+
+    #[test]
+    fn test_save_repo_scheduler_key_rejects_unregistered_repo() {
+        let state = make_state_with_repo("r1");
+        let result = save_repo_scheduler_key_impl("unregistered-id", "zernio", &state);
+        assert!(result.is_err(), "must reject repo_id not in repos.json");
+        assert!(result.unwrap_err().contains("not found"), "error must name the repo");
+    }
+
+    #[test]
+    fn test_save_repo_scheduler_key_validates_path_against_repos_json() {
+        let state = make_state_with_repo("r1");
+        let err_result = save_repo_scheduler_key_impl("attacker-id", "zernio", &state);
+        assert!(err_result.is_err(), "repo_id not in repos.json must be rejected (Security Rule 2)");
+        let ok_result = save_repo_scheduler_key_impl("r1", "zernio", &state);
+        assert!(ok_result.is_ok(), "registered repo_id must be accepted");
+    }
+
+    #[test]
+    fn test_remove_repo_scheduler_key_is_idempotent() {
+        let state = make_state_with_repo("r1");
+        let result = remove_repo_scheduler_key_impl("r1", "zernio", &state);
+        assert!(result.is_ok(), "remove must succeed even when no key is present");
     }
 
     // --- 11.11.5 telemetry ---
