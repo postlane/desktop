@@ -201,15 +201,9 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
         <RepoSchedulerKey repoId={repo.id} provider={repo.provider} onCredentialChange={() => setCredentialVersion((v) => v + 1)} />
       )}
       {!isNotFound && <ProfileSelector repoId={repo.id} credentialVersion={credentialVersion} />}
-      {configureOpen && (
-        <RepoConfigureModal
-          repoId={repo.id}
-          repoName={repo.name}
-          currentProvider={repo.provider}
-          onClose={() => setConfigureOpen(false)}
-          onCredentialChange={() => setCredentialVersion((v) => v + 1)}
-        />
-      )}
+      {configureOpen && <RepoConfigureModal repoId={repo.id} repoName={repo.name}
+        currentProvider={repo.provider} onClose={() => setConfigureOpen(false)}
+        onCredentialChange={() => setCredentialVersion((v) => v + 1)} />}
     </div>
   );
 }
