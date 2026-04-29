@@ -212,7 +212,7 @@ export default function SchedulerTab() {
     <div className="space-y-4">
       <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Default scheduler</h2>
       <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        These credentials apply to all repos by default. Per-repo accounts will be configurable in v1.1.
+        These are your default credentials. Individual repos can use different accounts — configure per-repo in Settings → Repos → Configure.
       </p>
       <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
         <strong>macOS Keychain:</strong> API keys are stored securely in Keychain. You will be prompted once per key — click <strong>Always Allow</strong>.
