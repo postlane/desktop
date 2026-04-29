@@ -301,7 +301,7 @@ function usePostCardKeyboard(
       d: () => { e.preventDefault(); dismiss(); },
       e: () => { e.preventDefault(); setExpanded((v) => !v); },
       r: () => { if (isFailed) { e.preventDefault(); retry(); } },
-      escape: () => { e.preventDefault(); setExpanded(false); },
+      escape: () => { e.preventDefault(); setExpanded(() => false); },
     };
     actions[key]?.();
   }, [isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded]);
