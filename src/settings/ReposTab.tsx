@@ -6,6 +6,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { Button } from '../components/catalyst/button';
 import { Dialog, DialogActions, DialogDescription, DialogTitle } from '../components/catalyst/dialog';
 import type { RepoWithStatus, SchedulerProfile } from '../types';
+import RepoConfigureModal from './RepoConfigureModal';
 
 const PLATFORM_LABELS: Record<string, string> = {
   twitter: 'X', x: 'X', bluesky: 'Bluesky', mastodon: 'Mastodon', linkedin: 'LinkedIn',
@@ -159,6 +160,7 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
   onRemoveConfirm: (id: string) => void;
 }) {
   const [credentialVersion, setCredentialVersion] = useState(0);
+  const [configureOpen, setConfigureOpen] = useState(false);
   const isNotFound = !repo.path_exists;
   return (
     <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
@@ -189,6 +191,7 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
               <Button outline disabled={togglingIds.has(repo.id)} onClick={() => onToggleActive(repo.id, !repo.active)}>
                 {repo.active ? 'Deactivate' : 'Activate'}
               </Button>
+              <Button outline onClick={() => setConfigureOpen(true)}>Configure</Button>
               <Button outline onClick={() => onRemoveConfirm(repo.id)}>Remove</Button>
             </>
           )}
@@ -198,6 +201,14 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
         <RepoSchedulerKey repoId={repo.id} provider={repo.provider} onCredentialChange={() => setCredentialVersion((v) => v + 1)} />
       )}
       {!isNotFound && <ProfileSelector repoId={repo.id} credentialVersion={credentialVersion} />}
+      {configureOpen && (
+        <RepoConfigureModal
+          repoId={repo.id}
+          repoName={repo.name}
+          currentProvider={repo.provider}
+          onClose={() => setConfigureOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -152,6 +152,25 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
+/// Returns the masked per-repo scheduler key for a specific provider, or None.
+/// Unlike `get_scheduler_credential`, this does NOT fall back to the global key.
+#[tauri::command]
+pub fn get_per_repo_scheduler_key(
+    repo_id: String,
+    provider: String,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    if !VALID_PROVIDERS.contains(&provider.as_str()) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    let keyring_key = format!("{}/{}", provider, repo_id);
+    match app.keyring().get_password("postlane", &keyring_key) {
+        Ok(Some(credential)) => Ok(Some(mask_credential(&credential))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(format!("Failed to retrieve per-repo credential: {}", e)),
+    }
+}
+
 pub fn validate_repo_registered(repo_id: &str, state: &AppState) -> Result<(), String> {
     let repos = state
         .repos
