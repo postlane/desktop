@@ -24,6 +24,7 @@ pub mod published_queries;
 pub mod repo_mgmt;
 pub mod repo_queries;
 pub mod scheduler_credentials;
+pub mod security;
 pub mod scheduling;
 pub mod storage;
 pub mod telemetry;

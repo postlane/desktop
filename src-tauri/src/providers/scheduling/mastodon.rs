@@ -3,7 +3,6 @@
 use super::{build_client, parse_retry_after, Engagement, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::net::IpAddr;
 
 /// Mastodon direct-API scheduling provider.
 ///
@@ -119,7 +118,7 @@ pub async fn validate_instance_domain(instance: &str) -> Result<(), ProviderErro
     }
 
     for socket_addr in &addrs {
-        if is_private_ip(socket_addr.ip()) {
+        if crate::security::ssrf_check::is_private_ip(socket_addr.ip()) {
             return Err(ProviderError::InvalidInstance(format!(
                 "Instance {} resolves to a private IP address ({})",
                 instance,
@@ -128,24 +127,6 @@ pub async fn validate_instance_domain(instance: &str) -> Result<(), ProviderErro
         }
     }
     Ok(())
-}
-
-/// Returns true if the IP falls within a private, loopback, link-local, or ULA range.
-fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            let o = v4.octets();
-            o[0] == 127
-                || o[0] == 10
-                || (o[0] == 172 && o[1] >= 16 && o[1] <= 31)
-                || (o[0] == 192 && o[1] == 168)
-                || (o[0] == 169 && o[1] == 254)
-        }
-        IpAddr::V6(v6) => {
-            let s = v6.segments();
-            v6.is_loopback() || (s[0] & 0xfe00) == 0xfc00
-        }
-    }
 }
 
 #[async_trait]
