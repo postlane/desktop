@@ -228,7 +228,7 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     );
   });
 
-  it('shows success tick after a passing connection test', async () => {
+  it('shows success indicator after a passing connection test', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'test_scheduler') return true;
@@ -238,7 +238,20 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
     fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
     fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
-    await waitFor(() => expect(screen.getByText(/✓/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/provider recognized/i)).toBeInTheDocument());
+  });
+
+  it('shows error message when test_scheduler throws', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'test_scheduler') throw new Error('Repo not registered');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
+    await waitFor(() => expect(screen.getByText(/repo not registered/i)).toBeInTheDocument());
   });
 });
 

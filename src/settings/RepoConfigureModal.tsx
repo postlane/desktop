@@ -99,6 +99,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   async function handleSave() {
     if (!keyInput.trim()) return;
@@ -113,15 +114,19 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   }
 
   async function handleTest() {
-    setTesting(true); setTestResult(null);
-    try { await invoke('test_scheduler', { provider, repoId }); setTestResult('ok'); }
-    catch { setTestResult('error'); }
-    finally { setTesting(false); }
+    setTesting(true); setTestResult(null); setTestError(null);
+    try {
+      await invoke('test_scheduler', { provider, repoId });
+      setTestResult('ok');
+    } catch (e) {
+      setTestError(friendlyKeychainError(e instanceof Error ? e.message : 'Test failed'));
+      setTestResult('error');
+    } finally { setTesting(false); }
   }
 
   return (
     <div className="space-y-3">
-      <ProviderSelect value={provider} onChange={(v) => { setProvider(v); setTestResult(null); }} />
+      <ProviderSelect value={provider} onChange={(v) => { setProvider(v); setTestResult(null); setTestError(null); }} />
       <input
         type="password"
         value={keyInput}
@@ -133,8 +138,8 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
       <div className="flex items-center gap-2">
         <Button onClick={handleSave} disabled={saving || !keyInput.trim()}>{saving ? 'Saving…' : 'Save'}</Button>
         <Button outline onClick={handleTest} disabled={testing}>Test connection</Button>
-        {testResult === 'ok' && <span className="text-xs text-green-600">✓</span>}
-        {testResult === 'error' && <span className="text-xs text-red-600">Failed</span>}
+        {testResult === 'ok' && <span className="text-xs text-green-600">Provider recognized</span>}
+        {testResult === 'error' && <span className="text-xs text-red-600">{testError ?? 'Failed'}</span>}
         <Button plain onClick={onCancel}>Cancel</Button>
       </div>
     </div>

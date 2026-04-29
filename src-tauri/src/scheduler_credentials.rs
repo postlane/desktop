@@ -241,10 +241,12 @@ pub fn save_repo_scheduler_key(
         .map_err(|e| format!("Failed to store per-repo credential: {}", e))
 }
 
-/// Validates that repo_id is registered and provider is known.
-/// Backing logic for the `test_scheduler` Tauri command.
-pub fn test_scheduler_impl(repo_id: &str, provider: &str, state: &AppState) -> Result<bool, String> {
-    validate_repo_registered(repo_id, state)?;
+/// Validates provider is known and, when a repo_id is provided, that it is registered.
+/// Global callers (SchedulerTab, WebhookPanel, Wizard) pass None; per-repo callers pass Some.
+pub fn validate_scheduler_registration_impl(repo_id: Option<&str>, provider: &str, state: &AppState) -> Result<bool, String> {
+    if let Some(id) = repo_id {
+        validate_repo_registered(id, state)?;
+    }
     if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
@@ -470,26 +472,46 @@ mod tests {
         );
     }
 
-    // --- test_scheduler_impl Security Rule 2 ---
+    // --- validate_scheduler_registration_impl Security Rule 2 ---
 
     #[test]
-    fn test_test_scheduler_rejects_unregistered_repo() {
+    fn test_validate_scheduler_registration_rejects_unregistered_repo() {
         let state = make_state_with_repo("r1");
-        let result = test_scheduler_impl("attacker-id", "zernio", &state);
+        let result = validate_scheduler_registration_impl(Some("attacker-id"), "zernio", &state);
         assert!(result.is_err(), "must reject repo_id not in repos.json (Security Rule 2)");
     }
 
     #[test]
-    fn test_test_scheduler_accepts_registered_repo_with_valid_provider() {
+    fn test_validate_scheduler_registration_accepts_registered_repo_with_valid_provider() {
         let state = make_state_with_repo("r1");
-        let result = test_scheduler_impl("r1", "zernio", &state);
+        let result = validate_scheduler_registration_impl(Some("r1"), "zernio", &state);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_test_scheduler_rejects_invalid_provider() {
+    fn test_validate_scheduler_registration_rejects_invalid_provider() {
         let state = make_state_with_repo("r1");
-        let result = test_scheduler_impl("r1", "not_a_provider", &state);
+        let result = validate_scheduler_registration_impl(Some("r1"), "not_a_provider", &state);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_scheduler_registration_without_repo_id_skips_repo_validation() {
+        // Global callers (SchedulerTab, WebhookPanel, Wizard) pass no repo_id.
+        // They must still pass if the provider is known.
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = validate_scheduler_registration_impl(None, "zernio", &empty_state);
+        assert!(result.is_ok(), "global callers without repo_id must succeed for valid providers");
+    }
+
+    #[test]
+    fn test_validate_scheduler_registration_without_repo_id_still_rejects_unknown_provider() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = validate_scheduler_registration_impl(None, "not_a_provider", &empty_state);
         assert!(result.is_err());
     }
 }
