@@ -234,6 +234,14 @@ pub fn save_repo_scheduler_key(
         .map_err(|e| format!("Failed to store per-repo credential: {}", e))
 }
 
+pub fn is_keyring_not_found(error_msg: &str) -> bool {
+    let lower = error_msg.to_lowercase();
+    lower.contains("no entry")
+        || lower.contains("no such entry")
+        || lower.contains("not found")
+        || lower.contains("could not be found")
+}
+
 #[tauri::command]
 pub fn remove_repo_scheduler_key(
     repo_id: String,
@@ -244,7 +252,9 @@ pub fn remove_repo_scheduler_key(
     remove_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
     let keyring_key = format!("{}/{}", provider, repo_id);
     match app.keyring().delete_password("postlane", &keyring_key) {
-        Ok(_) | Err(_) => Ok(()),
+        Ok(_) => Ok(()),
+        Err(e) if is_keyring_not_found(&e.to_string()) => Ok(()),
+        Err(e) => Err(format!("Failed to remove per-repo credential: {}", e)),
     }
 }
 
@@ -351,6 +361,15 @@ mod tests {
                 added_at: "2026-01-01T00:00:00Z".to_string(),
             }],
         })
+    }
+
+    #[test]
+    fn test_is_keyring_not_found_recognises_no_entry_messages() {
+        assert!(is_keyring_not_found("No such entry exists"), "platform: Linux libsecret");
+        assert!(is_keyring_not_found("The specified item could not be found in the keychain"), "platform: macOS");
+        assert!(is_keyring_not_found("no entry found"), "generic");
+        assert!(!is_keyring_not_found("Keychain locked — user must unlock"), "genuine error must not match");
+        assert!(!is_keyring_not_found("Access denied"), "access denied is not a not-found");
     }
 
     #[test]
