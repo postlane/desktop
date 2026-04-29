@@ -310,12 +310,6 @@ impl SchedulingProvider for MastodonProvider {
 
     /// Test the connection by verifying credentials.
     ///
-    /// Returns `Ok(())` on 200, `AuthError` on 401.
-    async fn test_connection(&self) -> Result<(), ProviderError> {
-        self.list_profiles().await?;
-        Ok(())
-    }
-
     /// Fetch engagement metrics for a published post via `GET /api/v1/statuses/{post_id}`.
     ///
     /// Maps `favourites_count` → likes, `reblogs_count` → reposts, `replies_count` → replies.

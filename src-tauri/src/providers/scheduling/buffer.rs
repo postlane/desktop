@@ -265,12 +265,6 @@ impl SchedulingProvider for BufferProvider {
         Ok(all_queue)
     }
 
-    async fn test_connection(&self) -> Result<(), ProviderError> {
-        // Test connection by calling list_profiles
-        self.list_profiles().await?;
-        Ok(())
-    }
-
     async fn get_engagement(
         &self,
         post_id: &str,

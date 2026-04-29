@@ -164,11 +164,6 @@ impl SchedulingProvider for SubstackNotesProvider {
         Ok(vec![])
     }
 
-    async fn test_connection(&self) -> Result<(), ProviderError> {
-        self.list_profiles().await?;
-        Ok(())
-    }
-
     async fn get_engagement(&self, post_id: &str, _platform: &str) -> Result<Engagement, ProviderError> {
         let url = format!("{}/api/v1/comment/{}", self.base_url(), post_id);
         let response = self.client.get(&url)

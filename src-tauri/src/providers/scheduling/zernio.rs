@@ -326,13 +326,6 @@ impl SchedulingProvider for ZernioProvider {
         Ok(queue)
     }
 
-    async fn test_connection(&self) -> Result<(), ProviderError> {
-        // Test connection by making a lightweight API call to list profiles
-        // If this succeeds, we know the API key is valid
-        self.list_profiles().await?;
-        Ok(())
-    }
-
     async fn get_engagement(
         &self,
         post_id: &str,

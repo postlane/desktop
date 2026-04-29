@@ -123,8 +123,13 @@ pub trait SchedulingProvider: Send + Sync {
     /// Get the queue of scheduled posts
     async fn get_queue(&self) -> Result<Vec<crate::types::QueuedPost>, ProviderError>;
 
-    /// Test connection with the provider
-    async fn test_connection(&self) -> Result<(), ProviderError>;
+    /// Test connection with the provider.
+    /// Default implementation calls list_profiles(); providers with a lighter
+    /// test endpoint should override this.
+    async fn test_connection(&self) -> Result<(), ProviderError> {
+        self.list_profiles().await?;
+        Ok(())
+    }
 
     /// Get engagement metrics for a post
     async fn get_engagement(
@@ -219,6 +224,66 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+
+    // A provider that only overrides list_profiles — test_connection should use the default.
+    struct MinimalProvider {
+        profiles: Vec<SchedulerProfile>,
+    }
+
+    #[async_trait]
+    impl SchedulingProvider for MinimalProvider {
+        fn name(&self) -> &str { "minimal" }
+        async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> {
+            Ok(self.profiles.clone())
+        }
+        async fn schedule_post(&self, _: &str, _: &str, _: Option<chrono::DateTime<chrono::Utc>>, _: Option<&str>, _: Option<&str>) -> Result<PostScheduleResult, ProviderError> {
+            Err(ProviderError::NotSupported("not needed".into()))
+        }
+        async fn cancel_post(&self, _: &str, _: &str) -> Result<(), ProviderError> {
+            Err(ProviderError::NotSupported("not needed".into()))
+        }
+        async fn get_queue(&self) -> Result<Vec<crate::types::QueuedPost>, ProviderError> {
+            Ok(vec![])
+        }
+        async fn get_engagement(&self, _: &str, _: &str) -> Result<Engagement, ProviderError> {
+            Err(ProviderError::NotSupported("not needed".into()))
+        }
+        fn post_url(&self, _: &str, _: &str) -> Option<String> { None }
+    }
+
+    #[tokio::test]
+    async fn default_test_connection_delegates_to_list_profiles() {
+        let provider = MinimalProvider { profiles: vec![] };
+        // If SchedulingProvider has a default test_connection this compiles and passes.
+        // Without the default the trait requires an explicit impl → compile error.
+        let result = provider.test_connection().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn default_test_connection_surfaces_list_profiles_error() {
+        struct FailingProvider;
+        #[async_trait]
+        impl SchedulingProvider for FailingProvider {
+            fn name(&self) -> &str { "failing" }
+            async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> {
+                Err(ProviderError::AuthError("bad key".into()))
+            }
+            async fn schedule_post(&self, _: &str, _: &str, _: Option<chrono::DateTime<chrono::Utc>>, _: Option<&str>, _: Option<&str>) -> Result<PostScheduleResult, ProviderError> {
+                Err(ProviderError::NotSupported("".into()))
+            }
+            async fn cancel_post(&self, _: &str, _: &str) -> Result<(), ProviderError> {
+                Err(ProviderError::NotSupported("".into()))
+            }
+            async fn get_queue(&self) -> Result<Vec<crate::types::QueuedPost>, ProviderError> { Ok(vec![]) }
+            async fn get_engagement(&self, _: &str, _: &str) -> Result<Engagement, ProviderError> {
+                Err(ProviderError::NotSupported("".into()))
+            }
+            fn post_url(&self, _: &str, _: &str) -> Option<String> { None }
+        }
+        let result = FailingProvider.test_connection().await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))));
+    }
 
     #[test]
     fn parse_retry_after_returns_header_value_as_seconds() {
