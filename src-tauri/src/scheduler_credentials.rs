@@ -50,8 +50,12 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
 
 pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
-pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str) {
-    state.telemetry.record(consent, "provider_configured", serde_json::json!({"provider": provider}));
+pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str, repo_id: Option<&str>) {
+    let mut props = serde_json::json!({"provider": provider});
+    if let Some(id) = repo_id {
+        props["repo_id"] = serde_json::Value::String(id.to_string());
+    }
+    state.telemetry.record(consent, "provider_configured", props);
 }
 
 pub fn save_scheduler_credential_impl(
@@ -128,7 +132,7 @@ pub fn save_scheduler_credential(
         .set_password("postlane", &keyring_key, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    record_provider_configured(&state, consent, &provider);
+    record_provider_configured(&state, consent, &provider, None);
     Ok(())
 }
 
@@ -205,7 +209,7 @@ pub fn save_repo_scheduler_key_impl(
     if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
-    record_provider_configured(state, consent, provider);
+    record_provider_configured(state, consent, provider, Some(repo_id));
     Ok(())
 }
 
@@ -439,7 +443,7 @@ mod tests {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, true, "zernio");
+        record_provider_configured(&state, true, "zernio", None);
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
@@ -448,8 +452,22 @@ mod tests {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, false, "zernio");
+        record_provider_configured(&state, false, "zernio", None);
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+    }
+
+    // --- telemetry payload ---
+
+    #[test]
+    fn test_save_repo_scheduler_key_telemetry_includes_repo_id() {
+        let state = make_state_with_repo("r1");
+        save_repo_scheduler_key_impl("r1", "zernio", &state, true).unwrap();
+        let events = state.telemetry.peek_queue();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].properties["repo_id"], "r1",
+            "per-repo telemetry must include repo_id"
+        );
     }
 
     // --- test_scheduler_impl Security Rule 2 ---

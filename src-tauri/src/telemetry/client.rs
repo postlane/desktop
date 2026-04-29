@@ -54,6 +54,12 @@ impl TelemetryClient {
         self.queue.lock().map(|q| q.len()).unwrap_or(0)
     }
 
+    /// Returns a snapshot of queued events for test assertions.
+    #[cfg(test)]
+    pub fn peek_queue(&self) -> Vec<TelemetryEvent> {
+        self.queue.lock().map(|q| q.clone()).unwrap_or_default()
+    }
+
     /// Flushes queued events to the backend. On any error, discards without retry.
     /// Never surfaces errors to the caller.
     pub async fn flush(&self, license_token: &str) {
