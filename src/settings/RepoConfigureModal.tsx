@@ -14,6 +14,7 @@ interface Props {
   repoName: string;
   currentProvider: string | null;
   onClose: () => void;
+  onCredentialChange?: () => void;
 }
 
 type SchedulerMode = 'default' | 'custom';
@@ -123,7 +124,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
   );
 }
 
-export default function RepoConfigureModal({ repoId, repoName, currentProvider, onClose }: Props) {
+export default function RepoConfigureModal({ repoId, repoName, currentProvider, onClose, onCredentialChange }: Props) {
   const [mode, setMode] = useState<SchedulerMode>('default');
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState(currentProvider ?? CONFIGURE_PROVIDERS[0]);
@@ -146,6 +147,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
     try {
       await invoke('remove_repo_scheduler_key', { repoId, provider: activeProvider });
       setMaskedKey(null); setMode('default'); setShowForm(false);
+      onCredentialChange?.();
     } catch (e) {
       setRemoveError(e instanceof Error ? e.message : 'Failed to remove credential');
     }
@@ -153,6 +155,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
 
   function handleSaved(provider: string, masked: string) {
     setActiveProvider(provider); setMaskedKey(masked); setMode('custom'); setShowForm(false);
+    onCredentialChange?.();
   }
 
   return (

@@ -207,6 +207,7 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
           repoName={repo.name}
           currentProvider={repo.provider}
           onClose={() => setConfigureOpen(false)}
+          onCredentialChange={() => setCredentialVersion((v) => v + 1)}
         />
       )}
     </div>
