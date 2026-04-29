@@ -34,14 +34,15 @@ function DefaultView({ onSwitchToCustom }: { onSwitchToCustom: () => void }) {
   );
 }
 
-function ConfiguredView({ maskedKey, onChange, onRemove }: {
-  maskedKey: string; onChange: () => void; onRemove: () => void;
+function ConfiguredView({ maskedKey, removeError, onChange, onRemove }: {
+  maskedKey: string; removeError: string | null; onChange: () => void; onRemove: () => void;
 }) {
   return (
     <div className="space-y-2">
       <p className="text-sm text-zinc-700 dark:text-zinc-300">
         Using separate account <span className="font-mono text-xs text-zinc-500">({maskedKey})</span>
       </p>
+      {removeError && <p className="text-xs text-red-600">{removeError}</p>}
       <div className="flex gap-2">
         <Button outline onClick={onChange}>Change</Button>
         <Button outline onClick={onRemove}>Remove</Button>
@@ -113,6 +114,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
   const [activeProvider, setActiveProvider] = useState(currentProvider ?? CONFIGURE_PROVIDERS[0]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(!!currentProvider);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentProvider) return;
@@ -125,10 +127,13 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
   }, [repoId, currentProvider]);
 
   async function handleRemove() {
+    setRemoveError(null);
     try {
       await invoke('remove_repo_scheduler_key', { repoId, provider: activeProvider });
       setMaskedKey(null); setMode('default'); setShowForm(false);
-    } catch { /* non-critical */ }
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : 'Failed to remove credential');
+    }
   }
 
   function handleSaved(provider: string, masked: string) {
@@ -145,7 +150,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
           <DefaultView onSwitchToCustom={() => setShowForm(true)} />
         )}
         {!loading && mode === 'custom' && maskedKey && !showForm && (
-          <ConfiguredView maskedKey={maskedKey} onChange={() => setShowForm(true)} onRemove={handleRemove} />
+          <ConfiguredView maskedKey={maskedKey} removeError={removeError} onChange={() => setShowForm(true)} onRemove={handleRemove} />
         )}
         {showForm && (
           <CustomForm
