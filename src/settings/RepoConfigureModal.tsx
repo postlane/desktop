@@ -24,12 +24,11 @@ const PROVIDER_LABELS: Record<ConfigureProvider, string> = {
   publer: 'Publer', outstand: 'Outstand', substack_notes: 'Substack Notes',
 };
 
-function NoProviderView({ onClose }: { onClose: () => void }) {
+function NoProviderView() {
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">No scheduler configured for this repo.</p>
-      <Button outline onClick={onClose}>Set up default scheduler</Button>
-    </div>
+    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      No scheduler configured. Add one in Settings → Default scheduler, then it will appear here.
+    </p>
   );
 }
 
@@ -142,7 +141,7 @@ type SchedulerBodyProps = {
 };
 
 function SchedulerBody(p: SchedulerBodyProps) {
-  if (!p.currentProvider) return <NoProviderView onClose={p.onClose} />;
+  if (!p.currentProvider) return <NoProviderView />;
   if (p.loading) return <p role="status" className="text-xs text-zinc-400">Loading…</p>;
   if (p.showForm) return <CustomForm repoId={p.repoId} initialProvider={p.activeProvider} onSaved={p.onSaved} onCancel={p.onCancelForm} />;
   if (p.mode === 'custom' && p.maskedKey) return <ConfiguredView maskedKey={p.maskedKey} removeError={p.removeError} onChange={p.onSwitchToCustom} onRemove={p.onRemove} />;

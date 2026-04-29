@@ -292,8 +292,8 @@ describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows a "Configure" button linking to Default scheduler tab when currentProvider is null', () => {
+  it('shows instructions pointing to Settings → Default scheduler when currentProvider is null', () => {
     render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /set up default scheduler/i })).toBeInTheDocument();
+    expect(screen.getByText(/settings → default scheduler/i)).toBeInTheDocument();
   });
 });
