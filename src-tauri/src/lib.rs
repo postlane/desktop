@@ -16,6 +16,7 @@ pub mod parser;
 pub mod post_approval;
 pub mod post_editor;
 pub mod post_io;
+pub mod post_mutations;
 pub mod post_export;
 pub mod post_ops;
 pub mod providers;
