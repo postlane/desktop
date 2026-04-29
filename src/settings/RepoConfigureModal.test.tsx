@@ -111,6 +111,35 @@ describe('RepoConfigureModal — configured state (§15.3.3)', () => {
   });
 });
 
+describe('RepoConfigureModal — remove error surface (§15 review fix 8)', () => {
+  it('shows an error message when remove_repo_scheduler_key throws', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
+      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain locked');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/keychain locked/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('does not reset to "Use default" when remove fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
+      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain locked');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() => screen.getByText(/keychain locked/i));
+    expect(screen.getByText(/using separate account/i)).toBeInTheDocument();
+  });
+});
+
 describe('RepoConfigureModal — remove flow (§15.3.4)', () => {
   it('clicking Remove calls remove_repo_scheduler_key with repoId and provider', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
