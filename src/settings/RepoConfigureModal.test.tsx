@@ -213,7 +213,7 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     expect(await screen.findByRole('button', { name: /test connection/i })).toBeInTheDocument();
   });
 
-  it('Test connection button calls test_scheduler with the selected provider', async () => {
+  it('Test connection button calls test_scheduler with the selected provider and repoId', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'test_scheduler') return true;
@@ -224,7 +224,7 @@ describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
     fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
     fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'zernio' }),
+      expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'zernio', repoId: 'r1' }),
     );
   });
 

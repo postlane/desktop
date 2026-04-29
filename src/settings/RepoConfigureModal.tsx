@@ -106,7 +106,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
 
   async function handleTest() {
     setTesting(true); setTestResult(null);
-    try { await invoke('test_scheduler', { provider }); setTestResult('ok'); }
+    try { await invoke('test_scheduler', { provider, repoId }); setTestResult('ok'); }
     catch { setTestResult('error'); }
     finally { setTesting(false); }
   }
