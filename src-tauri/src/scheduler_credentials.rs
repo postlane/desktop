@@ -199,11 +199,13 @@ pub fn save_repo_scheduler_key_impl(
     repo_id: &str,
     provider: &str,
     state: &AppState,
+    consent: bool,
 ) -> Result<(), String> {
     validate_repo_registered(repo_id, state)?;
     if !VALID_PROVIDERS.contains(&provider) {
         return Err(format!("Unknown provider: {}", provider));
     }
+    record_provider_configured(state, consent, provider);
     Ok(())
 }
 
@@ -227,7 +229,8 @@ pub fn save_repo_scheduler_key(
     app: tauri::AppHandle,
     state: State<AppState>,
 ) -> Result<(), String> {
-    save_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    save_repo_scheduler_key_impl(&repo_id, &provider, &state, consent)?;
     let keyring_key = format!("{}/{}", provider, repo_id);
     app.keyring()
         .set_password("postlane", &keyring_key, &key)
@@ -384,7 +387,7 @@ mod tests {
     #[test]
     fn test_save_repo_scheduler_key_rejects_unregistered_repo() {
         let state = make_state_with_repo("r1");
-        let result = save_repo_scheduler_key_impl("unregistered-id", "zernio", &state);
+        let result = save_repo_scheduler_key_impl("unregistered-id", "zernio", &state, false);
         assert!(result.is_err(), "must reject repo_id not in repos.json");
         assert!(result.unwrap_err().contains("not found"), "error must name the repo");
     }
@@ -392,9 +395,9 @@ mod tests {
     #[test]
     fn test_save_repo_scheduler_key_validates_path_against_repos_json() {
         let state = make_state_with_repo("r1");
-        let err_result = save_repo_scheduler_key_impl("attacker-id", "zernio", &state);
+        let err_result = save_repo_scheduler_key_impl("attacker-id", "zernio", &state, false);
         assert!(err_result.is_err(), "repo_id not in repos.json must be rejected (Security Rule 2)");
-        let ok_result = save_repo_scheduler_key_impl("r1", "zernio", &state);
+        let ok_result = save_repo_scheduler_key_impl("r1", "zernio", &state, false);
         assert!(ok_result.is_ok(), "registered repo_id must be accepted");
     }
 
@@ -406,6 +409,20 @@ mod tests {
     }
 
     // --- 11.11.5 telemetry ---
+
+    #[test]
+    fn test_save_repo_scheduler_key_records_telemetry_with_consent() {
+        let state = make_state_with_repo("r1");
+        save_repo_scheduler_key_impl("r1", "zernio", &state, true).unwrap();
+        assert_eq!(state.telemetry.queue_len(), 1, "one telemetry event must be queued after save");
+    }
+
+    #[test]
+    fn test_save_repo_scheduler_key_no_telemetry_without_consent() {
+        let state = make_state_with_repo("r1");
+        save_repo_scheduler_key_impl("r1", "zernio", &state, false).unwrap();
+        assert_eq!(state.telemetry.queue_len(), 0, "no telemetry event without consent");
+    }
 
     #[test]
     fn test_record_provider_configured_queues_when_consent_given() {
