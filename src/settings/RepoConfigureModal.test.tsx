@@ -173,6 +173,44 @@ describe('RepoConfigureModal — remove flow (§15.3.4)', () => {
   });
 });
 
+describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
+  it('shows a Test connection button in the form', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    expect(await screen.findByRole('button', { name: /test connection/i })).toBeInTheDocument();
+  });
+
+  it('Test connection button calls test_scheduler with the selected provider', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'test_scheduler') return true;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'zernio' }),
+    );
+  });
+
+  it('shows success tick after a passing connection test', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'test_scheduler') return true;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
+    await waitFor(() => expect(screen.getByText(/✓/)).toBeInTheDocument());
+  });
+});
+
 describe('RepoConfigureModal — save flow', () => {
   it('Save calls save_repo_scheduler_key with repoId, provider, and key', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
