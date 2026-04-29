@@ -23,6 +23,53 @@ struct SendContext<'a> {
     account_ids: &'a serde_json::Map<String, serde_json::Value>,
 }
 
+/// Stamps send results onto `meta` in-place: platform_results, sent_at, scheduler_ids, platform_urls.
+fn apply_send_results_to_meta(meta: &mut PostMeta, results: &PlatformSendResults, sent_at: &str) {
+    meta.platform_results = Some(results.platform_results.clone());
+    meta.sent_at = Some(sent_at.to_string());
+    if !results.scheduler_ids.is_empty() {
+        meta.scheduler_ids = Some(results.scheduler_ids.clone());
+    }
+    if !results.platform_urls.is_empty() {
+        meta.platform_urls = Some(results.platform_urls.clone());
+    }
+}
+
+/// Build the `SendResult` returned to the caller after an approval attempt.
+fn build_approval_result(results: &PlatformSendResults, partial_failure: bool) -> SendResult {
+    if partial_failure {
+        return SendResult {
+            success: false,
+            platform_results: Some(results.platform_results.clone()),
+            error: Some(
+                "One or more platforms failed. Retry to attempt the failed platforms.".to_string(),
+            ),
+            fallback_provider: results.fallback_provider.clone(),
+        };
+    }
+    SendResult {
+        success: true,
+        platform_results: Some(results.platform_results.clone()),
+        error: None,
+        fallback_provider: results.fallback_provider.clone(),
+    }
+}
+
+/// Returns true if `provider_name` should be attempted in the fallback chain.
+/// Returns false if it is rate-limited this request or has exhausted its monthly quota.
+fn provider_is_usable(
+    provider_name: &str,
+    usage_path: &std::path::Path,
+    month: u32,
+    year: u32,
+    rate_limited: &std::collections::HashSet<String>,
+) -> bool {
+    if rate_limited.contains(provider_name) {
+        return false;
+    }
+    !crate::scheduling::usage_tracker::is_at_limit_at(provider_name, usage_path, month, year)
+}
+
 /// Returns true if any platform result indicates a send failure.
 fn any_platform_failed(results: &std::collections::HashMap<String, String>) -> bool {
     results.values().any(|v| v.starts_with("error:"))
@@ -123,15 +170,7 @@ async fn send_platform_with_fallback(
     let (month, year) = (now.month(), now.year() as u32);
 
     for provider_name in ctx.fallback_order {
-        if rate_limited.contains(provider_name) {
-            continue;
-        }
-        if crate::scheduling::usage_tracker::is_at_limit_at(
-            provider_name,
-            &usage_path,
-            month,
-            year,
-        ) {
+        if !provider_is_usable(provider_name, &usage_path, month, year, rate_limited) {
             continue;
         }
         let api_key = match get_keyring_cred(ctx.app_handle, provider_name, ctx.repo_id) {
@@ -301,37 +340,15 @@ pub async fn approve_post_impl(
 
     let partial_failure = any_platform_failed(&results.platform_results);
     meta.status = if partial_failure { "failed" } else { "sent" }.to_string();
-    meta.platform_results = Some(results.platform_results.clone());
-    meta.sent_at = Some(chrono::Utc::now().to_rfc3339());
-    if !results.scheduler_ids.is_empty() {
-        meta.scheduler_ids = Some(results.scheduler_ids);
-    }
-    if !results.platform_urls.is_empty() {
-        meta.platform_urls = Some(results.platform_urls);
-    }
-
+    apply_send_results_to_meta(&mut meta, &results, &chrono::Utc::now().to_rfc3339());
     write_sent_meta(&meta_path, &meta)?;
 
-    if partial_failure {
-        return Ok(SendResult {
-            success: false,
-            platform_results: Some(results.platform_results),
-            error: Some(
-                "One or more platforms failed. Retry to attempt the failed platforms.".to_string(),
-            ),
-            fallback_provider: results.fallback_provider,
-        });
+    if !partial_failure {
+        state
+            .telemetry
+            .record(consent, "post_approved", serde_json::json!({"platforms": meta.platforms}));
     }
-
-    state
-        .telemetry
-        .record(consent, "post_approved", serde_json::json!({"platforms": meta.platforms}));
-    Ok(SendResult {
-        success: true,
-        platform_results: Some(results.platform_results),
-        error: None,
-        fallback_provider: results.fallback_provider,
-    })
+    Ok(build_approval_result(&results, partial_failure))
 }
 
 #[tauri::command]
@@ -541,5 +558,80 @@ mod tests {
             "no fallback used when app is None"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- apply_send_results_to_meta ---
+
+    fn empty_meta() -> PostMeta {
+        PostMeta {
+            status: "ready".into(),
+            platforms: vec!["x".into()],
+            platform_results: None,
+            sent_at: None,
+            schedule: None,
+            scheduler_ids: None,
+            platform_urls: None,
+            error: None,
+            image_url: None,
+            image_source: None,
+            image_attribution: None,
+            trigger: None,
+            llm_model: None,
+            created_at: None,
+        }
+    }
+
+    fn send_results(success: bool) -> PlatformSendResults {
+        let mut platform_results = std::collections::HashMap::new();
+        platform_results.insert("x".to_string(), if success { "success".into() } else { "error: failed".into() });
+        PlatformSendResults {
+            platform_results,
+            scheduler_ids: [("x".into(), "sched-1".into())].into_iter().collect(),
+            platform_urls: [("x".into(), "https://example.com/1".into())].into_iter().collect(),
+            fallback_provider: None,
+        }
+    }
+
+    #[test]
+    fn apply_send_results_to_meta_sets_platform_results_and_sent_at() {
+        let mut meta = empty_meta();
+        let results = send_results(true);
+        apply_send_results_to_meta(&mut meta, &results, "2026-01-01T00:00:00Z");
+        assert_eq!(meta.platform_results.unwrap().get("x").map(String::as_str), Some("success"));
+        assert_eq!(meta.sent_at.as_deref(), Some("2026-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn apply_send_results_to_meta_populates_scheduler_ids_and_urls() {
+        let mut meta = empty_meta();
+        apply_send_results_to_meta(&mut meta, &send_results(true), "2026-01-01T00:00:00Z");
+        assert_eq!(meta.scheduler_ids.unwrap().get("x").map(String::as_str), Some("sched-1"));
+        assert_eq!(meta.platform_urls.unwrap().get("x").map(String::as_str), Some("https://example.com/1"));
+    }
+
+    // --- build_approval_result ---
+
+    #[test]
+    fn build_approval_result_returns_success_when_no_failure() {
+        let r = build_approval_result(&send_results(true), false);
+        assert!(r.success);
+        assert!(r.error.is_none());
+    }
+
+    #[test]
+    fn build_approval_result_returns_failure_on_partial_failure() {
+        let r = build_approval_result(&send_results(false), true);
+        assert!(!r.success);
+        assert!(r.error.is_some());
+    }
+
+    // --- provider_is_usable ---
+
+    #[test]
+    fn provider_is_usable_returns_false_when_rate_limited() {
+        let mut rl = std::collections::HashSet::new();
+        rl.insert("zernio".to_string());
+        let fake_path = std::path::Path::new("/nonexistent");
+        assert!(!provider_is_usable("zernio", fake_path, 1, 2026, &rl));
     }
 }
