@@ -7,10 +7,7 @@ import { Button } from '../components/catalyst/button';
 import { Dialog, DialogActions, DialogDescription, DialogTitle } from '../components/catalyst/dialog';
 import type { RepoWithStatus, SchedulerProfile } from '../types';
 import RepoConfigureModal from './RepoConfigureModal';
-
-const PLATFORM_LABELS: Record<string, string> = {
-  twitter: 'X', x: 'X', bluesky: 'Bluesky', mastodon: 'Mastodon', linkedin: 'LinkedIn',
-};
+import { PLATFORM_LABELS } from '../constants/platforms';
 
 function platformLabel(platform: string): string {
   return PLATFORM_LABELS[platform] ?? platform;

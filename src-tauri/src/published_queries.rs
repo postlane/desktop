@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
+use crate::post_io::{collect_posts_from_dir, sort_by_status_priority_then_timestamp};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -72,18 +73,7 @@ fn parse_published_post(
 }
 
 fn sort_published_by_status_then_sent_at(posts: &mut [PublishedPost]) {
-    posts.sort_by(|a, b| {
-        match (a.status.as_str(), b.status.as_str()) {
-            ("queued", "sent") => std::cmp::Ordering::Less,
-            ("sent", "queued") => std::cmp::Ordering::Greater,
-            _ => match (&b.sent_at, &a.sent_at) {
-                (Some(bt), Some(at)) => bt.cmp(at),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            },
-        }
-    });
+    sort_by_status_priority_then_timestamp(posts, "queued", "sent", |p| &p.status, |p| p.sent_at.as_deref());
 }
 
 /// Reads the scheduler provider from `.postlane/config.json` for a given repo path.
@@ -140,18 +130,10 @@ pub fn get_repo_published_impl(
         return Ok(vec![]);
     }
 
-    let entries = match fs::read_dir(&posts_dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(vec![]),
-    };
-
-    let mut posts: Vec<PublishedPost> = entries
-        .flatten()
-        .filter_map(|e| parse_published_post(&e.path(), &repo.id, &repo.name, &repo.path))
-        .collect();
-
+    let mut posts = collect_posts_from_dir(&posts_dir, |p| {
+        parse_published_post(p, &repo.id, &repo.name, &repo.path)
+    });
     sort_published_by_status_then_sent_at(&mut posts);
-
     Ok(posts.into_iter().skip(offset).take(limit).collect())
 }
 
@@ -172,15 +154,9 @@ pub fn get_all_published_impl(
         if !posts_dir.exists() {
             continue;
         }
-        let entries = match fs::read_dir(&posts_dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            if let Some(post) = parse_published_post(&entry.path(), &repo.id, &repo.name, &repo.path) {
-                posts.push(post);
-            }
-        }
+        posts.extend(collect_posts_from_dir(&posts_dir, |p| {
+            parse_published_post(p, &repo.id, &repo.name, &repo.path)
+        }));
     }
 
     posts.sort_by(|a, b| match (&b.sent_at, &a.sent_at) {

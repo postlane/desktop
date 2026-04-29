@@ -10,6 +10,7 @@ import { Button } from '../components/catalyst/button';
 import { Badge } from '../components/catalyst/badge';
 import PostPreview from '../components/PostPreview';
 import type { DraftPost, Platform, SendResult } from '../types';
+import { PLATFORM_LABELS, PLATFORM_ORDER } from '../constants/platforms';
 
 interface Props {
   post: DraftPost;
@@ -17,13 +18,6 @@ interface Props {
   onDismissed: () => void;
   isFocused?: boolean;
 }
-
-const PLATFORM_LABELS: Record<string, string> = {
-  x: 'X', bluesky: 'Bluesky', mastodon: 'Mastodon',
-  linkedin: 'LinkedIn', substack_notes: 'Substack Notes', substack: 'Substack',
-  product_hunt: 'Product Hunt', show_hn: 'Show HN', changelog: 'Changelog',
-};
-const PLATFORM_ORDER: Platform[] = ['x', 'bluesky', 'mastodon', 'linkedin', 'substack_notes', 'substack', 'product_hunt', 'show_hn', 'changelog'];
 
 function isPlatform(val: unknown): val is Platform {
   return val === 'x' || val === 'bluesky' || val === 'mastodon'

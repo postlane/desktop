@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use super::{build_client, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
+use super::{build_client, parse_retry_after, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -45,15 +45,7 @@ impl AyrshareProvider {
         }
 
         if status == 429 {
-            // Extract Retry-After header if present
-            let retry_after = response
-                .headers()
-                .get("Retry-After")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(60); // Default to 60 seconds
-
-            return Err(ProviderError::RateLimit(std::time::Duration::from_secs(retry_after)));
+            return Err(ProviderError::RateLimit(parse_retry_after(response)));
         }
 
         Ok(())
@@ -280,12 +272,6 @@ impl SchedulingProvider for AyrshareProvider {
         Ok(queue)
     }
 
-    async fn test_connection(&self) -> Result<(), ProviderError> {
-        // Test connection by making a lightweight API call to list profiles
-        // If this succeeds, we know the API key is valid
-        self.list_profiles().await?;
-        Ok(())
-    }
 
     async fn get_engagement(
         &self,
