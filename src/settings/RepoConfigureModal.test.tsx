@@ -11,6 +11,34 @@ const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
 
+describe('RepoConfigureModal — loading state (§15 review fix 6)', () => {
+  it('shows a loading indicator before the credential fetch resolves', async () => {
+    let resolve: (v: string | null) => void;
+    const pending = new Promise<string | null>((res) => { resolve = res; });
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return pending;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    resolve!(null);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
+  it('does not show "Use default" text while loading', async () => {
+    let resolve: (v: string | null) => void;
+    const pending = new Promise<string | null>((res) => { resolve = res; });
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return pending;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    expect(screen.queryByText(/using default credentials/i)).not.toBeInTheDocument();
+    resolve!(null);
+    await waitFor(() => expect(screen.getByText(/using default credentials/i)).toBeInTheDocument());
+  });
+});
+
 describe('RepoConfigureModal — provider dropdown (§15 review fix 1)', () => {
   it('shows Substack Notes as a provider option in the form', async () => {
     mockInvoke.mockResolvedValue(null);

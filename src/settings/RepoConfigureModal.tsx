@@ -112,6 +112,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState(currentProvider ?? CONFIGURE_PROVIDERS[0]);
   const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(!!currentProvider);
 
   useEffect(() => {
     if (!currentProvider) return;
@@ -119,7 +120,8 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
       .then((key) => {
         if (key) { setMaskedKey(key); setMode('custom'); }
       })
-      .catch(() => { /* non-critical */ });
+      .catch(() => { /* non-critical */ })
+      .finally(() => setLoading(false));
   }, [repoId, currentProvider]);
 
   async function handleRemove() {
@@ -138,10 +140,11 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
       <DialogTitle>Configure {repoName}</DialogTitle>
       <DialogBody>
         <h3 className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-300">Scheduler</h3>
-        {mode === 'default' && !showForm && (
+        {loading && <p role="status" className="text-xs text-zinc-400">Loading…</p>}
+        {!loading && mode === 'default' && !showForm && (
           <DefaultView onSwitchToCustom={() => setShowForm(true)} />
         )}
-        {mode === 'custom' && maskedKey && !showForm && (
+        {!loading && mode === 'custom' && maskedKey && !showForm && (
           <ConfiguredView maskedKey={maskedKey} onChange={() => setShowForm(true)} onRemove={handleRemove} />
         )}
         {showForm && (
