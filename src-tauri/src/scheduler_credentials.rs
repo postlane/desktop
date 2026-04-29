@@ -152,6 +152,18 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
+pub fn get_per_repo_scheduler_key_impl(
+    repo_id: &str,
+    provider: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    validate_repo_registered(repo_id, state)?;
+    if !VALID_PROVIDERS.contains(&provider) {
+        return Err(format!("Unknown provider: {}", provider));
+    }
+    Ok(())
+}
+
 /// Returns the masked per-repo scheduler key for a specific provider, or None.
 /// Unlike `get_scheduler_credential`, this does NOT fall back to the global key.
 #[tauri::command]
@@ -159,10 +171,9 @@ pub fn get_per_repo_scheduler_key(
     repo_id: String,
     provider: String,
     app: tauri::AppHandle,
+    state: State<AppState>,
 ) -> Result<Option<String>, String> {
-    if !VALID_PROVIDERS.contains(&provider.as_str()) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
+    get_per_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
     let keyring_key = format!("{}/{}", provider, repo_id);
     match app.keyring().get_password("postlane", &keyring_key) {
         Ok(Some(credential)) => Ok(Some(mask_credential(&credential))),
@@ -340,6 +351,15 @@ mod tests {
                 added_at: "2026-01-01T00:00:00Z".to_string(),
             }],
         })
+    }
+
+    #[test]
+    fn test_get_per_repo_scheduler_key_rejects_unregistered_repo() {
+        let state = make_state_with_repo("r1");
+        let result = get_per_repo_scheduler_key_impl("attacker-id", "zernio", &state);
+        assert!(result.is_err(), "must reject repo_id not in repos.json (Security Rule 2)");
+        let ok_result = get_per_repo_scheduler_key_impl("r1", "zernio", &state);
+        assert!(ok_result.is_ok(), "registered repo_id must pass validation");
     }
 
     #[test]
