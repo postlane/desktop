@@ -774,4 +774,69 @@ mod tests {
     fn test_sha256_hex_different_inputs_differ() {
         assert_ne!(sha256_hex("/path/one"), sha256_hex("/path/two"));
     }
+
+    // ── integration: full wizard path ─────────────────────────────────────────
+
+    /// Exercises the full create → register → read_config chain in one test.
+    /// Catches contract breaks (e.g. field rename) that unit tests miss because
+    /// they test each layer in isolation.
+    #[tokio::test]
+    async fn test_full_wizard_path_create_register_read_config() {
+        let dir = std::env::temp_dir().join("postlane_test_full_wizard_path");
+        let config_dir = dir.join(".postlane");
+        fs::create_dir_all(&config_dir).expect("create .postlane");
+        fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#)
+            .expect("write initial config");
+
+        let server = MockServer::start();
+        let project_id = "wizard-integration-uuid";
+
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/projects");
+            then.status(200).json_body(serde_json::json!({
+                "project_id": project_id,
+                "name": "Integration Workspace",
+                "tier": "free",
+                "workspace_type": "personal",
+            }));
+        });
+        server.mock(|when, then| {
+            when.method(POST)
+                .path(format!("/v1/projects/{}/repos", project_id));
+            then.status(200).json_body(serde_json::json!({ "repo_id": "repo-int-001" }));
+        });
+
+        let client = build_test_client();
+        let repos = make_repos(&[dir.to_str().unwrap()]);
+
+        // Phase 1: create project
+        let (returned_id, returned_name, workspace_type) =
+            create_project_with_client("Integration Workspace", "personal", &client, &server.base_url(), "tok")
+                .await
+                .expect("create_project should succeed");
+
+        assert_eq!(returned_id, project_id);
+        assert_eq!(returned_name, "Integration Workspace");
+        assert_eq!(workspace_type, "personal");
+
+        // Phase 2: register repo (writes project_id to config)
+        register_repo_with_project_with_client(
+            &returned_id, dir.to_str().unwrap(), "Integration test repo",
+            &client, &server.base_url(), "tok", &repos,
+        )
+        .await
+        .expect("register_repo should succeed");
+
+        // Phase 3: read config back — the chain is complete if this returns the same id
+        let read_back = read_project_id_from_path_impl(dir.to_str().unwrap())
+            .expect("read_project_id should not error");
+
+        assert_eq!(
+            read_back.as_deref(),
+            Some(project_id),
+            "project_id written by register_repo must be readable by read_project_id_from_path"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
