@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import type { Dispatch, SetStateAction, MouseEvent } from 'react';
+import { useState, useEffect } from 'react';
+import type { MouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -16,16 +14,14 @@ import {
 import { getRepoStatus, sortAndBucketRepos } from './navUtils';
 import type {
   RepoWithStatus,
-  AppStateFile,
   ViewSelection,
   StatusIndicatorType,
-  MetaChangedPayload,
 } from '../types';
-
-const WATCHER_STALE_MS = 60_000;
-const PERSIST_DEBOUNCE_MS = 300;
-const HEALTH_TICK_MS = 10_000;
-const ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
+import { useRepoData } from '../hooks/useRepoData';
+import { useAppStateRestore } from '../hooks/useAppStateRestore';
+import { useMetaChangedListener } from '../hooks/useMetaChangedListener';
+import { useWatcherHealth } from '../hooks/useWatcherHealth';
+import { useNavPersistence } from '../hooks/useNavPersistence';
 
 interface Props {
   onNavigate: (_selection: ViewSelection) => void;
@@ -33,116 +29,6 @@ interface Props {
   onAddRepo: () => void;
   currentView: ViewSelection;
   refreshKey?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Hooks
-// ---------------------------------------------------------------------------
-
-function useRepoData() {
-  const [repos, setRepos] = useState<RepoWithStatus[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try { const updated = await invoke<RepoWithStatus[]>('get_repos'); setRepos(updated); }
-    catch (e) { console.error('Failed to refresh repos:', e); }
-  }, []);
-
-  useEffect(() => {
-    invoke<RepoWithStatus[]>('get_repos')
-      .then(setRepos)
-      .catch((e) => { setLoadError('Could not load repositories. Check logs.'); console.error('Failed to load repos:', e); });
-  }, []);
-
-  return { repos, loadError, refresh };
-}
-
-function useAppStateRestore(
-  repos: RepoWithStatus[],
-  setExpandedIds: Dispatch<SetStateAction<Set<string>>>,
-  onNavigate: (_sel: ViewSelection) => void,
-) {
-  useEffect(() => {
-    if (repos.length === 0) return;
-    invoke<AppStateFile>('read_app_state_command')
-      .then((appState) => {
-        const validIds = appState.nav.expanded_repos.filter((id) => repos.some((r) => r.id === id));
-        setExpandedIds(new Set(validIds));
-        const lastRepoId = appState.nav.last_repo_id;
-        const validViews = ['all_repos', 'repo'] as const;
-        const validSections = ['drafts', 'published'] as const;
-        const lastView = appState.nav.last_view;
-        const lastSection = appState.nav.last_section;
-        if (lastRepoId && repos.some((r) => r.id === lastRepoId) && (validViews as readonly string[]).includes(lastView) && (validSections as readonly string[]).includes(lastSection)) {
-          onNavigate({ view: lastView as ViewSelection['view'], repoId: lastRepoId, section: lastSection as ViewSelection['section'] });
-          setExpandedIds((prev) => new Set([...prev, lastRepoId]));
-        }
-      })
-      .catch(() => { /* silently default to empty state on missing/corrupt app_state.json */ });
-    // Only restore once when repos first load
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repos.length > 0]);
-}
-
-function useMetaChangedListener(onRefresh: () => void) {
-  const [lastWatcherEvent, setLastWatcherEvent] = useState<Map<string, Date>>(new Map());
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let mounted = true;
-    listen<MetaChangedPayload>('meta-changed', (event) => {
-      setLastWatcherEvent((prev) => { const next = new Map(prev); next.set(event.payload.repo_id, new Date()); return next; });
-      onRefresh();
-    })
-      .then((fn) => { if (mounted) { unlisten = fn; } else { fn(); } })
-      .catch(console.error);
-    return () => { mounted = false; unlisten?.(); };
-  }, [onRefresh]);
-
-  return lastWatcherEvent;
-}
-
-function useWatcherHealth(repos: RepoWithStatus[], lastWatcherEvent: Map<string, Date>): Set<string> {
-  const [stalledRepos, setStalledRepos] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    const tick = () => {
-      const now = Date.now();
-      const stalled = new Set<string>();
-      for (const repo of repos) {
-        if (!repo.active || !repo.path_exists) continue;
-        const lastEvent = lastWatcherEvent.get(repo.id);
-        const elapsed = lastEvent ? now - lastEvent.getTime() : Infinity;
-        const recentActivity = repo.last_post_at !== null && now - new Date(repo.last_post_at).getTime() < ACTIVITY_WINDOW_MS;
-        if (elapsed > WATCHER_STALE_MS && recentActivity) stalled.add(repo.id);
-      }
-      setStalledRepos(stalled);
-    };
-    const id = setInterval(tick, HEALTH_TICK_MS);
-    tick();
-    return () => clearInterval(id);
-  }, [repos, lastWatcherEvent]);
-
-  return stalledRepos;
-}
-
-function useNavPersistence() {
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const scheduleWrite = useCallback((ids: Set<string>, view: ViewSelection) => {
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(async () => {
-      try {
-        const win = getCurrentWindow();
-        const [size, pos] = await Promise.all([win.outerSize(), win.outerPosition()]);
-        await invoke<void>('save_app_state_command', {
-          state: { version: 1, window: { width: size.width, height: size.height, x: pos.x, y: pos.y }, nav: { last_view: view.view, last_repo_id: view.repoId, last_section: view.section, expanded_repos: [...ids] } },
-        });
-      } catch (e) { console.error('Failed to persist nav state:', e); }
-    }, PERSIST_DEBOUNCE_MS);
-  }, []);
-
-  return scheduleWrite;
 }
 
 // ---------------------------------------------------------------------------

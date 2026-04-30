@@ -81,22 +81,39 @@ export interface MetaChangedPayload {
   post_folder: string;
 }
 
-/** PostMeta enriched with repo context — returned by get_all_drafts */
-export interface DraftPost {
+/** Shared fields present on every post regardless of lifecycle stage */
+interface PostBase {
   repo_id: string;
   repo_name: string;
   repo_path: string;
   post_folder: string;
-  status: 'ready' | 'failed';
   platforms: string[];
   schedule: string | null;
-  trigger: string | null;
   platform_results: Record<string, string> | null;
-  error: string | null;
-  image_url: string | null;
   llm_model: string | null;
   created_at: string | null;
 }
+
+/** Draft post — status 'ready' or 'failed' — returned by get_all_drafts */
+export interface DraftPost extends PostBase {
+  status: 'ready' | 'failed';
+  trigger: string | null;
+  error: string | null;
+  image_url: string | null;
+}
+
+/** Published/queued post — status 'sent' or 'queued' — returned by get_repo_published */
+export interface PublishedPost extends PostBase {
+  status: 'sent' | 'queued';
+  scheduler_ids: Record<string, string> | null;
+  platform_urls: Record<string, string> | null;
+  /** Scheduler provider name (e.g. "zernio") from repo config.json, or null */
+  provider: string | null;
+  sent_at: string | null;
+}
+
+/** Canonical union type covering both lifecycle stages */
+export type Post = DraftPost | PublishedPost;
 
 export type Platform = 'x' | 'bluesky' | 'mastodon' | 'linkedin' | 'substack_notes' | 'substack' | 'product_hunt' | 'show_hn' | 'changelog';
 
@@ -115,23 +132,4 @@ export interface ModelStats {
   edited_posts: number;
   edit_rate: number;         // 0.0–1.0
   limited_data: boolean;     // true when 5–19 posts
-}
-
-/** Sent or queued post with repo context — returned by get_repo_published */
-export interface PublishedPost {
-  repo_id: string;
-  repo_name: string;
-  repo_path: string;
-  post_folder: string;
-  status: 'sent' | 'queued';
-  platforms: string[];
-  platform_results: Record<string, string> | null;
-  schedule: string | null;
-  scheduler_ids: Record<string, string> | null;
-  platform_urls: Record<string, string> | null;
-  /** Scheduler provider name (e.g. "zernio") from repo config.json, or null */
-  provider: string | null;
-  llm_model: string | null;
-  sent_at: string | null;
-  created_at: string | null;
 }

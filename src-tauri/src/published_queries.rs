@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::post_io::{collect_posts_from_dir, sort_by_status_priority_then_timestamp};
-use serde::{Deserialize, Serialize};
+use crate::post_io::{collect_posts_from_dir, collect_posts_from_repos, read_repo_config_provider, sort_by_status_priority_then_timestamp};
+use crate::types::Post;
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
+
+pub type PublishedPost = Post;
 
 /// Extracts a string-keyed, string-valued map from a JSON object field.
 fn extract_string_map(
@@ -19,14 +21,14 @@ fn extract_string_map(
     })
 }
 
-/// Parse a single post directory into a `PublishedPost`, returning `None` if the
+/// Parse a single post directory into a `Post`, returning `None` if the
 /// post should be skipped (missing/invalid meta, wrong status, etc.).
 fn parse_published_post(
     post_path: &std::path::Path,
     repo_id: &str,
     repo_name: &str,
     repo_path: &str,
-) -> Option<PublishedPost> {
+) -> Option<Post> {
     if !post_path.is_dir() {
         return None;
     }
@@ -54,7 +56,7 @@ fn parse_published_post(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    Some(PublishedPost {
+    Some(Post {
         repo_id: repo_id.to_string(),
         repo_name: repo_name.to_string(),
         repo_path: repo_path.to_string(),
@@ -65,47 +67,18 @@ fn parse_published_post(
         schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
         scheduler_ids: extract_string_map(&meta, "scheduler_ids"),
         platform_urls: extract_string_map(&meta, "platform_urls"),
-        provider: read_repo_provider(repo_path),
+        provider: read_repo_config_provider(repo_path),
         llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
         sent_at: meta.get("sent_at").and_then(|v| v.as_str()).map(String::from),
         created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+        trigger: None,
+        error: None,
+        image_url: None,
     })
 }
 
-fn sort_published_by_status_then_sent_at(posts: &mut [PublishedPost]) {
+fn sort_published_by_status_then_sent_at(posts: &mut [Post]) {
     sort_by_status_priority_then_timestamp(posts, "queued", "sent", |p| &p.status, |p| p.sent_at.as_deref());
-}
-
-/// Reads the scheduler provider from `.postlane/config.json` for a given repo path.
-/// Returns `None` if the file is missing, unreadable, or has no `scheduler.provider` field.
-fn read_repo_provider(repo_path: &str) -> Option<String> {
-    let config_path = std::path::PathBuf::from(repo_path)
-        .join(".postlane/config.json");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
-    v.get("scheduler")
-        .and_then(|s| s.get("provider"))
-        .and_then(|p| p.as_str())
-        .map(String::from)
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PublishedPost {
-    pub repo_id: String,
-    pub repo_name: String,
-    pub repo_path: String,
-    pub post_folder: String,
-    pub status: String,
-    pub platforms: Vec<String>,
-    pub platform_results: Option<std::collections::HashMap<String, String>>,
-    pub schedule: Option<String>,
-    pub scheduler_ids: Option<std::collections::HashMap<String, String>>,
-    pub platform_urls: Option<std::collections::HashMap<String, String>>,
-    /// Scheduler provider name from repo config.json (e.g. "zernio"), or None.
-    pub provider: Option<String>,
-    pub llm_model: Option<String>,
-    pub sent_at: Option<String>,
-    pub created_at: Option<String>,
 }
 
 pub fn get_repo_published_impl(
@@ -142,30 +115,14 @@ pub fn get_all_published_impl(
     limit: usize,
     state: &AppState,
 ) -> Result<Vec<PublishedPost>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-
-    let mut posts: Vec<PublishedPost> = Vec::new();
-
-    for repo in &repos.repos {
-        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
-        if !posts_dir.exists() {
-            continue;
-        }
-        posts.extend(collect_posts_from_dir(&posts_dir, |p| {
-            parse_published_post(p, &repo.id, &repo.name, &repo.path)
-        }));
-    }
-
+    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut posts = collect_posts_from_repos(&repos.repos, false, parse_published_post);
     posts.sort_by(|a, b| match (&b.sent_at, &a.sent_at) {
         (Some(bt), Some(at)) => bt.cmp(at),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => std::cmp::Ordering::Equal,
     });
-
     Ok(posts.into_iter().skip(offset).take(limit).collect())
 }
 
@@ -296,7 +253,7 @@ mod tests {
         )
         .expect("write config");
 
-        let result = read_repo_provider(dir.to_str().unwrap());
+        let result = read_repo_config_provider(dir.to_str().unwrap());
         assert_eq!(result, Some("zernio".to_string()));
 
         let _ = fs::remove_dir_all(&dir);
@@ -304,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_read_repo_provider_returns_none_when_config_missing() {
-        let result = read_repo_provider("/path/that/does/not/exist");
+        let result = read_repo_config_provider("/path/that/does/not/exist");
         assert_eq!(result, None);
     }
 
@@ -316,7 +273,7 @@ mod tests {
         fs::write(config_dir.join("config.json"), r#"{"other":"data"}"#)
             .expect("write config");
 
-        let result = read_repo_provider(dir.to_str().unwrap());
+        let result = read_repo_config_provider(dir.to_str().unwrap());
         assert_eq!(result, None);
 
         let _ = fs::remove_dir_all(&dir);

@@ -85,21 +85,9 @@ pub fn dismiss_post_impl(repo_path: &str, post_folder: &str, state: &AppState, c
         return Err("meta.json not found in post folder".to_string());
     }
 
-    let meta_content = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
-
-    let mut meta: PostMeta = serde_json::from_str(&meta_content)
-        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
-
+    let mut meta = crate::post_mutations::read_post_meta(&meta_path)?;
     meta.status = "dismissed".to_string();
-
-    let temp_path = meta_path.with_extension("json.tmp");
-    let json_content = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
-    fs::write(&temp_path, json_content)
-        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
-    fs::rename(&temp_path, &meta_path)
-        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
+    crate::post_mutations::write_post_meta(&meta_path, &meta)?;
     state.telemetry.record(consent, "post_dismissed", serde_json::json!({}));
     Ok(())
 }
@@ -205,11 +193,7 @@ pub fn retry_post_impl(
         return Err("meta.json not found in post folder".to_string());
     }
 
-    let meta_content = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
-
-    let mut meta: PostMeta = serde_json::from_str(&meta_content)
-        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
+    let mut meta = crate::post_mutations::read_post_meta(&meta_path)?;
 
     let mut platform_results = meta.platform_results.clone().unwrap_or_default();
 
@@ -228,13 +212,7 @@ pub fn retry_post_impl(
     meta.sent_at = Some(chrono::Utc::now().to_rfc3339());
     meta.error = None;
 
-    let temp_path = meta_path.with_extension("json.tmp");
-    let json_content = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
-    fs::write(&temp_path, json_content)
-        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
-    fs::rename(&temp_path, &meta_path)
-        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
+    crate::post_mutations::write_post_meta(&meta_path, &meta)?;
 
     Ok(SendResult {
         success: true,

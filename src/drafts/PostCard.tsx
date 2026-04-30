@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useCallback, useEffect, type KeyboardEvent } from 'react';
+import { useState, useCallback } from 'react';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import { invoke } from '@tauri-apps/api/core';
-import { confirm } from '@tauri-apps/plugin-dialog';
 import { ChevronDownIcon } from '@heroicons/react/20/solid';
 import { DevicePhoneMobileIcon, ComputerDesktopIcon } from '@heroicons/react/24/outline';
 import { Button } from '../components/catalyst/button';
 import { Badge } from '../components/catalyst/badge';
 import PostPreview from '../components/PostPreview';
-import type { DraftPost, Platform, SendResult } from '../types';
+import type { DraftPost, Platform } from '../types';
 import { PLATFORM_LABELS, PLATFORM_ORDER } from '../constants/platforms';
+import { usePostCardContent } from '../hooks/usePostCardContent';
+import { usePostCardActions } from '../hooks/usePostCardActions';
+import { usePostCardRedraft } from '../hooks/usePostCardRedraft';
+import { useMastodonCharLimit } from '../hooks/useMastodonCharLimit';
+import { usePostCardKeyboard } from '../hooks/usePostCardKeyboard';
 
 interface Props {
   post: DraftPost;
@@ -127,94 +131,6 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
   );
 }
 
-function usePostCardContent(post: DraftPost, activeTab: Platform) {
-  const [postContent, setPostContent] = useState<string>('');
-  const [contentLoadError, setContentLoadError] = useState<string | null>(null);
-  const [attributionEnabled, setAttributionEnabled] = useState(true);
-
-  useEffect(() => {
-    invoke<string>('get_post_content', { repoPath: post.repo_path, postFolder: post.post_folder, platform: activeTab })
-      .then((c) => { setPostContent(typeof c === 'string' ? c : ''); setContentLoadError(null); })
-      .catch((e) => { setPostContent(''); setContentLoadError('Failed to load post content.'); console.error('get_post_content failed:', e); });
-  }, [activeTab, post.repo_path, post.post_folder]);
-
-  useEffect(() => { invoke<boolean>('get_attribution').then((v) => setAttributionEnabled(v)).catch(() => {}); }, []);
-
-  return { postContent, setPostContent, contentLoadError, attributionEnabled };
-}
-
-function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed: () => void) {
-  const [approving, setApproving] = useState(false);
-  const [approveError, setApproveError] = useState<string | null>(null);
-  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-
-  const approve = useCallback(async () => {
-    setApproving(true); setApproveError(null);
-    try {
-      const result = await invoke<SendResult>('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder });
-      if (result.fallback_provider) { setFallbackNotice(result.fallback_provider); } else { onApproved(); }
-    }
-    catch (e) { setApproveError(e instanceof Error ? e.message : String(e)); }
-    finally { setApproving(false); }
-  }, [post, onApproved]);
-
-  const dismissFallbackNotice = useCallback(() => { setFallbackNotice(null); onApproved(); }, [onApproved]);
-
-  const dismiss = useCallback(async () => {
-    const yes = await confirm('Delete this post? This cannot be undone.', { title: 'Delete post', kind: 'warning' });
-    if (!yes) return;
-    try { await invoke('delete_post', { repoPath: post.repo_path, postFolder: post.post_folder }); onDismissed(); }
-    catch (e) { console.error('delete_post failed:', e); }
-  }, [post, onDismissed]);
-
-  const retry = useCallback(async () => {
-    setRetrying(true); setRetryError(null);
-    try { await invoke('retry_post', { repoPath: post.repo_path, postFolder: post.post_folder }); onApproved(); }
-    catch (e) { setRetryError(e instanceof Error ? e.message : String(e)); }
-    finally { setRetrying(false); }
-  }, [post, onApproved]);
-
-  return { approving, approveError, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry };
-}
-
-function usePostCardRedraft(post: DraftPost) {
-  const [redraftInstruction, setRedraftInstruction] = useState('');
-  const [redraftQueued, setRedraftQueued] = useState(false);
-  const [redraftError, setRedraftError] = useState<string | null>(null);
-
-  const handleQueueRedraft = useCallback(async () => {
-    const ok = await confirm(`Queue for redraft with instruction: "${redraftInstruction.trim()}"?`, { title: 'Confirm redraft', kind: 'info' });
-    if (!ok) return;
-    try { await invoke('queue_redraft', { repoPath: post.repo_path, postFolder: post.post_folder, instruction: redraftInstruction.trim() }); setRedraftQueued(true); setRedraftError(null); }
-    catch (e) { setRedraftError(e instanceof Error ? e.message : String(e)); }
-  }, [post, redraftInstruction]);
-
-  const handleCancelRedraft = useCallback(async () => {
-    try { await invoke('cancel_redraft', { repoPath: post.repo_path }); setRedraftQueued(false); setRedraftInstruction(''); setRedraftError(null); }
-    catch (e) { console.error('cancel_redraft failed:', e); }
-  }, [post]);
-
-  const handleInstructionChange = useCallback((v: string) => { setRedraftInstruction(v); setRedraftQueued(false); setRedraftError(null); }, []);
-  return { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange };
-}
-
-function useMastodonCharLimit(activeTab: Platform) {
-  const [charLimit, setCharLimit] = useState<number | undefined>(undefined);
-  useEffect(() => {
-    if (activeTab !== 'mastodon') { setCharLimit(undefined); return; }
-    invoke<string | null>('get_mastodon_connected_instance')
-      .then((instance) => {
-        if (!instance) return;
-        return invoke<number>('get_mastodon_char_limit', { instance });
-      })
-      .then((limit) => { if (limit !== undefined) setCharLimit(limit); })
-      .catch(() => {});
-  }, [activeTab]);
-  return charLimit;
-}
-
 function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, onApprove, onDelete, onTabChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(post.image_url ?? null);
@@ -278,27 +194,6 @@ function FailedErrorBanner({ error, platformResults }: { error: string | null; p
       {platformResults && <div className="mt-2"><PlatformResults results={platformResults} /></div>}
     </div>
   );
-}
-
-function usePostCardKeyboard(
-  isFocused: boolean, isFailed: boolean, platforms: Platform[],
-  approve: () => void, dismiss: () => void, retry: () => void,
-  setActiveTab: (_p: Platform) => void, setExpanded: (_fn: (_v: boolean) => boolean) => void,
-) {
-  return useCallback((e: KeyboardEvent<HTMLElement>) => {
-    if (!isFocused) return;
-    const key = e.key.toLowerCase();
-    const numIdx = parseInt(key, 10) - 1;
-    if (numIdx >= 0 && numIdx < Math.min(5, platforms.length)) { setActiveTab(platforms[numIdx]); return; }
-    const actions: Partial<Record<string, () => void>> = {
-      a: () => { e.preventDefault(); approve(); },
-      d: () => { e.preventDefault(); dismiss(); },
-      e: () => { e.preventDefault(); setExpanded((v) => !v); },
-      r: () => { if (isFailed) { e.preventDefault(); retry(); } },
-      escape: () => { e.preventDefault(); setExpanded(() => false); },
-    };
-    actions[key]?.();
-  }, [isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded]);
 }
 
 function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: () => void }) {

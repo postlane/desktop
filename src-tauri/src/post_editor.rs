@@ -21,30 +21,6 @@ const IMAGE_CDN_HOSTNAMES: &[&str] = &[
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif", "svg"];
 
-/// Returns true if the URL's host is a private/reserved address.
-/// Blocks: loopback, RFC-1918 private, link-local, unique-local IPv6, localhost.
-fn is_private_host(url: &str) -> bool {
-    let parsed = match url::Url::parse(url) {
-        Ok(u) => u,
-        Err(_) => return true,
-    };
-    match parsed.host() {
-        None => true,
-        Some(url::Host::Domain(d)) => {
-            matches!(d, "localhost" | "localhost.localdomain")
-        }
-        Some(url::Host::Ipv4(v4)) => {
-            v4.is_loopback() || v4.is_private() || v4.is_link_local()
-                || v4.is_broadcast() || v4.is_unspecified()
-        }
-        Some(url::Host::Ipv6(v6)) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || (v6.segments()[0] & 0xfe00 == 0xfc00) // fc00::/7 unique-local
-        }
-    }
-}
-
 fn og_regex() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| {
@@ -146,7 +122,7 @@ pub fn update_post_image_impl(
                 url
             ));
         }
-        if is_private_host(url) {
+        if crate::security::ssrf_check::is_private_url(url) {
             return Err("Invalid image URL: resolves to a private or reserved address".to_string());
         }
     }
@@ -196,7 +172,7 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
         return Err("URL must start with https://".to_string());
     }
 
-    if is_private_host(&url) {
+    if crate::security::ssrf_check::is_private_url(&url) {
         return Err("URL resolves to a private or reserved address".to_string());
     }
 
@@ -243,7 +219,7 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
 
     // Validate the extracted URL: must be https://, not a private IP.
     if let Some(ref img_url) = image_url {
-        if !img_url.starts_with("https://") || is_private_host(img_url) {
+        if !img_url.starts_with("https://") || crate::security::ssrf_check::is_private_url(img_url) {
             return Ok(None);
         }
     }
@@ -254,93 +230,6 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // --- is_private_host ---
-
-    #[test]
-    fn test_private_host_loopback_ipv4() {
-        assert!(is_private_host("https://127.0.0.1/path"));
-    }
-
-    #[test]
-    fn test_private_host_loopback_ipv4_port() {
-        assert!(is_private_host("https://127.0.0.1:8080/path"));
-    }
-
-    #[test]
-    fn test_private_host_rfc1918_10() {
-        assert!(is_private_host("https://10.0.0.1/"));
-    }
-
-    #[test]
-    fn test_private_host_rfc1918_172() {
-        assert!(is_private_host("https://172.20.0.1/"));
-    }
-
-    #[test]
-    fn test_private_host_rfc1918_192_168() {
-        assert!(is_private_host("https://192.168.1.1/"));
-    }
-
-    #[test]
-    fn test_private_host_link_local() {
-        assert!(is_private_host("https://169.254.169.254/latest/meta-data/"));
-    }
-
-    #[test]
-    fn test_private_host_localhost_string() {
-        assert!(is_private_host("https://localhost/"));
-    }
-
-    #[test]
-    fn test_private_host_localhost_localdomain() {
-        assert!(is_private_host("https://localhost.localdomain/"));
-    }
-
-    #[test]
-    fn test_private_host_ipv6_loopback() {
-        assert!(is_private_host("https://[::1]/"));
-    }
-
-    #[test]
-    fn test_private_host_ipv6_unique_local() {
-        assert!(is_private_host("https://[fd00::1]/"));
-    }
-
-    #[test]
-    fn test_private_host_ipv6_unique_local_range_boundary() {
-        assert!(is_private_host("https://[fc00::1]/"));
-    }
-
-    #[test]
-    fn test_private_host_broadcast() {
-        assert!(is_private_host("https://255.255.255.255/"));
-    }
-
-    #[test]
-    fn test_private_host_unspecified() {
-        assert!(is_private_host("https://0.0.0.0/"));
-    }
-
-    #[test]
-    fn test_public_host_allowed() {
-        assert!(!is_private_host("https://example.com/image.png"));
-    }
-
-    #[test]
-    fn test_public_host_cdn_allowed() {
-        assert!(!is_private_host("https://images.unsplash.com/photo-123"));
-    }
-
-    #[test]
-    fn test_unparseable_url_rejected() {
-        assert!(is_private_host("not-a-url"));
-    }
-
-    #[test]
-    fn test_private_host_no_host_rejected() {
-        assert!(is_private_host("file:///etc/passwd"));
-    }
 
     // --- fetch_og_image: synchronous validation ---
 

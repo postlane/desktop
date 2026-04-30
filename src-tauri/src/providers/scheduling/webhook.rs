@@ -3,7 +3,6 @@
 use super::{build_client, parse_retry_after, Engagement, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::net::IpAddr;
 
 /// Generic webhook provider — covers Zapier, Make (Integromat), and any webhook-capable tool.
 ///
@@ -38,31 +37,12 @@ impl WebhookProvider {
         let parsed = url::Url::parse(url)
             .map_err(|_| ProviderError::InvalidInstance("Webhook URL is not a valid URL.".to_string()))?;
         let host = parsed.host_str().unwrap_or("");
-        if Self::is_private_host(host) {
+        if crate::security::ssrf_check::is_private_host_str(host) {
             return Err(ProviderError::InvalidInstance(
                 "Webhook URL must not target a private or loopback address.".to_string(),
             ));
         }
         Ok(())
-    }
-
-    /// Returns true for loopback hostnames and literal private/link-local IP addresses.
-    fn is_private_host(host: &str) -> bool {
-        if matches!(host, "localhost" | "ip6-localhost" | "ip6-loopback") {
-            return true;
-        }
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return match ip {
-                IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-                IpAddr::V6(v6) => {
-                    let segs = v6.segments();
-                    v6.is_loopback()
-                        || (segs[0] & 0xfe00) == 0xfc00  // fc00::/7 unique local
-                        || (segs[0] & 0xffc0) == 0xfe80  // fe80::/10 link-local
-                }
-            };
-        }
-        false
     }
 
     /// Check HTTP status and return appropriate `ProviderError`.
