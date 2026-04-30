@@ -2,10 +2,12 @@
 
 use crate::app_state::AppState;
 use crate::post_io::{collect_posts_from_dir, collect_posts_from_repos, read_repo_config_provider, sort_by_status_priority_then_timestamp};
-use serde::{Deserialize, Serialize};
+use crate::types::Post;
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
+
+pub type PublishedPost = Post;
 
 /// Extracts a string-keyed, string-valued map from a JSON object field.
 fn extract_string_map(
@@ -19,14 +21,14 @@ fn extract_string_map(
     })
 }
 
-/// Parse a single post directory into a `PublishedPost`, returning `None` if the
+/// Parse a single post directory into a `Post`, returning `None` if the
 /// post should be skipped (missing/invalid meta, wrong status, etc.).
 fn parse_published_post(
     post_path: &std::path::Path,
     repo_id: &str,
     repo_name: &str,
     repo_path: &str,
-) -> Option<PublishedPost> {
+) -> Option<Post> {
     if !post_path.is_dir() {
         return None;
     }
@@ -54,7 +56,7 @@ fn parse_published_post(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    Some(PublishedPost {
+    Some(Post {
         repo_id: repo_id.to_string(),
         repo_name: repo_name.to_string(),
         repo_path: repo_path.to_string(),
@@ -69,32 +71,14 @@ fn parse_published_post(
         llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
         sent_at: meta.get("sent_at").and_then(|v| v.as_str()).map(String::from),
         created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+        trigger: None,
+        error: None,
+        image_url: None,
     })
 }
 
-fn sort_published_by_status_then_sent_at(posts: &mut [PublishedPost]) {
+fn sort_published_by_status_then_sent_at(posts: &mut [Post]) {
     sort_by_status_priority_then_timestamp(posts, "queued", "sent", |p| &p.status, |p| p.sent_at.as_deref());
-}
-
-
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct PublishedPost {
-    pub repo_id: String,
-    pub repo_name: String,
-    pub repo_path: String,
-    pub post_folder: String,
-    pub status: String,
-    pub platforms: Vec<String>,
-    pub platform_results: Option<std::collections::HashMap<String, String>>,
-    pub schedule: Option<String>,
-    pub scheduler_ids: Option<std::collections::HashMap<String, String>>,
-    pub platform_urls: Option<std::collections::HashMap<String, String>>,
-    /// Scheduler provider name from repo config.json (e.g. "zernio"), or None.
-    pub provider: Option<String>,
-    pub llm_model: Option<String>,
-    pub sent_at: Option<String>,
-    pub created_at: Option<String>,
 }
 
 pub fn get_repo_published_impl(

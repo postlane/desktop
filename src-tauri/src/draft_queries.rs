@@ -2,35 +2,20 @@
 
 use crate::app_state::AppState;
 use crate::post_io::{collect_posts_from_repos, sort_by_status_priority_then_timestamp};
-use serde::{Deserialize, Serialize};
+use crate::types::Post;
 use std::fs;
 use tauri::State;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DraftPost {
-    pub repo_id: String,
-    pub repo_name: String,
-    pub repo_path: String,
-    pub post_folder: String,
-    pub status: String,
-    pub platforms: Vec<String>,
-    pub schedule: Option<String>,
-    pub trigger: Option<String>,
-    pub platform_results: Option<std::collections::HashMap<String, String>>,
-    pub error: Option<String>,
-    pub image_url: Option<String>,
-    pub llm_model: Option<String>,
-    pub created_at: Option<String>,
-}
+pub type DraftPost = Post;
 
-/// Parse a single post directory into a `DraftPost`, returning `None` if the
+/// Parse a single post directory into a `Post`, returning `None` if the
 /// post should be skipped (missing/invalid meta, wrong status, etc.).
 fn parse_draft_post(
     post_path: &std::path::Path,
     repo_id: &str,
     repo_name: &str,
     repo_path: &str,
-) -> Option<DraftPost> {
+) -> Option<Post> {
     if !post_path.is_dir() {
         return None;
     }
@@ -67,7 +52,7 @@ fn parse_draft_post(
         })
     });
 
-    Some(DraftPost {
+    Some(Post {
         repo_id: repo_id.to_string(),
         repo_name: repo_name.to_string(),
         repo_path: repo_path.to_string(),
@@ -81,14 +66,18 @@ fn parse_draft_post(
         image_url: meta.get("image_url").and_then(|v| v.as_str()).map(String::from),
         llm_model: meta.get("llm_model").and_then(|v| v.as_str()).map(String::from),
         created_at: meta.get("created_at").and_then(|v| v.as_str()).map(String::from),
+        scheduler_ids: None,
+        platform_urls: None,
+        provider: None,
+        sent_at: None,
     })
 }
 
-fn sort_drafts(drafts: &mut [DraftPost]) {
+fn sort_drafts(drafts: &mut [Post]) {
     sort_by_status_priority_then_timestamp(drafts, "failed", "ready", |d| &d.status, |d| d.created_at.as_deref());
 }
 
-pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
+pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
     let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
     let mut drafts = collect_posts_from_repos(&repos.repos, true, parse_draft_post);
     sort_drafts(&mut drafts);
@@ -96,7 +85,7 @@ pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<DraftPost>, String> {
 }
 
 #[tauri::command]
-pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<DraftPost>, String> {
+pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
     get_all_drafts_impl(&state)
 }
 

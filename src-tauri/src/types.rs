@@ -4,6 +4,31 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Canonical post type used for both draft and published queries.
+/// `status` discriminates: 'ready'/'failed' for drafts, 'sent'/'queued' for published.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Post {
+    pub repo_id: String,
+    pub repo_name: String,
+    pub repo_path: String,
+    pub post_folder: String,
+    pub status: String,
+    pub platforms: Vec<String>,
+    pub schedule: Option<String>,
+    pub platform_results: Option<HashMap<String, String>>,
+    pub llm_model: Option<String>,
+    pub created_at: Option<String>,
+    // Draft-only (None for published posts)
+    pub trigger: Option<String>,
+    pub error: Option<String>,
+    pub image_url: Option<String>,
+    // Published-only (None for draft posts)
+    pub scheduler_ids: Option<HashMap<String, String>>,
+    pub platform_urls: Option<HashMap<String, String>>,
+    pub provider: Option<String>,
+    pub sent_at: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SendResult {
     pub success: bool,
@@ -110,6 +135,43 @@ mod tests {
 
         let meta: PostMeta = serde_json::from_str(json).expect("Should deserialize partial results");
         assert_eq!(meta.platform_results.unwrap().get("x").unwrap(), "success");
+    }
+
+    #[test]
+    fn test_post_draft_fields_serialization() {
+        let post = Post {
+            repo_id: "r1".to_string(), repo_name: "Repo".to_string(),
+            repo_path: "/path".to_string(), post_folder: "my-post".to_string(),
+            status: "ready".to_string(), platforms: vec!["x".to_string()],
+            schedule: None, platform_results: None, llm_model: None, created_at: None,
+            trigger: Some("Launch".to_string()), error: None, image_url: None,
+            scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
+        };
+        let json = serde_json::to_string(&post).expect("serializes");
+        let back: Post = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.status, "ready");
+        assert_eq!(back.trigger.as_deref(), Some("Launch"));
+        assert!(back.sent_at.is_none());
+    }
+
+    #[test]
+    fn test_post_published_fields_serialization() {
+        let mut ids = HashMap::new();
+        ids.insert("x".to_string(), "tw-123".to_string());
+        let post = Post {
+            repo_id: "r1".to_string(), repo_name: "Repo".to_string(),
+            repo_path: "/path".to_string(), post_folder: "my-post".to_string(),
+            status: "sent".to_string(), platforms: vec!["x".to_string()],
+            schedule: None, platform_results: None, llm_model: None, created_at: None,
+            trigger: None, error: None, image_url: None,
+            scheduler_ids: Some(ids), platform_urls: None,
+            provider: Some("zernio".to_string()), sent_at: Some("2024-01-01T00:00:00Z".to_string()),
+        };
+        let json = serde_json::to_string(&post).expect("serializes");
+        let back: Post = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.status, "sent");
+        assert_eq!(back.provider.as_deref(), Some("zernio"));
+        assert!(back.trigger.is_none());
     }
 
     #[test]
