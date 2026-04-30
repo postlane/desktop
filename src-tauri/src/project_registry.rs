@@ -71,7 +71,7 @@ pub async fn check_project_status_with_client(
                 _ => ProjectStatus::NotFound,
             }
         }
-        Ok(r) if r.status().as_u16() == 401 => ProjectStatus::NotFound,
+        Ok(r) if r.status().as_u16() == 401 || r.status().as_u16() == 404 => ProjectStatus::NotFound,
         _ => ProjectStatus::Offline,
     }
 }
@@ -463,11 +463,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_returns_not_found_for_not_found_status() {
+    async fn test_returns_not_found_for_404_response() {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(GET).path("/v1/projects/proj-456");
-            then.status(200).json_body(serde_json::json!({ "status": "not_found" }));
+            then.status(404).json_body(serde_json::json!({ "id": "proj-456", "status": "not_found" }));
         });
 
         let status = check_project_status_with_client("proj-456", &build_test_client(), &server.base_url(), "tok").await;
