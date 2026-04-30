@@ -48,6 +48,10 @@ impl std::fmt::Display for CreateProjectError {
     }
 }
 
+fn require_license_token(opt: Option<String>) -> Result<String, String> {
+    opt.ok_or_else(|| "No license token — sign in at postlane.dev/login".to_string())
+}
+
 // ── Pure functions (injectable deps for testability) ─────────────────────────
 
 #[derive(Deserialize)]
@@ -308,11 +312,9 @@ pub async fn check_project_status(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     use tauri_plugin_keyring::KeyringExt;
-    let token = app
-        .keyring()
-        .get_password("postlane", "license")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
     let client = build_client();
     let status = check_project_status_with_client(&project_id, &client, POSTLANE_API_BASE, &token).await;
     Ok(match status {
@@ -324,11 +326,9 @@ pub async fn check_project_status(
 
 #[tauri::command]
 pub async fn check_billing_gate(app: tauri::AppHandle) -> Result<String, String> {
-    let token = app
-        .keyring()
-        .get_password("postlane", "license")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
     let client = build_client();
     let gate = check_billing_gate_with_client(&client, POSTLANE_API_BASE, &token).await;
     Ok(match gate {
@@ -340,11 +340,9 @@ pub async fn check_billing_gate(app: tauri::AppHandle) -> Result<String, String>
 
 #[tauri::command]
 pub async fn create_project(name: String, workspace_type: String, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let token = app
-        .keyring()
-        .get_password("postlane", "license")
-        .map_err(|e| e.to_string())?
-        .ok_or("No license token — sign in at postlane.dev/login")?;
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
     let client = build_client();
     let (project_id, project_name, wt) =
         create_project_with_client(&name, &workspace_type, &client, POSTLANE_API_BASE, &token)
@@ -374,11 +372,9 @@ pub async fn register_repo_with_project(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let token = app
-        .keyring()
-        .get_password("postlane", "license")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
     let repos = state
         .repos
         .lock()
@@ -409,11 +405,9 @@ pub async fn save_project_voice_guide(
     voice_guide: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let token = app
-        .keyring()
-        .get_password("postlane", "license")
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
     let client = build_client();
     save_project_voice_guide_with_client(&project_id, &voice_guide, &client, POSTLANE_API_BASE, &token).await
 }
@@ -480,6 +474,21 @@ mod tests {
             "proj-789", &build_test_client(), "http://127.0.0.1:19998", "tok",
         ).await;
         assert_eq!(status, ProjectStatus::Offline);
+    }
+
+    // ── require_license_token ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_require_license_token_returns_err_for_none() {
+        let result = require_license_token(None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("sign in"), "error should mention sign-in");
+    }
+
+    #[test]
+    fn test_require_license_token_returns_token_for_some() {
+        let result = require_license_token(Some("tok-123".to_string()));
+        assert_eq!(result.unwrap(), "tok-123");
     }
 
     // ── check_billing_gate ────────────────────────────────────────────────────
