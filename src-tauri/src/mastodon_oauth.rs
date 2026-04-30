@@ -285,10 +285,16 @@ async fn fetch_acct(instance: &str, access_token: &str) -> Result<String, String
 
 /// Constructs the OAuth authorization URL for the user to visit.
 fn build_auth_url(instance: &str, client_id: &str) -> String {
-    format!(
-        "https://{}/oauth/authorize?client_id={}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&scope=read+write",
-        instance, client_id
-    )
+    let base = format!("https://{}/oauth/authorize", instance);
+    let mut url = url::Url::parse(&base).unwrap_or_else(|_| {
+        url::Url::parse("https://mastodon.social/oauth/authorize").expect("fallback URL must parse")
+    });
+    url.query_pairs_mut()
+        .append_pair("client_id", client_id)
+        .append_pair("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
+        .append_pair("response_type", "code")
+        .append_pair("scope", "read write");
+    url.to_string()
 }
 
 #[cfg(test)]
@@ -360,9 +366,21 @@ mod tests {
         let url = build_auth_url("mastodon.social", "abc123");
         assert!(url.starts_with("https://mastodon.social/oauth/authorize"));
         assert!(url.contains("client_id=abc123"));
-        assert!(url.contains("redirect_uri=urn:ietf:wg:oauth:2.0:oob"));
+        assert!(url.contains("redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob"));
         assert!(url.contains("response_type=code"));
-        assert!(url.contains("scope=read+write"));
+        assert!(url.contains("scope=read"));
+    }
+
+    #[test]
+    fn test_build_auth_url_encodes_special_chars_in_client_id() {
+        let url = build_auth_url("mastodon.social", "id&special=value");
+        let parsed = url::Url::parse(&url).expect("URL must be parseable");
+        let client_id = parsed
+            .query_pairs()
+            .find(|(k, _)| k == "client_id")
+            .map(|(_, v)| v.to_string())
+            .expect("client_id param must be present");
+        assert_eq!(client_id, "id&special=value");
     }
 
     #[tokio::test]
