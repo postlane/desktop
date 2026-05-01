@@ -31,6 +31,12 @@ pub fn check_libsecret_before_save(libsecret_available: Option<bool>) -> Result<
     }
 }
 
+fn log_libsecret_cleanup_error(result: Result<(), String>, key: &str) {
+    if let Err(e) = result {
+        eprintln!("[scheduler_credentials] failed to clean up libsecret test key '{}': {}", key, e);
+    }
+}
+
 pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
     let app = match app {
         Some(a) => a,
@@ -39,13 +45,15 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
 
     let test_service = "postlane";
     let test_account = "__libsecret_test__";
-    let test_password = "test";
 
-    if app.keyring().set_password(test_service, test_account, test_password).is_ok() {
-        app.keyring().delete_password(test_service, test_account).is_ok()
-    } else {
-        false
+    let available = app.keyring().set_password(test_service, test_account, "test").is_ok();
+    if available {
+        log_libsecret_cleanup_error(
+            app.keyring().delete_password(test_service, test_account).map_err(|e| e.to_string()),
+            test_account,
+        );
     }
+    available
 }
 
 pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
@@ -278,6 +286,19 @@ pub fn remove_repo_scheduler_key(
     }
 }
 
+fn credential_found(key: &str, result: Result<Option<String>, String>) -> bool {
+    match result {
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(e) => {
+            if !is_keyring_not_found(&e) {
+                eprintln!("[scheduler_credentials] keyring error for '{}': {}", key, e);
+            }
+            false
+        }
+    }
+}
+
 /// Returns true if any provider has a credential for the given repo.
 /// Used by the per-repo scheduler setup modal to decide whether to show.
 pub fn has_scheduler_configured_impl(repo_id: &str, app: &tauri::AppHandle) -> bool {
@@ -285,7 +306,7 @@ pub fn has_scheduler_configured_impl(repo_id: &str, app: &tauri::AppHandle) -> b
     for provider in &VALID_PROVIDERS {
         let keys = get_credential_keyring_key(provider, Some(repo_id));
         for key in keys {
-            if let Ok(Some(_)) = app.keyring().get_password("postlane", &key) {
+            if credential_found(&key, app.keyring().get_password("postlane", &key).map_err(|e| e.to_string())) {
                 return true;
             }
         }
@@ -524,5 +545,39 @@ mod tests {
         let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
         let result = validate_scheduler_registration_impl(None, "not_a_provider", &empty_state);
         assert!(result.is_err());
+    }
+
+    // --- log_libsecret_cleanup_error ---
+
+    #[test]
+    fn log_libsecret_cleanup_error_does_not_panic_on_err() {
+        log_libsecret_cleanup_error(Err("disk full".to_string()), "__libsecret_test__");
+    }
+
+    #[test]
+    fn log_libsecret_cleanup_error_is_noop_on_ok() {
+        log_libsecret_cleanup_error(Ok(()), "__libsecret_test__");
+    }
+
+    // --- credential_found ---
+
+    #[test]
+    fn credential_found_returns_true_when_credential_exists() {
+        assert!(credential_found("postlane/zernio/r1", Ok(Some("api-key".to_string()))));
+    }
+
+    #[test]
+    fn credential_found_returns_false_when_no_entry() {
+        assert!(!credential_found("postlane/zernio/r1", Ok::<_, String>(None)));
+    }
+
+    #[test]
+    fn credential_found_returns_false_and_does_not_panic_on_genuine_keyring_error() {
+        assert!(!credential_found("postlane/zernio/r1", Err("Keychain locked — user must unlock".to_string())));
+    }
+
+    #[test]
+    fn credential_found_returns_false_silently_on_not_found_error() {
+        assert!(!credential_found("postlane/zernio/r1", Err("no entry found".to_string())));
     }
 }

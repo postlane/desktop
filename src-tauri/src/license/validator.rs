@@ -61,6 +61,12 @@ pub fn write_license_cache(cache: &LicenseCache) -> Result<(), String> {
         .map_err(|e| format!("Failed to write license cache: {}", e))
 }
 
+fn warn_on_cache_write(result: Result<(), String>) {
+    if let Err(e) = result {
+        eprintln!("[license] failed to write cache: {}", e);
+    }
+}
+
 /// Returns true if the cache is older than 7 days (soft warning threshold).
 pub fn is_cache_expired(cache: &LicenseCache) -> bool {
     cache.validated_at < Utc::now() - Duration::days(7)
@@ -95,7 +101,7 @@ pub async fn validate_token_with_client(
                 user: body.user.clone(),
                 repos: body.repos.clone(),
             };
-            let _ = write_license_cache(&cache);
+            warn_on_cache_write(write_license_cache(&cache));
             Ok(LicenseState::Valid { user: body.user, repos: body.repos })
         }
         Ok(r) if r.status().as_u16() == 401 => Ok(LicenseState::Expired),
@@ -299,5 +305,15 @@ mod tests {
             expired_called.load(Ordering::SeqCst),
             "on_expired callback should have been called when 401 received"
         );
+    }
+
+    #[test]
+    fn warn_on_cache_write_is_noop_on_ok() {
+        warn_on_cache_write(Ok(()));
+    }
+
+    #[test]
+    fn warn_on_cache_write_does_not_panic_on_error() {
+        warn_on_cache_write(Err("no space left on device".to_string()));
     }
 }

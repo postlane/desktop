@@ -142,24 +142,35 @@ pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
         .unwrap_or(500))
 }
 
+fn keys_for_disconnect(instance: &str, is_active: bool) -> Vec<String> {
+    let mut keys = vec![
+        format!("mastodon/{}", instance),
+        format!("mastodon_client_id/{}", instance),
+        format!("mastodon_client_secret/{}", instance),
+    ];
+    if is_active {
+        keys.push(KEYRING_ACTIVE_INSTANCE.to_string());
+    }
+    keys
+}
+
 /// Removes all Mastodon credentials from the OS keyring for the given instance.
 ///
-/// Deletes the access token, client_id, and client_secret entries.
+/// Only clears the active-instance pointer if this instance is currently active.
 /// Ignores individual delete errors — all entries are attempted regardless.
 #[tauri::command]
 pub fn disconnect_mastodon(instance: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_instance_format(&instance)?;
 
-    // Attempt all three deletions; collect errors but don't short-circuit
-    let mut errors = Vec::new();
+    let active = app
+        .keyring()
+        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .unwrap_or(None);
+    let is_active = active.as_deref() == Some(instance.as_str());
 
-    for key in &[
-        format!("mastodon/{}", instance),
-        format!("mastodon_client_id/{}", instance),
-        format!("mastodon_client_secret/{}", instance),
-        KEYRING_ACTIVE_INSTANCE.to_string(),
-    ] {
-        if let Err(e) = app.keyring().delete_password(KEYRING_SERVICE, key) {
+    let mut errors = Vec::new();
+    for key in keys_for_disconnect(&instance, is_active) {
+        if let Err(e) = app.keyring().delete_password(KEYRING_SERVICE, &key) {
             errors.push(format!("Failed to delete {}: {}", key, e));
         }
     }
@@ -350,15 +361,17 @@ mod tests {
 
     // Issue 8 — disconnect must delete the active instance key so charLimit fetch returns None
     #[test]
-    fn test_disconnect_deletes_active_instance_key() {
-        let keys: Vec<String> = vec![
-            format!("mastodon/{}", "mastodon.social"),
-            format!("mastodon_client_id/{}", "mastodon.social"),
-            format!("mastodon_client_secret/{}", "mastodon.social"),
-            KEYRING_ACTIVE_INSTANCE.to_string(),
-        ];
+    fn test_disconnect_deletes_active_instance_key_when_active() {
+        let keys = keys_for_disconnect("mastodon.social", true);
         assert!(keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
-            "disconnect must delete the active instance key");
+            "disconnect must delete the active_instance key when disconnecting the active instance");
+    }
+
+    #[test]
+    fn test_disconnect_spares_active_instance_key_when_not_active() {
+        let keys = keys_for_disconnect("fosstodon.org", false);
+        assert!(!keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
+            "disconnect must NOT delete active_instance key when the disconnected instance is not the active one");
     }
 
     #[test]

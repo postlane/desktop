@@ -75,6 +75,12 @@ fn any_platform_failed(results: &std::collections::HashMap<String, String>) -> b
     results.values().any(|v| v.starts_with("error:"))
 }
 
+fn warn_on_tracking_error(provider: &str, result: Result<(), String>) {
+    if let Err(e) = result {
+        eprintln!("[post_approval] usage tracking failed for '{}': {}", provider, e);
+    }
+}
+
 /// Rejects post folder names that contain path separators or traversal sequences.
 fn validate_post_folder(post_folder: &str) -> Result<(), String> {
     if post_folder.is_empty()
@@ -241,7 +247,7 @@ async fn send_via_provider(
                 if Some(&provider_name) != primary.as_ref() {
                     fallback_used = Some(provider_name.clone());
                 }
-                crate::scheduling::usage_tracker::record_post(&provider_name).ok();
+                warn_on_tracking_error(&provider_name, crate::scheduling::usage_tracker::record_post(&provider_name));
                 platform_results.insert(platform.clone(), "success".to_string());
                 scheduler_ids.insert(platform.clone(), post_result.scheduler_id);
                 if let Some(url) = post_result.platform_url {
@@ -623,6 +629,18 @@ mod tests {
         let r = build_approval_result(&send_results(false), true);
         assert!(!r.success);
         assert!(r.error.is_some());
+    }
+
+    // --- warn_on_tracking_error ---
+
+    #[test]
+    fn warn_on_tracking_error_is_noop_on_ok() {
+        warn_on_tracking_error("zernio", Ok(()));
+    }
+
+    #[test]
+    fn warn_on_tracking_error_does_not_panic_on_err() {
+        warn_on_tracking_error("zernio", Err("disk full".to_string()));
     }
 
     // --- provider_is_usable ---

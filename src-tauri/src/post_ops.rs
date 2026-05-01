@@ -88,7 +88,7 @@ pub fn dismiss_post_impl(repo_path: &str, post_folder: &str, state: &AppState, c
     let mut meta = crate::post_mutations::read_post_meta(&meta_path)?;
     meta.status = "dismissed".to_string();
     crate::post_mutations::write_post_meta(&meta_path, &meta)?;
-    state.telemetry.record(consent, "post_dismissed", serde_json::json!({}));
+    state.telemetry.record(consent, "post_dismissed", serde_json::json!({ "platforms": meta.platforms }));
     Ok(())
 }
 
@@ -194,6 +194,10 @@ pub fn retry_post_impl(
     }
 
     let mut meta = crate::post_mutations::read_post_meta(&meta_path)?;
+
+    if meta.platforms.is_empty() {
+        return Err("No platforms configured for this post — nothing to retry".to_string());
+    }
 
     let mut platform_results = meta.platform_results.clone().unwrap_or_default();
 
@@ -699,6 +703,17 @@ mod tests {
     }
 
     #[test]
+    fn test_dismiss_telemetry_includes_platforms() {
+        let (dir, path) = make_dismiss_dir("platforms-check");
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        dismiss_post_impl(&path, "post-d", &state, true).expect("dismiss must succeed");
+        let events = state.telemetry.peek_queue();
+        let props = &events[0].properties;
+        assert!(props.get("platforms").is_some(), "telemetry must include platforms field");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn test_dismiss_no_telemetry_when_consent_not_given() {
         let (dir, path) = make_dismiss_dir("no");
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
@@ -706,5 +721,62 @@ mod tests {
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- retry_post_impl ---
+
+    fn make_retry_dir(post_folder: &str, platforms: &[&str]) -> (std::path::PathBuf, AppState) {
+        let dir = std::env::temp_dir().join(format!("postlane_test_retry_{}", post_folder));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let post_path = canonical.join(".postlane/posts").join(post_folder);
+        fs::create_dir_all(&post_path).expect("create post dir");
+        let platforms_json = platforms
+            .iter()
+            .map(|p| format!("\"{}\"", p))
+            .collect::<Vec<_>>()
+            .join(",");
+        fs::write(
+            post_path.join("meta.json"),
+            format!(r#"{{"status":"failed","platforms":[{}],"platform_results":{{"x":"failed"}}}}"#, platforms_json),
+        ).expect("write meta.json");
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        });
+        (canonical, state)
+    }
+
+    #[test]
+    fn test_retry_post_returns_error_when_no_platforms() {
+        let (dir, state) = make_retry_dir("empty-platforms", &[]);
+        // Overwrite meta.json with empty platforms
+        let post_path = dir.join(".postlane/posts/empty-platforms");
+        fs::write(post_path.join("meta.json"), r#"{"status":"failed","platforms":[]}"#)
+            .expect("write meta");
+        let result = retry_post_impl(dir.to_str().unwrap(), "empty-platforms", &state);
+        assert!(result.is_err(), "must return error when platforms list is empty");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_retry_post_marks_failed_platform_as_success() {
+        let (dir, state) = make_retry_dir("retry-ok", &["x"]);
+        let result = retry_post_impl(dir.to_str().unwrap(), "retry-ok", &state);
+        assert!(result.is_ok(), "retry_post_impl should succeed: {:?}", result);
+        let send_result = result.unwrap();
+        assert!(send_result.success);
+        assert_eq!(
+            send_result.platform_results.as_ref().and_then(|m| m.get("x")).map(String::as_str),
+            Some("success"),
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }
