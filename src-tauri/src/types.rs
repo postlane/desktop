@@ -134,7 +134,7 @@ mod tests {
         }"#;
 
         let meta: PostMeta = serde_json::from_str(json).expect("Should deserialize partial results");
-        assert_eq!(meta.platform_results.unwrap().get("x").unwrap(), "success");
+        assert_eq!(meta.platform_results.expect("platform_results should be Some").get("x").expect("key 'x' should exist"), "success");
     }
 
     #[test]

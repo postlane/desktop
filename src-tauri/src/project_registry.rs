@@ -11,6 +11,16 @@ use std::path::PathBuf;
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
 
+fn reject_if_symlink(path: &std::path::Path) -> Result<(), String> {
+    match path.symlink_metadata() {
+        Ok(m) if m.file_type().is_symlink() => Err(format!(
+            "'{}' is a symlink — refusing to read/write to prevent path traversal",
+            path.display()
+        )),
+        Ok(_) | Err(_) => Ok(()),
+    }
+}
+
 // ── Public types ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, PartialEq)]
@@ -172,6 +182,7 @@ pub fn write_project_id_to_config_impl(
     }
 
     let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
+    reject_if_symlink(&config_path)?;
     if !config_path.exists() {
         return Err(format!(
             "config.json not found at {} — run `postlane init` first",
@@ -488,7 +499,7 @@ mod tests {
     #[test]
     fn test_require_license_token_returns_token_for_some() {
         let result = require_license_token(Some("tok-123".to_string()));
-        assert_eq!(result.unwrap(), "tok-123");
+        assert_eq!(result.expect("require_license_token should return Ok for Some"), "tok-123");
     }
 
     // ── check_billing_gate ────────────────────────────────────────────────────
@@ -537,7 +548,7 @@ mod tests {
         });
 
         let result = create_project_with_client("My Project", "personal", &build_test_client(), &server.base_url(), "tok").await;
-        let (id, name, _wt) = result.unwrap();
+        let (id, name, _wt) = result.expect("create_project_with_client should succeed for 200 response");
         assert_eq!(id, "new-uuid-abc");
         assert_eq!(name, "My Project");
     }
@@ -591,6 +602,26 @@ mod tests {
         let result = write_project_id_to_config_impl("/not/registered", "proj-abc", &repos);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not in the registered repos list"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_write_config_rejects_symlinked_config_json() {
+        let dir = std::env::temp_dir().join("postlane_test_write_symlink");
+        let _ = fs::remove_dir_all(&dir);
+        let postlane_dir = dir.join(".postlane");
+        fs::create_dir_all(&postlane_dir).expect("create .postlane");
+        let target = std::env::temp_dir().join("evil_write_target.json");
+        fs::write(&target, "{}").expect("write target");
+        std::os::unix::fs::symlink(&target, postlane_dir.join("config.json")).expect("create symlink");
+
+        let repos = make_repos(&[dir.to_str().unwrap()]);
+        let result = write_project_id_to_config_impl(dir.to_str().unwrap(), "proj-123", &repos);
+        assert!(result.is_err(), "must reject symlinked config.json");
+        assert!(result.unwrap_err().to_lowercase().contains("symlink"), "error must mention symlink");
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_file(&target);
     }
 
     // ── register_repo_with_project ───────────────────────────────────────────
@@ -725,7 +756,7 @@ mod tests {
         });
 
         let result = create_project_with_client("Acme", "organization", &build_test_client(), &server.base_url(), "tok").await;
-        let (id, name, wt) = result.unwrap();
+        let (id, name, wt) = result.expect("create_project with organization workspace_type should succeed");
         assert_eq!(id, "org-uuid-abc");
         assert_eq!(name, "Acme");
         assert_eq!(wt, "organization");
