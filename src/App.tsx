@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
+import SignInScreen from './wizard/SignInScreen';
 import AddRepoModal from './wizard/AddRepoModal';
 import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
 import LeftNav from './nav/LeftNav';
@@ -13,7 +14,7 @@ import RepoDraftsView from './drafts/RepoDraftsView';
 import RepoPublishedView from './published/RepoPublishedView';
 import SettingsPanel from './settings/SettingsPanel';
 import { TimezoneContext } from './TimezoneContext';
-import type { AppStateFile, RepoWithStatus, ViewSelection } from './types';
+import type { AppStateFile, ViewSelection } from './types';
 
 const DEFAULT_VIEW: ViewSelection = {
   view: 'all_repos',
@@ -44,7 +45,16 @@ function MainContent({
   onRepoChange: () => void;
   onOpenSchedulerSettings: () => void;
 }) {
-  if (settingsOpen) return <SettingsPanel onClose={onCloseSettings} onTimezoneChange={onTimezoneChange} onRepoChange={onRepoChange} initialTab={schedulerTab ? 'scheduler' : undefined} />;
+  if (settingsOpen) return (
+    <SettingsPanel
+      onClose={onCloseSettings}
+      onTimezoneChange={onTimezoneChange}
+      onRepoChange={onRepoChange}
+      initialTab={schedulerTab ? 'scheduler' : undefined}
+      onAddWorkspace={undefined}
+      onAddRepo={undefined}
+    />
+  );
   if (view.view === 'all_repos') {
     return view.section === 'published'
       ? <AllReposPublishedView onNavigateToRepo={onNavigateToRepo} />
@@ -70,9 +80,9 @@ function useWindowSizePersistence() {
           await invoke('save_app_state_command', {
             state: { ...appState, window: { width: size.width, height: size.height, x: pos.x, y: pos.y } },
           });
-        } catch (e) { console.error('Failed to persist window size:', e); }
+        } catch (e) { console.error('Failed to persist window size:', e instanceof Error ? e.message : String(e)); }
       }, 500);
-    }).then((fn) => { unlisten = fn; }).catch(console.error);
+    }).then((fn) => { unlisten = fn; }).catch((e: unknown) => console.error('Failed to set up resize listener:', e instanceof Error ? e.message : String(e)));
     return () => { unlisten?.(); if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current); };
   }, []);
 }
@@ -92,6 +102,7 @@ function useAppState() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [schedulerTab, setSchedulerTab] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showSignIn, setShowSignIn] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [timezone, setTimezone] = useState<string>('');
@@ -99,23 +110,26 @@ function useAppState() {
   const [postWizardNudge, setPostWizardNudge] = useState(false);
 
   useEffect(() => {
-    invoke<AppStateFile>('read_app_state_command')
-      .then((s) => { setTimezone(s.timezone ?? ''); if (!s.consent_asked) setShowConsentModal(true); })
+    Promise.all([
+      invoke<AppStateFile>('read_app_state_command'),
+      invoke<boolean>('get_license_signed_in'),
+    ])
+      .then(([appState, hasToken]) => {
+        setTimezone(appState.timezone ?? '');
+        if (!appState.consent_asked) setShowConsentModal(true);
+        if (!appState.wizard_completed) { setShowWizard(true); return; }
+        if (!hasToken) { setShowSignIn(true); }
+      })
       .catch(console.error);
   }, []);
 
-  useEffect(() => {
-    Promise.all([invoke<AppStateFile>('read_app_state_command'), invoke<RepoWithStatus[]>('get_repos')])
-      .then(([appState, repos]) => { if (!appState.wizard_completed && repos.length === 0) setShowWizard(true); })
-      .catch(console.error);
-  }, []);
+  function handleWizardComplete() {
+    setShowWizard(false);
+    setPostWizardNudge(true);
+  }
 
-  async function handleWizardComplete() {
-    try {
-      const appState = await invoke<AppStateFile>('read_app_state_command');
-      await invoke('save_app_state_command', { state: { ...appState, wizard_completed: true } });
-    } catch (e) { console.error('Failed to mark wizard complete:', e); }
-    setShowWizard(false); setPostWizardNudge(true);
+  function handleSignedIn() {
+    setShowSignIn(false);
   }
 
   async function handleConsentChoice(consent: boolean) {
@@ -129,18 +143,20 @@ function useAppState() {
   function closeSettings() { setSettingsOpen(false); setSchedulerTab(false); }
 
   return {
-    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showAddRepo,
-    setShowAddRepo, showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
-    postWizardNudge, setPostWizardNudge, handleWizardComplete, handleConsentChoice,
+    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showSignIn,
+    showAddRepo, setShowAddRepo, showConsentModal, timezone, setTimezone,
+    repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
+    handleWizardComplete, handleSignedIn, handleConsentChoice,
     openSettings, openSchedulerSettings, closeSettings,
   };
 }
 
 export default function App() {
   const {
-    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showAddRepo,
-    setShowAddRepo, showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
-    postWizardNudge, setPostWizardNudge, handleWizardComplete, handleConsentChoice,
+    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showSignIn,
+    showAddRepo, setShowAddRepo, showConsentModal, timezone, setTimezone,
+    repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
+    handleWizardComplete, handleSignedIn, handleConsentChoice,
     openSettings, openSchedulerSettings, closeSettings,
   } = useAppState();
 
@@ -148,6 +164,7 @@ export default function App() {
   useWindowSizePersistence();
 
   if (showWizard) return <Wizard onComplete={handleWizardComplete} />;
+  if (showSignIn) return <SignInScreen onSignedIn={handleSignedIn} />;
 
   return (
     <TimezoneContext.Provider value={timezone}>
