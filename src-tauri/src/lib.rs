@@ -370,6 +370,7 @@ fn show_alert_and_exit(message: &str) {
     std::process::exit(1);
 }
 
+#[cfg(target_os = "macos")]
 fn escape_for_applescript(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
