@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 use super::*;
 
+#[tokio::test]
 async fn test_schedule_post_success() {
     use httpmock::prelude::*;
 

@@ -7,7 +7,7 @@ use notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Application state shared across Tauri commands, watchers, and HTTP handlers
 pub struct AppState {
@@ -136,6 +136,25 @@ pub fn read_app_state() -> AppStateFile {
             AppStateFile::default()
         }
     }
+}
+
+static WIZARD_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// Sets `wizard_completed: true` in app_state.json atomically.
+/// The mutex serializes concurrent callers so they don't race on the tmp rename.
+pub fn set_wizard_completed_impl() -> Result<(), String> {
+    let _guard = WIZARD_WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {}", e))?;
+    let mut state = read_app_state();
+    state.wizard_completed = true;
+    write_app_state(&state)
+}
+
+#[tauri::command]
+pub fn set_wizard_completed() -> Result<(), String> {
+    set_wizard_completed_impl()
 }
 
 /// Writes app_state.json atomically
@@ -378,6 +397,46 @@ mod tests {
 
         // Cleanup - remove the directory
         let _ = fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_wizard_completed_written_atomically() {
+        let _lock = get_test_mutex().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+
+        let initial = AppStateFile { wizard_completed: false, ..AppStateFile::default() };
+        write_app_state(&initial).expect("write initial");
+
+        set_wizard_completed_impl().expect("set_wizard_completed_impl should succeed");
+
+        let result = read_app_state();
+        assert!(result.wizard_completed, "wizard_completed should be true after set_wizard_completed_impl");
+
+        let path = app_state_path().expect("path");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_set_wizard_completed_concurrent_calls_all_succeed() {
+        let _lock = get_test_mutex().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+
+        let initial = AppStateFile { wizard_completed: false, ..AppStateFile::default() };
+        write_app_state(&initial).expect("write initial");
+
+        let handles: Vec<_> = (0..4)
+            .map(|_| std::thread::spawn(set_wizard_completed_impl))
+            .collect();
+
+        for h in handles {
+            h.join().expect("thread panicked").expect("set_wizard_completed_impl failed");
+        }
+
+        let result = read_app_state();
+        assert!(result.wizard_completed, "wizard_completed must be true after concurrent writes");
+
+        let path = app_state_path().expect("path");
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

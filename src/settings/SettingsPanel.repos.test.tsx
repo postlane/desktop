@@ -30,6 +30,7 @@ function makeRepo(overrides: Partial<RepoWithStatus> = {}): RepoWithStatus {
     failed_count: 0,
     last_post_at: null,
     provider: null,
+    project_id: null,
     ...overrides,
   };
 }
@@ -291,6 +292,36 @@ describe('SettingsPanel — ReposTab action errors — part 2', () => {
     await waitFor(() =>
       expect(screen.queryByText('First failure')).not.toBeInTheDocument()
     );
+  });
+});
+
+describe('SettingsPanel — wizard entry points (§16.5)', () => {
+  it('test_add_project_runs_billing_gate', async () => {
+    const onAddWorkspace = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} onAddWorkspace={onAddWorkspace} />);
+    await waitFor(() => screen.getByRole('button', { name: /add workspace/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add workspace/i }));
+    expect(onAddWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it('test_add_repo_starts_at_connect_repo', async () => {
+    const onAddRepo = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} onAddRepo={onAddRepo} />);
+    await waitFor(() => screen.getByRole('button', { name: /add repo/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add repo/i }));
+    expect(onAddRepo).toHaveBeenCalledOnce();
   });
 });
 

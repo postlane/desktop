@@ -19,6 +19,7 @@ pub mod post_io;
 pub mod post_mutations;
 pub mod post_export;
 pub mod post_ops;
+pub mod project_registry;
 pub mod providers;
 pub mod published_queries;
 pub mod repo_mgmt;
@@ -136,7 +137,7 @@ fn register_deep_link_handler(app_handle: tauri::AppHandle) {
                 let result = license::deep_link::handle_activate(
                     &token,
                     &client,
-                    "https://api.postlane.dev",
+                    license::POSTLANE_API_BASE,
                     move |t| keyring_handle.keyring().set_password("postlane", "license", t)
                         .map_err(|e| e.to_string()),
                     license::validator::write_license_cache,
@@ -225,7 +226,7 @@ fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
             std::time::Duration::from_secs(24 * 3600),
             &token,
             &client,
-            "https://api.postlane.dev",
+            crate::license::POSTLANE_API_BASE,
             move || {
                 let _ = app_handle.emit("license:expired", serde_json::json!({}));
             },
@@ -259,64 +260,43 @@ fn add_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
 }
 
 fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
-    add_plugins(tauri::Builder::default())
-        .invoke_handler(tauri::generate_handler![
-            repo_queries::get_repos,
-            draft_queries::get_all_drafts,
-            published_queries::get_repo_published,
-            published_queries::get_all_published,
-            model_stats::get_model_stats,
-            nav_commands::get_app_version,
-            nav_commands::get_autostart_enabled,
-            nav_commands::get_attribution,
-            nav_commands::set_attribution,
-            account_config::list_profiles_for_repo,
-            account_config::save_account_id,
-            account_config::get_account_ids,
-            nav_commands::read_app_state_command,
-            nav_commands::save_app_state_command,
-            post_ops::get_drafts,
-            post_approval::approve_post,
-            post_ops::get_post_content,
-            post_ops::dismiss_post,
-            post_ops::delete_post,
-            post_ops::retry_post,
-            post_ops::queue_redraft,
-            post_ops::cancel_redraft,
-            repo_mgmt::add_repo,
-            repo_mgmt::remove_repo,
-            repo_mgmt::set_repo_active,
-            repo_mgmt::check_repo_health,
-            scheduler_credentials::get_libsecret_status,
-            scheduler_credentials::has_scheduler_configured,
-            scheduler_credentials::has_provider_credential,
-            scheduler_credentials::save_scheduler_credential,
-            scheduler_credentials::get_scheduler_credential,
-            scheduler_credentials::delete_scheduler_credential,
-            scheduler_credentials::save_repo_scheduler_key,
-            scheduler_credentials::remove_repo_scheduler_key,
-            scheduler_credentials::get_per_repo_scheduler_key,
-            commands::test_scheduler,
-            commands::cancel_post_command,
-            commands::get_queue_command,
-            post_export::export_history_csv,
-            repo_mgmt::update_repo_path,
-            repo_mgmt::update_scheduler_config,
-            post_editor::update_post_content,
-            post_editor::update_post_image,
-            post_editor::fetch_og_image,
-            mastodon_oauth::get_mastodon_char_limit,
-            mastodon_oauth::get_mastodon_connected_instance,
-            mastodon_oauth::register_mastodon_app,
-            mastodon_oauth::exchange_mastodon_code,
-            mastodon_oauth::disconnect_mastodon,
-            analytics::client::get_site_token,
-            analytics::client::get_post_analytics,
-            telemetry_commands::get_telemetry_consent,
-            telemetry_commands::set_telemetry_consent,
-            scheduling_commands::get_scheduler_usage,
-            license::get_license_signed_in,
-        ])
+    add_plugins(tauri::Builder::default()).invoke_handler(tauri::generate_handler![
+        repo_queries::get_repos,
+        draft_queries::get_all_drafts,
+        published_queries::get_repo_published, published_queries::get_all_published,
+        model_stats::get_model_stats,
+        nav_commands::get_app_version, nav_commands::get_autostart_enabled,
+        nav_commands::get_attribution, nav_commands::set_attribution,
+        account_config::list_profiles_for_repo, account_config::save_account_id,
+        account_config::get_account_ids,
+        nav_commands::read_app_state_command, nav_commands::save_app_state_command,
+        app_state::set_wizard_completed,
+        post_ops::get_drafts, post_approval::approve_post,
+        post_ops::get_post_content, post_ops::dismiss_post, post_ops::delete_post,
+        post_ops::retry_post, post_ops::queue_redraft, post_ops::cancel_redraft,
+        repo_mgmt::add_repo, repo_mgmt::remove_repo, repo_mgmt::set_repo_active,
+        repo_mgmt::check_repo_health, repo_mgmt::update_repo_path,
+        repo_mgmt::update_scheduler_config,
+        scheduler_credentials::get_libsecret_status, scheduler_credentials::has_scheduler_configured,
+        scheduler_credentials::has_provider_credential, scheduler_credentials::save_scheduler_credential,
+        scheduler_credentials::get_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
+        scheduler_credentials::save_repo_scheduler_key, scheduler_credentials::remove_repo_scheduler_key,
+        scheduler_credentials::get_per_repo_scheduler_key,
+        commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,
+        post_export::export_history_csv,
+        post_editor::update_post_content, post_editor::update_post_image, post_editor::fetch_og_image,
+        mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
+        mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
+        mastodon_oauth::disconnect_mastodon,
+        analytics::client::get_site_token, analytics::client::get_post_analytics,
+        telemetry_commands::get_telemetry_consent, telemetry_commands::set_telemetry_consent,
+        scheduling_commands::get_scheduler_usage,
+        license::get_license_signed_in,
+        project_registry::check_project_status, project_registry::check_billing_gate,
+        project_registry::create_project, project_registry::write_project_id_to_config,
+        project_registry::register_repo_with_project, project_registry::save_project_voice_guide,
+        project_registry::get_repo_remote_name, project_registry::read_project_id_from_path,
+    ])
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -391,6 +371,11 @@ fn show_alert_and_exit(message: &str) {
 }
 
 #[cfg(target_os = "macos")]
+fn escape_for_applescript(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(target_os = "macos")]
 fn show_alert_and_exit(message: &str) {
     use std::process::Command;
 
@@ -398,9 +383,35 @@ fn show_alert_and_exit(message: &str) {
         .arg("-e")
         .arg(format!(
             "display dialog \"{}\" buttons {{\"OK\"}} default button \"OK\" with icon caution",
-            message
+            escape_for_applescript(message)
         ))
         .output();
 
     std::process::exit(1);
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_for_applescript_escapes_double_quotes() {
+        let input = r#"Error: "cannot parse" config"#;
+        let escaped = escape_for_applescript(input);
+        assert_eq!(escaped, r#"Error: \"cannot parse\" config"#);
+    }
+
+    #[test]
+    fn test_escape_for_applescript_escapes_backslashes_before_quotes() {
+        let input = r"path\to\file";
+        let escaped = escape_for_applescript(input);
+        assert_eq!(escaped, r"path\\to\\file");
+    }
+
+    #[test]
+    fn test_escape_for_applescript_passthrough_for_plain_text() {
+        let input = "Postlane is already running on port 9123. Close the existing instance first.";
+        let escaped = escape_for_applescript(input);
+        assert_eq!(escaped, input);
+    }
 }

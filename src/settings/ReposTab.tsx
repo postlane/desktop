@@ -148,7 +148,25 @@ function RemoveRepoDialog({ id, onClose, onConfirm }: { id: string | null; onClo
   );
 }
 
-export default function ReposTab({ onRepoChange }: { onRepoChange: () => void }) {
+interface ReposTabProps {
+  onRepoChange: () => void;
+  onAddWorkspace?: () => void;
+  onAddRepo?: () => void;
+}
+
+function ReposHeader({ onAddWorkspace, onAdd }: { onAddWorkspace?: () => void; onAdd: () => void }) {
+  return (
+    <div className="flex items-center justify-between">
+      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Repos</h2>
+      <div className="flex gap-2">
+        {onAddWorkspace && <Button outline onClick={onAddWorkspace}>Add workspace</Button>}
+        <Button onClick={onAdd}>Add repo</Button>
+      </div>
+    </div>
+  );
+}
+
+export default function ReposTab({ onRepoChange, onAddWorkspace, onAddRepo }: ReposTabProps) {
   const [repos, setRepos] = useState<RepoWithStatus[]>([]);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -164,6 +182,7 @@ export default function ReposTab({ onRepoChange }: { onRepoChange: () => void })
   useEffect(() => { refresh(); }, [refresh]);
 
   async function handleAdd() {
+    if (onAddRepo) { onAddRepo(); return; }
     setActionError(null);
     const selected = await openDialog({ directory: true });
     if (!selected) return;
@@ -198,10 +217,7 @@ export default function ReposTab({ onRepoChange }: { onRepoChange: () => void })
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Repos</h2>
-        <Button onClick={handleAdd}>Add repo</Button>
-      </div>
+      <ReposHeader onAddWorkspace={onAddWorkspace} onAdd={handleAdd} />
       <div className="space-y-2">
         {repos.map((repo) => (
           <RepoCard key={repo.id} repo={repo} togglingIds={togglingIds}

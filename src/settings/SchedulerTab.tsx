@@ -160,6 +160,22 @@ function RemoveKeyDialog({ provider, input, onInputChange, onClose, onConfirm }:
 
 const COUNTED_PROVIDERS: Provider[] = ['publer', 'outstand'];
 
+export async function loadSchedulerCreds(
+  isCancelled: () => boolean,
+  onCred: (provider: Provider, preview: string) => void,
+): Promise<void> {
+  await Promise.all(
+    PROVIDERS.map(async (provider) => {
+      try {
+        const preview = await invoke<string>('get_scheduler_credential', { provider })
+        if (!isCancelled()) onCred(provider, preview)
+      } catch {
+        // not configured — skip
+      }
+    })
+  )
+}
+
 function useSchedulerCreds() {
   const init: CredentialState = { preview: null, testing: false, testResult: null, testError: null, adding: false, keyInput: '' };
   const [creds, setCreds] = useState<Record<Provider, CredentialState>>({ zernio: { ...init }, buffer: { ...init }, ayrshare: { ...init }, publer: { ...init }, outstand: { ...init } });
@@ -168,16 +184,21 @@ function useSchedulerCreds() {
   const [usage, setUsage] = useState<Partial<Record<Provider, UsageResponse>>>({});
 
   useEffect(() => {
-    PROVIDERS.forEach(async (provider) => {
-      try { const preview = await invoke<string>('get_scheduler_credential', { provider }); setCreds((prev) => ({ ...prev, [provider]: { ...prev[provider], preview } })); }
-      catch { /* not configured, skip */ }
-    });
+    let cancelled = false
+    const isCancelled = () => cancelled
+
+    loadSchedulerCreds(isCancelled, (provider, preview) =>
+      setCreds((prev) => ({ ...prev, [provider]: { ...prev[provider], preview } }))
+    )
+
     COUNTED_PROVIDERS.forEach(async (provider) => {
       try {
         const u = await invoke<UsageResponse>('get_scheduler_usage', { provider });
-        setUsage((prev) => ({ ...prev, [provider]: u }));
+        if (!cancelled) setUsage((prev) => ({ ...prev, [provider]: u }));
       } catch { /* ignore — usage display is non-critical */ }
     });
+
+    return () => { cancelled = true }
   }, []);
 
   function update(provider: Provider, patch: Partial<CredentialState>) {

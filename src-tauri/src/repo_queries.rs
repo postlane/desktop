@@ -19,6 +19,14 @@ pub struct RepoWithStatus {
     pub failed_count: u32,
     pub last_post_at: Option<String>,
     pub provider: Option<String>,
+    pub project_id: Option<String>,
+}
+
+fn read_project_id_from_config(repo_path: &str) -> Option<String> {
+    let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
+    let content = fs::read_to_string(config_path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    v.get("project_id").and_then(|p| p.as_str()).map(String::from)
 }
 
 pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
@@ -34,6 +42,7 @@ pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
             let path_exists = std::path::Path::new(&repo.path).exists();
             let (ready_count, failed_count, last_post_at) = scan_post_statuses(&repo.path);
             let provider = read_repo_config_provider(&repo.path);
+            let project_id = read_project_id_from_config(&repo.path);
             RepoWithStatus {
                 id: repo.id.clone(),
                 name: repo.name.clone(),
@@ -45,6 +54,7 @@ pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
                 failed_count,
                 last_post_at,
                 provider,
+                project_id,
             }
         })
         .collect();
@@ -179,6 +189,42 @@ mod tests {
         assert_eq!(ready, 0);
         assert_eq!(failed, 0);
         assert!(ts.is_none());
+    }
+
+    #[test]
+    fn test_reads_project_id_from_config() {
+        let dir = std::env::temp_dir().join("postlane_test_project_id_rq");
+        let config_dir = dir.join(".postlane");
+        fs::create_dir_all(&config_dir).expect("create .postlane");
+        fs::write(config_dir.join("config.json"), r#"{"project_id":"proj-uuid-abc"}"#).expect("write config");
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_repos_impl(&state).expect("should succeed");
+        assert_eq!(result[0].project_id.as_deref(), Some("proj-uuid-abc"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_project_id_is_none_when_not_in_config() {
+        let dir = std::env::temp_dir().join("postlane_test_no_project_id_rq");
+        let config_dir = dir.join(".postlane");
+        fs::create_dir_all(&config_dir).expect("create .postlane");
+        fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write config");
+
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_repos_impl(&state).expect("should succeed");
+        assert!(result[0].project_id.is_none());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -22,9 +22,11 @@ interface Props {
   onRepoChange?: () => void;
   activeRepoId?: string | null;
   initialTab?: Tab;
+  onAddWorkspace?: () => void;
+  onAddRepo?: () => void;
 }
 
-export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange, activeRepoId, initialTab }: Props) {
+export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange, activeRepoId, initialTab, onAddWorkspace, onAddRepo }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'repos');
 
   return (
@@ -52,7 +54,7 @@ export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange,
         ))}
       </div>
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'repos' && <ReposTab onRepoChange={() => onRepoChange?.()} />}
+        {activeTab === 'repos' && <ReposTab onRepoChange={() => onRepoChange?.()} onAddWorkspace={onAddWorkspace} onAddRepo={onAddRepo} />}
         {activeTab === 'scheduler' && <SchedulerTab />}
         {activeTab === 'analytics' && <AnalyticsTab repoId={activeRepoId ?? null} />}
         {activeTab === 'app' && <AppTab onTimezoneChange={onTimezoneChange} />}

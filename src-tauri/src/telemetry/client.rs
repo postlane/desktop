@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 const TELEMETRY_ENDPOINT: &str = "https://api.postlane.dev/v1/telemetry";
 const FLUSH_BATCH_LIMIT: usize = 50;
+const MAX_QUEUE_SIZE: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TelemetryEvent {
@@ -45,6 +46,9 @@ impl TelemetryClient {
             occurred_at: Utc::now(),
         };
         if let Ok(mut q) = self.queue.lock() {
+            if q.len() >= MAX_QUEUE_SIZE {
+                q.remove(0);
+            }
             q.push(ev);
         }
     }
@@ -103,6 +107,20 @@ mod tests {
         let client = TelemetryClient::new();
         client.record(true, "skill_invoked", serde_json::json!({ "skill": "draft-x" }));
         assert_eq!(client.queue_len(), 1, "Event should be queued with consent");
+    }
+
+    #[test]
+    fn test_queue_drops_oldest_event_when_capacity_exceeded() {
+        let client = TelemetryClient::new();
+        for i in 0..=MAX_QUEUE_SIZE {
+            client.record(true, "skill_invoked", serde_json::json!({ "i": i }));
+        }
+        assert_eq!(client.queue_len(), MAX_QUEUE_SIZE, "Queue must not exceed capacity");
+        let events = client.peek_queue();
+        let first_i = events.first().expect("queue non-empty").properties["i"].as_u64().expect("i is u64");
+        let last_i = events.last().expect("queue non-empty").properties["i"].as_u64().expect("i is u64");
+        assert_eq!(first_i, 1, "Oldest event (i=0) must be dropped");
+        assert_eq!(last_i, MAX_QUEUE_SIZE as u64, "Newest event must be retained");
     }
 
     #[tokio::test]

@@ -14,6 +14,8 @@ export interface RepoWithStatus {
   last_post_at: string | null;
   /** Scheduler provider from .postlane/config.json, or null if not configured */
   provider: string | null;
+  /** project_id from .postlane/config.json, or null if not linked to a project */
+  project_id: string | null;
 }
 
 /** Mirrors app_state::NavState */

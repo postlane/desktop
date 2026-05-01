@@ -3,6 +3,10 @@
 pub mod deep_link;
 pub mod validator;
 
+/// Base URL for all Postlane backend API calls.
+/// The web app is served at postlane.dev; API routes are under /api/.
+pub const POSTLANE_API_BASE: &str = "https://postlane.dev/api";
+
 /// Returns true if a license token is stored in the OS keyring.
 /// Used by the frontend to show/hide the "Sign in" button.
 #[tauri::command]
@@ -32,5 +36,13 @@ mod tests {
         // This test ensures mod.rs uses the same names so they stay in sync.
         assert_eq!(KEYRING_SERVICE, "postlane");
         assert_eq!(KEYRING_KEY, "license");
+    }
+
+    #[test]
+    fn test_postlane_api_base_points_to_production_host() {
+        // The web app is deployed at postlane.dev (kamal proxy.host = postlane.dev).
+        // Next.js API routes are under /api/, so the base for v1 endpoints is
+        // postlane.dev/api — not api.postlane.dev (that subdomain has no DNS record).
+        assert_eq!(super::POSTLANE_API_BASE, "https://postlane.dev/api");
     }
 }

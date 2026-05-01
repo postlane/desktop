@@ -49,7 +49,7 @@ where
     watcher.watch(&posts_dir, RecursiveMode::Recursive)?;
 
     // Store watcher in HashMap to prevent it being dropped
-    watchers.lock().unwrap().insert(repo_id, watcher);
+    watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(repo_id, watcher);
 
     Ok(())
 }
@@ -57,12 +57,12 @@ where
 /// Stops watching a repo
 pub fn stop_watcher(repo_id: &str, watchers: &WatcherMap) {
     // Removing from HashMap drops the watcher and stops watching
-    watchers.lock().unwrap().remove(repo_id);
+    watchers.lock().unwrap_or_else(|e| e.into_inner()).remove(repo_id);
 }
 
 /// Stops all watchers (called on shutdown)
 pub fn stop_all_watchers(watchers: &WatcherMap) {
-    watchers.lock().unwrap().clear();
+    watchers.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 #[cfg(test)]
@@ -245,5 +245,28 @@ mod tests {
             let dir = std::env::temp_dir().join(format!("postlane_test_watcher_all_{}", i));
             let _ = fs::remove_dir_all(&dir);
         }
+    }
+
+    #[test]
+    fn test_stop_watcher_does_not_panic_on_poisoned_mutex() {
+        let arc = std::sync::Arc::new(Mutex::new(HashMap::<String, RecommendedWatcher>::new()));
+        let arc_clone = arc.clone();
+        let _ = thread::spawn(move || {
+            let _guard = arc_clone.lock().unwrap();
+            panic!("intentional poison");
+        }).join();
+        // Must not panic even though the mutex is poisoned
+        stop_watcher("repo-1", &arc);
+    }
+
+    #[test]
+    fn test_stop_all_watchers_does_not_panic_on_poisoned_mutex() {
+        let arc = std::sync::Arc::new(Mutex::new(HashMap::<String, RecommendedWatcher>::new()));
+        let arc_clone = arc.clone();
+        let _ = thread::spawn(move || {
+            let _guard = arc_clone.lock().unwrap();
+            panic!("intentional poison");
+        }).join();
+        stop_all_watchers(&arc);
     }
 }

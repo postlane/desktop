@@ -25,6 +25,7 @@ function makeRepo(overrides: Partial<RepoWithStatus> = {}): RepoWithStatus {
     failed_count: 0,
     last_post_at: null,
     provider: null,
+    project_id: null,
     ...overrides,
   };
 }

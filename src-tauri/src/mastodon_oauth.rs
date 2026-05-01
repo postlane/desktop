@@ -142,24 +142,35 @@ pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
         .unwrap_or(500))
 }
 
+fn keys_for_disconnect(instance: &str, is_active: bool) -> Vec<String> {
+    let mut keys = vec![
+        format!("mastodon/{}", instance),
+        format!("mastodon_client_id/{}", instance),
+        format!("mastodon_client_secret/{}", instance),
+    ];
+    if is_active {
+        keys.push(KEYRING_ACTIVE_INSTANCE.to_string());
+    }
+    keys
+}
+
 /// Removes all Mastodon credentials from the OS keyring for the given instance.
 ///
-/// Deletes the access token, client_id, and client_secret entries.
+/// Only clears the active-instance pointer if this instance is currently active.
 /// Ignores individual delete errors — all entries are attempted regardless.
 #[tauri::command]
 pub fn disconnect_mastodon(instance: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_instance_format(&instance)?;
 
-    // Attempt all three deletions; collect errors but don't short-circuit
-    let mut errors = Vec::new();
+    let active = app
+        .keyring()
+        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .unwrap_or(None);
+    let is_active = active.as_deref() == Some(instance.as_str());
 
-    for key in &[
-        format!("mastodon/{}", instance),
-        format!("mastodon_client_id/{}", instance),
-        format!("mastodon_client_secret/{}", instance),
-        KEYRING_ACTIVE_INSTANCE.to_string(),
-    ] {
-        if let Err(e) = app.keyring().delete_password(KEYRING_SERVICE, key) {
+    let mut errors = Vec::new();
+    for key in keys_for_disconnect(&instance, is_active) {
+        if let Err(e) = app.keyring().delete_password(KEYRING_SERVICE, &key) {
             errors.push(format!("Failed to delete {}: {}", key, e));
         }
     }
@@ -285,10 +296,16 @@ async fn fetch_acct(instance: &str, access_token: &str) -> Result<String, String
 
 /// Constructs the OAuth authorization URL for the user to visit.
 fn build_auth_url(instance: &str, client_id: &str) -> String {
-    format!(
-        "https://{}/oauth/authorize?client_id={}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&scope=read+write",
-        instance, client_id
-    )
+    let base = format!("https://{}/oauth/authorize", instance);
+    let mut url = url::Url::parse(&base).unwrap_or_else(|_| {
+        url::Url::parse("https://mastodon.social/oauth/authorize").expect("fallback URL must parse")
+    });
+    url.query_pairs_mut()
+        .append_pair("client_id", client_id)
+        .append_pair("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
+        .append_pair("response_type", "code")
+        .append_pair("scope", "read write");
+    url.to_string()
 }
 
 #[cfg(test)]
@@ -344,15 +361,17 @@ mod tests {
 
     // Issue 8 — disconnect must delete the active instance key so charLimit fetch returns None
     #[test]
-    fn test_disconnect_deletes_active_instance_key() {
-        let keys: Vec<String> = vec![
-            format!("mastodon/{}", "mastodon.social"),
-            format!("mastodon_client_id/{}", "mastodon.social"),
-            format!("mastodon_client_secret/{}", "mastodon.social"),
-            KEYRING_ACTIVE_INSTANCE.to_string(),
-        ];
+    fn test_disconnect_deletes_active_instance_key_when_active() {
+        let keys = keys_for_disconnect("mastodon.social", true);
         assert!(keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
-            "disconnect must delete the active instance key");
+            "disconnect must delete the active_instance key when disconnecting the active instance");
+    }
+
+    #[test]
+    fn test_disconnect_spares_active_instance_key_when_not_active() {
+        let keys = keys_for_disconnect("fosstodon.org", false);
+        assert!(!keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
+            "disconnect must NOT delete active_instance key when the disconnected instance is not the active one");
     }
 
     #[test]
@@ -360,9 +379,21 @@ mod tests {
         let url = build_auth_url("mastodon.social", "abc123");
         assert!(url.starts_with("https://mastodon.social/oauth/authorize"));
         assert!(url.contains("client_id=abc123"));
-        assert!(url.contains("redirect_uri=urn:ietf:wg:oauth:2.0:oob"));
+        assert!(url.contains("redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob"));
         assert!(url.contains("response_type=code"));
-        assert!(url.contains("scope=read+write"));
+        assert!(url.contains("scope=read"));
+    }
+
+    #[test]
+    fn test_build_auth_url_encodes_special_chars_in_client_id() {
+        let url = build_auth_url("mastodon.social", "id&special=value");
+        let parsed = url::Url::parse(&url).expect("URL must be parseable");
+        let client_id = parsed
+            .query_pairs()
+            .find(|(k, _)| k == "client_id")
+            .map(|(_, v)| v.to_string())
+            .expect("client_id param must be present");
+        assert_eq!(client_id, "id&special=value");
     }
 
     #[tokio::test]

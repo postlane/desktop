@@ -40,4 +40,11 @@ describe('TelemetryConsentModal — keyboard and backdrop dismiss', () => {
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute('href', expect.stringContaining('privacy'));
   });
+
+  it('calls onDecline when No thanks button is clicked', () => {
+    const onDecline = vi.fn();
+    render(<TelemetryConsentModal onAccept={vi.fn()} onDecline={onDecline} />);
+    fireEvent.click(screen.getByRole('button', { name: /no thanks/i }));
+    expect(onDecline).toHaveBeenCalled();
+  });
 });
