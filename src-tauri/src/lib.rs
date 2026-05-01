@@ -390,7 +390,7 @@ fn show_alert_and_exit(message: &str) {
     std::process::exit(1);
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
