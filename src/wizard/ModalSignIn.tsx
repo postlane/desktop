@@ -22,7 +22,7 @@ function providerLabel(p: OAuthProvider): string {
 }
 
 function handleOAuth(provider: OAuthProvider) {
-  openUrl(`https://postlane.dev/login?provider=${provider}`).catch(() => { /* ignore */ })
+  openUrl(`https://postlane.dev/login?provider=${provider}&desktop=1`).catch(() => { /* ignore */ })
 }
 
 export default function ModalSignIn({ onNext, onTokenDetected, onBack, pollIntervalMs = 2000 }: Props) {

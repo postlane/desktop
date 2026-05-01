@@ -14,6 +14,8 @@ interface Props {
   onNext: () => void
   nextLabel?: string
   nextDisabled?: boolean
+  nextColor?: 'blue' | 'dark' | 'zinc'
+  footerStart?: ReactNode
   helpUrl?: string
 }
 
@@ -26,6 +28,8 @@ export default function WizardModal({
   onNext,
   nextLabel = 'Next',
   nextDisabled = false,
+  nextColor,
+  footerStart,
 }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-white dark:bg-zinc-900">
@@ -34,12 +38,13 @@ export default function WizardModal({
         <Text className="mb-8">{subtitle}</Text>
         <div className="mb-10">{children}</div>
         <div className="flex items-center gap-3">
+          {footerStart}
           {onBack && (
             <Button outline onClick={onBack}>
               Back
             </Button>
           )}
-          <Button onClick={onNext} disabled={nextDisabled}>
+          <Button color={nextColor} onClick={onNext} disabled={nextDisabled}>
             {nextLabel}
           </Button>
           {onSkip && (

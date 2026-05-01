@@ -11,7 +11,7 @@ interface Props {
 
 export default function ModalWelcome({ onNext }: Props) {
   async function handlePricingLink() {
-    try { await openUrl('https://postlane.dev/pricing') } catch { /* ignore */ }
+    try { await openUrl('https://postlane.dev/#pricing') } catch { /* ignore */ }
   }
 
   return (
@@ -20,6 +20,12 @@ export default function ModalWelcome({ onNext }: Props) {
       subtitle="Ship code. Tell the world."
       onNext={onNext}
       nextLabel="Get started"
+      nextColor="blue"
+      footerStart={
+        <Button plain onClick={handlePricingLink}>
+          See pricing
+        </Button>
+      }
     >
       <div>
         <Text>This wizard takes about 5 minutes. You&apos;ll:</Text>
@@ -31,9 +37,6 @@ export default function ModalWelcome({ onNext }: Props) {
         <Text className="mt-6">
           Free for your first project. $5/month per project after that.
         </Text>
-        <Button plain onClick={handlePricingLink} className="mt-2">
-          See pricing →
-        </Button>
       </div>
     </WizardModal>
   )

@@ -24,6 +24,6 @@ describe('ModalWelcome', () => {
   it('test_pricing_link_opens_browser', () => {
     render(<ModalWelcome onNext={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /see pricing/i }))
-    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/pricing')
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/#pricing')
   })
 })
