@@ -1,323 +1,97 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
-import Wizard from './Wizard';
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom'
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('./useWizardState', () => ({ useWizardState: vi.fn() }))
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-}));
+import { invoke } from '@tauri-apps/api/core'
+import { useWizardState } from './useWizardState'
+import type { WizardModalName } from './useWizardState'
+import Wizard from './Wizard'
 
-vi.mock('@tauri-apps/plugin-dialog', () => ({
-  open: vi.fn(),
-}));
+const mockInvoke = vi.mocked(invoke)
+const mockUseWizardState = vi.mocked(useWizardState)
 
-vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
-  writeText: vi.fn(),
-}));
-
-import { invoke } from '@tauri-apps/api/core';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-
-const mockInvoke = vi.mocked(invoke);
-const mockOpenDialog = vi.mocked(openDialog);
-const mockWriteText = vi.mocked(writeText);
-
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
-function renderWizard(onComplete = vi.fn()) {
-  return render(<Wizard onComplete={onComplete} />);
+function makeState(modal: WizardModalName) {
+  return {
+    modal,
+    projectId: null,
+    selectedRepoPath: null,
+    repoDescription: '',
+    voiceGuide: '',
+    schedulerConnected: false,
+    licenseTokenPresent: false,
+  }
 }
 
-// ---------------------------------------------------------------------------
-// Step 1: Add a repo
-// ---------------------------------------------------------------------------
-
-describe('Wizard — Step 1', () => {
-  it('renders the opening question', () => {
-    renderWizard();
-    expect(
-      screen.getByText(/have you already run/i),
-    ).toBeInTheDocument();
-  });
-
-  it('shows the "Yes" and "No" options', () => {
-    renderWizard();
-    expect(screen.getByRole('button', { name: /yes/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /no/i })).toBeInTheDocument();
-  });
-
-  it('"No" branch shows the terminal command', () => {
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /no/i }));
-    expect(screen.getByText(/npx postlane init/i)).toBeInTheDocument();
-  });
-
-  it('"No" branch shows "Open terminal guide →" link', () => {
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /no/i }));
-    expect(screen.getByRole('link', { name: /open terminal guide/i })).toBeInTheDocument();
-  });
-
-  it('"Yes" branch opens folder picker', async () => {
-    mockOpenDialog.mockResolvedValue(null);
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    expect(mockOpenDialog).toHaveBeenCalledWith({ directory: true });
-  });
-
-  it('shows error when selected folder has no config.json', async () => {
-    mockOpenDialog.mockResolvedValue('/some/path');
-    mockInvoke.mockRejectedValue(new Error('config.json not found'));
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    await waitFor(() =>
-      expect(screen.getByText(/run `postlane init` inside it first/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('advances to step 2 when add_repo succeeds', async () => {
-    mockOpenDialog.mockResolvedValue('/valid/repo');
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'add_repo') return { id: 'r1', name: 'valid', path: '/valid/repo', active: true, added_at: '' };
-      if (cmd === 'get_scheduler_credential') throw new Error('not found');
-      return null;
-    });
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    await waitFor(() =>
-      expect(screen.getByText(/connect a scheduler/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Step 2: Connect a scheduler
-// ---------------------------------------------------------------------------
-
-async function goToStep2(credentialExists: boolean) {
-  mockOpenDialog.mockResolvedValue('/valid/repo');
-  mockInvoke.mockImplementation(async (cmd: unknown) => {
-    if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
-    if (cmd === 'get_scheduler_credential') {
-      if (credentialExists) return 'sk-••••abcd';
-      throw new Error('not found');
-    }
-    return null;
-  });
-  renderWizard();
-  fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-  const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-  fireEvent.click(browse);
-  await screen.findByText(/connect a scheduler/i);
+function makeActions(overrides: Record<string, unknown> = {}) {
+  return {
+    next: vi.fn(),
+    back: vi.fn(),
+    skip: vi.fn(),
+    startFirstLaunch: vi.fn(),
+    startAddProject: vi.fn(),
+    startAddRepo: vi.fn(),
+    setLicenseTokenPresent: vi.fn(),
+    setSchedulerConnected: vi.fn(),
+    setProjectId: vi.fn(),
+    setSelectedRepoPath: vi.fn(),
+    setRepoDescription: vi.fn(),
+    setVoiceGuide: vi.fn(),
+    advanceScheduler: vi.fn(),
+    advancePastGate: vi.fn(),
+    jumpToDone: vi.fn(),
+    jumpToPricingGate: vi.fn(),
+    ...overrides,
+  }
 }
 
-describe('Wizard — Step 2', () => {
+beforeEach(() => { vi.clearAllMocks() })
 
-  it('shows connected state when credential exists', async () => {
-    await goToStep2(true);
-    expect(screen.getByText(/connected/i)).toBeInTheDocument();
-  });
+describe('Wizard', () => {
+  it('calls startFirstLaunch on first render', () => {
+    const startFirstLaunch = vi.fn()
+    mockUseWizardState.mockReturnValue({
+      state: makeState('welcome'),
+      ...makeActions({ startFirstLaunch }),
+    })
+    render(<Wizard onComplete={vi.fn()} />)
+    expect(startFirstLaunch).toHaveBeenCalledOnce()
+  })
 
-  it('shows provider selector when no credential exists', async () => {
-    await goToStep2(false);
-    expect(screen.getByRole('combobox')).toBeInTheDocument();
-  });
+  it('shows error alert when voice-guide modal is reached with no projectId', () => {
+    mockUseWizardState.mockReturnValue({
+      state: makeState('voice-guide'),
+      ...makeActions(),
+    })
+    render(<Wizard onComplete={vi.fn()} />)
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
 
-  it('"Skip for now" advances to step 3', async () => {
-    await goToStep2(false);
-    fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/you're ready/i)).toBeInTheDocument(),
-    );
-  });
+  it('shows error alert when connect-repo modal is reached with no projectId', () => {
+    mockUseWizardState.mockReturnValue({
+      state: makeState('connect-repo'),
+      ...makeActions(),
+    })
+    render(<Wizard onComplete={vi.fn()} />)
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
 
-  it('"Continue" with existing credential advances to step 3', async () => {
-    await goToStep2(true);
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/you're ready/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('"Change scheduler" resets to input form when credential exists', async () => {
-    await goToStep2(true);
-    fireEvent.click(screen.getByRole('button', { name: /change scheduler/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('combobox')).toBeInTheDocument(),
-    );
-  });
-
-  it('Test connection shows ✓ on success', async () => {
-    await goToStep2(false);
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'test_scheduler') return true;
-      return null;
-    });
-    fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
-    await waitFor(() => expect(screen.getByText('✓')).toBeInTheDocument());
-  });
-
-  it('Test connection shows error message on failure', async () => {
-    await goToStep2(false);
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'test_scheduler') throw new Error('Invalid API key');
-      return null;
-    });
-    fireEvent.click(screen.getByRole('button', { name: /test connection/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/invalid api key/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Step 3: You're ready
-// ---------------------------------------------------------------------------
-
-describe('Wizard — Step 3', () => {
-  async function goToStep3() {
-    mockOpenDialog.mockResolvedValue('/valid/repo');
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
-      if (cmd === 'get_scheduler_credential') throw new Error('not found');
-      return null;
-    });
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    await screen.findByText(/connect a scheduler/i);
-    fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
-    await screen.findByText(/you're ready/i);
-  }
-
-  it('shows the repo name registered in step 1', async () => {
-    await goToStep3();
-    expect(screen.getAllByText(/my-repo/).length).toBeGreaterThan(0);
-  });
-
-  it('shows the /draft-post command', async () => {
-    await goToStep3();
-    expect(screen.getByText('/draft-post')).toBeInTheDocument();
-  });
-
-  it('copy button writes /draft-post to clipboard', async () => {
-    mockWriteText.mockResolvedValue(undefined);
-    await goToStep3();
-    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
-    expect(mockWriteText).toHaveBeenCalledWith('/draft-post');
-  });
-
-  it('"Done" calls onComplete', async () => {
-    const onComplete = vi.fn();
-    mockOpenDialog.mockResolvedValue('/valid/repo');
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
-      if (cmd === 'get_scheduler_credential') throw new Error('not found');
-      return null;
-    });
-    render(<Wizard onComplete={onComplete} />);
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    await screen.findByText(/connect a scheduler/i);
-    fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
-    await screen.findByText(/you're ready/i);
-    fireEvent.click(screen.getByRole('button', { name: /done/i }));
-    expect(onComplete).toHaveBeenCalledOnce();
-  });
-
-  it('clipboard fallback: selects text when writeText fails', async () => {
-    mockWriteText.mockRejectedValue(new Error('clipboard unavailable'));
-    await goToStep3();
-    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/press ctrl\+c to copy/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Step 1 — "No" branch navigation
-// ---------------------------------------------------------------------------
-
-describe('Wizard — Step 1 "No" branch', () => {
-  it('"← Back" in the No branch returns to the opening question', async () => {
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /no/i }));
-    await screen.findByText(/npx postlane init/i);
-    fireEvent.click(screen.getByRole('button', { name: /← back/i }));
-    expect(await screen.findByText(/have you already run/i)).toBeInTheDocument();
-  });
-
-  it('"Add repo" button in the No branch switches to the Yes path', async () => {
-    mockOpenDialog.mockResolvedValue(null);
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /no/i }));
-    await screen.findByText(/npx postlane init/i);
-    fireEvent.click(screen.getByRole('button', { name: /add repo/i }));
-    expect(await screen.findByRole('button', { name: /browse for the folder/i })).toBeInTheDocument();
-  });
-
-  it('"← Back" in the Yes branch returns to the opening question', async () => {
-    mockOpenDialog.mockResolvedValue(null);
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(screen.getByRole('button', { name: /← back/i }));
-    expect(await screen.findByText(/have you already run/i)).toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Step 2 — provider / API key inputs
-// ---------------------------------------------------------------------------
-
-describe('Wizard — Step 2 inputs', () => {
-  async function goToStep2NoCredential() {
-    mockOpenDialog.mockResolvedValue('/valid/repo');
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'add_repo') return { id: 'r1', name: 'my-repo', path: '/valid/repo', active: true, added_at: '' };
-      if (cmd === 'get_scheduler_credential') throw new Error('not found');
-      return null;
-    });
-    renderWizard();
-    fireEvent.click(screen.getByRole('button', { name: /yes/i }));
-    const browse = await screen.findByRole('button', { name: /browse for the folder/i });
-    fireEvent.click(browse);
-    await screen.findByText(/connect a scheduler/i);
-  }
-
-  it('changing the provider select updates it', async () => {
-    await goToStep2NoCredential();
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'Buffer' } });
-    expect((select as HTMLSelectElement).value).toBe('Buffer');
-  });
-
-  it('typing an API key updates the input', async () => {
-    await goToStep2NoCredential();
-    const input = screen.getByPlaceholderText(/api key/i);
-    fireEvent.change(input, { target: { value: 'sk-test-abc' } });
-    expect((input as HTMLInputElement).value).toBe('sk-test-abc');
-  });
-});
+  it('invokes set_wizard_completed and calls onComplete when done is dismissed', async () => {
+    const onComplete = vi.fn()
+    mockInvoke.mockResolvedValue(undefined)
+    mockUseWizardState.mockReturnValue({
+      state: makeState('done'),
+      ...makeActions(),
+    })
+    render(<Wizard onComplete={onComplete} />)
+    fireEvent.click(screen.getByRole('button', { name: /open postlane/i }))
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed')
+      expect(onComplete).toHaveBeenCalledOnce()
+    })
+  })
+})
