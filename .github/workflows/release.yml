@@ -16,16 +16,12 @@ jobs:
         include:
           - platform: macos-latest
             target: aarch64-apple-darwin
-            artifact: .dmg
           - platform: macos-latest
             target: x86_64-apple-darwin
-            artifact: .dmg
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: .exe
           - platform: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: .AppImage
 
     runs-on: ${{ matrix.platform }}
 
@@ -34,17 +30,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+          targets: ${{ matrix.target }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-target-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-target-
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -55,9 +65,10 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # macOS code signing and notarization - STUBBED
-      # Uncomment and configure secrets when ready to activate signing
-      # - name: Import signing certificate (macOS)
+      # macOS code signing and notarization — STUBBED
+      # Uncomment and configure secrets when Apple Developer account is ready.
+      # Without signing, macOS users will see a Gatekeeper warning on first launch.
+      # - name: Import signing certificate
       #   if: matrix.platform == 'macos-latest'
       #   env:
       #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -74,20 +85,27 @@ jobs:
 
       - name: Build Tauri app
         env:
-          # Updater signing key - ACTIVE from day one
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS notarization - STUBBED
+          # macOS notarization — STUBBED
           # APPLE_ID: ${{ secrets.APPLE_ID }}
           # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run tauri build -- --target ${{ matrix.target }}
 
-      - name: Upload artifacts
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}-${{ matrix.target }}
-          path: src-tauri/target/${{ matrix.target }}/release/bundle/**/*${{ matrix.artifact }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*setup.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*setup.exe.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.sig
+          if-no-files-found: error
 
   release:
     needs: build
@@ -104,47 +122,59 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/**/*
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate latest.json
+      - name: Build latest.json
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          mkdir -p pages
-          cat > pages/latest.json <<EOF
+          REPO=${{ github.repository }}
+          BASE="https://github.com/${REPO}/releases/download/v${VERSION}"
+
+          # Read signatures produced by Tauri's updater signing.
+          # Tauri writes a .sig file alongside each updater bundle when
+          # TAURI_SIGNING_PRIVATE_KEY is set. The updater uses .app.tar.gz
+          # on macOS and .AppImage / .exe on the other platforms.
+          DARWIN_ARM_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*aarch64*" | head -1 | xargs cat 2>/dev/null || echo "")
+          DARWIN_X64_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*x86_64-apple*" | head -1 | xargs cat 2>/dev/null || echo "")
+          WIN_SIG=$(find artifacts -name "*setup.exe.sig" | head -1 | xargs cat 2>/dev/null || echo "")
+          LINUX_SIG=$(find artifacts -name "*.AppImage.sig" | head -1 | xargs cat 2>/dev/null || echo "")
+
+          cat > latest.json <<EOF
           {
-            "version": "v$VERSION",
-            "notes": "Release $VERSION",
+            "version": "v${VERSION}",
+            "notes": "See the release page for details.",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "darwin-aarch64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Postlane_${VERSION}_aarch64.dmg",
-                "signature": ""
+                "url": "${BASE}/Postlane_${VERSION}_aarch64.app.tar.gz",
+                "signature": "${DARWIN_ARM_SIG}"
               },
               "darwin-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Postlane_${VERSION}_x64.dmg",
-                "signature": ""
+                "url": "${BASE}/Postlane_${VERSION}_x64.app.tar.gz",
+                "signature": "${DARWIN_X64_SIG}"
               },
               "windows-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Postlane_${VERSION}_x64-setup.exe",
-                "signature": ""
+                "url": "${BASE}/Postlane_${VERSION}_x64-setup.exe",
+                "signature": "${WIN_SIG}"
               },
               "linux-x86_64": {
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/postlane_${VERSION}_amd64.AppImage",
-                "signature": ""
+                "url": "${BASE}/postlane_${VERSION}_amd64.AppImage",
+                "signature": "${LINUX_SIG}"
               }
             }
           }
           EOF
 
-      - name: Publish latest.json to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: pages
-          keep_files: true
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.app.tar.gz
+            artifacts/**/*.app.tar.gz.sig
+            artifacts/**/*setup.exe
+            artifacts/**/*setup.exe.sig
+            artifacts/**/*.AppImage
+            artifacts/**/*.AppImage.sig
+            latest.json
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
