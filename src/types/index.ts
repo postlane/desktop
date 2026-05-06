@@ -44,7 +44,7 @@ export interface AppStateFile {
   timezone: string;
   telemetry_consent: boolean;
   consent_asked: boolean;
-  default_post_time: { hour: number; minute: number } | null;
+  default_post_time: { hour: number; minute: number; timezone: string } | null;
 }
 
 /** Mirrors analytics::PostAnalytics */
