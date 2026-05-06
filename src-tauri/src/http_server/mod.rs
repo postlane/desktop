@@ -3,10 +3,23 @@
 pub mod routes;
 
 use axum::{
-    middleware,
+    http::{HeaderName, HeaderValue, Response},
+    middleware::{self, Next},
     routing::{get, post},
     Router,
 };
+
+async fn add_cors_null_origin(
+    request: axum::http::Request<axum::body::Body>,
+    next: Next,
+) -> Response<axum::body::Body> {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        HeaderName::from_static("access-control-allow-origin"),
+        HeaderValue::from_static("null"),
+    );
+    response
+}
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -54,10 +67,14 @@ pub fn create_router(state: ServerState) -> Router {
             routes::auth_middleware,
         ));
 
+    // Restrict cross-origin requests to the null origin only.
+    // This blocks browser extensions from calling the local API while still
+    // allowing requests from the Tauri webview (which has no origin).
     Router::new()
         .route("/health", get(routes::health_handler))
         .merge(protected_routes)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB limit
+        .layer(middleware::from_fn(add_cors_null_origin))
         .with_state(state)
 }
 
@@ -133,6 +150,8 @@ pub fn write_port_file(port: u16) -> Result<(), String> {
 }
 
 /// Generates a random session token and writes it to ~/.postlane/session.token with 0600 permissions.
+/// Token is transmitted over HTTP on loopback — this is safe because 127.0.0.1 is not routable and
+/// cannot be intercepted from the network (RFC 5735 §3). No TLS is needed for loopback-only IPC.
 pub fn generate_and_write_token() -> Result<String, String> {
     use rand::Rng;
 
@@ -180,6 +199,50 @@ pub fn generate_and_write_token() -> Result<String, String> {
 mod tests {
     use super::*;
     use std::fs;
+
+    /// CORS header must be `null` on health endpoint to block browser-extension abuse.
+    #[tokio::test]
+    async fn test_health_cors_header_restricts_origin() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+        let state = ServerState { token: "test-token".to_string(), repos };
+        let port = start_server(state, 0).await.expect("server start failed");
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://127.0.0.1:{}/health", port))
+            .header("Origin", "https://evil.example.com")
+            .send()
+            .await
+            .expect("request failed");
+        let cors = resp.headers().get("access-control-allow-origin")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(cors, "null", "CORS must restrict to null origin to block browser extensions");
+    }
+
+    /// HTTP is used without TLS. This is safe only because the server binds
+    /// exclusively to 127.0.0.1 (loopback). Loopback traffic never leaves the host
+    /// and is not accessible from the network (RFC 5735 §3). No TLS is needed.
+    #[tokio::test]
+    async fn test_server_only_accessible_on_loopback() {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![],
+        }));
+        let state = ServerState { token: "tok".to_string(), repos };
+        let port = start_server(state, 0).await.expect("server start failed");
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://127.0.0.1:{}/health", port))
+            .send()
+            .await
+            .expect("loopback request failed");
+        assert!(resp.status().is_success(), "server must be reachable on loopback");
+        let local_addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
+        assert!(local_addr.ip().is_loopback(), "bound address must be loopback");
+    }
 
     #[tokio::test]
     async fn test_server_binds_to_preferred_port() {

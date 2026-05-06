@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{
     AppHandle, Emitter, Manager,
     menu::{Menu, MenuItem},
@@ -108,7 +110,10 @@ pub fn compute_tray_status(state: &AppState) -> TrayStatus {
                 drafts.iter().filter(|d| d.status == "failed").count() as u32;
             TrayStatus { ready_count, failed_count }
         }
-        Err(_) => TrayStatus { ready_count: 0, failed_count: 0 },
+        Err(e) => {
+            log::warn!("compute_tray_status: failed to load drafts: {}", e);
+            TrayStatus { ready_count: 0, failed_count: 0 }
+        }
     }
 }
 
@@ -323,6 +328,15 @@ pub fn approve_all_from_tray(app: AppHandle) {
 // Graceful shutdown logic
 // ---------------------------------------------------------------------------
 
+/// Polls `counter` until it reaches zero or `deadline` elapses.
+/// Used by graceful_shutdown to drain in-flight post sends before exit.
+pub async fn wait_for_in_flight_drain(counter: &Arc<AtomicUsize>, deadline: std::time::Duration) {
+    let start = std::time::Instant::now();
+    while counter.load(Ordering::Acquire) > 0 && start.elapsed() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
 /// Graceful shutdown: stops watchers and waits up to 5 seconds for in-flight
 /// sends to complete, then exits the process.
 ///
@@ -332,11 +346,7 @@ pub async fn graceful_shutdown(app: AppHandle) {
 
     let state: tauri::State<AppState> = app.state();
     crate::watcher::stop_all_watchers(&state.watchers);
-
-    // A full implementation would poll an AtomicUsize in-flight counter here
-    // and exit early once it reaches zero, up to a 5-second deadline.
-    // M5: no concurrent send tracking yet — give watchers a moment to flush.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_in_flight_drain(&state.in_flight_sends, Duration::from_secs(5)).await;
 
     app.exit(0);
 }
@@ -348,6 +358,37 @@ pub async fn graceful_shutdown(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_drain_returns_immediately_when_counter_is_zero() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        wait_for_in_flight_drain(&counter, Duration::from_millis(1000)).await;
+        // Must return without hanging
+    }
+
+    #[tokio::test]
+    async fn test_drain_waits_until_counter_reaches_zero() {
+        let counter = Arc::new(AtomicUsize::new(1));
+        let clone = counter.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            clone.fetch_sub(1, Ordering::AcqRel);
+        });
+        wait_for_in_flight_drain(&counter, Duration::from_millis(2000)).await;
+        assert_eq!(counter.load(Ordering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn test_drain_exits_after_deadline_even_if_counter_nonzero() {
+        let counter = Arc::new(AtomicUsize::new(1)); // never decremented
+        let start = std::time::Instant::now();
+        wait_for_in_flight_drain(&counter, Duration::from_millis(120)).await;
+        assert!(start.elapsed() < Duration::from_millis(600), "exceeded 600ms safety margin");
+        assert_eq!(counter.load(Ordering::Acquire), 1, "counter unchanged");
+    }
 
     fn status(ready: u32, failed: u32) -> TrayStatus {
         TrayStatus { ready_count: ready, failed_count: failed }

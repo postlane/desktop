@@ -262,7 +262,7 @@ pub fn queue_redraft_impl(
 
     let postlane_dir = canonical_path.join(".postlane");
     fs::create_dir_all(&postlane_dir)
-        .map_err(|e| format!("Failed to create .postlane directory: {}", e))?;
+        .map_err(|e| format!("Failed to create .postlane directory in {}: {}", canonical_path.display(), e))?;
 
     let pending_path = postlane_dir.join("pending-redraft.json");
     if pending_path.exists() {
@@ -764,6 +764,36 @@ mod tests {
         let result = retry_post_impl(dir.to_str().unwrap(), "empty-platforms", &state);
         assert!(result.is_err(), "must return error when platforms list is empty");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Error messages for filesystem operations must include the repo path for debugging
+    /// (§review-eng-medium).
+    #[test]
+    fn test_queue_redraft_create_dir_error_includes_path() {
+        // Use a path that cannot be created (parent is a file, not a directory)
+        let base = std::env::temp_dir().join("postlane_test_path_in_error");
+        // Write a file at the base path so create_dir_all fails on the .postlane subdir
+        std::fs::write(&base, b"not a dir").expect("write file");
+        let canonical = fs::canonicalize(&base).expect("canonicalize");
+        let repos = crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let result = queue_redraft_impl(canonical.to_str().unwrap(), "post-folder", "make it shorter", &repos);
+        let _ = std::fs::remove_file(&base);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains(canonical.to_str().unwrap()),
+            "error must include repo path for debugging, got: {}",
+            err
+        );
     }
 
     #[test]

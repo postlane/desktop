@@ -238,6 +238,9 @@ fn start_repo_watcher(
         &state.watchers,
         move |changed_paths| {
             for changed in &changed_paths {
+                if let Err(e) = crate::draft_schedule::pre_populate_schedule_if_needed(changed) {
+                    log::warn!("Failed to pre-populate schedule for {:?}: {}", changed, e);
+                }
                 let post_folder = changed
                     .parent()
                     .and_then(|p| p.to_str())

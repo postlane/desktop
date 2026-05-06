@@ -39,24 +39,18 @@ impl From<serde_json::Error> for StorageError {
 
 const REPOS_CONFIG_VERSION: u32 = 1;
 
-/// Reads repos.json with corruption recovery
-/// Returns Ok(ReposConfig) on success, or Err if file is missing
-/// On corruption: creates .bak file and returns empty config
-pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, StorageError> {
-    // If file doesn't exist, return empty config
+/// Reads repos.json with corruption recovery.
+/// Returns `(config, was_corrupted)` — `was_corrupted` is true when the file
+/// existed but was unparseable and had to be replaced with an empty config.
+pub fn read_repos_checked(repos_path: &Path) -> Result<(ReposConfig, bool), StorageError> {
     if !repos_path.exists() {
-        return Ok(ReposConfig {
-            version: REPOS_CONFIG_VERSION,
-            repos: vec![],
-        });
+        return Ok((ReposConfig { version: REPOS_CONFIG_VERSION, repos: vec![] }, false));
     }
 
-    // Try to read and parse
     let content = std::fs::read_to_string(repos_path)?;
 
     match serde_json::from_str::<ReposConfig>(&content) {
         Ok(config) => {
-            // Check version
             if config.version != REPOS_CONFIG_VERSION {
                 log::warn!(
                     "Version mismatch in repos.json: found {}, expected {}",
@@ -68,14 +62,12 @@ pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, Storag
                     expected: REPOS_CONFIG_VERSION,
                 });
             }
-            Ok(config)
+            Ok((config, false))
         }
         Err(e) => {
-            // Corruption detected - log full error
             log::error!("Failed to parse repos.json: {}", e);
             log::error!("Full parse error: {:?}", e);
 
-            // Rename bad file to .bak
             let bak_path = repos_path.with_extension("json.bak");
             if let Err(rename_err) = std::fs::rename(repos_path, &bak_path) {
                 log::error!("Failed to create backup: {}", rename_err);
@@ -83,14 +75,16 @@ pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, Storag
                 log::info!("Corrupted repos.json backed up to {:?}", bak_path);
             }
 
-            // Return empty config to allow recovery - corruption is logged above
-            // This allows the app to continue functioning rather than crashing
-            Ok(ReposConfig {
-                version: REPOS_CONFIG_VERSION,
-                repos: vec![],
-            })
+            Ok((ReposConfig { version: REPOS_CONFIG_VERSION, repos: vec![] }, true))
         }
     }
+}
+
+/// Reads repos.json with corruption recovery.
+/// Returns Ok(ReposConfig) on success, or Err on hard errors.
+/// On corruption: creates .bak file and returns empty config.
+pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, StorageError> {
+    read_repos_checked(repos_path).map(|(config, _)| config)
 }
 
 /// Writes repos.json atomically
@@ -341,6 +335,49 @@ mod tests {
         assert_eq!(config.repos.len(), 0, "Should return empty config");
 
         // Cleanup
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Corruption flag tests (§review-high) ─────────────────────────────────
+
+    #[test]
+    fn test_read_repos_returns_false_flag_for_clean_file() {
+        let dir = std::env::temp_dir().join("postlane_test_repos_flag_clean");
+        fs::create_dir_all(&dir).expect("create dir");
+        let repos_path = dir.join("repos.json");
+        let config = ReposConfig { version: 1, repos: vec![] };
+        let json = serde_json::to_string(&config).unwrap();
+        fs::write(&repos_path, json).unwrap();
+
+        let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
+        assert!(!was_corrupted, "clean file must not set was_corrupted");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_repos_returns_true_flag_for_corrupted_file() {
+        let dir = std::env::temp_dir().join("postlane_test_repos_flag_corrupt");
+        fs::create_dir_all(&dir).expect("create dir");
+        let repos_path = dir.join("repos.json");
+        fs::write(&repos_path, "{ bad json }").unwrap();
+
+        let (config, was_corrupted) = read_repos_checked(&repos_path).expect("should recover");
+        assert!(was_corrupted, "corrupt file must set was_corrupted");
+        assert_eq!(config.repos.len(), 0, "should return empty config after recovery");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_repos_returns_false_flag_for_missing_file() {
+        let dir = std::env::temp_dir().join("postlane_test_repos_flag_missing");
+        fs::create_dir_all(&dir).expect("create dir");
+        let repos_path = dir.join("repos.json");
+
+        let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
+        assert!(!was_corrupted, "missing file is not corruption");
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

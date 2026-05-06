@@ -29,6 +29,9 @@ pub fn read_app_state_command() -> AppStateFile {
 
 #[tauri::command]
 pub fn save_app_state_command(state: AppStateFile) -> Result<(), String> {
+    if let Some(ref dpt) = state.default_post_time {
+        crate::app_state::validate_default_post_time(dpt)?;
+    }
     write_app_state(&state)
 }
 
@@ -90,4 +93,32 @@ pub fn get_attribution() -> bool {
 pub fn set_attribution(enabled: bool) -> Result<(), String> {
     let path = attribution_config_path()?;
     write_attribution(&path, enabled)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_state::{AppStateFile, DefaultPostTime};
+
+    #[test]
+    fn test_save_app_state_command_rejects_invalid_default_post_time() {
+        let state = AppStateFile {
+            default_post_time: Some(DefaultPostTime { hour: 25, minute: 0, timezone: String::new() }),
+            ..AppStateFile::default()
+        };
+        let result = save_app_state_command(state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("hour"));
+    }
+
+    #[test]
+    fn test_save_app_state_command_rejects_invalid_minute() {
+        let state = AppStateFile {
+            default_post_time: Some(DefaultPostTime { hour: 9, minute: 61, timezone: String::new() }),
+            ..AppStateFile::default()
+        };
+        let result = save_app_state_command(state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("minute"));
+    }
 }

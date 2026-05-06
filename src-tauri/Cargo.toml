@@ -36,6 +36,7 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 regex = "1"
 url = "2"
 

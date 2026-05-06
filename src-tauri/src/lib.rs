@@ -5,6 +5,7 @@ pub mod analytics;
 pub mod app_state;
 pub mod commands;
 pub mod draft_queries;
+pub mod draft_schedule;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
@@ -17,6 +18,7 @@ pub mod post_approval;
 pub mod post_editor;
 pub mod post_io;
 pub mod post_mutations;
+pub mod post_schedule;
 pub mod post_export;
 pub mod post_ops;
 pub mod project_registry;
@@ -32,6 +34,7 @@ pub mod telemetry;
 pub mod telemetry_commands;
 pub mod tray;
 pub mod types;
+pub mod voice_guide_versions;
 pub mod watcher;
 
 use std::sync::Arc;
@@ -70,7 +73,7 @@ mod scheduling_commands {
 /// tasks (provider init + HTTP server). Called inside `tauri::Builder::setup`.
 fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let repos_path = init::postlane_dir()?.join("repos.json");
-    let repos_config = storage::read_repos_with_recovery(&repos_path)
+    let (repos_config, repos_was_corrupted) = storage::read_repos_checked(&repos_path)
         .map_err(|e| format!("Failed to load repos: {:?}", e))?;
 
     let libsecret_available = commands::check_libsecret_availability(Some(app.handle().clone()));
@@ -82,6 +85,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         *flag = Some(libsecret_available);
     }
     app.manage(app_state);
+
+    if repos_was_corrupted {
+        use tauri::Emitter;
+        let _ = app.emit("repos-config-corrupted", ());
+    }
 
     tray::setup_tray(app.handle())
         .map_err(|e| format!("Failed to set up tray: {}", e))?;
@@ -203,7 +211,11 @@ fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
             if !crate::app_state::read_app_state().telemetry_consent { continue; }
             let token = match app_handle.keyring().get_password("postlane", "license") {
                 Ok(Some(t)) => t,
-                _ => continue,
+                Ok(None) => continue,
+                Err(e) => {
+                    log::warn!("Telemetry flush: failed to read license token from keyring: {}", e);
+                    continue;
+                }
             };
             let state: tauri::State<AppState> = app_handle.state();
             state.telemetry.flush(&token).await;
@@ -219,7 +231,11 @@ fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let token = match app_handle.keyring().get_password("postlane", "license") {
             Ok(Some(t)) => t,
-            _ => return,
+            Ok(None) => return,
+            Err(e) => {
+                log::warn!("License revalidation: failed to read license token from keyring: {}", e);
+                return;
+            }
         };
         let client = crate::providers::scheduling::build_client();
         crate::license::validator::start_revalidation_loop(
@@ -271,6 +287,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         account_config::get_account_ids,
         nav_commands::read_app_state_command, nav_commands::save_app_state_command,
         app_state::set_wizard_completed,
+        app_state::set_default_post_time,
         post_ops::get_drafts, post_approval::approve_post,
         post_ops::get_post_content, post_ops::dismiss_post, post_ops::delete_post,
         post_ops::retry_post, post_ops::queue_redraft, post_ops::cancel_redraft,
@@ -285,6 +302,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv,
         post_editor::update_post_content, post_editor::update_post_image, post_editor::fetch_og_image,
+        post_schedule::update_post_schedule,
         mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
         mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
         mastodon_oauth::disconnect_mastodon,
@@ -295,6 +313,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         project_registry::check_project_status, project_registry::check_billing_gate,
         project_registry::create_project, project_registry::write_project_id_to_config,
         project_registry::register_repo_with_project, project_registry::save_project_voice_guide,
+        project_registry::get_project_voice_guide,
         project_registry::get_repo_remote_name, project_registry::read_project_id_from_path,
     ])
 }

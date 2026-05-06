@@ -163,6 +163,10 @@ pub fn update_post_image(
     update_post_image_impl(&repo_path, &post_folder, image_url.as_deref())
 }
 
+fn fmt_network_err(e: impl std::fmt::Display) -> String {
+    format!("unreachable: {}", e)
+}
+
 /// Fetches the og:image URL from a web page.
 /// Returns Ok(Some(url)) if found, Ok(None) if the page has no og:image,
 /// Err if the fetch fails or the URL is unsafe.
@@ -187,7 +191,7 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch URL: {}", e))?;
+        .map_err(fmt_network_err)?;
 
     // If the URL points directly to an image, return it as-is without reading the body.
     let content_type = response
@@ -203,7 +207,7 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
+        .map_err(fmt_network_err)?;
     if bytes.len() > 512 * 1024 {
         return Err("Response too large (max 512 KB)".to_string());
     }
@@ -259,6 +263,21 @@ mod tests {
         let result = fetch_og_image("https://169.254.169.254/latest/meta-data/".to_string()).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("private"));
+    }
+
+    // §review-product-medium — network fetch errors must use "unreachable: " prefix
+    // so the frontend can map them to a distinct user-friendly message.
+
+    #[test]
+    fn test_network_error_uses_unreachable_prefix() {
+        let err = fmt_network_err("connection refused");
+        assert!(err.starts_with("unreachable: "), "expected 'unreachable: ' prefix, got: {}", err);
+    }
+
+    #[test]
+    fn test_network_error_preserves_detail() {
+        let err = fmt_network_err("timeout after 5s");
+        assert!(err.contains("timeout after 5s"), "error detail must be preserved in: {}", err);
     }
 
     // --- update_post_content_impl: path traversal ---

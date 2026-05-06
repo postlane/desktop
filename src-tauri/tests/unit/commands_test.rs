@@ -48,6 +48,9 @@ mod get_drafts_tests {
             llm_model: None,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
         fs::write(
             ready_post_dir.join("meta.json"),
@@ -73,6 +76,9 @@ mod get_drafts_tests {
             llm_model: None,
             created_at: Some("2024-01-02T00:00:00Z".to_string()),
             sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
         fs::write(
             failed_post_dir.join("meta.json"),
@@ -98,6 +104,9 @@ mod get_drafts_tests {
             llm_model: None,
             created_at: Some("2024-01-03T00:00:00Z".to_string()),
             sent_at: Some("2024-01-03T01:00:00Z".to_string()),
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
         fs::write(
             sent_post_dir.join("meta.json"),
@@ -154,6 +163,9 @@ mod get_drafts_tests {
             llm_model: None,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
         fs::write(
             post_dir.join("meta.json"),
@@ -341,6 +353,9 @@ mod dismiss_post_tests {
             llm_model: None,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
         fs::write(
             post_folder.join("meta.json"),
@@ -464,6 +479,9 @@ mod retry_post_tests {
             llm_model: None,
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
         fs::write(
             post_folder.join("meta.json"),
