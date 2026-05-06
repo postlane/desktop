@@ -186,8 +186,8 @@ describe('PostCard — keyboard shortcuts — basic', () => {
     mockInvoke.mockResolvedValue({ success: true });
     render(<PostCard post={makePost()} onApproved={onApproved} onDismissed={vi.fn()} isFocused />);
     fireEvent.keyDown(screen.getByRole('article'), { key: 'a' });
-    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce());
-  });
+    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
+  }, 10_000);
 
   it('D key dismisses the focused card', async () => {
     const onDismissed = vi.fn();

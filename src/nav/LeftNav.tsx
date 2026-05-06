@@ -27,6 +27,7 @@ interface Props {
   onNavigate: (_selection: ViewSelection) => void;
   onSettingsOpen: () => void;
   onAddRepo: () => void;
+  onAddWorkspace?: () => void;
   currentView: ViewSelection;
   refreshKey?: number;
 }
@@ -173,10 +174,30 @@ function AllReposRow({ isAllRepos, totalReady, totalFailed, currentView, onNavig
 }
 
 // ---------------------------------------------------------------------------
+// Brand header
+// ---------------------------------------------------------------------------
+
+function NavBrand({ onAddWorkspace }: { onAddWorkspace?: () => void }) {
+  return (
+    <div className="flex flex-shrink-0 items-center px-5 py-4">
+      <span className="text-sm font-semibold tracking-tight text-[#0f0f0f] dark:text-white">post</span>
+      <span className="text-sm font-semibold tracking-tight text-blue-600">lane</span>
+      {onAddWorkspace && (
+        <button onClick={onAddWorkspace} aria-label="Add workspace" title="Add workspace" className="ml-auto rounded-md p-0.5 text-zinc-300 hover:text-zinc-900 dark:text-zinc-600 dark:hover:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <path d="M64 32C28.7 32 0 60.7 0 96L0 416c0 35.3 28.7 64 64 64l320 0c35.3 0 64-28.7 64-64l0-320c0-35.3-28.7-64-64-64L64 32zM200 344l0-64-64 0c-13.3 0-24-10.7-24-24s10.7-24 24-24l64 0 0-64c0-13.3 10.7-24 24-24s24 10.7 24 24l0 64 64 0c13.3 0 24 10.7 24 24s-10.7 24-24 24l-64 0 0 64c0 13.3-10.7 24-24 24s-24-10.7-24-24z"/>
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, currentView, refreshKey }: Props) {
+export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, onAddWorkspace, currentView, refreshKey }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const { repos, loadError, refresh } = useRepoData();
 
@@ -222,10 +243,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, onAddRepo, current
 
   return (
     <nav role="navigation" aria-label="Main navigation" className="flex h-screen w-64 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex-shrink-0 px-5 py-4">
-        <span className="text-sm font-semibold tracking-tight text-[#0f0f0f] dark:text-white">post</span>
-        <span className="text-sm font-semibold tracking-tight text-blue-600">lane</span>
-      </div>
+      <NavBrand onAddWorkspace={onAddWorkspace} />
       <div className="flex-1 overflow-y-auto py-2">
         {loadError && <p className="px-4 py-2 text-sm text-red-500">{loadError}</p>}
         <AllReposRow isAllRepos={isAllRepos} totalReady={totalReady} totalFailed={totalFailed} currentView={currentView} onNavigate={handleNavigate} onAddRepo={onAddRepo} />

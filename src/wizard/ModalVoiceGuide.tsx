@@ -7,6 +7,11 @@ import { Textarea } from '../components/catalyst/textarea'
 import { Field, Label } from '../components/catalyst/fieldset'
 import { Text } from '../components/catalyst/text'
 
+export const VOICE_GUIDE_TEMPLATE =
+  'Write directly and concisely. Avoid hype, buzzwords, and filler phrases.\n' +
+  'Explain things as you would to a smart colleague, not a marketing audience.\n' +
+  'Use short sentences. Prefer the active voice. Skip the fluff.';
+
 interface Props {
   projectId: string
   onNext: (voiceGuide: string) => void

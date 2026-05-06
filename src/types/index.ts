@@ -44,6 +44,7 @@ export interface AppStateFile {
   timezone: string;
   telemetry_consent: boolean;
   consent_asked: boolean;
+  default_post_time: { hour: number; minute: number } | null;
 }
 
 /** Mirrors analytics::PostAnalytics */
@@ -91,6 +92,8 @@ interface PostBase {
   post_folder: string;
   platforms: string[];
   schedule: string | null;
+  schedule_source?: string | null;
+  schedule_timezone?: string | null;
   platform_results: Record<string, string> | null;
   llm_model: string | null;
   created_at: string | null;

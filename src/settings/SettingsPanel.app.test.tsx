@@ -203,6 +203,50 @@ describe('SettingsPanel — App tab — updates and timezone', () => {
   });
 });
 
+describe('SettingsPanel — App tab — IPC errors surfaced to user (§fix-9)', () => {
+  it('shows error message when set_attribution fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      if (cmd === 'get_attribution') return true;
+      if (cmd === 'get_telemetry_consent') return false;
+      if (cmd === 'set_attribution') throw new Error('disk full');
+      if (cmd === 'read_app_state_command') return { timezone: '', default_post_time: null };
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /app/i }));
+    const toggle = await screen.findByRole('switch', { name: /post attribution/i });
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(screen.getByText(/disk full/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('shows error message when timezone save fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repos') return [];
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_app_version') return '0.1.0';
+      if (cmd === 'get_autostart_enabled') return false;
+      if (cmd === 'get_attribution') return false;
+      if (cmd === 'get_telemetry_consent') return false;
+      if (cmd === 'read_app_state_command') return { timezone: 'UTC', default_post_time: null };
+      if (cmd === 'save_app_state_command') throw new Error('write protected');
+      return null;
+    });
+    render(<SettingsPanel onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /app/i }));
+    const select = await screen.findByRole('combobox', { name: /display timezone/i });
+    fireEvent.change(select, { target: { value: 'America/New_York' } });
+    await waitFor(() =>
+      expect(screen.getByText(/write protected/i)).toBeInTheDocument(),
+    );
+  });
+});
+
 describe('SettingsPanel — App tab — error handling', () => {
   it('timezone save failure does not crash', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {

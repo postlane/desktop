@@ -19,9 +19,12 @@ function ModelBar({ stats }: { stats: ModelStats[] }) {
 
   return (
     <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Edit rate by model</h2>
-        <span title="Edit rate = how often you changed the draft before approving. Does not account for dismissed posts." className="cursor-help text-xs text-zinc-400">ⓘ</span>
+      <div className="mb-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Edit rate by model</h2>
+          <span title="Edit rate = how often you changed the draft before approving. Does not account for dismissed posts." className="cursor-help text-xs text-zinc-400">ⓘ</span>
+        </div>
+        <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">How often posts needed editing before sending — lower is better.</p>
       </div>
       <div className="space-y-3">
         {stats.map((s) => {
@@ -55,18 +58,25 @@ function useAllPublished() {
   const [loading, setLoading] = useState(true);
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
-    try {
-      const [result, modelStats] = await Promise.all([
-        invoke<PublishedPost[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }),
-        pageIndex === 0 ? invoke<ModelStats[]>('get_model_stats') : Promise.resolve(null),
-      ]);
+    const [postsResult, statsResult] = await Promise.allSettled([
+      invoke<PublishedPost[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }),
+      pageIndex === 0 ? invoke<ModelStats[]>('get_model_stats') : Promise.resolve(null),
+    ]);
+    if (postsResult.status === 'fulfilled') {
+      const result = postsResult.value;
       const hasMoreResults = result.length > PAGE_SIZE;
       const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
-      if (modelStats) setStats(modelStats);
-    } catch (e) { console.error('get_all_published failed:', e); }
-    finally { setLoading(false); }
+    } else {
+      console.error('get_all_published failed:', postsResult.reason);
+    }
+    if (statsResult.status === 'fulfilled' && statsResult.value) {
+      setStats(statsResult.value);
+    } else if (statsResult.status === 'rejected') {
+      console.error('get_model_stats failed:', statsResult.reason);
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => { setPage(0); setPosts([]); setLoading(true); loadPage(0, false); }, [loadPage]);

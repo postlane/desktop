@@ -6,16 +6,61 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { Button } from '../components/catalyst/button';
 
 type OAuthStep = 'idle' | 'code-entry' | 'connected';
+type ValidationState = 'unvalidated' | 'valid' | 'invalid';
+
+function useInstanceValidation(setError: (e: string | null) => void) {
+  const [instance, setInstance] = useState('');
+  const [validating, setValidating] = useState(false);
+  const [validationState, setValidationState] = useState<ValidationState>('unvalidated');
+
+  function handleInstanceChange(value: string) {
+    setInstance(value);
+    setValidationState('unvalidated');
+    setError(null);
+  }
+
+  async function handleTestInstance() {
+    if (instance.includes('://')) {
+      setError('Instance must be a hostname only (e.g. mastodon.social), not a URL.');
+      return;
+    }
+    setValidating(true);
+    setValidationState('unvalidated');
+    setError(null);
+    try {
+      await invoke('get_mastodon_char_limit', { instance });
+      setValidationState('valid');
+    } catch {
+      setValidationState('invalid');
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  return { instance, setInstance, validating, validationState, handleInstanceChange, handleTestInstance };
+}
 
 interface IdleFormProps {
   instance: string;
   error: string | null;
   connecting: boolean;
+  validating: boolean;
+  validationState: ValidationState;
   onInstanceChange: (_v: string) => void;
   onConnect: () => void;
+  onTestInstance: () => void;
 }
 
-function IdleForm({ instance, error, connecting, onInstanceChange, onConnect }: IdleFormProps) {
+function IdleForm({
+  instance,
+  error,
+  connecting,
+  validating,
+  validationState,
+  onInstanceChange,
+  onConnect,
+  onTestInstance,
+}: IdleFormProps) {
   return (
     <div className="space-y-3">
       <div>
@@ -27,10 +72,21 @@ function IdleForm({ instance, error, connecting, onInstanceChange, onConnect }: 
           className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         />
         {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        {validationState === 'valid' && (
+          <p className="mt-1 text-xs text-green-600 dark:text-green-400">✓ Valid</p>
+        )}
+        {validationState === 'invalid' && (
+          <p className="mt-1 text-xs text-red-600 dark:text-red-400">✗ Instance not found</p>
+        )}
       </div>
-      <Button onClick={onConnect} disabled={connecting}>
-        {connecting ? 'Connecting…' : 'Connect'}
-      </Button>
+      <div className="flex gap-2">
+        <Button plain onClick={onTestInstance} disabled={validating || !instance}>
+          {validating ? 'Testing…' : 'Test instance'}
+        </Button>
+        <Button onClick={onConnect} disabled={connecting || validationState !== 'valid'}>
+          {connecting ? 'Connecting…' : 'Connect'}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -85,19 +141,16 @@ function ConnectedView({ acct, disconnecting, onDisconnect }: ConnectedViewProps
 
 function useMastodonOAuth() {
   const [step, setStep] = useState<OAuthStep>('idle');
-  const [instance, setInstance] = useState('');
   const [code, setCode] = useState('');
   const [acct, setAcct] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const { instance, setInstance, validating, validationState, handleInstanceChange, handleTestInstance } =
+    useInstanceValidation(setError);
 
   async function handleConnect() {
-    if (instance.includes('://')) {
-      setError('Instance must be a hostname only (e.g. mastodon.social), not a URL.');
-      return;
-    }
     setError(null);
     setConnecting(true);
     try {
@@ -143,17 +196,31 @@ function useMastodonOAuth() {
     }
   }
 
-  return { step, instance, code, acct, error, connecting, saving, disconnecting, setInstance, setCode, handleConnect, handleSave, handleDisconnect };
+  return {
+    step, instance, code, acct, error, connecting, saving, disconnecting,
+    validating, validationState,
+    handleInstanceChange, setCode,
+    handleConnect, handleSave, handleDisconnect, handleTestInstance,
+  };
 }
 
 export default function MastodonOAuthPanel() {
-  const { step, instance, code, acct, error, connecting, saving, disconnecting, setInstance, setCode, handleConnect, handleSave, handleDisconnect } = useMastodonOAuth();
+  const {
+    step, instance, code, acct, error, connecting, saving, disconnecting,
+    validating, validationState,
+    handleInstanceChange, setCode,
+    handleConnect, handleSave, handleDisconnect, handleTestInstance,
+  } = useMastodonOAuth();
   return (
     <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
       <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Mastodon</h3>
       {step === 'idle' && (
-        <IdleForm instance={instance} error={error} connecting={connecting}
-          onInstanceChange={setInstance} onConnect={handleConnect} />
+        <IdleForm
+          instance={instance} error={error} connecting={connecting}
+          validating={validating} validationState={validationState}
+          onInstanceChange={handleInstanceChange}
+          onConnect={handleConnect} onTestInstance={handleTestInstance}
+        />
       )}
       {step === 'code-entry' && (
         <CodeEntryForm code={code} error={error} saving={saving}

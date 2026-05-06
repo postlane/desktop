@@ -356,6 +356,19 @@ describe('AllReposPublishedView — fetch error', () => {
       expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),
     );
   });
+
+  it('still shows posts when get_model_stats fails (§review-eng-medium)', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return [makeSent()];
+      if (cmd === 'get_model_stats') throw new Error('stats unavailable');
+      if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByText('post-001')).toBeInTheDocument(),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -399,5 +412,28 @@ describe('AllReposPublishedView — analytics UX improvements', () => {
     await waitFor(() => screen.getByText('post-001'));
     fireEvent.click(screen.getByRole('button', { name: /load analytics/i }));
     await waitFor(() => expect(screen.getByText(/no sessions yet/i)).toBeInTheDocument());
+  });
+});
+
+// §review-product-medium — model bar discoverability
+describe('AllReposPublishedView — model bar discoverability (§review-product-medium)', () => {
+  function setup10Posts() {
+    const posts = Array.from({ length: 10 }, (_, i) => makeSent({ post_folder: `p${i}` }));
+    setupMocks(posts, [makeStats({ total_posts: 10 })]);
+  }
+
+  it('shows a description explaining the model bar when it first appears', async () => {
+    setup10Posts();
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText(/edit rate/i));
+    expect(screen.getByText(/how often posts needed editing before sending/i)).toBeInTheDocument();
+  });
+
+  it('description is not shown when model bar is hidden', async () => {
+    const posts = Array.from({ length: 9 }, (_, i) => makeSent({ post_folder: `p${i}` }));
+    setupMocks(posts, [makeStats({ total_posts: 9 })]);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('p0'));
+    expect(screen.queryByText(/how often posts needed editing before sending/i)).not.toBeInTheDocument();
   });
 });

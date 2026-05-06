@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import { PLATFORM_LABELS, PLATFORM_ORDER } from './platforms';
+import { PLATFORM_LABELS, PLATFORM_ORDER, isSchedulableByZernio, ZERNIO_SCHEDULABLE_PLATFORMS } from './platforms';
 
 describe('PLATFORM_LABELS', () => {
   it('maps canonical platform keys to display names', () => {
@@ -40,5 +40,37 @@ describe('PLATFORM_ORDER', () => {
 
   it('has x before bluesky', () => {
     expect(PLATFORM_ORDER.indexOf('x')).toBeLessThan(PLATFORM_ORDER.indexOf('bluesky'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform scheduling support (§review-product-medium)
+// ---------------------------------------------------------------------------
+
+describe('isSchedulableByZernio', () => {
+  it('returns true for platforms Zernio supports', () => {
+    expect(isSchedulableByZernio('x')).toBe(true);
+    expect(isSchedulableByZernio('bluesky')).toBe(true);
+    expect(isSchedulableByZernio('mastodon')).toBe(true);
+    expect(isSchedulableByZernio('linkedin')).toBe(true);
+    expect(isSchedulableByZernio('substack_notes')).toBe(true);
+  });
+
+  it('returns false for platforms Zernio does not support (§review-product-medium)', () => {
+    expect(isSchedulableByZernio('product_hunt')).toBe(false);
+    expect(isSchedulableByZernio('show_hn')).toBe(false);
+    expect(isSchedulableByZernio('changelog')).toBe(false);
+  });
+
+  it('returns false for unknown platforms', () => {
+    expect(isSchedulableByZernio('unknown')).toBe(false);
+  });
+});
+
+describe('ZERNIO_SCHEDULABLE_PLATFORMS', () => {
+  it('does not include product_hunt, show_hn, or changelog', () => {
+    expect(ZERNIO_SCHEDULABLE_PLATFORMS.has('product_hunt')).toBe(false);
+    expect(ZERNIO_SCHEDULABLE_PLATFORMS.has('show_hn')).toBe(false);
+    expect(ZERNIO_SCHEDULABLE_PLATFORMS.has('changelog')).toBe(false);
   });
 });

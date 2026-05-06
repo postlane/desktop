@@ -111,4 +111,16 @@ describe('App startup', () => {
     render(<App />)
     await waitFor(() => { expect(screen.getByText('LeftNav')).toBeInTheDocument() })
   })
+
+  it('shows an error message when startup IPC calls fail (§review-critical)', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.reject(new Error('Keyring unavailable'))
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('alert').textContent).toMatch(/Keyring unavailable/i)
+  })
 })

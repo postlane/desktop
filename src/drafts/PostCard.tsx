@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback } from 'react';
-import { useTimezone, formatTimestamp } from '../TimezoneContext';
+import { useTimezone, formatTimestamp, getTimezoneOffsetLabel } from '../TimezoneContext';
 import { invoke } from '@tauri-apps/api/core';
 import { ChevronDownIcon } from '@heroicons/react/20/solid';
 import { DevicePhoneMobileIcon, ComputerDesktopIcon } from '@heroicons/react/24/outline';
@@ -15,6 +15,7 @@ import { usePostCardActions } from '../hooks/usePostCardActions';
 import { usePostCardRedraft } from '../hooks/usePostCardRedraft';
 import { useMastodonCharLimit } from '../hooks/useMastodonCharLimit';
 import { usePostCardKeyboard } from '../hooks/usePostCardKeyboard';
+import { ScheduleRow } from './ScheduleRow';
 
 interface Props {
   post: DraftPost;
@@ -131,7 +132,7 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
   );
 }
 
-function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, onApprove, onDelete, onTabChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void }) {
+function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, schedule, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; schedule: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(post.image_url ?? null);
   const [addingImage, setAddingImage] = useState(false);
@@ -153,7 +154,11 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
     if (!isDirectImageUrl(url)) {
       setFetchingOg(true); setOgFetchError(null);
       try { const found = await invoke<string | null>('fetch_og_image', { url }); if (found) { resolvedUrl = found; } else { setOgFetchError('No image found on that page. Paste a direct image URL instead.'); setFetchingOg(false); return; } }
-      catch (e) { setOgFetchError(e instanceof Error ? e.message : String(e)); setFetchingOg(false); return; }
+      catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setOgFetchError(msg.startsWith('unreachable:') ? 'Could not reach this URL. Check the page is publicly accessible.' : msg);
+        setFetchingOg(false); return;
+      }
       setFetchingOg(false);
     }
     try { await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: resolvedUrl }); setImageUrl(resolvedUrl); setAddingImage(false); setImageInput(''); setOgFetchError(null); }
@@ -180,9 +185,22 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
           onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete} />
       </div>
       {addingImage && <PostCardImageInput imageUrl={imageUrl} imageInput={imageInput} fetchingOg={fetchingOg} ogFetchError={ogFetchError} onInputChange={(v) => { setImageInput(v); setOgFetchError(null); }} onSave={handleSaveImage} onRemove={handleRemoveImage} onCancel={() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }} />}
+      <ScheduleRow repoPath={post.repo_path} postFolder={post.post_folder} schedule={schedule} onScheduleChange={onScheduleChange} />
       <PostCardErrors contentLoadError={contentLoadError} attributionEnabled={attributionEnabled} approveError={approveError} saveError={saveError} retryError={retryError} />
       <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} redraftError={redraftError} onInstructionChange={handleInstructionChange} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
     </div>
+  );
+}
+
+function PostCardMeta({ post, localSchedule }: { post: DraftPost; localSchedule: string | null }) {
+  const tz = useTimezone();
+  return (
+    <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+      {post.platforms.join(' · ')}
+      {localSchedule && <> · {formatTimestamp(localSchedule, tz)} {getTimezoneOffsetLabel(tz)}</>}
+      {post.schedule_source === 'default' && <> · <span className="rounded bg-zinc-100 px-1 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">auto</span></>}
+      {post.llm_model && <> · <span className="rounded bg-zinc-100 px-1 py-0.5 text-xs text-zinc-400 dark:bg-zinc-800">{post.llm_model}</span></>}
+    </p>
   );
 }
 
@@ -206,12 +224,12 @@ function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: 
 }
 
 export default function PostCard({ post, onApproved, onDismissed, isFocused = false }: Props) {
-  const tz = useTimezone();
   const isFailed = post.status === 'failed';
   const [expanded, setExpanded] = useState(isFailed);
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
+  const [localSchedule, setLocalSchedule] = useState<string | null>(post.schedule ?? null);
   const platforms = platformsOnPost(post);
-  const { approving, approveError, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
+  const { approving, approveError, approveSuccessNotice, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
   const focusClass = isFocused ? 'ring-2 ring-blue-500 bg-blue-50/40 dark:bg-blue-900/10' : '';
   const handleKeyDown = usePostCardKeyboard(isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded);
 
@@ -224,10 +242,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
             {isFailed && <Badge color="red">Failed</Badge>}
           </div>
           <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{triggerText(post)}</p>
-          <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-            {post.platforms.join(' · ')}
-            {post.schedule && <> · {formatTimestamp(post.schedule, tz)}</>}
-          </p>
+          <PostCardMeta post={post} localSchedule={localSchedule} />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button color="blue" onClick={() => setExpanded((v) => !v)} aria-label="Preview" aria-expanded={expanded}>
@@ -237,9 +252,12 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
         </div>
       </div>
       {isFailed && <FailedErrorBanner error={post.error} platformResults={post.platform_results} />}
+      {approveSuccessNotice && (
+        <p role="status" className="mt-2 text-xs font-medium text-green-600 dark:text-green-400">✓ {approveSuccessNotice}</p>
+      )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (
-        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} />
+        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} schedule={localSchedule} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
       )}
     </article>
   );

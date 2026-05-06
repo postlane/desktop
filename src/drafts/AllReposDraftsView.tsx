@@ -7,6 +7,7 @@ import { Button } from '../components/catalyst/button';
 import { Dialog, DialogActions, DialogBody, DialogDescription, DialogTitle } from '../components/catalyst/dialog';
 import PostCard from './PostCard';
 import type { DraftPost, MetaChangedPayload } from '../types';
+import { isDraftPost } from '../ipc-guards';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface Props {
@@ -68,7 +69,10 @@ function useAllReposDrafts() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    try { const result = await invoke<DraftPost[]>('get_all_drafts'); setPosts(result); }
+    try {
+      const result = await invoke<unknown[]>('get_all_drafts');
+      setPosts(result.filter(isDraftPost));
+    }
     catch (e) { console.error('get_all_drafts failed:', e); }
     finally { setLoading(false); }
   }, []);
@@ -121,6 +125,26 @@ function ApproveAllDialog({ open, readyCount, running, results, onClose, onConfi
   );
 }
 
+function EmptyDraftsState() {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try { await writeText('/draft-post'); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { /* ignore */ }
+  }
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="text-center">
+        <p className="mb-3 text-sm text-zinc-500">No drafts waiting.</p>
+        <p className="mb-4 text-sm text-zinc-500">Run this command in your IDE to create one:</p>
+        <div className="flex items-center justify-center gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-800">
+          <code className="font-mono text-sm text-zinc-900 dark:text-zinc-100">/draft-post</code>
+          <Button plain onClick={handleCopy} aria-label="Copy /draft-post command">{copied ? '✓ Copied' : '📋 Copy'}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }: Props) {
   const { posts, loading, refresh } = useAllReposDrafts();
   const [approveAllOpen, setApproveAllOpen] = useState(false);
@@ -154,11 +178,8 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
 
   if (postWizardNudge) return <WizardNudge onDismiss={onNudgeDismissed} />;
   if (loading) return <div className="flex h-full items-center justify-center"><p className="text-sm text-zinc-400">Loading…</p></div>;
-  if (posts.length === 0) return (
-    <div className="flex h-full items-center justify-center p-8">
-      <p className="text-center text-sm text-zinc-500">No drafts waiting.<br />Invoke <code className="font-mono">/draft-post</code> in your IDE to create one.</p>
-    </div>
-  );
+  if (posts.length === 0) return <EmptyDraftsState />;
+
 
   return (
     <>
