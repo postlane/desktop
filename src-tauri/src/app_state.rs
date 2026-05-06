@@ -7,6 +7,7 @@ use notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Application state shared across Tauri commands, watchers, and HTTP handlers
@@ -18,6 +19,9 @@ pub struct AppState {
     pub libsecret_available: Mutex<Option<bool>>,
     /// Opt-in product telemetry queue
     pub telemetry: Arc<TelemetryClient>,
+    /// Tracks how many post-approval sends are currently in flight.
+    /// Graceful shutdown polls this to zero before calling app.exit().
+    pub in_flight_sends: Arc<AtomicUsize>,
 }
 
 impl AppState {
@@ -27,6 +31,7 @@ impl AppState {
             watchers: Mutex::new(HashMap::new()),
             libsecret_available: Mutex::new(None),
             telemetry: Arc::new(TelemetryClient::new()),
+            in_flight_sends: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -49,6 +54,28 @@ pub struct NavState {
     pub expanded_repos: Vec<String>,
 }
 
+/// Default post time (hour + minute with the timezone it was set in).
+/// Storing the timezone inline prevents silent shifts if the user later changes
+/// their display timezone — the schedule is always computed against `timezone`.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct DefaultPostTime {
+    pub hour: u8,
+    pub minute: u8,
+    #[serde(default)]
+    pub timezone: String,
+}
+
+/// Validates a DefaultPostTime, returning Err with a descriptive message if out of range.
+pub fn validate_default_post_time(dpt: &DefaultPostTime) -> Result<(), String> {
+    if dpt.hour > 23 {
+        return Err(format!("hour {} is out of range (0–23)", dpt.hour));
+    }
+    if dpt.minute > 59 {
+        return Err(format!("minute {} is out of range (0–59)", dpt.minute));
+    }
+    Ok(())
+}
+
 /// Complete app state file schema
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppStateFile {
@@ -69,6 +96,9 @@ pub struct AppStateFile {
     /// Whether the consent prompt has been shown. If false, show it on next launch.
     #[serde(default)]
     pub consent_asked: bool,
+    /// Global default post time for new drafts. None = no pre-population.
+    #[serde(default)]
+    pub default_post_time: Option<DefaultPostTime>,
 }
 
 impl Default for AppStateFile {
@@ -91,6 +121,7 @@ impl Default for AppStateFile {
             timezone: String::new(),
             telemetry_consent: false,
             consent_asked: false,
+            default_post_time: None,
         }
     }
 }
@@ -138,7 +169,29 @@ pub fn read_app_state() -> AppStateFile {
     }
 }
 
+static APP_STATE_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
 static WIZARD_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// Sets `default_post_time` in app_state.json atomically without clobbering other fields.
+/// The lock serializes concurrent callers so hour/minute changes never interleave.
+pub fn set_default_post_time_impl(dpt: Option<DefaultPostTime>) -> Result<(), String> {
+    if let Some(ref d) = dpt {
+        validate_default_post_time(d)?;
+    }
+    let _guard = APP_STATE_WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {}", e))?;
+    let mut state = read_app_state();
+    state.default_post_time = dpt;
+    write_app_state(&state)
+}
+
+#[tauri::command]
+pub fn set_default_post_time(dpt: Option<DefaultPostTime>) -> Result<(), String> {
+    set_default_post_time_impl(dpt)
+}
 
 /// Sets `wizard_completed: true` in app_state.json atomically.
 /// The mutex serializes concurrent callers so they don't race on the tmp rename.
@@ -228,6 +281,7 @@ mod tests {
             timezone: String::new(),
             telemetry_consent: false,
             consent_asked: false,
+            default_post_time: None,
         };
 
         let path = dir.join("app_state.json");
@@ -302,6 +356,7 @@ mod tests {
             timezone: String::new(),
             telemetry_consent: false,
             consent_asked: false,
+            default_post_time: None,
         };
 
         // Clean up before test
@@ -466,6 +521,7 @@ mod tests {
             timezone: String::new(),
             telemetry_consent: false,
             consent_asked: false,
+            default_post_time: None,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
@@ -479,5 +535,154 @@ mod tests {
         assert_eq!(loaded.nav.last_section, "sent");
 
         let _ = fs::remove_file(&path);
+    }
+
+    // ── DefaultPostTime ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_default_post_time_null_round_trips() {
+        let state = AppStateFile { default_post_time: None, ..AppStateFile::default() };
+        let json = serde_json::to_string(&state).expect("serialize");
+        let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
+        assert!(loaded.default_post_time.is_none());
+    }
+
+    #[test]
+    fn test_default_post_time_valid_round_trips() {
+        let dpt = DefaultPostTime { hour: 9, minute: 30, timezone: String::new() };
+        let state = AppStateFile { default_post_time: Some(dpt), ..AppStateFile::default() };
+        let json = serde_json::to_string(&state).expect("serialize");
+        let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
+        let loaded_dpt = loaded.default_post_time.expect("should be Some");
+        assert_eq!(loaded_dpt.hour, 9);
+        assert_eq!(loaded_dpt.minute, 30);
+    }
+
+    #[test]
+    fn test_validate_default_post_time_rejects_hour_25() {
+        let result = validate_default_post_time(&DefaultPostTime { hour: 25, minute: 0, timezone: String::new() });
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("hour"));
+    }
+
+    #[test]
+    fn test_validate_default_post_time_rejects_minute_60() {
+        let result = validate_default_post_time(&DefaultPostTime { hour: 0, minute: 60, timezone: String::new() });
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("minute"));
+    }
+
+    #[test]
+    fn test_validate_default_post_time_accepts_valid() {
+        assert!(validate_default_post_time(&DefaultPostTime { hour: 23, minute: 59, timezone: String::new() }).is_ok());
+        assert!(validate_default_post_time(&DefaultPostTime { hour: 0, minute: 0, timezone: String::new() }).is_ok());
+    }
+
+    #[test]
+    fn test_app_state_missing_default_post_time_field_deserialises_as_none() {
+        let json = r#"{"version":1,"window":{"width":1100,"height":700,"x":0,"y":0},"nav":{"last_view":"all_repos","last_repo_id":null,"last_section":"drafts","expanded_repos":[]},"wizard_completed":false,"timezone":"","telemetry_consent":false,"consent_asked":false}"#;
+        let loaded: AppStateFile = serde_json::from_str(json).expect("should parse");
+        assert!(loaded.default_post_time.is_none());
+    }
+
+    // ── DefaultPostTime.timezone ─────────────────────────────────────────────
+
+    #[test]
+    fn test_default_post_time_missing_timezone_field_deserialises_as_empty() {
+        // Old records without the timezone field must still deserialise
+        let json = r#"{"hour":9,"minute":30}"#;
+        let dpt: DefaultPostTime = serde_json::from_str(json).expect("should parse");
+        assert_eq!(dpt.hour, 9);
+        assert_eq!(dpt.minute, 30);
+        assert_eq!(dpt.timezone, "", "missing timezone must default to empty string");
+    }
+
+    #[test]
+    fn test_default_post_time_round_trips_timezone() {
+        let dpt = DefaultPostTime { hour: 9, minute: 30, timezone: "Asia/Kolkata".to_string() };
+        let json = serde_json::to_string(&dpt).expect("serialize");
+        let back: DefaultPostTime = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.timezone, "Asia/Kolkata");
+    }
+
+    // ── set_default_post_time_impl ───────────────────────────────────────────
+
+    #[test]
+    fn test_set_default_post_time_writes_without_clobbering_other_fields() {
+        let _lock = get_test_mutex().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+
+        let initial = AppStateFile {
+            timezone: "Europe/London".to_string(),
+            wizard_completed: true,
+            default_post_time: None,
+            ..AppStateFile::default()
+        };
+        write_app_state(&initial).expect("write initial");
+
+        set_default_post_time_impl(Some(DefaultPostTime { hour: 9, minute: 30, timezone: String::new() }))
+            .expect("should succeed");
+
+        let result = read_app_state();
+        assert_eq!(result.default_post_time.as_ref().map(|d| d.hour), Some(9));
+        assert_eq!(result.default_post_time.as_ref().map(|d| d.minute), Some(30));
+        // Other fields must not be clobbered
+        assert_eq!(result.timezone, "Europe/London");
+        assert!(result.wizard_completed);
+
+        let path = app_state_path().expect("path");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_set_default_post_time_concurrent_calls_do_not_interleave() {
+        let _lock = get_test_mutex().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+
+        let initial = AppStateFile {
+            default_post_time: None,
+            ..AppStateFile::default()
+        };
+        write_app_state(&initial).expect("write initial");
+
+        // Concurrent: one sets hour=9,min=30; other sets hour=14,min=0
+        let h1 = std::thread::spawn(|| {
+            set_default_post_time_impl(Some(DefaultPostTime { hour: 9, minute: 30, timezone: String::new() }))
+        });
+        let h2 = std::thread::spawn(|| {
+            set_default_post_time_impl(Some(DefaultPostTime { hour: 14, minute: 0, timezone: String::new() }))
+        });
+
+        h1.join().expect("thread panicked").expect("h1 failed");
+        h2.join().expect("thread panicked").expect("h2 failed");
+
+        // Final state must be internally consistent (one of the two valid outcomes)
+        let result = read_app_state();
+        let dpt = result.default_post_time.expect("default_post_time must be set");
+        let is_valid = (dpt.hour == 9 && dpt.minute == 30) || (dpt.hour == 14 && dpt.minute == 0);
+        assert!(is_valid, "got inconsistent state: hour={}, minute={}", dpt.hour, dpt.minute);
+
+        let path = app_state_path().expect("path");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_set_default_post_time_clear_sets_none() {
+        let _lock = get_test_mutex().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+
+        let initial = AppStateFile {
+            default_post_time: Some(DefaultPostTime { hour: 9, minute: 30, timezone: String::new() }),
+            ..AppStateFile::default()
+        };
+        write_app_state(&initial).expect("write initial");
+
+        set_default_post_time_impl(None).expect("should succeed");
+
+        let result = read_app_state();
+        assert!(result.default_post_time.is_none(), "should be cleared");
+
+        let path = app_state_path().expect("path");
+        let _ = std::fs::remove_file(path);
     }
 }

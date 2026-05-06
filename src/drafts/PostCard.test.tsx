@@ -71,6 +71,16 @@ describe('PostCard — collapsed state', () => {
     render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
     expect(screen.getByText('my-interesting-post-about-things')).toBeInTheDocument();
   });
+
+  it('shows the llm_model label when present (§review-product-high)', () => {
+    render(<PostCard post={makePost({ llm_model: 'claude-sonnet-4-6' })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    expect(screen.getByText(/claude-sonnet-4-6/i)).toBeInTheDocument();
+  });
+
+  it('does not show a model label when llm_model is null', () => {
+    render(<PostCard post={makePost({ llm_model: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('PostCard — expanded state', () => {
@@ -176,7 +186,7 @@ describe('PostCard — approve', () => {
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     await waitFor(() => screen.getByRole('button', { name: /approve/i }));
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
     expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({
       repoPath: '/path/to/repo',
       postFolder: 'post-001',
@@ -281,5 +291,124 @@ describe('PostCard — inline edit', () => {
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     );
     expect(screen.getByText('Edited post.')).toBeInTheDocument();
+  });
+});
+
+describe('PostCard — auto-schedule badge (§fix-12)', () => {
+  it('shows auto badge when schedule_source is default', () => {
+    render(<PostCard post={makePost({ schedule_source: 'default' })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    expect(screen.getByText('auto')).toBeInTheDocument();
+  });
+
+  it('does not show auto badge when schedule_source is user', () => {
+    render(<PostCard post={makePost({ schedule_source: 'user' })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    expect(screen.queryByText('auto')).not.toBeInTheDocument();
+  });
+
+  it('does not show auto badge when schedule_source is null', () => {
+    render(<PostCard post={makePost({ schedule_source: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    expect(screen.queryByText('auto')).not.toBeInTheDocument();
+  });
+});
+
+describe('PostCard — success notice after approve (§review-critical)', () => {
+  function makeApproveInvoke(platforms: string[]) {
+    return async (cmd: unknown) => {
+      if (cmd === 'get_post_content') return '';
+      if (cmd === 'get_attribution') return true;
+      if (cmd === 'approve_post') {
+        return {
+          success: true,
+          platform_results: Object.fromEntries(platforms.map((p) => [p, 'sent'])),
+          error: null,
+          fallback_provider: null,
+        };
+      }
+      return null;
+    };
+  }
+
+  it('shows a success notice after a successful approval', async () => {
+    mockInvoke.mockImplementation(makeApproveInvoke(['x', 'bluesky']));
+    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await screen.findByRole('button', { name: /approve/i });
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+  });
+
+  it('success notice lists the platforms that were sent', async () => {
+    mockInvoke.mockImplementation(makeApproveInvoke(['x', 'bluesky']));
+    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await screen.findByRole('button', { name: /approve/i });
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    await waitFor(() => {
+      const status = screen.getByRole('status');
+      expect(status.textContent).toMatch(/sent/i);
+    });
+  });
+
+  it('calls onApproved after the success notice has been shown', async () => {
+    const onApproved = vi.fn();
+    mockInvoke.mockImplementation(makeApproveInvoke(['x']));
+    render(<PostCard post={makePost({ platforms: ['x'] })} onApproved={onApproved} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await screen.findByRole('button', { name: /approve/i });
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+    // Notice appears before onApproved fires
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(onApproved).not.toHaveBeenCalled();
+    // After the deferral window, onApproved fires
+    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
+  }, 10_000);
+});
+
+// §review-product-medium — image URL error type distinction
+async function openImageInput() {
+  render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+  await screen.findByRole('button', { name: /approve/i });
+  fireEvent.click(screen.getByRole('button', { name: /image/i }));
+  await screen.findByRole('button', { name: /save image/i });
+  const input = screen.getByRole('textbox', { name: /image url/i });
+  fireEvent.change(input, { target: { value: 'https://example.com/post' } });
+}
+
+describe('PostCard — OG image fetch error types (§review-product-medium)', () => {
+  it('shows "No image found" when fetch_og_image returns null', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'fetch_og_image') return Promise.resolve(null);
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+    await openImageInput();
+    fireEvent.click(screen.getByRole('button', { name: /save image/i }));
+    await waitFor(() => expect(screen.getByText(/no image found/i)).toBeInTheDocument());
+  });
+
+  it('shows "Could not reach this URL" when fetch_og_image throws with unreachable prefix', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'fetch_og_image') return Promise.reject(new Error('unreachable: connection refused'));
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+    await openImageInput();
+    fireEvent.click(screen.getByRole('button', { name: /save image/i }));
+    await waitFor(() => expect(screen.getByText(/could not reach this url/i)).toBeInTheDocument());
+  });
+
+  it('shows raw error for non-network errors (e.g., URL validation)', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'fetch_og_image') return Promise.reject(new Error('URL must start with https://'));
+      if (cmd === 'get_post_content') return Promise.resolve('');
+      if (cmd === 'get_attribution') return Promise.resolve(true);
+      return Promise.resolve(null);
+    });
+    await openImageInput();
+    fireEvent.click(screen.getByRole('button', { name: /save image/i }));
+    await waitFor(() => expect(screen.getByText(/url must start with https/i)).toBeInTheDocument());
   });
 });

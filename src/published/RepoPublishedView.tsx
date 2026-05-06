@@ -107,6 +107,8 @@ function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
   );
 }
 
+const QUEUED_POLL_MS = 30_000;
+
 function useRepoPublished(repoId: string) {
   const [posts, setPosts] = useState<PublishedPost[]>([]);
   const [page, setPage] = useState(0);
@@ -125,6 +127,13 @@ function useRepoPublished(repoId: string) {
   }, [repoId]);
 
   useEffect(() => { setPage(0); setPosts([]); setLoading(true); loadPage(0, false); }, [repoId, loadPage]);
+
+  const hasQueued = posts.some((p) => p.status === 'queued');
+  useEffect(() => {
+    if (!hasQueued) return;
+    const id = setInterval(() => loadPage(0, false), QUEUED_POLL_MS);
+    return () => clearInterval(id);
+  }, [hasQueued, loadPage]);
 
   const loadMore = () => { const next = page + 1; setPage(next); loadPage(next, true); };
   const refresh = useCallback(() => loadPage(0, false), [loadPage]);

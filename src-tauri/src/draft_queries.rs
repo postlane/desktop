@@ -60,6 +60,7 @@ fn parse_draft_post(
         status,
         platforms,
         schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
+        schedule_source: meta.get("schedule_source").and_then(|v| v.as_str()).map(String::from),
         trigger: meta.get("trigger").and_then(|v| v.as_str()).map(String::from),
         platform_results,
         error: meta.get("error").and_then(|v| v.as_str()).map(String::from),

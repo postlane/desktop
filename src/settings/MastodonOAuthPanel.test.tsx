@@ -22,54 +22,64 @@ describe('MastodonOAuthPanel — instance field validation', () => {
     expect(screen.getByPlaceholderText(/mastodon\.social/i)).toBeInTheDocument();
   });
 
-  it('shows an error when input contains "://"', () => {
+  it('shows an error when input contains "://" on Test instance', () => {
     render(<MastodonOAuthPanel />);
     const input = screen.getByPlaceholderText(/mastodon\.social/i);
     fireEvent.change(input, { target: { value: 'https://mastodon.social' } });
-    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
     expect(screen.getByText(/hostname only/i)).toBeInTheDocument();
   });
 
   it('does not show an error for a bare hostname', async () => {
-    mockInvoke.mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc');
+    mockInvoke.mockResolvedValueOnce(500);
     render(<MastodonOAuthPanel />);
     const input = screen.getByPlaceholderText(/mastodon\.social/i);
     fireEvent.change(input, { target: { value: 'mastodon.social' } });
-    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
     await waitFor(() => expect(screen.queryByText(/hostname only/i)).not.toBeInTheDocument());
   });
 });
 
+async function validateAndReadyConnect(instance = 'mastodon.social') {
+  fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: instance } });
+  fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+  await waitFor(() => screen.getByRole('button', { name: /connect/i, hidden: false }));
+}
+
 describe('MastodonOAuthPanel — Connect flow', () => {
   it('calls register_mastodon_app with the instance on Connect', async () => {
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
     mockInvoke.mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc');
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('register_mastodon_app', { instance: 'mastodon.social' }));
   });
 
   it('opens the auth URL in the browser after Connect succeeds', async () => {
     const authUrl = 'https://mastodon.social/oauth/authorize?client_id=abc';
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
     mockInvoke.mockResolvedValueOnce(authUrl);
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(mockOpen).toHaveBeenCalledWith(authUrl));
   });
 
   it('shows the auth code input field after Connect succeeds', async () => {
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
     mockInvoke.mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc');
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(screen.getByPlaceholderText(/paste the code/i)).toBeInTheDocument());
   });
 
   it('shows inline error when Connect fails', async () => {
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
     mockInvoke.mockRejectedValueOnce(new Error('Network error'));
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(screen.getByText(/network error/i)).toBeInTheDocument());
   });
@@ -78,10 +88,11 @@ describe('MastodonOAuthPanel — Connect flow', () => {
 describe('MastodonOAuthPanel — Save (code exchange) flow', () => {
   it('calls exchange_mastodon_code with instance and code on Save', async () => {
     mockInvoke
+      .mockResolvedValueOnce(500) // test-instance
       .mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc')
       .mockResolvedValueOnce('alice');
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => screen.getByPlaceholderText(/paste the code/i));
     fireEvent.change(screen.getByPlaceholderText(/paste the code/i), { target: { value: 'abc123' } });
@@ -93,10 +104,11 @@ describe('MastodonOAuthPanel — Save (code exchange) flow', () => {
 
   it('transitions to connected state showing @acct after Save', async () => {
     mockInvoke
+      .mockResolvedValueOnce(500) // test-instance
       .mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc')
       .mockResolvedValueOnce('alice');
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => screen.getByPlaceholderText(/paste the code/i));
     fireEvent.change(screen.getByPlaceholderText(/paste the code/i), { target: { value: 'abc123' } });
@@ -108,10 +120,11 @@ describe('MastodonOAuthPanel — Save (code exchange) flow', () => {
 describe('MastodonOAuthPanel — Disconnect', () => {
   async function reachConnectedState() {
     mockInvoke
+      .mockResolvedValueOnce(500) // test-instance
       .mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc')
       .mockResolvedValueOnce('alice');
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => screen.getByPlaceholderText(/paste the code/i));
     fireEvent.change(screen.getByPlaceholderText(/paste the code/i), { target: { value: 'abc123' } });
@@ -150,20 +163,81 @@ describe('MastodonOAuthPanel — Disconnect', () => {
 // Issue 10 — openUrl errors must be surfaced to the user, not silently swallowed
 describe('MastodonOAuthPanel — openUrl error handling', () => {
   it('shows an inline error when openUrl throws after Connect', async () => {
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
     mockInvoke.mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc');
     mockOpen.mockRejectedValueOnce(new Error('Could not open browser'));
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(screen.getByText(/could not open browser/i)).toBeInTheDocument());
   });
 
   it('stays on idle step when openUrl throws', async () => {
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
     mockInvoke.mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc');
     mockOpen.mockRejectedValueOnce(new Error('Could not open browser'));
     render(<MastodonOAuthPanel />);
-    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    await validateAndReadyConnect();
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(screen.queryByPlaceholderText(/paste the code/i)).not.toBeInTheDocument());
+  });
+});
+
+// §review-product-medium — instance real-time validation before Connect
+describe('MastodonOAuthPanel — instance validation (§review-product-medium)', () => {
+  it('renders a "Test instance" button in the idle form', () => {
+    render(<MastodonOAuthPanel />);
+    expect(screen.getByRole('button', { name: /test instance/i })).toBeInTheDocument();
+  });
+
+  it('Connect button is disabled until instance is validated', () => {
+    render(<MastodonOAuthPanel />);
+    expect(screen.getByRole('button', { name: /connect/i })).toBeDisabled();
+  });
+
+  it('calls get_mastodon_char_limit when Test instance is clicked', async () => {
+    mockInvoke.mockResolvedValueOnce(500);
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('get_mastodon_char_limit', { instance: 'mastodon.social' })
+    );
+  });
+
+  it('shows "Valid" indicator after successful test', async () => {
+    mockInvoke.mockResolvedValueOnce(500);
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => expect(screen.getByText(/valid/i)).toBeInTheDocument());
+  });
+
+  it('shows "Instance not found" when test fails', async () => {
+    mockInvoke.mockRejectedValueOnce(new Error('could not reach host'));
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'bad.instance' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => expect(screen.getByText(/instance not found/i)).toBeInTheDocument());
+  });
+
+  it('enables Connect after a successful test', async () => {
+    mockInvoke.mockResolvedValueOnce(500);
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /connect/i })).toBeEnabled());
+  });
+
+  it('resets validation state when instance input changes', async () => {
+    mockInvoke.mockResolvedValueOnce(500);
+    render(<MastodonOAuthPanel />);
+    const input = screen.getByPlaceholderText(/mastodon\.social/i);
+    fireEvent.change(input, { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => screen.getByText(/valid/i));
+    fireEvent.change(input, { target: { value: 'other.social' } });
+    expect(screen.queryByText(/valid/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /connect/i })).toBeDisabled();
   });
 });

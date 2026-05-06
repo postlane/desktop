@@ -160,6 +160,9 @@ fn make_meta(temp_dir: &TempDir, post_folder: &str, image_url: Option<&str>) -> 
         llm_model: None,
         created_at: Some("2026-04-17T00:00:00Z".to_string()),
         sent_at: None,
+        voice_guide_version: None,
+        schedule_source: None,
+        schedule_timezone: None,
     };
     fs::write(
         post_path.join("meta.json"),

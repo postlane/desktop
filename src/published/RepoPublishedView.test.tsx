@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RepoPublishedView from './RepoPublishedView';
@@ -295,6 +295,36 @@ describe('RepoPublishedView — fetch error', () => {
     await waitFor(() =>
       expect(screen.getByText(/no posts sent yet/i)).toBeInTheDocument(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Queued auto-refresh (§review-product-low)
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — queued auto-refresh', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('re-fetches every 30s when queued posts exist', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockInvoke.mockResolvedValue([makeQueued({ post_folder: 'q1' })]);
+    render(<RepoPublishedView repoId="r1" />);
+    await vi.runAllTimersAsync();
+    await waitFor(() => screen.getByText('q1'));
+    const callsBefore = mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_published').length;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_published').length).toBeGreaterThan(callsBefore);
+  });
+
+  it('does NOT auto-refresh when no queued posts', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockInvoke.mockResolvedValue([makeSent()]);
+    render(<RepoPublishedView repoId="r1" />);
+    await vi.runAllTimersAsync();
+    await waitFor(() => screen.getByText('post-001'));
+    const callsBefore = mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_published').length;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_published').length).toBe(callsBefore);
   });
 });
 

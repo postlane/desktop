@@ -72,6 +72,7 @@ pub fn is_cache_expired(cache: &LicenseCache) -> bool {
     cache.validated_at < Utc::now() - Duration::days(7)
 }
 
+
 #[derive(Deserialize)]
 struct LicenseValidateResponse {
     user: UserInfo,
@@ -115,6 +116,24 @@ pub async fn validate_token_with_client(
     }
 }
 
+/// Validates a license token, treating a >30-day-old offline cache as `Expired`.
+/// Use this in background revalidation loops. Do NOT use in `handle_activate` —
+/// the user's activation attempt should never be blocked by a stale cache.
+pub async fn validate_token_enforcing_expiry(
+    token: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<LicenseState, String> {
+    let state = validate_token_with_client(token, client, base_url).await?;
+    if let LicenseState::Offline { cached_at } = &state {
+        if *cached_at < Utc::now() - Duration::days(30) {
+            log::warn!("License cache is more than 30 days old — treating as expired");
+            return Ok(LicenseState::Expired);
+        }
+    }
+    Ok(state)
+}
+
 /// Runs the 24-hour license revalidation loop.
 /// `interval` is parameterised for test injection (use 100ms in tests, 24h in production).
 /// Calls `on_expired` when the backend returns 401; 503/network errors are silent (cache used).
@@ -129,7 +148,7 @@ pub async fn start_revalidation_loop(
     timer.tick().await; // discard the immediate first tick
     loop {
         timer.tick().await;
-        if let Ok(LicenseState::Expired) = validate_token_with_client(token, client, base_url).await {
+        if let Ok(LicenseState::Expired) = validate_token_enforcing_expiry(token, client, base_url).await {
             log::warn!("License expired — sign in again at postlane.dev/login");
             on_expired();
         }
@@ -160,6 +179,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_token_success() {
+        let _g = lock().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+        let path = cache_path().expect("path");
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -167,6 +189,7 @@ mod tests {
         });
         let client = build_client();
         let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
+        let _ = std::fs::remove_file(&path);
         assert!(matches!(state, LicenseState::Valid { .. }));
     }
 
@@ -219,6 +242,61 @@ mod tests {
         assert!(!is_cache_expired(&fresh), "6-day-old cache should not be expired");
     }
 
+    /// validate_token_enforcing_expiry upgrades Offline to Expired when cache is >30 days old
+    /// (§review-security-medium). Uses the mutex to prevent other tests writing fresh cache.
+    #[tokio::test]
+    async fn test_enforcing_variant_returns_expired_for_stale_offline_cache() {
+        let _g = lock().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+        let path = cache_path().expect("path");
+        let stale = LicenseCache {
+            version: 1,
+            validated_at: Utc::now() - Duration::days(31),
+            user: test_user(),
+            repos: vec![],
+        };
+        let json = serde_json::to_string_pretty(&stale).unwrap();
+        std::fs::write(&path, json).unwrap();
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/license/validate");
+            then.status(503);
+        });
+        let client = build_client();
+        let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            matches!(state, LicenseState::Expired),
+            "enforcing variant must return Expired for 31-day-old offline cache"
+        );
+    }
+
+    /// validate_token_enforcing_expiry must treat a >30-day-old offline cache as Expired
+    /// and a <30-day-old cache as Offline. Holds the mutex to prevent concurrent cache writes.
+    #[tokio::test]
+    async fn test_enforcing_expiry_30_day_boundary() {
+        let _g = lock().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+        let path = cache_path().expect("path");
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/license/validate");
+            then.status(503);
+        });
+        let client = build_client();
+
+        let fresh = LicenseCache { version: 1, validated_at: Utc::now() - Duration::days(29), user: test_user(), repos: vec![] };
+        std::fs::write(&path, serde_json::to_string_pretty(&fresh).unwrap()).unwrap();
+        let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
+        assert!(matches!(state, LicenseState::Offline { .. }), "29-day-old cache must not be hard-expired");
+
+        let stale = LicenseCache { version: 1, validated_at: Utc::now() - Duration::days(31), user: test_user(), repos: vec![] };
+        std::fs::write(&path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
+        let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(state, LicenseState::Expired), "31-day-old cache must be hard-expired");
+    }
+
     #[tokio::test]
     async fn test_validate_token_empty_returns_unconfigured() {
         let client = build_client();
@@ -230,6 +308,9 @@ mod tests {
     /// Uses a 100ms interval and waits 350ms — expects at least 2 calls to the backend.
     #[tokio::test]
     async fn test_24hr_revalidation_interval() {
+        let _g = lock().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+        let path = cache_path().expect("path");
         let server = MockServer::start();
         let mock_handle = server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -256,6 +337,7 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(350)).await;
         handle.abort();
+        let _ = std::fs::remove_file(&path);
 
         assert!(
             mock_handle.hits() >= 2,

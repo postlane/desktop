@@ -77,7 +77,7 @@ describe('PostCard — fallback provider banner (§13.2.3)', () => {
     expect(onApproved).toHaveBeenCalledOnce();
   });
 
-  it('calls onApproved immediately when no fallback was used', async () => {
+  it('calls onApproved after success notice when no fallback was used', async () => {
     setupInvoke(null);
     const onApproved = vi.fn();
     render(<PostCard post={makePost()} onApproved={onApproved} onDismissed={vi.fn()} />);
@@ -86,7 +86,7 @@ describe('PostCard — fallback provider banner (§13.2.3)', () => {
     await waitFor(() => screen.getByRole('button', { name: /^approve$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
 
-    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
     expect(screen.queryByText(/posted via/i)).not.toBeInTheDocument();
-  });
+  }, 10_000);
 });

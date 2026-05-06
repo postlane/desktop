@@ -11,6 +11,18 @@ use std::path::PathBuf;
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
 
+/// Validates a project ID: non-empty, alphanumeric + hyphens + underscores only.
+/// Rejects slashes, spaces, and dot-sequences to prevent URL path traversal.
+fn validate_project_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("project_id must not be empty".to_string());
+    }
+    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err(format!("project_id '{}' contains invalid characters (only a-z, A-Z, 0-9, hyphens, underscores allowed)", id));
+    }
+    Ok(())
+}
+
 fn reject_if_symlink(path: &std::path::Path) -> Result<(), String> {
     match path.symlink_metadata() {
         Ok(m) if m.file_type().is_symlink() => Err(format!(
@@ -76,6 +88,9 @@ pub async fn check_project_status_with_client(
     base_url: &str,
     token: &str,
 ) -> ProjectStatus {
+    if validate_project_id(project_id).is_err() {
+        return ProjectStatus::NotFound;
+    }
     let url = format!("{}/v1/projects/{}", base_url, project_id);
     let resp = client.get(&url).bearer_auth(token).send().await;
     match resp {
@@ -217,6 +232,7 @@ pub async fn register_repo_with_project_with_client(
     token: &str,
     repos: &ReposConfig,
 ) -> Result<String, String> {
+    validate_project_id(project_id)?;
     let is_registered = repos.repos.iter().any(|r| r.path == repo_path);
     if !is_registered {
         return Err(format!("Path '{}' is not in the registered repos list", repo_path));
@@ -239,6 +255,91 @@ pub async fn register_repo_with_project_with_client(
     write_project_id_to_config_impl(repo_path, project_id, repos)
 }
 
+#[derive(Deserialize)]
+struct ProjectVoiceGuideResponse {
+    voice_guide: Option<String>,
+}
+
+type VoiceGuideEntry = (std::time::Instant, String);
+static VOICE_GUIDE_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, VoiceGuideEntry>>> =
+    std::sync::OnceLock::new();
+const VOICE_GUIDE_CACHE_TTL_SECS: u64 = 3600;
+
+fn voice_guide_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, VoiceGuideEntry>> {
+    VOICE_GUIDE_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn vg_cache_get(project_id: &str, ttl_secs: u64) -> Option<String> {
+    let guard = voice_guide_cache().lock().ok()?;
+    let (fetched_at, content) = guard.get(project_id)?;
+    if fetched_at.elapsed().as_secs() < ttl_secs {
+        Some(content.clone())
+    } else {
+        None
+    }
+}
+
+fn vg_cache_set(project_id: &str, content: String) {
+    if let Ok(mut guard) = voice_guide_cache().lock() {
+        guard.insert(project_id.to_string(), (std::time::Instant::now(), content));
+    }
+}
+
+fn vg_cache_invalidate(project_id: &str) {
+    if let Ok(mut guard) = voice_guide_cache().lock() {
+        guard.remove(project_id);
+    }
+}
+
+pub(crate) async fn get_project_voice_guide_cached(
+    project_id: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    ttl_secs: u64,
+) -> Result<Option<String>, String> {
+    if let Some(cached) = vg_cache_get(project_id, ttl_secs) {
+        return Ok(Some(cached));
+    }
+    let result = get_project_voice_guide_with_client(project_id, client, base_url, token).await?;
+    if let Some(ref content) = result {
+        vg_cache_set(project_id, content.clone());
+    }
+    Ok(result)
+}
+
+/// Calls `GET {base_url}/v1/projects/{project_id}` and returns the `voice_guide` field.
+/// Returns `Ok(None)` if the project has no voice guide; `Err` on network failure or non-200.
+pub async fn get_project_voice_guide_with_client(
+    project_id: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<Option<String>, String> {
+    validate_project_id(project_id)?;
+    let url = format!("{}/v1/projects/{}", base_url, project_id);
+    let resp = client.get(&url).bearer_auth(token).send().await
+        .map_err(|e| format!("Backend error: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Backend returned {}", resp.status()));
+    }
+    resp.json::<ProjectVoiceGuideResponse>().await
+        .map(|r| r.voice_guide)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
+pub async fn get_project_voice_guide(
+    project_id: String,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
+    let client = build_client();
+    get_project_voice_guide_cached(&project_id, &client, POSTLANE_API_BASE, &token, VOICE_GUIDE_CACHE_TTL_SECS).await
+}
+
 /// Calls `PATCH {base_url}/v1/projects/{project_id}` with `voice_guide`.
 pub async fn save_project_voice_guide_with_client(
     project_id: &str,
@@ -247,6 +348,7 @@ pub async fn save_project_voice_guide_with_client(
     base_url: &str,
     token: &str,
 ) -> Result<(), String> {
+    validate_project_id(project_id)?;
     let url = format!("{}/v1/projects/{}", base_url, project_id);
     let resp = client
         .patch(&url)
@@ -259,6 +361,7 @@ pub async fn save_project_voice_guide_with_client(
     if !resp.status().is_success() {
         return Err(format!("Backend returned {}", resp.status()));
     }
+    vg_cache_invalidate(project_id);
     Ok(())
 }
 
@@ -420,7 +523,9 @@ pub async fn save_project_voice_guide(
         app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
     )?;
     let client = build_client();
-    save_project_voice_guide_with_client(&project_id, &voice_guide, &client, POSTLANE_API_BASE, &token).await
+    save_project_voice_guide_with_client(&project_id, &voice_guide, &client, POSTLANE_API_BASE, &token).await?;
+    let _ = crate::voice_guide_versions::record_version(&project_id);
+    Ok(())
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -768,6 +873,47 @@ mod tests {
         assert!(matches!(result, Err(CreateProjectError::InvalidWorkspaceType(_))));
     }
 
+    // ── get_project_voice_guide ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_voice_guide_returns_none_when_null() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(200).json_body(serde_json::json!({ "voice_guide": null }));
+        });
+        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok").await;
+        assert_eq!(result, Ok(None));
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_returns_some_when_set() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(200).json_body(serde_json::json!({ "voice_guide": "Direct and technical." }));
+        });
+        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok").await;
+        assert_eq!(result, Ok(Some("Direct and technical.".to_string())));
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_returns_err_on_non_200() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(404);
+        });
+        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_returns_err_on_network_failure() {
+        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), "http://127.0.0.1:1", "tok").await;
+        assert!(result.is_err());
+    }
+
     // ── save_project_voice_guide ─────────────────────────────────────────────
 
     #[tokio::test]
@@ -878,5 +1024,126 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── validate_project_id ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_validate_project_id_accepts_alphanumeric_and_hyphens() {
+        assert!(validate_project_id("proj-abc-123").is_ok());
+        assert!(validate_project_id("abc").is_ok());
+        assert!(validate_project_id("proj_123-ABC").is_ok());
+    }
+
+    #[test]
+    fn test_validate_project_id_rejects_empty() {
+        let result = validate_project_id("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty"));
+    }
+
+    #[test]
+    fn test_validate_project_id_rejects_slash() {
+        let result = validate_project_id("proj/../../etc/passwd");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid"));
+    }
+
+    #[test]
+    fn test_validate_project_id_rejects_spaces() {
+        assert!(validate_project_id("proj name").is_err());
+    }
+
+    #[test]
+    fn test_validate_project_id_rejects_dot_sequences() {
+        assert!(validate_project_id("..").is_err());
+        assert!(validate_project_id("../other").is_err());
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_rejects_invalid_project_id() {
+        let result = get_project_voice_guide_with_client(
+            "proj/../../evil",
+            &build_test_client(),
+            "http://127.0.0.1:1",
+            "tok",
+        ).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid"));
+    }
+
+    #[tokio::test]
+    async fn test_save_voice_guide_rejects_invalid_project_id() {
+        let result = save_project_voice_guide_with_client(
+            "proj name",
+            "guide text",
+            &build_test_client(),
+            "http://127.0.0.1:1",
+            "tok",
+        ).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid"));
+    }
+
+    // ── voice guide caching (§review-ds-low) ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_voice_guide_cache_hit_avoids_second_request() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache1");
+            then.status(200).json_body(serde_json::json!({ "voice_guide": "Concise tone." }));
+        });
+        let r1 = get_project_voice_guide_cached("proj-vgcache1", &build_test_client(), &server.base_url(), "tok", 3600).await;
+        assert_eq!(r1.unwrap(), Some("Concise tone.".to_string()));
+        let r2 = get_project_voice_guide_cached("proj-vgcache1", &build_test_client(), &server.base_url(), "tok", 3600).await;
+        assert_eq!(r2.unwrap(), Some("Concise tone.".to_string()));
+        mock.assert_hits(1);
+    }
+
+    #[tokio::test]
+    async fn test_voice_guide_cache_expires_with_zero_ttl() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache2");
+            then.status(200).json_body(serde_json::json!({ "voice_guide": "Fresh voice." }));
+        });
+        get_project_voice_guide_cached("proj-vgcache2", &build_test_client(), &server.base_url(), "tok", 0).await.unwrap();
+        get_project_voice_guide_cached("proj-vgcache2", &build_test_client(), &server.base_url(), "tok", 0).await.unwrap();
+        mock.assert_hits(2);
+    }
+
+    #[tokio::test]
+    async fn test_voice_guide_cache_invalidated_on_save() {
+        let server = MockServer::start();
+        let get_mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache3");
+            then.status(200).json_body(serde_json::json!({ "voice_guide": "Old voice." }));
+        });
+        let patch_mock = server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-vgcache3");
+            then.status(200);
+        });
+        // Populate cache
+        get_project_voice_guide_cached("proj-vgcache3", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
+        // Save invalidates cache
+        save_project_voice_guide_with_client("proj-vgcache3", "New voice.", &build_test_client(), &server.base_url(), "tok").await.unwrap();
+        // Next get should re-fetch from server
+        get_project_voice_guide_cached("proj-vgcache3", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
+        get_mock.assert_hits(2);
+        patch_mock.assert_hits(1);
+    }
+
+    #[tokio::test]
+    async fn test_voice_guide_cache_miss_for_none_response() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache4");
+            then.status(200).json_body(serde_json::json!({ "voice_guide": null }));
+        });
+        // None responses are not cached — each call fetches
+        get_project_voice_guide_cached("proj-vgcache4", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
+        get_project_voice_guide_cached("proj-vgcache4", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
+        mock.assert_hits(2);
     }
 }

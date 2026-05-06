@@ -4,8 +4,27 @@ use crate::app_state::AppState;
 use crate::scheduler_credentials::get_credential_keyring_key;
 use crate::types::{PostMeta, SendResult};
 use std::fs;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
+
+/// RAII guard: increments counter on construction, decrements on drop.
+/// Ensures in_flight_sends is always restored even when approve_post_impl errors.
+struct InFlightGuard(Arc<AtomicUsize>);
+
+impl InFlightGuard {
+    fn new(counter: &Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::AcqRel);
+        Self(counter.clone())
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 struct PlatformSendResults {
     platform_results: std::collections::HashMap<String, String>,
@@ -315,6 +334,7 @@ pub async fn approve_post_impl(
     app: Option<&tauri::AppHandle>,
     consent: bool,
 ) -> Result<SendResult, String> {
+    let _guard = InFlightGuard::new(&state.in_flight_sends);
     let (canonical_path, post_path, meta_path, mut meta) =
         load_approved_meta(repo_path, post_folder, state)?;
 
@@ -584,6 +604,9 @@ mod tests {
             trigger: None,
             llm_model: None,
             created_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         }
     }
 

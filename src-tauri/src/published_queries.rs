@@ -65,6 +65,7 @@ fn parse_published_post(
         platforms,
         platform_results: extract_string_map(&meta, "platform_results"),
         schedule: meta.get("schedule").and_then(|v| v.as_str()).map(String::from),
+        schedule_source: meta.get("schedule_source").and_then(|v| v.as_str()).map(String::from),
         scheduler_ids: extract_string_map(&meta, "scheduler_ids"),
         platform_urls: extract_string_map(&meta, "platform_urls"),
         provider: read_repo_config_provider(repo_path),

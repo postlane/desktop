@@ -8,14 +8,23 @@ const KEYRING_ACTIVE_INSTANCE: &str = "mastodon_active_instance";
 
 /// Validates that the instance string is a plain hostname (no "://" scheme prefix).
 fn validate_instance_format(instance: &str) -> Result<(), String> {
+    if instance.is_empty() {
+        return Err("Instance hostname cannot be empty".to_string());
+    }
     if instance.contains("://") {
         return Err(format!(
             "Instance must be a hostname only (e.g. mastodon.social), not a URL. Got: {}",
             instance
         ));
     }
-    if instance.is_empty() {
-        return Err("Instance hostname cannot be empty".to_string());
+    // Reject URL injection characters that could affect URL construction
+    for ch in ['/', '@', '?', '#', '\n', '\r'] {
+        if instance.contains(ch) {
+            return Err(format!(
+                "Instance hostname contains invalid character {:?}. Use a plain hostname like mastodon.social",
+                ch
+            ));
+        }
     }
     Ok(())
 }
@@ -182,6 +191,13 @@ pub fn disconnect_mastodon(instance: String, app: tauri::AppHandle) -> Result<()
     }
 }
 
+/// Returns a user-facing error string with only the HTTP status code.
+/// Raw response body is logged privately to avoid leaking server internals.
+fn format_api_error(operation: &str, status: u16, raw_body: &str) -> String {
+    log::debug!("{} — raw response body: {}", operation, raw_body);
+    format!("{} (HTTP {})", operation, status)
+}
+
 /// POSTs to `POST https://{instance}/api/v1/apps` and returns `(client_id, client_secret)`.
 async fn register_app_with_instance(instance: &str) -> Result<(String, String), String> {
     let client = build_client();
@@ -202,9 +218,9 @@ async fn register_app_with_instance(instance: &str) -> Result<(String, String), 
         .map_err(|e| format!("Network error registering app: {}", e))?;
 
     if !response.status().is_success() {
-        let status = response.status();
+        let status = response.status().as_u16();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("App registration failed ({}): {}", status, text));
+        return Err(format_api_error("App registration failed", status, &text));
     }
 
     let json: serde_json::Value = response
@@ -250,9 +266,9 @@ async fn fetch_access_token(
         .map_err(|e| format!("Network error exchanging code: {}", e))?;
 
     if !response.status().is_success() {
-        let status = response.status();
+        let status = response.status().as_u16();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("Token exchange failed ({}): {}", status, text));
+        return Err(format_api_error("Token exchange failed", status, &text));
     }
 
     let json: serde_json::Value = response
@@ -327,8 +343,36 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_instance_format_accepts_hostname_with_port() {
+        assert!(validate_instance_format("mastodon.social:8080").is_ok());
+    }
+
+    #[test]
     fn test_validate_instance_format_rejects_empty() {
         assert!(validate_instance_format("").is_err());
+    }
+
+    // §review-security-high: reject path components and URL injection characters
+    #[test]
+    fn test_validate_instance_format_rejects_path_component(  ) {
+        assert!(validate_instance_format("mastodon.social/evil").is_err());
+        assert!(validate_instance_format("mastodon.social/../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_validate_instance_format_rejects_at_sign() {
+        assert!(validate_instance_format("user@mastodon.social").is_err());
+    }
+
+    #[test]
+    fn test_validate_instance_format_rejects_query_and_fragment() {
+        assert!(validate_instance_format("mastodon.social?evil=1").is_err());
+        assert!(validate_instance_format("mastodon.social#evil").is_err());
+    }
+
+    #[test]
+    fn test_validate_instance_format_rejects_newline() {
+        assert!(validate_instance_format("mastodon.social\nevil: injected").is_err());
     }
 
     // Issue 1 — access token key must be instance-specific to prevent credential collision
@@ -394,6 +438,21 @@ mod tests {
             .map(|(_, v)| v.to_string())
             .expect("client_id param must be present");
         assert_eq!(client_id, "id&special=value");
+    }
+
+    /// Error messages for HTTP failures must not include raw response body (§review-security-low).
+    /// The format_api_error function logs the body privately and returns only the status.
+    #[test]
+    fn test_format_api_error_excludes_raw_body() {
+        let err = format_api_error("App registration failed", 422, "secret_internal_config:abc123");
+        assert!(!err.contains("secret_internal_config"), "user-facing error must not expose raw response body");
+        assert!(err.contains("422"), "user-facing error must include HTTP status code");
+    }
+
+    #[test]
+    fn test_format_api_error_includes_operation_context() {
+        let err = format_api_error("Token exchange failed", 400, "any body");
+        assert!(err.starts_with("Token exchange failed"), "error must include operation context");
     }
 
     #[tokio::test]

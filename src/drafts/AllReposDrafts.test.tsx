@@ -45,6 +45,13 @@ describe('AllReposDraftsView — empty state', () => {
       expect(screen.getByText(/no drafts waiting/i)).toBeInTheDocument(),
     );
   });
+
+  it('empty state includes a copy button for /draft-post (§review-product-high)', async () => {
+    mockInvoke.mockResolvedValue([]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByText(/no drafts waiting/i));
+    expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

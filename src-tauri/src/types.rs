@@ -15,6 +15,7 @@ pub struct Post {
     pub status: String,
     pub platforms: Vec<String>,
     pub schedule: Option<String>,
+    pub schedule_source: Option<String>,
     pub platform_results: Option<HashMap<String, String>>,
     pub llm_model: Option<String>,
     pub created_at: Option<String>,
@@ -53,6 +54,18 @@ pub struct PostMeta {
     pub llm_model: Option<String>,
     pub created_at: Option<String>,
     pub sent_at: Option<String>,
+    /// UTC timestamp of when the project voice guide was last saved.
+    /// Written to meta.json so it is possible to trace which guide version was active
+    /// when each post was generated. Missing field (None) means guide was unknown at creation time.
+    #[serde(default)]
+    pub voice_guide_version: Option<String>,
+    /// "default" = auto-set from default post time; "user" = set by user in the UI; None = unknown.
+    #[serde(default)]
+    pub schedule_source: Option<String>,
+    /// IANA timezone identifier the user had selected when setting the schedule (e.g. "America/New_York").
+    /// Stored so the UI can display the original local time. None means unknown or system default.
+    #[serde(default)]
+    pub schedule_timezone: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -106,6 +119,9 @@ mod tests {
             llm_model: Some("claude-3-opus".to_string()),
             created_at: Some("2024-01-01T00:00:00Z".to_string()),
             sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
         };
 
         let json = serde_json::to_string(&meta).expect("Failed to serialize");
@@ -143,7 +159,7 @@ mod tests {
             repo_id: "r1".to_string(), repo_name: "Repo".to_string(),
             repo_path: "/path".to_string(), post_folder: "my-post".to_string(),
             status: "ready".to_string(), platforms: vec!["x".to_string()],
-            schedule: None, platform_results: None, llm_model: None, created_at: None,
+            schedule: None, schedule_source: None, platform_results: None, llm_model: None, created_at: None,
             trigger: Some("Launch".to_string()), error: None, image_url: None,
             scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
         };
@@ -162,7 +178,7 @@ mod tests {
             repo_id: "r1".to_string(), repo_name: "Repo".to_string(),
             repo_path: "/path".to_string(), post_folder: "my-post".to_string(),
             status: "sent".to_string(), platforms: vec!["x".to_string()],
-            schedule: None, platform_results: None, llm_model: None, created_at: None,
+            schedule: None, schedule_source: None, platform_results: None, llm_model: None, created_at: None,
             trigger: None, error: None, image_url: None,
             scheduler_ids: Some(ids), platform_urls: None,
             provider: Some("zernio".to_string()), sent_at: Some("2024-01-01T00:00:00Z".to_string()),

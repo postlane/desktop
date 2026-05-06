@@ -162,14 +162,16 @@ describe('SettingsPanel — Repos tab — actions', () => {
 });
 
 describe('SettingsPanel — Scheduler tab', () => {
-  it('shows all three v1 providers', async () => {
+  it('shows zernio, publer, and outstand providers (buffer/ayrshare removed)', async () => {
     setupDefaults();
     render(<SettingsPanel onClose={vi.fn()} />);
     await waitFor(() => screen.getByRole('tab', { name: /scheduler/i }));
     fireEvent.click(screen.getByRole('tab', { name: /scheduler/i }));
     await waitFor(() => screen.getByText(/zernio/i));
-    expect(screen.getByText(/buffer/i)).toBeInTheDocument();
-    expect(screen.getByText(/ayrshare/i)).toBeInTheDocument();
+    expect(screen.getByText(/publer/i)).toBeInTheDocument();
+    expect(screen.getByText(/outstand/i)).toBeInTheDocument();
+    expect(screen.queryByText(/buffer/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ayrshare/i)).not.toBeInTheDocument();
   });
 
   it('shows "not configured" when no credential', async () => {

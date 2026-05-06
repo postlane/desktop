@@ -85,7 +85,8 @@ fn tally_post_stats(
     let Ok(meta_content) = fs::read_to_string(&meta_path) else { return };
     let Ok(meta) = serde_json::from_str::<serde_json::Value>(&meta_content) else { return };
 
-    if meta.get("status").and_then(|s| s.as_str()) != Some("sent") {
+    let status = meta.get("status").and_then(|s| s.as_str());
+    if status != Some("sent") && status != Some("dismissed") {
         return;
     }
     let model = match meta.get("llm_model").and_then(|v| v.as_str()) {
@@ -96,7 +97,7 @@ fn tally_post_stats(
     let entry_counts = counts.entry(model).or_insert((0, 0));
     entry_counts.0 += 1;
 
-    if check_edit_status(post_path).unwrap_or(false) {
+    if status == Some("sent") && check_edit_status(post_path).unwrap_or(false) {
         entry_counts.1 += 1;
     }
 }
@@ -158,6 +159,15 @@ mod tests {
         AppState::new(ReposConfig { version: 1, repos })
     }
 
+    fn write_dismissed(dir: &std::path::Path, folder: &str, model: &str) {
+        let p = dir.join(".postlane/posts").join(folder);
+        fs::create_dir_all(&p).expect("create");
+        fs::write(
+            p.join("meta.json"),
+            format!(r#"{{"status":"dismissed","platforms":["x"],"llm_model":"{}","sent_at":null}}"#, model),
+        ).expect("write meta");
+    }
+
     fn write_sent_with_original(
         dir: &std::path::Path,
         folder: &str,
@@ -174,6 +184,29 @@ mod tests {
         let original_escaped = original_x.replace('\\', "\\\\").replace('"', "\\\"");
         fs::write(p.join("original.json"), format!(r#"{{"x":"{}"}}"#, original_escaped)).expect("write original");
         fs::write(p.join("x.md"), approved_x).expect("write approved");
+    }
+
+    #[test]
+    fn test_dismissed_posts_count_in_total_but_not_edited() {
+        let dir = std::env::temp_dir().join("postlane_test_model_stats_dismissed_ms");
+        let _ = fs::remove_dir_all(&dir);
+        // 4 sent unedited + 2 dismissed = 6 total (meets >= 5 threshold)
+        for i in 0..4 {
+            write_sent_with_original(&dir, &format!("sent-{}", i), "claude-sonnet", "hello world", "hello world");
+        }
+        for i in 0..2 {
+            write_dismissed(&dir, &format!("dismissed-{}", i), "claude-sonnet");
+        }
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(), active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        let result = get_model_stats_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1, "dismissed posts should push total to 6, meeting the threshold");
+        assert_eq!(result[0].total_posts, 6, "dismissed posts must count in total_posts");
+        assert_eq!(result[0].edited_posts, 0, "dismissed posts must not count in edited_posts");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

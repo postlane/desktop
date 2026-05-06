@@ -19,3 +19,13 @@ export const PLATFORM_ORDER: Platform[] = [
   'x', 'bluesky', 'mastodon', 'linkedin',
   'substack_notes', 'substack', 'product_hunt', 'show_hn', 'changelog',
 ];
+
+/** Platforms that Zernio can schedule. Others require manual posting. */
+export const ZERNIO_SCHEDULABLE_PLATFORMS: ReadonlySet<string> = new Set([
+  'x', 'bluesky', 'mastodon', 'linkedin', 'substack_notes',
+]);
+
+/** Returns true when the given platform can be auto-scheduled via Zernio. */
+export function isSchedulableByZernio(platform: string): boolean {
+  return ZERNIO_SCHEDULABLE_PLATFORMS.has(platform);
+}

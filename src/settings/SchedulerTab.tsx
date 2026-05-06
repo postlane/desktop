@@ -10,12 +10,18 @@ import MastodonOAuthPanel from './MastodonOAuthPanel';
 import SubstackNotesPanel from './SubstackNotesPanel';
 import WebhookPanel from './WebhookPanel';
 
-export const PROVIDERS = ['zernio', 'buffer', 'ayrshare', 'publer', 'outstand'] as const;
+export const PROVIDERS = ['zernio', 'publer', 'outstand'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 const PROVIDER_NOTES: Partial<Record<Provider, string>> = {
   publer: 'Free tier: up to 10 posts scheduled at once per account. API access may require a paid plan.',
   outstand: '$5/month for 1,000 posts, then $0.01 per additional post.',
+};
+
+const PROVIDER_PLATFORMS: Record<Provider, string[]> = {
+  zernio:   ['X', 'LinkedIn', 'Bluesky', 'Mastodon', 'Instagram', 'Facebook', 'Pinterest'],
+  publer:   ['X', 'LinkedIn', 'Facebook', 'Instagram', 'Pinterest', 'TikTok', 'YouTube'],
+  outstand: ['X', 'LinkedIn', 'Instagram', 'Facebook'],
 };
 
 export interface UsageResponse {
@@ -68,6 +74,7 @@ interface ProviderCardProps {
   cred: CredentialState;
   usage?: UsageResponse;
   note?: string;
+  platforms: string[];
   onTest: () => void;
   onStartAdd: () => void;
   onSave: () => void;
@@ -76,15 +83,20 @@ interface ProviderCardProps {
   onRemove: () => void;
 }
 
-function SchedulerProviderCard({ provider, cred, usage, note, onTest, onStartAdd, onSave, onCancelAdd, onKeyChange, onRemove }: ProviderCardProps) {
+function SchedulerProviderCard({ provider, cred, usage, note, platforms, onTest, onStartAdd, onSave, onCancelAdd, onKeyChange, onRemove }: ProviderCardProps) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+    <div data-provider={provider} className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div>
             <span className="font-medium capitalize text-zinc-900 dark:text-zinc-100">{provider}</span>
             {note && <p className="text-xs text-zinc-400 mt-0.5">{note}</p>}
             <UsageBadge usage={usage} />
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {platforms.map((p) => (
+                <span key={p} className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">{p}</span>
+              ))}
+            </div>
           </div>
           {cred.preview
             ? <span className="text-xs text-zinc-500">{cred.preview}</span>
@@ -178,7 +190,7 @@ export async function loadSchedulerCreds(
 
 function useSchedulerCreds() {
   const init: CredentialState = { preview: null, testing: false, testResult: null, testError: null, adding: false, keyInput: '' };
-  const [creds, setCreds] = useState<Record<Provider, CredentialState>>({ zernio: { ...init }, buffer: { ...init }, ayrshare: { ...init }, publer: { ...init }, outstand: { ...init } });
+  const [creds, setCreds] = useState<Record<Provider, CredentialState>>({ zernio: { ...init }, publer: { ...init }, outstand: { ...init } });
   const [removeProvider, setRemoveProvider] = useState<Provider | null>(null);
   const [removeInput, setRemoveInput] = useState('');
   const [usage, setUsage] = useState<Partial<Record<Provider, UsageResponse>>>({});
@@ -242,6 +254,7 @@ export default function SchedulerTab() {
         <SchedulerProviderCard key={provider} provider={provider} cred={creds[provider]}
           usage={usage[provider]}
           note={PROVIDER_NOTES[provider]}
+          platforms={PROVIDER_PLATFORMS[provider]}
           onTest={() => handleTest(provider)} onStartAdd={() => update(provider, { adding: true })}
           onSave={() => handleSave(provider)} onCancelAdd={() => update(provider, { adding: false, keyInput: '' })}
           onKeyChange={(key) => update(provider, { keyInput: key })}

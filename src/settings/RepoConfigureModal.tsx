@@ -6,6 +6,7 @@ import { Button } from '../components/catalyst/button';
 import {
   Dialog, DialogActions, DialogBody, DialogTitle,
 } from '../components/catalyst/dialog';
+import { VoiceGuideSection } from './VoiceGuideSection';
 const CONFIGURE_PROVIDERS = ['zernio', 'buffer', 'ayrshare', 'publer', 'outstand', 'substack_notes'] as const;
 
 function friendlyKeychainError(raw: string): string {
@@ -22,6 +23,7 @@ interface Props {
   repoId: string;
   repoName: string;
   currentProvider: string | null;
+  projectId?: string;
   onClose: () => void;
   onCredentialChange?: () => void;
 }
@@ -165,7 +167,7 @@ function SchedulerBody(p: SchedulerBodyProps) {
   return <DefaultView onSwitchToCustom={p.onSwitchToCustom} />;
 }
 
-export default function RepoConfigureModal({ repoId, repoName, currentProvider, onClose, onCredentialChange }: Props) {
+export default function RepoConfigureModal({ repoId, repoName, currentProvider, projectId, onClose, onCredentialChange }: Props) {
   const [mode, setMode] = useState<SchedulerMode>('default');
   const [maskedKey, setMaskedKey] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState(currentProvider ?? CONFIGURE_PROVIDERS[0]);
@@ -211,6 +213,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
           onClose={onClose} onSwitchToCustom={() => setShowForm(true)}
           onRemove={handleRemove} onSaved={handleSaved} onCancelForm={() => setShowForm(false)}
         />
+        {projectId && <VoiceGuideSection projectId={projectId} />}
       </DialogBody>
       <DialogActions>
         <Button plain onClick={onClose}>Close</Button>

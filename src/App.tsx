@@ -6,6 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
 import SignInScreen from './wizard/SignInScreen';
 import AddRepoModal from './wizard/AddRepoModal';
+import AddWorkspaceModal from './wizard/AddWorkspaceModal';
 import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
 import LeftNav from './nav/LeftNav';
 import AllReposDraftsView from './drafts/AllReposDraftsView';
@@ -104,10 +105,12 @@ function useAppState() {
   const [showWizard, setShowWizard] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
+  const [showAddWorkspace, setShowAddWorkspace] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [timezone, setTimezone] = useState<string>('');
   const [repoVersion, setRepoVersion] = useState(0);
   const [postWizardNudge, setPostWizardNudge] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -120,7 +123,7 @@ function useAppState() {
         if (!appState.wizard_completed) { setShowWizard(true); return; }
         if (!hasToken) { setShowSignIn(true); }
       })
-      .catch(console.error);
+      .catch((e: unknown) => setInitError(e instanceof Error ? e.message : String(e)));
   }, []);
 
   function handleWizardComplete() {
@@ -144,8 +147,9 @@ function useAppState() {
 
   return {
     currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showSignIn,
-    showAddRepo, setShowAddRepo, showConsentModal, timezone, setTimezone,
-    repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
+    showAddRepo, setShowAddRepo, showAddWorkspace, setShowAddWorkspace, showConsentModal,
+    timezone, setTimezone, repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
+    initError,
     handleWizardComplete, handleSignedIn, handleConsentChoice,
     openSettings, openSchedulerSettings, closeSettings,
   };
@@ -156,12 +160,21 @@ export default function App() {
     currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showSignIn,
     showAddRepo, setShowAddRepo, showConsentModal, timezone, setTimezone,
     repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
+    showAddWorkspace, setShowAddWorkspace, initError,
     handleWizardComplete, handleSignedIn, handleConsentChoice,
     openSettings, openSchedulerSettings, closeSettings,
   } = useAppState();
 
   useCmdHShortcut(() => { setCurrentView({ view: 'all_repos', repoId: null, section: 'published' }); closeSettings(); });
   useWindowSizePersistence();
+
+  if (initError) return (
+    <div className="flex h-screen items-center justify-center bg-white dark:bg-zinc-900">
+      <p role="alert" className="max-w-sm text-center text-sm text-red-600 dark:text-red-400">
+        Failed to start Postlane: {initError}
+      </p>
+    </div>
+  );
 
   if (showWizard) return <Wizard onComplete={handleWizardComplete} />;
   if (showSignIn) return <SignInScreen onSignedIn={handleSignedIn} />;
@@ -174,10 +187,12 @@ export default function App() {
           onNavigate={(sel) => { setCurrentView(sel); closeSettings(); }}
           onSettingsOpen={openSettings}
           onAddRepo={() => setShowAddRepo(true)}
+          onAddWorkspace={() => setShowAddWorkspace(true)}
           refreshKey={repoVersion}
         />
         {showConsentModal && <TelemetryConsentModal onAccept={() => handleConsentChoice(true)} onDecline={() => handleConsentChoice(false)} />}
         {showAddRepo && <AddRepoModal onClose={() => setShowAddRepo(false)} />}
+        {showAddWorkspace && <AddWorkspaceModal onClose={() => setShowAddWorkspace(false)} onCreated={() => { setShowAddWorkspace(false); setRepoVersion((v) => v + 1); }} />}
         <main className="flex-1 overflow-y-auto">
           <MainContent
             view={currentView} settingsOpen={settingsOpen} schedulerTab={schedulerTab}

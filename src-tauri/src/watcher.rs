@@ -3,9 +3,21 @@
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub type WatcherMap = Mutex<HashMap<String, RecommendedWatcher>>;
+
+const DEBOUNCE_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Returns true if enough time has passed since `last_fired` to allow the next call.
+/// `None` means the callback has never fired — always allow it.
+pub fn should_fire_after_debounce(last_fired: Option<Instant>, min_interval: Duration) -> bool {
+    match last_fired {
+        None => true,
+        Some(last) => last.elapsed() >= min_interval,
+    }
+}
 
 /// Starts watching a repo's posts directory for meta.json changes
 pub fn watch_repo<F>(
@@ -25,10 +37,10 @@ where
     }
 
     // Create watcher with closure that filters to meta.json only
+    let last_fired: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
     let watcher = RecommendedWatcher::new(
         move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
-                // Filter to meta.json changes only
                 let meta_changes: Vec<PathBuf> = event
                     .paths
                     .iter()
@@ -36,7 +48,13 @@ where
                     .cloned()
                     .collect();
 
-                if !meta_changes.is_empty() {
+                if meta_changes.is_empty() {
+                    return;
+                }
+                let mut guard = last_fired.lock().unwrap_or_else(|e| e.into_inner());
+                if should_fire_after_debounce(*guard, DEBOUNCE_INTERVAL) {
+                    *guard = Some(Instant::now());
+                    drop(guard);
                     on_change(meta_changes);
                 }
             }
@@ -71,7 +89,32 @@ mod tests {
     use std::fs;
     use std::sync::mpsc;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    // ── Debounce logic ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_debounce_fires_when_never_triggered() {
+        assert!(should_fire_after_debounce(None, Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn test_debounce_suppresses_call_within_interval() {
+        let recent = Instant::now();
+        assert!(!should_fire_after_debounce(Some(recent), Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn test_debounce_fires_after_interval_elapsed() {
+        let old = Instant::now() - Duration::from_millis(600);
+        assert!(should_fire_after_debounce(Some(old), Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn test_debounce_boundary_exactly_at_interval() {
+        let exactly = Instant::now() - Duration::from_millis(500);
+        assert!(should_fire_after_debounce(Some(exactly), Duration::from_millis(500)));
+    }
 
     #[test]
     fn test_watch_repo_nonexistent_posts_dir() {
