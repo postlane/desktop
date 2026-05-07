@@ -1,43 +1,43 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { openUrl } from '@tauri-apps/plugin-opener'
-import WizardModal from './WizardModal'
-import { Text } from '../components/catalyst/text'
-import { Button } from '../components/catalyst/button'
+import type { MouseEvent } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import WizardShell from './WizardShell';
 
 interface Props {
-  onNext: () => void
+  onNext: () => void;
 }
 
 export default function ModalWelcome({ onNext }: Props) {
-  async function handlePricingLink() {
-    try { await openUrl('https://postlane.dev/#pricing') } catch { /* ignore */ }
+  function handlePricingLink(e: MouseEvent) {
+    e.preventDefault();
+    openUrl('https://postlane.dev/pricing').catch(console.error);
   }
 
   return (
-    <WizardModal
+    <WizardShell
+      step={1}
+      totalSteps={5}
       title="Welcome to Postlane"
       subtitle="Ship code. Tell the world."
       onNext={onNext}
       nextLabel="Get started"
-      nextColor="blue"
-      footerStart={
-        <Button plain onClick={handlePricingLink}>
-          See pricing
-        </Button>
-      }
     >
-      <div>
-        <Text>This wizard takes about 5 minutes. You&apos;ll:</Text>
-        <ul className="mt-3 space-y-1 list-disc list-inside">
-          <li>Connect your scheduler</li>
-          <li>Link your social profiles</li>
-          <li>Connect your first repo</li>
-        </ul>
-        <Text className="mt-6">
-          Free for your first project. $5/month per project after that.
-        </Text>
-      </div>
-    </WizardModal>
-  )
+      <ol className="mb-5" style={{ paddingLeft: '1.25rem' }}>
+        <li className="mb-2">Create your account</li>
+        <li className="mb-2">Set up a workspace</li>
+        <li>Connect a repo</li>
+      </ol>
+      <p className="is-size-7 has-text-grey">
+        Free for your first workspace. $5/month per workspace after that.{' '}
+        <a
+          href="https://postlane.dev/pricing"
+          onClick={handlePricingLink}
+          className="has-text-link"
+        >
+          See pricing
+        </a>
+      </p>
+    </WizardShell>
+  );
 }
