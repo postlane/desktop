@@ -68,9 +68,14 @@ export default function ModalAccount({ onNext, onBack, pollIntervalMs = 2000 }: 
     finally { setChecking(false); }
   }
 
-  function handleProvider(_provider: string) {
+  async function handleProvider(_provider: string) {
     setActivationError(null);
-    openUrl('https://postlane.dev/login?desktop=1').catch(console.error);
+    try {
+      const port = await invoke<number>('get_local_server_port');
+      openUrl(`https://postlane.dev/login?desktop=1&port=${port}`).catch(console.error);
+    } catch {
+      openUrl('https://postlane.dev/login?desktop=1').catch(console.error);
+    }
   }
 
   function handleLink(e: ReactMouseEvent, url: string) {

@@ -29,6 +29,9 @@ use tokio::net::TcpListener;
 pub struct ServerState {
     pub token: String,
     pub repos: Arc<tokio::sync::Mutex<crate::storage::ReposConfig>>,
+    /// Sends a validated JWT token string to the activation receiver task.
+    /// `None` in tests and before the server is fully initialised.
+    pub activation_tx: Option<tokio::sync::mpsc::Sender<String>>,
 }
 
 #[derive(Deserialize)]
@@ -67,11 +70,17 @@ pub fn create_router(state: ServerState) -> Router {
             routes::auth_middleware,
         ));
 
+    let activation_routes = Router::new()
+        .route("/activate", get(routes::activate_handler));
+
     // Restrict cross-origin requests to the null origin only.
     // This blocks browser extensions from calling the local API while still
     // allowing requests from the Tauri webview (which has no origin).
+    // /activate is intentionally open to browser navigations (no CORS restriction needed
+    // since it's top-level navigation, not XHR) — token validity is the security check.
     Router::new()
         .route("/health", get(routes::health_handler))
+        .merge(activation_routes)
         .merge(protected_routes)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB limit
         .layer(middleware::from_fn(add_cors_null_origin))
@@ -207,7 +216,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos };
+        let state = ServerState { token: "test-token".to_string(), repos, activation_tx: None };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -231,7 +240,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "tok".to_string(), repos };
+        let state = ServerState { token: "tok".to_string(), repos, activation_tx: None };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -250,7 +259,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos };
+        let state = ServerState { token: "test-token".to_string(), repos, activation_tx: None };
         let test_port = 57312u16;
         let bound_port = start_server(state, test_port).await.unwrap();
         assert_eq!(bound_port, test_port);

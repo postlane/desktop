@@ -1,12 +1,45 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use axum::{
-    extract::{Request, State},
+    extract::{Query, Request, State},
     http::{HeaderMap, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Json, Response},
+    response::{Html, IntoResponse, Json, Response},
 };
+use serde::Deserialize;
 use super::{ErrorResponse, RegisterRequest, RegisterResponse, SendRequest, SendResponse, ServerState};
+
+#[derive(Deserialize)]
+pub struct ActivateParams {
+    pub token: String,
+}
+
+/// Receives the license token forwarded from the browser after OAuth completes.
+/// Sends the token to the activation channel; the receiver in lib.rs validates it
+/// against the backend, stores it in the keyring, and emits `license:activated`.
+///
+/// No bearer auth: the token itself is the credential — validated by the backend.
+pub(super) async fn activate_handler(
+    State(state): State<ServerState>,
+    Query(params): Query<ActivateParams>,
+) -> Response {
+    if params.token.split('.').count() != 3 {
+        return (StatusCode::BAD_REQUEST, "Invalid token format").into_response();
+    }
+
+    if let Some(tx) = &state.activation_tx {
+        let _ = tx.send(params.token).await;
+    }
+
+    Html(
+        r#"<!doctype html><html><head><title>Postlane Activated</title></head><body \
+        style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;\
+        min-height:100vh;margin:0;background:#f8f9fa"><div style="text-align:center;max-width:400px;padding:2rem">\
+        <h1 style="font-size:1.5rem;color:#1a1a1a">You&#x2019;re signed in</h1>\
+        <p style="color:#6c757d">Postlane is activated. You can close this tab and return to the app.</p>\
+        </div></body></html>"#
+    ).into_response()
+}
 
 pub(super) async fn auth_middleware(
     State(state): State<ServerState>,
@@ -214,6 +247,7 @@ mod tests {
                 version: 1,
                 repos: vec![],
             })),
+            activation_tx: None,
         }
     }
 
@@ -231,7 +265,7 @@ mod tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         }));
-        (ServerState { token: "tok".to_string(), repos }, path_str)
+        (ServerState { token: "tok".to_string(), repos, activation_tx: None }, path_str)
     }
 
     #[tokio::test]
@@ -341,5 +375,59 @@ mod tests {
         let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body_str = std::str::from_utf8(&body_bytes).unwrap();
         assert!(!body_str.contains("path traversal"), "valid folder name must not trigger traversal error: {}", body_str);
+    }
+
+    #[tokio::test]
+    async fn test_activate_returns_200_and_sends_token_to_channel() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
+        let state = ServerState {
+            token: "tok".to_string(),
+            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+                version: 1, repos: vec![],
+            })),
+            activation_tx: Some(tx),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=header.payload.sig")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let received = rx.try_recv().expect("token should have been sent");
+        assert_eq!(received, "header.payload.sig");
+    }
+
+    #[tokio::test]
+    async fn test_activate_rejects_malformed_token() {
+        let app = create_router(make_state("tok"));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=only.twosegments")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_activate_returns_200_when_no_channel_configured() {
+        let app = create_router(make_state("tok"));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_activate_requires_no_bearer_auth() {
+        let app = create_router(make_state("tok"));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }

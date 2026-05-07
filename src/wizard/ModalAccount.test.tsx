@@ -20,7 +20,10 @@ import ModalAccount from './ModalAccount';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockInvoke.mockResolvedValue(false);
+  mockInvoke.mockImplementation((cmd: string) => {
+    if (cmd === 'get_local_server_port') return Promise.resolve(47312);
+    return Promise.resolve(false);
+  });
   mockListen.mockResolvedValue(() => {});
 });
 
@@ -28,13 +31,13 @@ describe('ModalAccount', () => {
   it('test_github_button_calls_openUrl', async () => {
     render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
     await userEvent.click(screen.getByRole('button', { name: /github/i }));
-    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1');
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312');
   });
 
   it('test_gitlab_button_calls_openUrl', async () => {
     render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
     await userEvent.click(screen.getByRole('button', { name: /gitlab/i }));
-    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1');
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312');
   });
 
   it('test_auto_advances_when_token_detected', async () => {
