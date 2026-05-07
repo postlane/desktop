@@ -72,6 +72,7 @@ async fn test_send_with_correct_token_and_registered_path() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc,
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -110,6 +111,7 @@ async fn test_send_with_path_traversal_returns_403() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc,
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -146,6 +148,7 @@ async fn test_send_with_wrong_token_returns_401() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc,
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -200,6 +203,7 @@ async fn test_register_with_valid_path() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc,
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -238,6 +242,7 @@ async fn test_register_with_invalid_path_returns_403() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc,
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -273,6 +278,7 @@ async fn test_register_with_wrong_token_returns_401() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc,
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -326,6 +332,7 @@ async fn test_register_actually_adds_repo_to_repos_json() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc.clone(),
+        activation_tx: None,
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)

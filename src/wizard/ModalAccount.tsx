@@ -54,19 +54,8 @@ function useActivation(onNext: () => void, onError: (msg: string) => void, pollI
 
 export default function ModalAccount({ onNext, onBack, pollIntervalMs = 2000 }: Props) {
   const [activationError, setActivationError] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
 
   useActivation(onNext, setActivationError, pollIntervalMs);
-
-  async function handleCheckAgain() {
-    setChecking(true);
-    setActivationError(null);
-    try {
-      const signed = await invoke<boolean>('get_license_signed_in');
-      if (signed) { onNext(); } else { setActivationError('Sign-in not detected yet. Complete the sign-in in your browser, then try again.'); }
-    } catch { setActivationError('Could not check sign-in status. Please try again.'); }
-    finally { setChecking(false); }
-  }
 
   async function handleProvider(_provider: string) {
     setActivationError(null);
@@ -98,12 +87,7 @@ export default function ModalAccount({ onNext, onBack, pollIntervalMs = 2000 }: 
           <GitLabLogo />GitLab
         </button>
       </div>
-      <div className="mb-4" style={{ maxWidth: 425 }}>
-        <button className="button is-small is-fullwidth is-light" onClick={handleCheckAgain} disabled={checking}>
-          {checking ? 'Checking…' : 'Already signed in? Continue →'}
-        </button>
-        {activationError && <div role="alert" className="notification is-warning is-light is-size-7 mt-2 mb-0">{activationError}</div>}
-      </div>
+      {activationError && <div role="alert" className="notification is-warning is-light is-size-7 mb-4" style={{ maxWidth: 425 }}>{activationError}</div>}
       <p className="is-size-7 has-text-grey">
         Postlane uses your account to issue a license token. Your repo content,
         API keys, and social credentials stay on your machine.{' '}

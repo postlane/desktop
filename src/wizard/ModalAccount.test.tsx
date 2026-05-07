@@ -60,6 +60,11 @@ describe('ModalAccount', () => {
     expect(screen.queryByRole('button', { name: /next/i })).toBeNull();
   });
 
+  it('test_no_manual_checkin_button', () => {
+    render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
+    expect(screen.queryByRole('button', { name: /already signed in/i })).toBeNull();
+  });
+
   it('test_license_activated_event_calls_onNext', async () => {
     const onNext = vi.fn();
     render(<ModalAccount onNext={onNext} pollIntervalMs={10000} />);
