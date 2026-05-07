@@ -220,6 +220,7 @@ fn spawn_http_server(
 
     tauri::async_runtime::spawn(async move {
         while let Some(token) = activation_rx.recv().await {
+            log::info!("[activate] validating token from local server (length={})", token.len());
             let handle = app_handle.clone();
             let keyring_handle = handle.clone();
             let client = providers::scheduling::build_client();

@@ -73,6 +73,16 @@ pub fn is_cache_expired(cache: &LicenseCache) -> bool {
 }
 
 
+fn parse_rejection_reason(body: &str) -> String {
+    if body.is_empty() {
+        return "(no body)".to_string();
+    }
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v["reason"].as_str().map(str::to_string))
+        .unwrap_or_else(|| body.to_string())
+}
+
 #[derive(Deserialize)]
 struct LicenseValidateResponse {
     user: UserInfo,
@@ -106,7 +116,11 @@ pub async fn validate_token_with_client(
             warn_on_cache_write(write_license_cache(&cache));
             Ok(LicenseState::Valid { user: body.user, repos: body.repos })
         }
-        Ok(r) if r.status().as_u16() == 401 => Ok(LicenseState::Expired),
+        Ok(r) if r.status().as_u16() == 401 => {
+            let body = r.text().await.unwrap_or_default();
+            log::warn!("[validate] 401 from backend — reason: {}", parse_rejection_reason(&body));
+            Ok(LicenseState::Expired)
+        }
         _ => {
             if let Some(cache) = read_license_cache() {
                 Ok(LicenseState::Offline { cached_at: cache.validated_at })
@@ -388,6 +402,46 @@ mod tests {
             expired_called.load(Ordering::SeqCst),
             "on_expired callback should have been called when 401 received"
         );
+    }
+
+    #[test]
+    fn test_parse_rejection_reason_extracts_json_reason() {
+        assert_eq!(
+            parse_rejection_reason(r#"{"valid":false,"reason":"not_found"}"#),
+            "not_found"
+        );
+    }
+
+    #[test]
+    fn test_parse_rejection_reason_extracts_revoked() {
+        assert_eq!(
+            parse_rejection_reason(r#"{"valid":false,"reason":"revoked"}"#),
+            "revoked"
+        );
+    }
+
+    #[test]
+    fn test_parse_rejection_reason_falls_back_on_non_json() {
+        assert_eq!(parse_rejection_reason("Unauthorized"), "Unauthorized");
+    }
+
+    #[test]
+    fn test_parse_rejection_reason_empty_body() {
+        assert_eq!(parse_rejection_reason(""), "(no body)");
+    }
+
+    /// 401 with a JSON reason body must still return Expired (not an Err).
+    #[tokio::test]
+    async fn test_validate_token_expired_with_reason_body() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/license/validate");
+            then.status(401)
+                .json_body(serde_json::json!({"valid": false, "reason": "not_found"}));
+        });
+        let client = build_client();
+        let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
+        assert!(matches!(state, LicenseState::Expired), "401 with JSON body must return Expired");
     }
 
     #[test]

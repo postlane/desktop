@@ -27,6 +27,8 @@ pub(super) async fn activate_handler(
         return (StatusCode::BAD_REQUEST, "Invalid token format").into_response();
     }
 
+    log::info!("[activate] token received (length={})", params.token.len());
+
     if let Some(tx) = &state.activation_tx {
         let _ = tx.send(params.token).await;
     }
