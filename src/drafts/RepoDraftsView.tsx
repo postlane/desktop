@@ -72,8 +72,8 @@ export default function RepoDraftsView({ repoId, onOpenSchedulerSettings }: Prop
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-zinc-400">Loading…</p>
+      <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%' }}>
+        <p className="is-size-7 has-text-grey">Loading…</p>
       </div>
     );
   }
@@ -90,32 +90,27 @@ export default function RepoDraftsView({ repoId, onOpenSchedulerSettings }: Prop
         />
       )}
 
-      <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
-        <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          {repoName}
-        </h1>
+      <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
+        <h1 className="has-text-weight-semibold">{repoName}</h1>
       </div>
 
       {schedulerWarning && (
-        <div
-          role="alert"
-          className="mx-6 mt-4 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
-        >
+        <div role="alert" className="notification is-warning is-light mx-5 mt-4 is-size-7" style={{ padding: '0.75rem 1rem' }}>
           No scheduler configured. Posts will fail until you add one in{' '}
           <strong>Settings → Scheduler</strong>.
         </div>
       )}
 
       {posts.length === 0 ? (
-        <div className="flex h-full items-center justify-center p-8">
-          <p className="text-center text-sm text-zinc-500">
+        <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
+          <p className="has-text-centered is-size-7 has-text-grey">
             No drafts waiting.
             <br />
-            Invoke <code className="font-mono">/draft-post</code> in your IDE to create one.
+            Invoke <code>/draft-post</code> in your IDE to create one.
           </p>
         </div>
       ) : (
-        <div className="space-y-3 p-6">
+        <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {posts.map((post) => (
             <PostCard
               key={`${post.repo_id}-${post.post_folder}`}

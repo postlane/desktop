@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Button } from '../components/catalyst/button';
 
 type OAuthStep = 'idle' | 'code-entry' | 'connected';
 type ValidationState = 'unvalidated' | 'valid' | 'invalid';
@@ -51,41 +50,23 @@ interface IdleFormProps {
   onTestInstance: () => void;
 }
 
-function IdleForm({
-  instance,
-  error,
-  connecting,
-  validating,
-  validationState,
-  onInstanceChange,
-  onConnect,
-  onTestInstance,
-}: IdleFormProps) {
+function IdleForm({ instance, error, connecting, validating, validationState, onInstanceChange, onConnect, onTestInstance }: IdleFormProps) {
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <div>
-        <input
-          type="text"
-          value={instance}
-          onChange={(e) => onInstanceChange(e.target.value)}
-          placeholder="mastodon.social"
-          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        />
-        {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
-        {validationState === 'valid' && (
-          <p className="mt-1 text-xs text-green-600 dark:text-green-400">✓ Valid</p>
-        )}
-        {validationState === 'invalid' && (
-          <p className="mt-1 text-xs text-red-600 dark:text-red-400">✗ Instance not found</p>
-        )}
+        <input type="text" value={instance} onChange={(e) => onInstanceChange(e.target.value)}
+          placeholder="mastodon.social" className="input is-small" />
+        {error && <p className="is-size-7 has-text-danger mt-1">{error}</p>}
+        {validationState === 'valid' && <p className="is-size-7 has-text-success mt-1">✓ Valid</p>}
+        {validationState === 'invalid' && <p className="is-size-7 has-text-danger mt-1">✗ Instance not found</p>}
       </div>
-      <div className="flex gap-2">
-        <Button plain onClick={onTestInstance} disabled={validating || !instance}>
+      <div className="is-flex" style={{ gap: '0.5rem' }}>
+        <button className="button is-ghost is-small" onClick={onTestInstance} disabled={validating || !instance}>
           {validating ? 'Testing…' : 'Test instance'}
-        </Button>
-        <Button onClick={onConnect} disabled={connecting || validationState !== 'valid'}>
+        </button>
+        <button className="button is-primary is-small" onClick={onConnect} disabled={connecting || validationState !== 'valid'}>
           {connecting ? 'Connecting…' : 'Connect'}
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -101,23 +82,18 @@ interface CodeEntryProps {
 
 function CodeEntryForm({ code, error, saving, onCodeChange, onSave }: CodeEntryProps) {
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <p className="is-size-7 has-text-grey">
         A browser window opened with your Mastodon instance. Authorise Postlane, then paste the code shown here.
       </p>
       <div>
-        <input
-          type="text"
-          value={code}
-          onChange={(e) => onCodeChange(e.target.value)}
-          placeholder="Paste the code shown by Mastodon"
-          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        />
-        {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        <input type="text" value={code} onChange={(e) => onCodeChange(e.target.value)}
+          placeholder="Paste the code shown by Mastodon" className="input is-small" />
+        {error && <p className="is-size-7 has-text-danger mt-1">{error}</p>}
       </div>
-      <Button onClick={onSave} disabled={saving}>
+      <button className="button is-primary is-small" onClick={onSave} disabled={saving}>
         {saving ? 'Saving…' : 'Save'}
-      </Button>
+      </button>
     </div>
   );
 }
@@ -130,11 +106,11 @@ interface ConnectedViewProps {
 
 function ConnectedView({ acct, disconnecting, onDisconnect }: ConnectedViewProps) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">@{acct}</span>
-      <Button outline onClick={onDisconnect} disabled={disconnecting}>
+    <div className="is-flex is-align-items-center is-justify-content-space-between">
+      <span className="is-size-7 has-text-weight-medium">@{acct}</span>
+      <button className="button is-outlined is-small" onClick={onDisconnect} disabled={disconnecting}>
         {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-      </Button>
+      </button>
     </div>
   );
 }
@@ -212,11 +188,10 @@ export default function MastodonOAuthPanel() {
     handleConnect, handleSave, handleDisconnect, handleTestInstance,
   } = useMastodonOAuth();
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-      <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Mastodon</h3>
+    <div className="box p-4">
+      <h3 className="has-text-weight-medium is-size-7 mb-3">Mastodon</h3>
       {step === 'idle' && (
-        <IdleForm
-          instance={instance} error={error} connecting={connecting}
+        <IdleForm instance={instance} error={error} connecting={connecting}
           validating={validating} validationState={validationState}
           onInstanceChange={handleInstanceChange}
           onConnect={handleConnect} onTestInstance={handleTestInstance}

@@ -59,16 +59,16 @@ function MastodonDisplay({ editing, draft, textareaRef, hasCW, cwText, bodyConte
   return (
     <>
       {!editing && cwText !== null && (
-        <div className="rounded bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <div data-testid="cw-bar" className="notification is-warning is-light py-1 px-3 is-size-7">
           CW: {cwText}
         </div>
       )}
       {editing ? (
         <textarea ref={textareaRef} rows={1} value={draft} autoFocus onChange={(e) => onDraftChange(e.target.value)}
-          className="w-full resize-none overflow-hidden rounded border border-zinc-300 p-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="textarea is-small"
         />
       ) : (
-        <div className="whitespace-pre-wrap break-all text-sm text-zinc-900 dark:text-zinc-100">
+        <div data-testid="mastodon-body" className="content is-small">
           {parseMastodonHTML(hasCW ? bodyContent : content)}
         </div>
       )}
@@ -95,22 +95,18 @@ export default function MastodonCard({ content = '', imageUrl, charLimit = DEFAU
   const count = countCharsMastodon(displayed);
   const isOverLimit = count > charLimit;
   const amberThreshold = charLimit - 50;
-  const counterClass = isOverLimit
-    ? 'text-sm font-medium text-red-600 dark:text-red-400'
-    : count >= amberThreshold
-      ? 'text-sm font-medium text-amber-600 dark:text-amber-400'
-      : 'text-sm text-zinc-500 dark:text-zinc-400';
+  const cc = isOverLimit ? 'is-size-7 has-text-danger' : count >= amberThreshold ? 'is-size-7 has-text-warning-dark' : 'is-size-7 has-text-grey';
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="block">
       <MastodonDisplay editing={editing} draft={draft} textareaRef={textareaRef}
         hasCW={hasCW} cwText={cwText} bodyContent={bodyContent} content={content}
         onDraftChange={setDraft}
       />
       {imageUrl && !editing && (
-        <img src={imageUrl} alt="Post image" className="w-full rounded-xl object-cover" style={{ aspectRatio: '16/9' }} />
+        <img src={imageUrl} alt="Post image" style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover' }} />
       )}
-      <CardActions editing={editing} count={count} limit={charLimit} counterClass={counterClass}
+      <CardActions editing={editing} count={count} limit={charLimit} counterClass={cc}
         isOverLimit={isOverLimit} onSave={onSave} onImageClick={onImageClick}
         onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete}
         onCancelEdit={() => setEditing(false)}

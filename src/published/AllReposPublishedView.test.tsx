@@ -437,3 +437,17 @@ describe('AllReposPublishedView — model bar discoverability (§review-product-
     expect(screen.queryByText(/how often posts needed editing before sending/i)).not.toBeInTheDocument();
   });
 });
+
+describe('AllReposPublishedView — IPC guard', () => {
+  it('test_filters_invalid_ipc_shapes', async () => {
+    const badShape = { repo_id: 'r1', post_folder: 'bad-post', status: 'sent', sent_at: null, platforms: 'not-an-array' };
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return [makeSent({ post_folder: 'valid-post' }), badShape];
+      if (cmd === 'get_model_stats') return [];
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByText('valid-post'));
+    expect(screen.queryByText('bad-post')).not.toBeInTheDocument();
+  });
+});

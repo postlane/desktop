@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components/catalyst/button';
 
 interface Props {
   repoId: string | null;
@@ -25,14 +24,14 @@ function ScriptTag({ token }: { token: string }) {
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">Add this tag to the <code>&lt;head&gt;</code> of your site.</p>
-      <pre className="overflow-x-auto rounded-lg bg-zinc-100 px-3 py-2 text-xs dark:bg-zinc-800 whitespace-pre-wrap break-all">{tag}</pre>
-      <div className="flex items-center gap-3">
-        <Button outline onClick={handleCopy}>{copied ? 'Copied!' : 'Copy'}</Button>
-        {copyError && <span className="text-xs text-zinc-500">{copyError}</span>}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <p className="is-size-7 has-text-grey">Add this tag to the <code>&lt;head&gt;</code> of your site.</p>
+      <pre className="is-size-7 has-background-light p-3" style={{ overflowX: 'auto', borderRadius: '0.375rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{tag}</pre>
+      <div className="is-flex is-align-items-center" style={{ gap: '0.75rem' }}>
+        <button className="button is-outlined is-small" onClick={handleCopy}>{copied ? 'Copied!' : 'Copy'}</button>
+        {copyError && <span className="is-size-7 has-text-grey">{copyError}</span>}
       </div>
-      <a href="https://postlane.dev/docs/analytics" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline dark:text-blue-400">How attribution works →</a>
+      <a href="https://postlane.dev/docs/analytics" target="_blank" rel="noreferrer" className="is-size-7 has-text-link">How attribution works →</a>
     </div>
   );
 }
@@ -58,21 +57,21 @@ export default function AnalyticsTab({ repoId }: Props) {
   const { siteToken, loading, error } = useAnalyticsTab(repoId);
 
   if (!repoId) {
-    return <p className="text-sm text-zinc-500">Select a repo to view its analytics snippet.</p>;
+    return <p className="is-size-7 has-text-grey">Select a repo to view its analytics snippet.</p>;
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Postlane Analytics</h2>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <h2 className="has-text-weight-semibold is-size-7">Postlane Analytics</h2>
+      <p className="is-size-7 has-text-grey">
         Track sessions arriving from your Postlane-scheduled posts. The snippet fires only when
         <code> utm_source=postlane</code> is present — no cookies, no PII.
       </p>
-      {loading && <p className="text-xs text-zinc-400">Loading…</p>}
+      {loading && <p className="is-size-7 has-text-grey">Loading…</p>}
       {error && (
-        <p className="text-xs text-zinc-500">
+        <p className="is-size-7 has-text-grey">
           Sign in at{' '}
-          <a href="https://postlane.dev" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
+          <a href="https://postlane.dev" target="_blank" rel="noreferrer" className="has-text-link">
             postlane.dev
           </a>{' '}
           to enable analytics.

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components/catalyst/button';
 import { UsageBadge, type UsageResponse } from './SchedulerTab';
 
 type PanelState = 'idle' | 'adding' | 'configured';
@@ -12,7 +11,7 @@ interface IdleViewProps {
 }
 
 function IdleView({ onStartAdd }: IdleViewProps) {
-  return <Button outline onClick={onStartAdd}>+ Add</Button>;
+  return <button className="button is-outlined is-small" onClick={onStartAdd}>+ Add</button>;
 }
 
 interface AddingFormProps {
@@ -27,24 +26,19 @@ interface AddingFormProps {
 
 function AddingForm({ url, urlError, saveError, saving, onUrlChange, onSave, onCancel }: AddingFormProps) {
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <p className="is-size-7 has-text-grey">
         Enter a webhook URL. Postlane will POST the scheduled content as JSON to this endpoint.
       </p>
-      <div className="space-y-1">
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => onUrlChange(e.target.value)}
-          placeholder="https://hooks.example.com/webhook"
-          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        />
-        {urlError && <p className="text-xs text-red-600">{urlError}</p>}
-        {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+      <div>
+        <input type="url" value={url} onChange={(e) => onUrlChange(e.target.value)}
+          placeholder="https://hooks.example.com/webhook" className="input is-small" />
+        {urlError && <p className="is-size-7 has-text-danger mt-1">{urlError}</p>}
+        {saveError && <p className="is-size-7 has-text-danger mt-1">{saveError}</p>}
       </div>
-      <div className="flex gap-2">
-        <Button onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-        <Button plain onClick={onCancel}>Cancel</Button>
+      <div className="is-flex" style={{ gap: '0.5rem' }}>
+        <button className="button is-primary is-small" onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button className="button is-ghost is-small" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );
@@ -62,14 +56,14 @@ interface ConfiguredViewProps {
 
 function ConfiguredView({ preview, testing, testResult, testError, onTest, onChange, onRemove }: ConfiguredViewProps) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <span className="text-xs text-zinc-500 truncate">{preview}</span>
-      <div className="flex items-center gap-2 shrink-0">
-        {testResult === 'ok' && <span className="text-xs text-green-600">✓</span>}
-        {testResult === 'error' && <span className="text-xs text-red-600">{testError}</span>}
-        <Button outline onClick={onTest} disabled={testing}>Test</Button>
-        <Button outline onClick={onChange}>Change</Button>
-        <Button outline onClick={onRemove}>Remove</Button>
+    <div className="is-flex is-align-items-center is-justify-content-space-between" style={{ gap: '1rem' }}>
+      <span className="is-size-7 has-text-grey" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{preview}</span>
+      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', flexShrink: 0 }}>
+        {testResult === 'ok' && <span className="is-size-7 has-text-success">✓</span>}
+        {testResult === 'error' && <span className="is-size-7 has-text-danger">{testError}</span>}
+        <button className="button is-outlined is-small" onClick={onTest} disabled={testing}>Test</button>
+        <button className="button is-outlined is-small" onClick={onChange}>Change</button>
+        <button className="button is-outlined is-small" onClick={onRemove}>Remove</button>
       </div>
     </div>
   );
@@ -109,7 +103,7 @@ function useWebhookPanel() {
       .catch(() => { setPanelState('idle'); });
     invoke<UsageResponse>('get_scheduler_usage', { provider: 'webhook' })
       .then(setUsage)
-      .catch(() => { /* non-critical — usage display is informational */ });
+      .catch(() => { /* non-critical */ });
   }, []);
 
   function handleUrlChange(v: string) { setUrl(v); setUrlError(validateUrl(v)); }
@@ -153,9 +147,9 @@ export default function WebhookPanel() {
   const { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
 
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-      <div className="mb-3 flex items-center gap-3">
-        <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Webhook</h3>
+    <div className="box p-4">
+      <div className="is-flex is-align-items-center mb-3" style={{ gap: '0.75rem' }}>
+        <h3 className="has-text-weight-medium is-size-7">Webhook</h3>
         <UsageBadge usage={usage} />
       </div>
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}

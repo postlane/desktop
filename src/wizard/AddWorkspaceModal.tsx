@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components/catalyst/button';
-import {
-  Dialog, DialogActions, DialogBody, DialogDescription, DialogTitle,
-} from '../components/catalyst/dialog';
 
 interface Props {
   onClose: () => void;
@@ -61,34 +57,57 @@ function useAddWorkspaceForm(onCreated: () => void) {
 
 export default function AddWorkspaceModal({ onClose, onCreated }: Props) {
   const { name, setName, workspaceType, setWorkspaceType, error, loading, handleCreate } = useAddWorkspaceForm(onCreated);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    ref.current?.focus();
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
-    <Dialog open onClose={onClose}>
-      <DialogTitle>Add a workspace</DialogTitle>
-      <DialogDescription>A workspace holds your scheduler credentials and voice settings.</DialogDescription>
-      <DialogBody>
-        {error && (
-          <div role="alert" className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">{error}</div>
-        )}
-        <div className="flex flex-col gap-4">
-          <div>
-            <label htmlFor="ws-name" className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Workspace name</label>
-            <input id="ws-name" type="text" aria-label="Workspace name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Postlane, Acme Corp, Personal" className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
+    <div className="modal is-active">
+      <div className="modal-background" onClick={onClose} />
+      <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
+        <header className="modal-card-head">
+          <p className="modal-card-title">Add a workspace</p>
+          <button className="delete" onClick={onClose} aria-label="Close" />
+        </header>
+        <section className="modal-card-body">
+          <p className="is-size-7 has-text-grey mb-4">A workspace holds your scheduler credentials and voice settings.</p>
+          {error && <div role="alert" className="notification is-danger is-light is-size-7 mb-3">{error}</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="field">
+              <label htmlFor="ws-name" className="label is-small">Workspace name</label>
+              <div className="control">
+                <input id="ws-name" type="text" aria-label="Workspace name" value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Postlane, Acme Corp, Personal" className="input is-small" />
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="ws-type" className="label is-small">Workspace type</label>
+              <div className="control">
+                <div className="select is-small">
+                  <select id="ws-type" aria-label="Workspace type" value={workspaceType}
+                    onChange={(e) => setWorkspaceType(e.target.value as WorkspaceType)}>
+                    <option value="personal">Personal</option>
+                    <option value="organization">Organization</option>
+                    <option value="client">Client project</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <label htmlFor="ws-type" className="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Workspace type</label>
-            <select id="ws-type" aria-label="Workspace type" value={workspaceType} onChange={(e) => setWorkspaceType(e.target.value as WorkspaceType)} className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-              <option value="personal">Personal</option>
-              <option value="organization">Organization</option>
-              <option value="client">Client project</option>
-            </select>
-          </div>
-        </div>
-      </DialogBody>
-      <DialogActions>
-        <Button plain onClick={onClose}>Cancel</Button>
-        <Button onClick={handleCreate} disabled={loading}>{loading ? 'Creating…' : 'Create workspace'}</Button>
-      </DialogActions>
-    </Dialog>
+        </section>
+        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
+          <button className="button is-ghost" onClick={onClose}>Cancel</button>
+          <button className="button is-primary" onClick={handleCreate} disabled={loading}>
+            {loading ? 'Creating…' : 'Create workspace'}
+          </button>
+        </footer>
+      </div>
+    </div>
   );
 }

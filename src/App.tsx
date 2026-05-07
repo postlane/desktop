@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
-import SignInScreen from './wizard/SignInScreen';
+import ReSignInScreen from './wizard/ReSignInScreen';
 import AddRepoModal from './wizard/AddRepoModal';
 import AddWorkspaceModal from './wizard/AddWorkspaceModal';
 import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
@@ -103,7 +103,7 @@ function useAppState() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [schedulerTab, setSchedulerTab] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
-  const [showSignIn, setShowSignIn] = useState(false);
+  const [showReSignIn, setShowReSignIn] = useState(false);
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [showAddWorkspace, setShowAddWorkspace] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -121,7 +121,7 @@ function useAppState() {
         setTimezone(appState.timezone ?? '');
         if (!appState.consent_asked) setShowConsentModal(true);
         if (!appState.wizard_completed) { setShowWizard(true); return; }
-        if (!hasToken) { setShowSignIn(true); }
+        if (!hasToken) { setShowReSignIn(true); }
       })
       .catch((e: unknown) => setInitError(e instanceof Error ? e.message : String(e)));
   }, []);
@@ -132,7 +132,7 @@ function useAppState() {
   }
 
   function handleSignedIn() {
-    setShowSignIn(false);
+    setShowReSignIn(false);
   }
 
   async function handleConsentChoice(consent: boolean) {
@@ -146,7 +146,7 @@ function useAppState() {
   function closeSettings() { setSettingsOpen(false); setSchedulerTab(false); }
 
   return {
-    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showSignIn,
+    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showReSignIn,
     showAddRepo, setShowAddRepo, showAddWorkspace, setShowAddWorkspace, showConsentModal,
     timezone, setTimezone, repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
     initError,
@@ -157,7 +157,7 @@ function useAppState() {
 
 export default function App() {
   const {
-    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showSignIn,
+    currentView, setCurrentView, settingsOpen, schedulerTab, showWizard, showReSignIn,
     showAddRepo, setShowAddRepo, showConsentModal, timezone, setTimezone,
     repoVersion, setRepoVersion, postWizardNudge, setPostWizardNudge,
     showAddWorkspace, setShowAddWorkspace, initError,
@@ -169,19 +169,19 @@ export default function App() {
   useWindowSizePersistence();
 
   if (initError) return (
-    <div className="flex h-screen items-center justify-center bg-white dark:bg-zinc-900">
-      <p role="alert" className="max-w-sm text-center text-sm text-red-600 dark:text-red-400">
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100vh' }}>
+      <p role="alert" className="is-size-7 has-text-danger has-text-centered" style={{ maxWidth: '24rem' }}>
         Failed to start Postlane: {initError}
       </p>
     </div>
   );
 
   if (showWizard) return <Wizard onComplete={handleWizardComplete} />;
-  if (showSignIn) return <SignInScreen onSignedIn={handleSignedIn} />;
+  if (showReSignIn) return <ReSignInScreen onSignedIn={handleSignedIn} />;
 
   return (
     <TimezoneContext.Provider value={timezone}>
-      <div className="flex h-screen overflow-hidden bg-white dark:bg-zinc-900">
+      <div className="is-flex" style={{ height: '100vh', overflow: 'hidden', background: 'white' }}>
         <LeftNav
           currentView={currentView}
           onNavigate={(sel) => { setCurrentView(sel); closeSettings(); }}
@@ -193,7 +193,7 @@ export default function App() {
         {showConsentModal && <TelemetryConsentModal onAccept={() => handleConsentChoice(true)} onDecline={() => handleConsentChoice(false)} />}
         {showAddRepo && <AddRepoModal onClose={() => setShowAddRepo(false)} />}
         {showAddWorkspace && <AddWorkspaceModal onClose={() => setShowAddWorkspace(false)} onCreated={() => { setShowAddWorkspace(false); setRepoVersion((v) => v + 1); }} />}
-        <main className="flex-1 overflow-y-auto">
+        <main style={{ flex: 1, overflowY: 'auto' }}>
           <MainContent
             view={currentView} settingsOpen={settingsOpen} schedulerTab={schedulerTab}
             postWizardNudge={postWizardNudge} onCloseSettings={closeSettings}

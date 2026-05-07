@@ -1,122 +1,120 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
-import { useWizardState } from './useWizardState'
+import { describe, it, expect } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useWizardState } from './useWizardState';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-import { invoke } from '@tauri-apps/api/core'
-const mockInvoke = vi.mocked(invoke)
+describe('useWizardState — initial state', () => {
+  it('test_starts_at_step_1', () => {
+    const { result } = renderHook(() => useWizardState());
+    expect(result.current.step).toBe(1);
+  });
 
-beforeEach(() => { vi.clearAllMocks() })
+  it('test_next_advances_step', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next());
+    expect(result.current.step).toBe(2);
+  });
 
-describe('useWizardState — navigation', () => {
-  it('first launch starts at welcome', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => { result.current.startFirstLaunch() })
-    expect(result.current.state.modal).toBe('welcome')
-  })
+  it('test_back_not_available_on_step_1', () => {
+    const { result } = renderHook(() => useWizardState());
+    expect(result.current.canGoBack).toBe(false);
+  });
 
-  it('next from sign-in is blocked without a license token', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => {
-      result.current.startFirstLaunch()
-      result.current.next() // welcome → sign-in
-      result.current.next() // blocked — no token
-    })
-    expect(result.current.state.modal).toBe('sign-in')
-  })
+  it('test_add_workspace_entry_starts_at_step_3', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 3 }));
+    expect(result.current.step).toBe(3);
+  });
 
-  it('next from sign-in advances to name-workspace once token is present', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => {
-      result.current.startFirstLaunch()
-      result.current.next()                       // → sign-in
-      result.current.setLicenseTokenPresent(true) // token acquired
-      result.current.next()                       // → name-workspace
-    })
-    expect(result.current.state.modal).toBe('name-workspace')
-  })
+  it('test_add_repo_entry_starts_at_step_5', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 5 }));
+    expect(result.current.step).toBe(5);
+  });
+});
 
-  it('skip on backup-scheduler advances to map-profiles', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => {
-      result.current.startFirstLaunch()
-      result.current.next()
-      result.current.setLicenseTokenPresent(true)
-      result.current.next()
-      result.current.setProjectId('proj-123')
-      result.current.next()
-      result.current.setSchedulerConnected(true)
-      result.current.next() // → backup-scheduler
-      result.current.skip() // → map-profiles
-    })
-    expect(result.current.state.modal).toBe('map-profiles')
-  })
+describe('useWizardState — step 2 token gate', () => {
+  it('test_next_blocked_on_step_2_without_token', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → step 2
+    act(() => result.current.next()); // blocked — no token
+    expect(result.current.step).toBe(2);
+  });
 
-  it('back from name-workspace goes to sign-in', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => {
-      result.current.startFirstLaunch()
-      result.current.next()
-      result.current.setLicenseTokenPresent(true)
-      result.current.next() // → name-workspace
-      result.current.back() // → sign-in
-    })
-    expect(result.current.state.modal).toBe('sign-in')
-  })
-})
+  it('test_next_allowed_on_step_2_with_token', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → step 2
+    act(() => result.current.setToken('tok-abc'));
+    act(() => result.current.next()); // → step 3
+    expect(result.current.step).toBe(3);
+  });
+});
 
-describe('useWizardState — entry points', () => {
-  it('startAddRepo starts at connect-repo with project id stored', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => { result.current.startAddRepo('proj-abc') })
-    expect(result.current.state.modal).toBe('connect-repo')
-    expect(result.current.state.projectId).toBe('proj-abc')
-  })
+describe('useWizardState — step 3 workspace', () => {
+  it('test_next_on_step_3_stores_workspace_id', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok-abc'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.setWorkspaceId('ws-1'));
+    act(() => result.current.next()); // → 4
+    expect(result.current.workspaceId).toBe('ws-1');
+    expect(result.current.step).toBe(4);
+  });
 
-  it('startAddProject goes to pricing-gate when no billing slot', async () => {
-    mockInvoke.mockResolvedValue('none')
-    const { result } = renderHook(() => useWizardState())
-    await act(async () => { await result.current.startAddProject() })
-    expect(result.current.state.modal).toBe('pricing-gate')
-  })
-})
+  it('test_back_from_step_3_goes_to_step_2', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.back());
+    expect(result.current.step).toBe(2);
+  });
+});
 
-describe('useWizardState — jump actions', () => {
-  it('jumpToDone sets modal to done from any state', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => { result.current.startAddRepo('proj-1') })
-    act(() => { result.current.jumpToDone() })
-    expect(result.current.state.modal).toBe('done')
-  })
+describe('useWizardState — step 4 scheduler', () => {
+  it('test_skip_on_step_4_sets_scheduler_linked_false', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.next()); // → 4
+    act(() => result.current.skip()); // skip scheduler → 5
+    expect(result.current.schedulerLinked).toBe(false);
+    expect(result.current.step).toBe(5);
+  });
 
-  it('jumpToPricingGate sets modal to pricing-gate from any state', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => { result.current.startAddRepo('proj-1') })
-    act(() => { result.current.jumpToPricingGate() })
-    expect(result.current.state.modal).toBe('pricing-gate')
-  })
-})
+  it('test_back_from_step_4_goes_to_step_3', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.next()); // → 4
+    act(() => result.current.back());
+    expect(result.current.step).toBe(3);
+  });
+});
 
-describe('useWizardState — shortcut actions', () => {
-  it('advanceScheduler sets modal to backup-scheduler bypassing gate', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => {
-      result.current.startFirstLaunch()
-      result.current.next()
-      result.current.setLicenseTokenPresent(true)
-      result.current.next()
-      result.current.setProjectId('proj-123')
-      result.current.next() // → connect-scheduler
-      result.current.advanceScheduler()
-    })
-    expect(result.current.state.modal).toBe('backup-scheduler')
-  })
+describe('useWizardState — step 5 repo gate', () => {
+  it('test_next_blocked_on_step_5_without_repo', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.next()); // → 4
+    act(() => result.current.skip()); // → 5
+    act(() => result.current.next()); // blocked — no repo
+    expect(result.current.step).toBe(5);
+  });
 
-  it('advancePastGate sets modal to name-workspace', () => {
-    const { result } = renderHook(() => useWizardState())
-    act(() => { result.current.advancePastGate() })
-    expect(result.current.state.modal).toBe('name-workspace')
-  })
-})
+  it('test_next_allowed_on_step_5_with_repo', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.next()); // → 4
+    act(() => result.current.skip()); // → 5
+    act(() => result.current.setRepoAdded(true));
+    act(() => result.current.next()); // complete
+    expect(result.current.complete).toBe(true);
+  });
+});

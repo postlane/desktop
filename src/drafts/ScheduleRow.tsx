@@ -5,8 +5,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { useTimezone, utcIsoToDatetimeLocal, localDatetimeToUtcIso } from '../TimezoneContext';
 
-const INPUT_CLASS = 'rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500';
-
 interface Props {
   repoPath: string;
   postFolder: string;
@@ -66,9 +64,9 @@ export function ScheduleRow(props: Props) {
 
   if (!inputVisible) {
     return (
-      <div className="mt-3 flex items-center gap-2">
-        <span className="text-sm text-zinc-500 dark:text-zinc-400">Scheduled</span>
-        <button onClick={() => setInputVisible(true)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+      <div className="mt-3 is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
+        <span className="is-size-7 has-text-grey">Scheduled</span>
+        <button onClick={() => setInputVisible(true)} className="button is-ghost is-small has-text-link">
           + Add time
         </button>
       </div>
@@ -76,19 +74,19 @@ export function ScheduleRow(props: Props) {
   }
 
   return (
-    <div className="mt-3 space-y-1">
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-sm text-zinc-500 dark:text-zinc-400">Scheduled</span>
+    <div className="mt-3" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
+        <span className="is-size-7 has-text-grey" style={{ flexShrink: 0 }}>Scheduled</span>
         <input
           type="datetime-local"
           aria-label="Scheduled time"
           value={inputValue}
           onChange={(e) => { setInputValue(e.target.value); void handleChange(e.target.value); }}
-          className={INPUT_CLASS}
+          className="input is-small"
         />
-        <button aria-label="Clear schedule" onClick={handleClear} className="text-xs text-zinc-400 hover:text-red-500">Clear</button>
+        <button aria-label="Clear schedule" onClick={handleClear} className="button is-ghost is-small has-text-grey-light">Clear</button>
       </div>
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="has-text-danger is-size-7">{error}</p>}
     </div>
   );
 }

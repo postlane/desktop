@@ -3,10 +3,13 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { VOICE_GUIDE_TEMPLATE } from '../wizard/ModalVoiceGuide';
+
+const VOICE_GUIDE_TEMPLATE = `Write in a clear, direct tone. No marketing language.
+Focus on what changed and why it matters to the reader.
+Keep posts concise — one idea per post.
+Use plain language; avoid jargon unless your audience expects it.`;
 
 const PLACEHOLDER = 'No voice guide set. Add one to tell the LLM how to write posts for this project.';
-const TA_CLASS = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50';
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -50,31 +53,26 @@ function useVoiceGuide(projectId: string) {
 export function VoiceGuideSection({ projectId }: { projectId: string }) {
   const { text, setText, loading, saveState, error, handleSave } = useVoiceGuide(projectId);
   return (
-    <div className="mt-6 space-y-2">
-      <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Voice guide</h3>
-      <textarea
-        aria-label="Voice guide"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        disabled={loading}
-        rows={8}
-        placeholder={PLACEHOLDER}
-        className={TA_CLASS}
-      />
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+    <div className="mt-5" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <h3 className="has-text-weight-medium is-size-7">Voice guide</h3>
+      <textarea aria-label="Voice guide" value={text} onChange={(e) => setText(e.target.value)}
+        disabled={loading} rows={8} placeholder={PLACEHOLDER}
+        className="textarea is-small is-family-monospace" style={{ opacity: loading ? 0.5 : 1 }} />
+      <p className="is-size-7 has-text-grey">
         Saved to <code>.postlane/voice-guide.md</code> in your repo.
       </p>
-      <div className="flex items-center gap-3">
+      <div className="is-flex is-align-items-center" style={{ gap: '0.75rem' }}>
         {text === '' && !loading && (
-          <button onClick={() => setText(VOICE_GUIDE_TEMPLATE)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+          <button onClick={() => setText(VOICE_GUIDE_TEMPLATE)} className="button is-ghost is-small has-text-link">
             Start from template
           </button>
         )}
-        <button aria-label="Save voice guide" onClick={handleSave} disabled={saveState === 'saving'} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50">
+        <button aria-label="Save voice guide" onClick={handleSave} disabled={saveState === 'saving'}
+          className="button is-primary is-small">
           {saveState === 'saving' ? 'Saving…' : 'Save'}
         </button>
-        {saveState === 'saved' && <span className="text-xs text-green-600">✓ Saved</span>}
-        {error && <p className="text-xs text-red-600">{error}</p>}
+        {saveState === 'saved' && <span className="is-size-7 has-text-success">✓ Saved</span>}
+        {error && <p className="is-size-7 has-text-danger">{error}</p>}
       </div>
     </div>
   );

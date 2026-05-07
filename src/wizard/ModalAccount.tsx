@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+import { useState, useEffect } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import WizardShell from './WizardShell';
+
+interface Props {
+  onNext: () => void;
+  onBack?: () => void;
+  pollIntervalMs?: number;
+}
+
+function GitHubLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style={{ marginRight: 8 }}>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+
+function GitLabLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 380 380" fill="none" aria-hidden="true" style={{ marginRight: 8 }}>
+      <path d="M282.83 170.73l-.27-.69-26.14-68.22a6.81 6.81 0 00-2.69-3.24 7 7 0 00-8 .43 7 7 0 00-2.32 3.52l-17.65 54H154.29l-17.65-54a6.86 6.86 0 00-2.32-3.52 7 7 0 00-8-.43 6.87 6.87 0 00-2.69 3.24L97.44 170l-.26.69a48.54 48.54 0 0016.1 56.1l.09.07.24.17 39.82 29.82 19.7 14.91 12 9.06a8.07 8.07 0 009.66 0l12-9.06 19.7-14.91 40.06-30 .1-.08a48.56 48.56 0 0016.18-56.04z" fill="white" />
+      <path d="M282.83 170.73l-.27-.69a88.3 88.3 0 00-35.15 19.86L190 239.25l37.44 28.29 40.06-30 .1-.08a48.56 48.56 0 0015.23-66.73z" fill="white" />
+      <path d="M152.57 267.54l19.7 14.91 12 9.06a8.07 8.07 0 009.66 0l12-9.06 19.7-14.91L190 239.25z" fill="white" />
+      <path d="M132.58 190l-35.15-19.86-.26.69a48.54 48.54 0 0016.1 56.1l.09.07.24.17 40.06 30L190 239.25z" fill="white" />
+    </svg>
+  );
+}
+
+function useActivation(onNext: () => void, onError: (msg: string) => void, pollIntervalMs: number) {
+  useEffect(() => {
+    const unsubs = [
+      listen('license:activated', () => onNext()),
+      listen<{ message: string }>('license:error', (e) => onError(e.payload.message)),
+    ];
+    return () => { unsubs.forEach((p) => p.then((fn) => fn())); };
+  }, [onNext, onError]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const signed = await invoke<boolean>('get_license_signed_in');
+        if (signed) { clearInterval(interval); onNext(); }
+      } catch { /* ignore poll errors */ }
+    }, pollIntervalMs);
+    return () => clearInterval(interval);
+  }, [onNext, pollIntervalMs]);
+}
+
+export default function ModalAccount({ onNext, onBack, pollIntervalMs = 2000 }: Props) {
+  const [activationError, setActivationError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  useActivation(onNext, setActivationError, pollIntervalMs);
+
+  async function handleCheckAgain() {
+    setChecking(true);
+    setActivationError(null);
+    try {
+      const signed = await invoke<boolean>('get_license_signed_in');
+      if (signed) { onNext(); } else { setActivationError('Sign-in not detected yet. Complete the sign-in in your browser, then try again.'); }
+    } catch { setActivationError('Could not check sign-in status. Please try again.'); }
+    finally { setChecking(false); }
+  }
+
+  function handleProvider(_provider: string) {
+    setActivationError(null);
+    openUrl('https://postlane.dev/login?desktop=1').catch(console.error);
+  }
+
+  function handleLink(e: ReactMouseEvent, url: string) {
+    e.preventDefault();
+    openUrl(url).catch(console.error);
+  }
+
+  return (
+    <WizardShell step={2} totalSteps={5} title="Sign in to Postlane"
+      subtitle="Sign in to activate your Postlane account." onNext={onNext} onBack={onBack} nextHidden>
+      <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
+        <button className="button is-flex-grow-1"
+          style={{ background: '#24292f', color: 'white', border: 'none' }}
+          onClick={() => handleProvider('github')}>
+          <GitHubLogo />GitHub
+        </button>
+        <button className="button is-flex-grow-1"
+          style={{ background: '#FC6D26', color: 'white', border: 'none' }}
+          onClick={() => handleProvider('gitlab')}>
+          <GitLabLogo />GitLab
+        </button>
+      </div>
+      <div className="mb-4" style={{ maxWidth: 425 }}>
+        <button className="button is-small is-fullwidth is-light" onClick={handleCheckAgain} disabled={checking}>
+          {checking ? 'Checking…' : 'Already signed in? Continue →'}
+        </button>
+        {activationError && <div role="alert" className="notification is-warning is-light is-size-7 mt-2 mb-0">{activationError}</div>}
+      </div>
+      <p className="is-size-7 has-text-grey">
+        Postlane uses your account to issue a license token. Your repo content,
+        API keys, and social credentials stay on your machine.{' '}
+        <a href="https://postlane.dev/privacy" className="has-text-link"
+          onClick={(e) => handleLink(e, 'https://postlane.dev/privacy')}>Privacy page</a>
+        {' '}and{' '}
+        <a href="https://docs.postlane.dev/security" className="has-text-link"
+          onClick={(e) => handleLink(e, 'https://docs.postlane.dev/security')}>Security docs</a>.
+      </p>
+    </WizardShell>
+  );
+}

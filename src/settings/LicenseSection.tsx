@@ -45,25 +45,21 @@ export function LicenseSection() {
   if (signedIn === null) return null;
 
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       {expired && (
-        <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+        <p role="alert" className="is-size-7 has-text-danger">
           Your Postlane license has expired. Sign in at postlane.dev/login.
         </p>
       )}
       {banner && (
-        <p role="status" className="text-sm text-green-700 dark:text-green-400">
+        <p role="status" className="is-size-7 has-text-success">
           {banner}
         </p>
       )}
       {!signedIn && (
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-zinc-700 dark:text-zinc-300">Account</span>
-          <button
-            type="button"
-            onClick={handleSignIn}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-          >
+        <div className="is-flex is-align-items-center is-justify-content-space-between">
+          <span className="is-size-7">Account</span>
+          <button type="button" onClick={handleSignIn} className="button is-primary is-small">
             Sign in at postlane.dev
           </button>
         </div>

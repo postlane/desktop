@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Button } from '../components/catalyst/button';
-import { Dialog, DialogActions, DialogBody, DialogDescription, DialogTitle } from '../components/catalyst/dialog';
 import PostCard from './PostCard';
 import type { DraftPost, MetaChangedPayload } from '../types';
 import { isDraftPost } from '../ipc-guards';
@@ -48,17 +46,17 @@ function WizardNudge({ onDismiss }: { onDismiss: () => void }) {
   }
 
   return (
-    <div className="flex h-full items-center justify-center p-8">
-      <div className="max-w-sm text-center">
-        <p className="mb-4 font-medium text-zinc-900 dark:text-zinc-100">You're set up.</p>
-        <p className="mb-6 text-sm text-zinc-600 dark:text-zinc-400">Open your IDE in a registered repo and run:</p>
-        <div className="mb-4 flex items-center justify-center gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-800">
-          <code className="font-mono text-sm text-zinc-900 dark:text-zinc-100">/draft-post</code>
-          <Button plain onClick={handleCopy} aria-label="Copy /draft-post command">{copyState === 'copied' ? '✓ Copied' : '📋 Copy'}</Button>
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
+      <div className="has-text-centered" style={{ maxWidth: '24rem' }}>
+        <p className="has-text-weight-medium mb-4">You're set up.</p>
+        <p className="is-size-7 has-text-grey mb-5">Open your IDE in a registered repo and run:</p>
+        <div className="is-flex is-align-items-center is-justify-content-center has-background-grey-lighter mb-4" style={{ borderRadius: '0.5rem', padding: '0.75rem 1rem', gap: '0.75rem' }}>
+          <code className="is-size-7">/draft-post</code>
+          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy /draft-post command">{copyState === 'copied' ? '✓ Copied' : '📋 Copy'}</button>
         </div>
-        {copyState === 'fallback' && <p className="mb-4 text-xs text-zinc-500">Press Ctrl+C to copy</p>}
-        <p className="text-sm text-zinc-500">Your first draft will appear here when it's ready.</p>
-        <Button plain onClick={onDismiss} className="mt-6 text-xs text-zinc-400">Dismiss</Button>
+        {copyState === 'fallback' && <p className="is-size-7 has-text-grey mb-4">Press Ctrl+C to copy</p>}
+        <p className="is-size-7 has-text-grey">Your first draft will appear here when it's ready.</p>
+        <button className="button is-ghost is-small has-text-grey-light mt-5" onClick={onDismiss}>Dismiss</button>
       </div>
     </div>
   );
@@ -101,27 +99,34 @@ interface ApproveAllDialogProps {
 }
 
 function ApproveAllDialog({ open, readyCount, running, results, onClose, onConfirm }: ApproveAllDialogProps) {
+  if (!open) return null;
   return (
-    <Dialog open={open} onClose={onClose}>
-      <DialogTitle>Approve all ready posts</DialogTitle>
-      <DialogDescription>Send {readyCount} post{readyCount !== 1 ? 's' : ''} to your scheduler?</DialogDescription>
-      <DialogBody>
-        {results.size > 0 && (
-          <ul className="space-y-1">
-            {[...results.entries()].map(([folder, result]) => (
-              <li key={folder} className="flex items-center gap-2 text-sm">
-                {result === 'ok' ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
-                {folder}
-              </li>
-            ))}
-          </ul>
-        )}
-      </DialogBody>
-      <DialogActions>
-        <Button plain onClick={onClose}>Cancel</Button>
-        <Button color="green" onClick={onConfirm} disabled={running}>{running ? 'Sending…' : 'Confirm'}</Button>
-      </DialogActions>
-    </Dialog>
+    <div className="modal is-active">
+      <div className="modal-background" onClick={onClose} />
+      <div className="modal-card" role="dialog" aria-modal="true">
+        <header className="modal-card-head">
+          <p className="modal-card-title">Approve all ready posts</p>
+          <button className="delete" onClick={onClose} aria-label="Close" />
+        </header>
+        <section className="modal-card-body">
+          <p className="is-size-7 has-text-grey mb-3">Send {readyCount} post{readyCount !== 1 ? 's' : ''} to your scheduler?</p>
+          {results.size > 0 && (
+            <ul>
+              {[...results.entries()].map(([folder, result]) => (
+                <li key={folder} className="is-flex is-align-items-center is-size-7" style={{ gap: '0.5rem' }}>
+                  {result === 'ok' ? <span className="has-text-success">✓</span> : <span className="has-text-danger">✗</span>}
+                  {folder}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
+          <button className="button is-ghost" onClick={onClose}>Cancel</button>
+          <button className="button is-success" onClick={onConfirm} disabled={running}>{running ? 'Sending…' : 'Confirm'}</button>
+        </footer>
+      </div>
+    </div>
   );
 }
 
@@ -132,13 +137,13 @@ function EmptyDraftsState() {
     catch { /* ignore */ }
   }
   return (
-    <div className="flex h-full items-center justify-center p-8">
-      <div className="text-center">
-        <p className="mb-3 text-sm text-zinc-500">No drafts waiting.</p>
-        <p className="mb-4 text-sm text-zinc-500">Run this command in your IDE to create one:</p>
-        <div className="flex items-center justify-center gap-3 rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-800">
-          <code className="font-mono text-sm text-zinc-900 dark:text-zinc-100">/draft-post</code>
-          <Button plain onClick={handleCopy} aria-label="Copy /draft-post command">{copied ? '✓ Copied' : '📋 Copy'}</Button>
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
+      <div className="has-text-centered">
+        <p className="is-size-7 has-text-grey mb-3">No drafts waiting.</p>
+        <p className="is-size-7 has-text-grey mb-4">Run this command in your IDE to create one:</p>
+        <div className="is-flex is-align-items-center is-justify-content-center has-background-grey-lighter" style={{ borderRadius: '0.5rem', padding: '0.75rem 1rem', gap: '0.75rem' }}>
+          <code className="is-size-7">/draft-post</code>
+          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy /draft-post command">{copied ? '✓ Copied' : '📋 Copy'}</button>
         </div>
       </div>
     </div>
@@ -177,21 +182,24 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
   const groups = groupAndSort(posts);
 
   if (postWizardNudge) return <WizardNudge onDismiss={onNudgeDismissed} />;
-  if (loading) return <div className="flex h-full items-center justify-center"><p className="text-sm text-zinc-400">Loading…</p></div>;
+  if (loading) return (
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%' }}>
+      <p className="is-size-7 has-text-grey">Loading…</p>
+    </div>
+  );
   if (posts.length === 0) return <EmptyDraftsState />;
-
 
   return (
     <>
-      <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
-        <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">All repos — Drafts</h1>
-        {readyCount >= 2 && <Button color="green" onClick={() => setApproveAllOpen(true)}>Approve all ready ({readyCount})</Button>}
+      <div className="is-flex is-align-items-center is-justify-content-space-between px-5 py-4" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
+        <h1 className="has-text-weight-semibold">All repos — Drafts</h1>
+        {readyCount >= 2 && <button className="button is-success is-small" onClick={() => setApproveAllOpen(true)}>Approve all ready ({readyCount})</button>}
       </div>
-      <div className="space-y-6 p-6">
+      <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {groups.map((group) => (
           <section key={group.repoId}>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{group.repoName}</h2>
-            <div className="space-y-3">
+            <h2 className="has-text-grey is-size-7 has-text-weight-semibold mb-3" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>{group.repoName}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {group.posts.map((post) => (
                 <PostCard key={`${post.repo_id}-${post.post_folder}`} post={post} isFocused={posts.indexOf(post) === 0} onApproved={refresh} onDismissed={refresh} />
               ))}

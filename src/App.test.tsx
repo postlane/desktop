@@ -11,7 +11,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   }))
 }))
 vi.mock('./wizard/Wizard', () => ({ default: () => <div>Wizard</div> }))
-vi.mock('./wizard/SignInScreen', () => ({ default: () => <div>SignInScreen</div> }))
+vi.mock('./wizard/ReSignInScreen', () => ({ default: () => <div>ReSignInScreen</div> }))
 vi.mock('./nav/LeftNav', () => ({ default: () => <div>LeftNav</div> }))
 vi.mock('./telemetry/TelemetryConsentModal', () => ({ default: () => null }))
 vi.mock('./drafts/AllReposDraftsView', () => ({ default: () => <div>AllReposDraftsView</div> }))
@@ -90,7 +90,7 @@ describe('App startup', () => {
     await waitFor(() => { expect(screen.getByText('Wizard')).toBeInTheDocument() })
   })
 
-  it('test_shows_sign_in_on_missing_token', async () => {
+  it('test_shows_resign_in_when_token_missing', async () => {
     mockInvoke.mockImplementation((cmd: unknown) => {
       if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true }))
       if (cmd === 'get_license_signed_in') return Promise.resolve(false)
@@ -98,7 +98,7 @@ describe('App startup', () => {
       return Promise.resolve(null)
     })
     render(<App />)
-    await waitFor(() => { expect(screen.getByText('SignInScreen')).toBeInTheDocument() })
+    await waitFor(() => { expect(screen.getByText('ReSignInScreen')).toBeInTheDocument() })
   })
 
   it('test_shows_main_app_when_complete', async () => {
