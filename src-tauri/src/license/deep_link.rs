@@ -74,7 +74,7 @@ pub async fn handle_activate(
                 repos,
             };
             cache_write(&cache).map_err(DeepLinkError::CacheWrite)?;
-            Ok(user.display_name)
+            Ok(user.display_name.unwrap_or_default())
         }
         Ok(LicenseState::Expired) => Err(DeepLinkError::TokenRejected),
         // Unconfigured here means backend unreachable with no cache — token structure
