@@ -31,14 +31,14 @@ pub(super) async fn activate_handler(
         let _ = tx.send(params.token).await;
     }
 
-    Html(
-        r#"<!doctype html><html><head><title>Postlane Activated</title></head><body \
-        style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;\
-        min-height:100vh;margin:0;background:#f8f9fa"><div style="text-align:center;max-width:400px;padding:2rem">\
-        <h1 style="font-size:1.5rem;color:#1a1a1a">You&#x2019;re signed in</h1>\
-        <p style="color:#6c757d">Postlane is activated. You can close this tab and return to the app.</p>\
-        </div></body></html>"#
-    ).into_response()
+    Html(concat!(
+        "<!doctype html><html><head><title>Postlane Activated</title></head>",
+        r#"<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8f9fa">"#,
+        r#"<div style="text-align:center;max-width:400px;padding:2rem">"#,
+        r#"<h1 style="font-size:1.5rem;color:#1a1a1a">You&#x2019;re signed in</h1>"#,
+        r#"<p style="color:#6c757d">Postlane is activated. You can close this tab and return to the app.</p>"#,
+        "</div></body></html>",
+    )).into_response()
 }
 
 pub(super) async fn auth_middleware(
@@ -429,5 +429,18 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_activate_html_body_contains_no_backslash() {
+        let app = create_router(make_state("tok"));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_str = std::str::from_utf8(&body_bytes).unwrap();
+        assert!(!body_str.contains('\\'), "HTML response must not contain backslashes, got: {}", body_str);
     }
 }

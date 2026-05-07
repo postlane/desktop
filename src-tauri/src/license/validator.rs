@@ -9,7 +9,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
     pub id: String,
-    pub display_name: String,
+    pub display_name: Option<String>,
     pub avatar_url: Option<String>,
 }
 
@@ -76,6 +76,7 @@ pub fn is_cache_expired(cache: &LicenseCache) -> bool {
 #[derive(Deserialize)]
 struct LicenseValidateResponse {
     user: UserInfo,
+    #[serde(default)]
     repos: Vec<RepoLicenseInfo>,
 }
 
@@ -174,7 +175,7 @@ mod tests {
     }
 
     fn test_user() -> UserInfo {
-        UserInfo { id: "u1".into(), display_name: "Alice".into(), avatar_url: None }
+        UserInfo { id: "u1".into(), display_name: Some("Alice".into()), avatar_url: None }
     }
 
     #[tokio::test]
@@ -397,5 +398,46 @@ mod tests {
     #[test]
     fn warn_on_cache_write_does_not_panic_on_error() {
         warn_on_cache_write(Err("no space left on device".to_string()));
+    }
+
+    /// Web endpoint can return `display_name: null` — must not fail deserialization.
+    #[tokio::test]
+    async fn test_validate_token_null_display_name_succeeds() {
+        let _g = lock().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+        let path = cache_path().expect("path");
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/license/validate");
+            then.status(200).json_body(serde_json::json!({
+                "valid": true,
+                "user": { "id": "u1", "display_name": null, "avatar_url": null },
+                "repos": []
+            }));
+        });
+        let client = build_client();
+        let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(state, LicenseState::Valid { .. }), "null display_name must parse successfully");
+    }
+
+    /// Web endpoint may omit `repos` field — must not fail deserialization.
+    #[tokio::test]
+    async fn test_validate_token_missing_repos_field_succeeds() {
+        let _g = lock().lock().unwrap();
+        crate::init::init_postlane_dir().expect("init");
+        let path = cache_path().expect("path");
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/license/validate");
+            then.status(200).json_body(serde_json::json!({
+                "valid": true,
+                "user": { "id": "u1", "display_name": "Alice", "avatar_url": null }
+            }));
+        });
+        let client = build_client();
+        let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(state, LicenseState::Valid { .. }), "missing repos field must parse successfully");
     }
 }
