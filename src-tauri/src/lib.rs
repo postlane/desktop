@@ -172,14 +172,36 @@ fn register_deep_link_handler(app_handle: tauri::AppHandle) {
     });
 }
 
-/// Generates the session token and starts the HTTP server on port 47312.
+/// Reads the local HTTP server port from `~/.postlane/port`.
+/// Used by the frontend to build the desktop OAuth callback URL.
+#[tauri::command]
+fn get_local_server_port() -> Result<u16, String> {
+    let port_path = init::postlane_dir()?.join("port");
+    std::fs::read_to_string(&port_path)
+        .map_err(|e| format!("Failed to read port file: {}", e))?
+        .trim()
+        .parse::<u16>()
+        .map_err(|e| format!("Invalid port in file: {}", e))
+}
+
+/// Generates the session token, starts the HTTP server on port 47312, and
+/// spawns a task that receives validated JWT tokens from the `/activate` route
+/// and processes them identically to the deep-link handler.
 fn spawn_http_server(
-    _app_handle: tauri::AppHandle,
+    app_handle: tauri::AppHandle,
     repos_config: storage::ReposConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri_plugin_keyring::KeyringExt;
+    use tauri::Emitter;
+
     let token = http_server::generate_and_write_token()?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
-    let server_state = http_server::ServerState { token, repos: repos_arc };
+    let (activation_tx, mut activation_rx) = tokio::sync::mpsc::channel::<String>(4);
+    let server_state = http_server::ServerState {
+        token,
+        repos: repos_arc,
+        activation_tx: Some(activation_tx),
+    };
 
     tauri::async_runtime::spawn(async move {
         match http_server::start_server(server_state, 47312).await {
@@ -192,6 +214,39 @@ fn spawn_http_server(
             }
             Err(e) => {
                 log::error!("Failed to start HTTP server: {}", e);
+            }
+        }
+    });
+
+    tauri::async_runtime::spawn(async move {
+        while let Some(token) = activation_rx.recv().await {
+            let handle = app_handle.clone();
+            let keyring_handle = handle.clone();
+            let client = providers::scheduling::build_client();
+            let result = license::deep_link::handle_activate(
+                &token,
+                &client,
+                license::POSTLANE_API_BASE,
+                move |t| keyring_handle.keyring().set_password("postlane", "license", t)
+                    .map_err(|e| e.to_string()),
+                license::validator::write_license_cache,
+            )
+            .await;
+            match result {
+                Ok(display_name) => {
+                    log::info!("License activated via local callback for {}", display_name);
+                    let _ = handle.emit(
+                        "license:activated",
+                        serde_json::json!({ "display_name": display_name }),
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Local callback activation failed: {}", e);
+                    let _ = handle.emit(
+                        "license:error",
+                        serde_json::json!({ "message": e.to_string() }),
+                    );
+                }
             }
         }
     });
@@ -310,6 +365,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         telemetry_commands::get_telemetry_consent, telemetry_commands::set_telemetry_consent,
         scheduling_commands::get_scheduler_usage,
         license::get_license_signed_in,
+        get_local_server_port,
         project_registry::check_project_status, project_registry::check_billing_gate,
         project_registry::create_project, project_registry::write_project_id_to_config,
         project_registry::register_repo_with_project, project_registry::save_project_voice_guide,
