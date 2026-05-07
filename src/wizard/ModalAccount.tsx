@@ -61,8 +61,10 @@ export default function ModalAccount({ onNext, onBack, pollIntervalMs = 2000 }: 
     setActivationError(null);
     try {
       const port = await invoke<number>('get_local_server_port');
+      console.info(`[activate] opening login with port=${port}`);
       openUrl(`https://postlane.dev/login?desktop=1&port=${port}`).catch(console.error);
-    } catch {
+    } catch (e) {
+      console.error('[activate] get_local_server_port failed — opening without port:', e);
       openUrl('https://postlane.dev/login?desktop=1').catch(console.error);
     }
   }
