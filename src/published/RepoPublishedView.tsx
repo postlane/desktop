@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components/catalyst/button';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/catalyst/table';
 import type { PublishedPost, PostAnalytics } from '../types';
+import { isPublishedPost } from '../ipc-guards';
 
 const PAGE_SIZE = 100;
 
@@ -33,14 +32,16 @@ function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancel
   }
 
   return (
-    <TableRow>
-      <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
-      <TableCell>{post.platforms.join(', ')}</TableCell>
-      <TableCell>{formatTimestamp(post.schedule, tz)}</TableCell>
-      <TableCell>
-        {cancelError ? <span className="text-xs text-zinc-500">{cancelError}</span> : <Button outline onClick={handleCancel} disabled={cancelling}>{cancelling ? 'Cancelling…' : 'Cancel'}</Button>}
-      </TableCell>
-    </TableRow>
+    <tr>
+      <td className="is-family-monospace is-size-7">{post.post_folder}</td>
+      <td className="is-size-7">{post.platforms.join(', ')}</td>
+      <td className="is-size-7">{formatTimestamp(post.schedule, tz)}</td>
+      <td className="is-size-7">
+        {cancelError
+          ? <span className="has-text-grey is-size-7">{cancelError}</span>
+          : <button className="button is-outlined is-small" onClick={handleCancel} disabled={cancelling}>{cancelling ? 'Cancelling…' : 'Cancel'}</button>}
+      </td>
+    </tr>
   );
 }
 
@@ -60,22 +61,15 @@ function AnalyticsToggleCell({ repoId, postFolder, sentAt }: { repoId: string; p
   }
 
   if (!triggered) return (
-    <button
-      aria-label="Load analytics"
-      title="Click to load analytics"
-      onClick={handleLoad}
-      className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-    >
-      —
-    </button>
+    <button aria-label="Load analytics" title="Click to load analytics" onClick={handleLoad} className="button is-ghost is-small has-text-grey-light">—</button>
   );
-  if (loading) return <span className="text-xs text-zinc-400">…</span>;
-  if (!analytics?.configured) return <span className="text-xs text-zinc-400">Set up Analytics — Settings → Analytics</span>;
+  if (loading) return <span className="has-text-grey-light is-size-7">…</span>;
+  if (!analytics?.configured) return <span className="has-text-grey-light is-size-7">Set up Analytics — Settings → Analytics</span>;
   if (analytics.unique_sessions === 0) {
     const isRecent = sentAt != null && (Date.now() - new Date(sentAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
-    return <span className="text-xs text-zinc-400">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
+    return <span className="has-text-grey-light is-size-7">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
   }
-  return <span className="text-xs">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
+  return <span className="is-size-7">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
 }
 
 function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
@@ -92,18 +86,18 @@ function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
   }
 
   return (
-    <TableRow>
-      <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
-      <TableCell className="text-xs text-zinc-500">{formatTimestamp(post.sent_at, tz)}</TableCell>
-      <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
-      <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
-      <TableCell className="text-xs"><AnalyticsToggleCell repoId={post.repo_id} postFolder={post.post_folder} sentAt={post.sent_at} /></TableCell>
-      <TableCell className="text-xs">
+    <tr>
+      <td className="is-family-monospace is-size-7">{post.post_folder}</td>
+      <td className="has-text-grey is-size-7">{formatTimestamp(post.sent_at, tz)}</td>
+      <td className="is-size-7">{sentPlatforms.join(', ')}</td>
+      <td className="is-size-7">{post.llm_model ?? '—'}</td>
+      <td className="is-size-7"><AnalyticsToggleCell repoId={post.repo_id} postFolder={post.post_folder} sentAt={post.sent_at} /></td>
+      <td className="is-size-7">
         {viewLinks.length > 0 ? viewLinks.map((l) => (
-          <button key={l.platform} onClick={() => handleOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200">{l.platform} ↗</button>
+          <button key={l.platform} onClick={() => handleOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="button is-ghost is-small has-text-link">{l.platform} ↗</button>
         )) : '—'}
-      </TableCell>
-    </TableRow>
+      </td>
+    </tr>
   );
 }
 
@@ -117,9 +111,10 @@ function useRepoPublished(repoId: string) {
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
     try {
-      const result = await invoke<PublishedPost[]>('get_repo_published', { repoId, offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 });
-      const hasMoreResults = result.length > PAGE_SIZE;
-      const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
+      const result = await invoke<unknown[]>('get_repo_published', { repoId, offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 });
+      const filtered = result.filter(isPublishedPost);
+      const hasMoreResults = filtered.length > PAGE_SIZE;
+      const slice = hasMoreResults ? filtered.slice(0, PAGE_SIZE) : filtered;
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
     } catch (e) { console.error('get_repo_published failed:', e); }
@@ -145,35 +140,39 @@ export default function RepoPublishedView({ repoId }: Props) {
   const tz = useTimezone();
   const { posts, hasMore, loading, loadMore, refresh } = useRepoPublished(repoId);
 
-  if (loading) return <div className="flex h-full items-center justify-center"><p className="text-sm text-zinc-400">Loading…</p></div>;
+  if (loading) return (
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%' }}>
+      <p className="is-size-7 has-text-grey">Loading…</p>
+    </div>
+  );
 
   const queued = posts.filter((p) => p.status === 'queued');
   const sent = posts.filter((p) => p.status === 'sent');
 
   if (posts.length === 0) return (
-    <div className="flex h-full items-center justify-center p-8">
-      <p className="text-center text-sm text-zinc-500">No posts sent yet. Draft your first post with <code className="font-mono">/draft-post</code> in your IDE.</p>
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
+      <p className="has-text-centered is-size-7 has-text-grey">No posts sent yet. Draft your first post with <code>/draft-post</code> in your IDE.</p>
     </div>
   );
 
   return (
-    <div className="p-6 space-y-8">
+    <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {queued.length > 0 && (
         <section>
-          <h2 role="heading" className="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Scheduled</h2>
-          <Table>
-            <TableHead><TableRow><TableHeader>Post</TableHeader><TableHeader>Platforms</TableHeader><TableHeader>Scheduled for</TableHeader><TableHeader></TableHeader></TableRow></TableHead>
-            <TableBody>{queued.map((post) => <ScheduledRow key={post.post_folder} post={post} tz={tz} onCancelled={refresh} />)}</TableBody>
-          </Table>
+          <h2 className="has-text-grey is-size-7 has-text-weight-semibold mb-3">Scheduled</h2>
+          <table className="table is-fullwidth is-narrow is-hoverable">
+            <thead><tr><th>Post</th><th>Platforms</th><th>Scheduled for</th><th></th></tr></thead>
+            <tbody>{queued.map((post) => <ScheduledRow key={post.post_folder} post={post} tz={tz} onCancelled={refresh} />)}</tbody>
+          </table>
         </section>
       )}
       {sent.length > 0 && (
         <section>
-          <Table>
-            <TableHead><TableRow><TableHeader>Slug</TableHeader><TableHeader>Sent</TableHeader><TableHeader>Platforms</TableHeader><TableHeader>Model</TableHeader><TableHeader>Engagement</TableHeader><TableHeader>Links</TableHeader></TableRow></TableHead>
-            <TableBody>{sent.map((post) => <SentRow key={post.post_folder} post={post} tz={tz} />)}</TableBody>
-          </Table>
-          {hasMore && <div className="mt-4 text-center"><Button outline onClick={loadMore}>Load more</Button></div>}
+          <table className="table is-fullwidth is-narrow is-hoverable">
+            <thead><tr><th>Slug</th><th>Sent</th><th>Platforms</th><th>Model</th><th>Engagement</th><th>Links</th></tr></thead>
+            <tbody>{sent.map((post) => <SentRow key={post.post_folder} post={post} tz={tz} />)}</tbody>
+          </table>
+          {hasMore && <div className="mt-4 has-text-centered"><button className="button is-outlined is-small" onClick={loadMore}>Load more</button></div>}
         </section>
       )}
     </div>

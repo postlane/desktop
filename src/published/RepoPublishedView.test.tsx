@@ -369,3 +369,13 @@ describe('RepoPublishedView — analytics UX improvements', () => {
     await waitFor(() => expect(screen.getByText(/no sessions yet/i)).toBeInTheDocument());
   });
 });
+
+describe('RepoPublishedView — IPC guard', () => {
+  it('test_filters_invalid_ipc_shapes', async () => {
+    const badShape = { repo_id: 'r1', post_folder: 'bad-post', status: 'sent', sent_at: null, platforms: 'not-an-array' };
+    mockInvoke.mockResolvedValue([makeSent({ post_folder: 'valid-post' }), badShape]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByText('valid-post'));
+    expect(screen.queryByText('bad-post')).not.toBeInTheDocument();
+  });
+});

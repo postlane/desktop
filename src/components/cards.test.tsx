@@ -235,7 +235,7 @@ describe('MastodonCard — content warning', () => {
   it('hides CW bar while editing', () => {
     const { container } = render(<MastodonCard content={'CW: spoilers\nBody'} onSave={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /edit/i }));
-    expect(container.querySelector('.bg-amber-50')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid="cw-bar"]')).not.toBeInTheDocument();
   });
 });
 
@@ -274,7 +274,7 @@ describe('MastodonCard — HTML rendering', () => {
     const { container } = render(
       <MastodonCard content="Before <b>bold</b> after" />,
     );
-    const div = container.querySelector('.whitespace-pre-wrap');
+    const div = container.querySelector('[data-testid="mastodon-body"]');
     expect(div?.textContent).toContain('Before');
     expect(div?.textContent).toContain('bold');
     expect(div?.textContent).toContain('after');
@@ -407,9 +407,9 @@ describe('LinkedInCard — avatar shape', () => {
 
   it('avatar uses rounded-md (square with rounded corners, not a circle)', () => {
     const { container } = render(<LinkedInCard />);
-    const avatar = container.querySelector('.rounded-md');
+    const avatar = container.querySelector('[data-testid="avatar"]');
     expect(avatar).toBeInTheDocument();
-    expect(container.querySelector('.rounded-full')).not.toBeInTheDocument();
+    expect(avatar?.classList.contains('is-rounded')).toBe(false);
   });
 });
 

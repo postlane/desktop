@@ -159,16 +159,14 @@ describe('PostCard — mobile / desktop view toggle', () => {
   it('preview container uses mobile width constraint by default', () => {
     render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-    expect(screen.getByTestId('preview-container')).toHaveClass('max-w-[375px]');
+    expect(screen.getByTestId('preview-container')).toHaveAttribute('data-mobile', 'true');
   });
 
   it('desktop button removes the mobile width constraint and applies 600px constraint', () => {
     render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     fireEvent.click(screen.getByRole('button', { name: /desktop view/i }));
-    const container = screen.getByTestId('preview-container');
-    expect(container).not.toHaveClass('max-w-[375px]');
-    expect(container).toHaveClass('max-w-[600px]');
+    expect(screen.getByTestId('preview-container')).toHaveAttribute('data-mobile', 'false');
   });
 
   it('mobile button re-applies the width constraint after switching to desktop', () => {
@@ -176,7 +174,7 @@ describe('PostCard — mobile / desktop view toggle', () => {
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     fireEvent.click(screen.getByRole('button', { name: /desktop view/i }));
     fireEvent.click(screen.getByRole('button', { name: /mobile view/i }));
-    expect(screen.getByTestId('preview-container')).toHaveClass('max-w-[375px]');
+    expect(screen.getByTestId('preview-container')).toHaveAttribute('data-mobile', 'true');
   });
 });
 

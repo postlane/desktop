@@ -28,33 +28,31 @@ function ProviderRow({ p, priority, isPending, isChecking, onSetUp, onCheck, onR
   onSetUp?: () => void; onCheck: () => void; onRemove: () => void;
 }) {
   return (
-    <li className="flex items-start justify-between py-3">
+    <li style={{ borderBottom: '1px solid #ededed', padding: '0.75rem 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
       <div>
-        {priority > 0 && <span className="mr-1.5 text-xs font-bold text-blue-600 dark:text-blue-400">#{priority}</span>}
-        <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{p.name}</span>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">{p.description}</p>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">{p.freeTier}</p>
+        {priority > 0 && <span className="tag is-link is-light is-small mr-2">#{priority}</span>}
+        <span className="has-text-weight-medium is-size-7">{p.name}</span>
+        <p className="is-size-7 has-text-grey">{p.description}</p>
+        <p className="is-size-7 has-text-grey-light">{p.freeTier}</p>
       </div>
-      <div className="ml-4 flex shrink-0 items-center gap-2">
+      <div style={{ marginLeft: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
         {priority > 0 ? (
           <>
-            <span className="text-xs text-green-600 dark:text-green-400">Configured ✓</span>
+            <span className="is-size-7 has-text-success">Configured ✓</span>
             <button type="button" aria-label={`Remove ${p.name}`} onClick={onRemove}
-              className="text-xs text-zinc-400 hover:text-red-600 dark:hover:text-red-400">Remove</button>
+              className="button is-ghost is-small has-text-danger">Remove</button>
           </>
         ) : (
           <>
             {isPending && (
               <button type="button" aria-label={`Check ${p.name} configured`} onClick={onCheck} disabled={isChecking}
-                className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+                className="button is-ghost is-small has-text-link">
                 {isChecking ? 'Checking…' : 'Check ✓'}
               </button>
             )}
             {onSetUp && (
               <button type="button" aria-label={`Set up ${p.name}`} onClick={onSetUp}
-                className="text-xs text-blue-600 hover:underline dark:text-blue-400">
-                Set up →
-              </button>
+                className="button is-ghost is-small has-text-link">Set up →</button>
             )}
           </>
         )}
@@ -67,18 +65,12 @@ function ModalFooter({ hasConfigured, onDone, onSetupLater }: {
   hasConfigured: boolean; onDone: () => void; onSetupLater: () => void;
 }) {
   return (
-    <div className="mt-4 flex justify-end gap-2">
-      <button type="button" onClick={onSetupLater}
-        className="rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
-        Set up later
-      </button>
+    <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
+      <button type="button" className="button is-ghost" onClick={onSetupLater}>Set up later</button>
       {hasConfigured && (
-        <button type="button" onClick={onDone}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">
-          Done
-        </button>
+        <button type="button" className="button is-primary" onClick={onDone}>Done</button>
       )}
-    </div>
+    </footer>
   );
 }
 
@@ -117,31 +109,30 @@ export default function SchedulerSetupModal({ repoName, repoId, onSetupLater, on
   }, [repoId, ordered, onDone]);
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="scheduler-setup-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900">
-        <h2 id="scheduler-setup-title" className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          Set up posting for {repoName}
-        </h2>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Add providers in priority order. When one reaches its free tier, the next is used automatically.
-        </p>
-        <ul className="mt-4 divide-y divide-zinc-100 dark:divide-zinc-800">
-          {PROVIDERS.map((p) => (
-            <ProviderRow key={p.key} p={p}
-              priority={ordered.indexOf(p.key) + 1}
-              isPending={pending.has(p.key)}
-              isChecking={checking === p.key}
-              onSetUp={onOpenSchedulerSettings ? () => handleSetUp(p.key) : undefined}
-              onCheck={() => handleCheck(p.key)}
-              onRemove={() => handleRemove(p.key)}
-            />
-          ))}
-        </ul>
-        {ordered.length > 0 && (
-          <p className="mt-3 text-sm text-green-600 dark:text-green-400">
-            {ordered.length === 1 ? 'Scheduler configured.' : `${ordered.length} providers configured — automatic fallback active.`}
-          </p>
-        )}
+    <div className="modal is-active">
+      <div className="modal-background" />
+      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="scheduler-setup-title">
+        <header className="modal-card-head"><p id="scheduler-setup-title" className="modal-card-title">Set up posting for {repoName}</p></header>
+        <section className="modal-card-body">
+          <p className="is-size-7 has-text-grey mb-4">Add providers in priority order. When one reaches its free tier, the next is used automatically.</p>
+          <ul>
+            {PROVIDERS.map((p) => (
+              <ProviderRow key={p.key} p={p}
+                priority={ordered.indexOf(p.key) + 1}
+                isPending={pending.has(p.key)}
+                isChecking={checking === p.key}
+                onSetUp={onOpenSchedulerSettings ? () => handleSetUp(p.key) : undefined}
+                onCheck={() => handleCheck(p.key)}
+                onRemove={() => handleRemove(p.key)}
+              />
+            ))}
+          </ul>
+          {ordered.length > 0 && (
+            <p className="is-size-7 has-text-success mt-3">
+              {ordered.length === 1 ? 'Scheduler configured.' : `${ordered.length} providers configured — automatic fallback active.`}
+            </p>
+          )}
+        </section>
         <ModalFooter hasConfigured={ordered.length > 0} onDone={handleDone} onSetupLater={onSetupLater} />
       </div>
     </div>

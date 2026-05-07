@@ -26,18 +26,13 @@ interface ReadViewProps {
 
 function LinkedInReadView({ content, authorName, authorHandle }: ReadViewProps) {
   return (
-    <div className="flex items-start gap-2">
-      <div className="h-10 w-10 flex-shrink-0 rounded-md bg-zinc-200 dark:bg-zinc-700" />
-      <div className="flex flex-col gap-0.5">
-        {authorName && (
-          <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{authorName}</span>
-        )}
-        {authorHandle && (
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">{authorHandle} · 1st</span>
-        )}
-        <div className="whitespace-pre-wrap break-all text-sm text-zinc-900 dark:text-zinc-100">
-          {content}
-        </div>
+    <div className="is-flex" style={{ gap: '0.5rem' }}>
+      <div data-testid="avatar" className="image is-48x48 is-flex-shrink-0"
+        style={{ background: 'var(--bulma-grey-lighter)', borderRadius: '4px' }} />
+      <div>
+        {authorName && <p className="has-text-weight-semibold is-size-7">{authorName}</p>}
+        {authorHandle && <p className="has-text-grey is-size-7">{authorHandle} · 1st</p>}
+        <div className="content is-small">{content}</div>
       </div>
     </div>
   );
@@ -67,38 +62,23 @@ export default function LinkedInCard({
 
   const count = countLinkedInChars(editing ? draft : content);
   const isOverLimit = count > LIMIT;
-  const counterClass = isOverLimit
-    ? 'text-sm font-medium text-red-600 dark:text-red-400'
-    : 'text-sm text-zinc-500 dark:text-zinc-400';
+  const cc = isOverLimit ? 'is-size-7 has-text-danger' : 'is-size-7 has-text-grey';
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="block">
       {editing ? (
-        <textarea
-          ref={textareaRef}
-          className="w-full resize-none overflow-hidden rounded border border-zinc-300 p-2 text-sm text-zinc-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          rows={1}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          autoFocus
-        />
+        <textarea ref={textareaRef} className="textarea is-small" rows={1} value={draft}
+          onChange={(e) => setDraft(e.target.value)} autoFocus />
       ) : (
         <LinkedInReadView content={content} authorName={authorName} authorHandle={authorHandle} />
       )}
       {imageUrl && !editing && (
-        <img src={imageUrl} alt="Post image" className="w-full rounded-xl object-cover" style={{ aspectRatio: '16/9' }} />
+        <img src={imageUrl} alt="Post image" style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover' }} />
       )}
       <CardActions
-        editing={editing}
-        count={count}
-        limit={LIMIT}
-        counterClass={counterClass}
-        isOverLimit={isOverLimit}
-        onSave={onSave}
-        onImageClick={onImageClick}
-        onApprove={onApprove}
-        approveLabel={approveLabel}
-        onDelete={onDelete}
+        editing={editing} count={count} limit={LIMIT} counterClass={cc}
+        isOverLimit={isOverLimit} onSave={onSave} onImageClick={onImageClick}
+        onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete}
         onCancelEdit={() => setEditing(false)}
         onSaveEdit={() => { onSave?.(draft); setEditing(false); }}
         onStartEdit={() => { setDraft(content); setEditing(true); }}

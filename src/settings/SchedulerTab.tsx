@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components/catalyst/button';
-import {
-  Dialog, DialogActions, DialogBody, DialogDescription, DialogTitle,
-} from '../components/catalyst/dialog';
 import MastodonOAuthPanel from './MastodonOAuthPanel';
 import SubstackNotesPanel from './SubstackNotesPanel';
 import WebhookPanel from './WebhookPanel';
@@ -40,24 +36,12 @@ export function UsageBadge({ usage }: { usage: UsageResponse | undefined }) {
   const countStr = count.toLocaleString();
   const limitStr = limit.toLocaleString();
   if (atLimit) {
-    return (
-      <span className="text-xs text-red-600 dark:text-red-400">
-        {countStr}/{limitStr} posts — Limit reached. Posts will fall back to your next configured provider.
-      </span>
-    );
+    return <span className="is-size-7 has-text-danger">{countStr}/{limitStr} posts — Limit reached. Posts will fall back to your next configured provider.</span>;
   }
   if (nearLimit) {
-    return (
-      <span className="text-xs text-amber-600 dark:text-amber-400">
-        {countStr}/{limitStr} posts used this month — approaching limit
-      </span>
-    );
+    return <span className="is-size-7 has-text-warning-dark">{countStr}/{limitStr} posts used this month — approaching limit</span>;
   }
-  return (
-    <span className="text-xs text-zinc-400 dark:text-zinc-500">
-      {countStr}/{limitStr} posts used this month
-    </span>
-  );
+  return <span className="is-size-7 has-text-grey">{countStr}/{limitStr} posts used this month</span>;
 }
 
 export interface CredentialState {
@@ -85,48 +69,39 @@ interface ProviderCardProps {
 
 function SchedulerProviderCard({ provider, cred, usage, note, platforms, onTest, onStartAdd, onSave, onCancelAdd, onKeyChange, onRemove }: ProviderCardProps) {
   return (
-    <div data-provider={provider} className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div>
-            <span className="font-medium capitalize text-zinc-900 dark:text-zinc-100">{provider}</span>
-            {note && <p className="text-xs text-zinc-400 mt-0.5">{note}</p>}
-            <UsageBadge usage={usage} />
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {platforms.map((p) => (
-                <span key={p} className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">{p}</span>
-              ))}
-            </div>
+    <div data-provider={provider} className="box p-4">
+      <div className="is-flex is-align-items-center is-justify-content-space-between" style={{ gap: '1rem' }}>
+        <div>
+          <span className="has-text-weight-medium is-capitalized">{provider}</span>
+          {note && <p className="is-size-7 has-text-grey mt-1">{note}</p>}
+          <UsageBadge usage={usage} />
+          <div className="tags mt-2" style={{ flexWrap: 'wrap', gap: '0.25rem' }}>
+            {platforms.map((p) => <span key={p} className="tag is-light is-small">{p}</span>)}
           </div>
           {cred.preview
-            ? <span className="text-xs text-zinc-500">{cred.preview}</span>
-            : <span className="text-xs text-zinc-400">not configured</span>}
+            ? <span className="is-size-7 has-text-grey">{cred.preview}</span>
+            : <span className="is-size-7 has-text-grey-light">not configured</span>}
         </div>
-        <div className="flex items-center gap-2">
-          {cred.testResult === 'ok' && <span className="text-xs text-green-600">✓</span>}
-          {cred.testResult === 'error' && <span className="text-xs text-red-600">{cred.testError}</span>}
+        <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', flexShrink: 0 }}>
+          {cred.testResult === 'ok' && <span className="is-size-7 has-text-success">✓</span>}
+          {cred.testResult === 'error' && <span className="is-size-7 has-text-danger">{cred.testError}</span>}
           {cred.preview ? (
             <>
-              <Button outline onClick={onTest} disabled={cred.testing}>Test</Button>
-              <Button outline onClick={onStartAdd}>Change</Button>
-              <Button outline onClick={onRemove}>Remove</Button>
+              <button className="button is-outlined is-small" onClick={onTest} disabled={cred.testing}>Test</button>
+              <button className="button is-outlined is-small" onClick={onStartAdd}>Change</button>
+              <button className="button is-outlined is-small" onClick={onRemove}>Remove</button>
             </>
           ) : (
-            <Button outline onClick={onStartAdd}>+ Add</Button>
+            <button className="button is-outlined is-small" onClick={onStartAdd}>+ Add</button>
           )}
         </div>
       </div>
       {cred.adding && (
-        <div className="mt-3 flex gap-2">
-          <input
-            type="password"
-            value={cred.keyInput}
-            onChange={(e) => onKeyChange(e.target.value)}
-            placeholder="API key"
-            className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          />
-          <Button onClick={onSave}>Save</Button>
-          <Button plain onClick={onCancelAdd}>Cancel</Button>
+        <div className="mt-3 is-flex" style={{ gap: '0.5rem' }}>
+          <input type="password" value={cred.keyInput} onChange={(e) => onKeyChange(e.target.value)}
+            placeholder="API key" className="input is-small" style={{ flex: 1 }} />
+          <button className="button is-small is-primary" onClick={onSave}>Save</button>
+          <button className="button is-ghost is-small" onClick={onCancelAdd}>Cancel</button>
         </div>
       )}
     </div>
@@ -142,31 +117,39 @@ interface RemoveKeyDialogProps {
 }
 
 function RemoveKeyDialog({ provider, input, onInputChange, onClose, onConfirm }: RemoveKeyDialogProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!provider) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    ref.current?.focus();
+    return () => document.removeEventListener('keydown', onKey);
+  }, [provider, onClose]);
+
+  if (!provider) return null;
   return (
-    <Dialog open={provider !== null} onClose={onClose}>
-      <DialogTitle>Remove {provider} API key</DialogTitle>
-      <DialogDescription>
-        This will permanently delete the API key from your macOS Keychain.
-        Any repos using {provider} will stop working until a new key is added.
-      </DialogDescription>
-      <DialogBody>
-        <p className="mb-2 text-sm text-zinc-700 dark:text-zinc-300">
-          Type <strong>{provider}</strong> to confirm:
-        </p>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => onInputChange(e.target.value)}
-          placeholder={provider ?? ''}
-          className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          autoFocus
-        />
-      </DialogBody>
-      <DialogActions>
-        <Button plain onClick={onClose}>Cancel</Button>
-        <Button color="red" disabled={input !== provider} onClick={onConfirm}>Remove</Button>
-      </DialogActions>
-    </Dialog>
+    <div className="modal is-active">
+      <div className="modal-background" onClick={onClose} />
+      <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
+        <header className="modal-card-head">
+          <p className="modal-card-title">Remove {provider} API key</p>
+          <button className="delete" onClick={onClose} aria-label="Close" />
+        </header>
+        <section className="modal-card-body">
+          <p className="is-size-7 mb-3">
+            This will permanently delete the API key from your macOS Keychain.
+            Any repos using {provider} will stop working until a new key is added.
+          </p>
+          <p className="is-size-7 mb-2">Type <strong>{provider}</strong> to confirm:</p>
+          <input type="text" value={input} onChange={(e) => onInputChange(e.target.value)}
+            placeholder={provider} className="input is-small" autoFocus />
+        </section>
+        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
+          <button className="button is-ghost" onClick={onClose}>Cancel</button>
+          <button className="button is-danger" disabled={input !== provider} onClick={onConfirm}>Remove</button>
+        </footer>
+      </div>
+    </div>
   );
 }
 
@@ -242,30 +225,33 @@ export default function SchedulerTab() {
   const { creds, usage, removeProvider, setRemoveProvider, removeInput, setRemoveInput, update, handleSave, handleRemove, handleTest } = useSchedulerCreds();
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Default scheduler</h2>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-        These are your default credentials. Individual repos can use different accounts — configure per-repo in Settings → Repos → Configure.
-      </p>
-      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200">
-        <strong>macOS Keychain:</strong> API keys are stored securely in Keychain. You will be prompted once per key — click <strong>Always Allow</strong>.
-      </div>
-      {PROVIDERS.map((provider) => (
-        <SchedulerProviderCard key={provider} provider={provider} cred={creds[provider]}
-          usage={usage[provider]}
-          note={PROVIDER_NOTES[provider]}
-          platforms={PROVIDER_PLATFORMS[provider]}
-          onTest={() => handleTest(provider)} onStartAdd={() => update(provider, { adding: true })}
-          onSave={() => handleSave(provider)} onCancelAdd={() => update(provider, { adding: false, keyInput: '' })}
-          onKeyChange={(key) => update(provider, { keyInput: key })}
-          onRemove={() => { setRemoveInput(''); setRemoveProvider(provider); }}
-        />
-      ))}
-      <SubstackNotesPanel />
-      <WebhookPanel />
-      <div className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">Mastodon (direct API)</h2>
-        <MastodonOAuthPanel />
+    <>
+      <div aria-hidden={removeProvider !== null ? 'true' : undefined}
+        style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <h2 className="has-text-weight-semibold is-size-7">Default scheduler</h2>
+        <p className="is-size-7 has-text-grey">
+          These are your default credentials. Individual repos can use different accounts — configure per-repo in Settings → Repos → Configure.
+        </p>
+        <div className="notification is-info is-light is-size-7">
+          <strong>macOS Keychain:</strong> API keys are stored securely in Keychain. You will be prompted once per key — click <strong>Always Allow</strong>.
+        </div>
+        {PROVIDERS.map((provider) => (
+          <SchedulerProviderCard key={provider} provider={provider} cred={creds[provider]}
+            usage={usage[provider]}
+            note={PROVIDER_NOTES[provider]}
+            platforms={PROVIDER_PLATFORMS[provider]}
+            onTest={() => handleTest(provider)} onStartAdd={() => update(provider, { adding: true })}
+            onSave={() => handleSave(provider)} onCancelAdd={() => update(provider, { adding: false, keyInput: '' })}
+            onKeyChange={(key) => update(provider, { keyInput: key })}
+            onRemove={() => { setRemoveInput(''); setRemoveProvider(provider); }}
+          />
+        ))}
+        <SubstackNotesPanel />
+        <WebhookPanel />
+        <div className="mt-4">
+          <h2 className="has-text-weight-semibold is-size-7 mb-3">Mastodon (direct API)</h2>
+          <MastodonOAuthPanel />
+        </div>
       </div>
       <RemoveKeyDialog
         provider={removeProvider}
@@ -274,6 +260,6 @@ export default function SchedulerTab() {
         onClose={() => { setRemoveProvider(null); setRemoveInput(''); }}
         onConfirm={() => removeProvider && handleRemove(removeProvider)}
       />
-    </div>
+    </>
   );
 }

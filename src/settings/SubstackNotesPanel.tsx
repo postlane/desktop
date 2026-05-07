@@ -2,15 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components/catalyst/button';
 
 type PanelState = 'idle' | 'adding' | 'configured';
 
-interface WarningsProps {}
-
-function SubstackWarnings(_: WarningsProps) {
+function SubstackWarnings() {
   return (
-    <div className="space-y-1.5 text-xs text-amber-700 dark:text-amber-400">
+    <div className="is-size-7 has-text-warning-dark" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
       <p>Your session expires when you sign out of Substack. If posting fails, re-enter your credentials here.</p>
       <p>Substack Notes always post immediately — scheduled times are not supported.</p>
     </div>
@@ -23,9 +20,9 @@ interface IdleFormProps {
 
 function IdleView({ onStartAdd }: IdleFormProps) {
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <SubstackWarnings />
-      <Button outline onClick={onStartAdd}>+ Add</Button>
+      <button className="button is-outlined is-small" onClick={onStartAdd}>+ Add</button>
     </div>
   );
 }
@@ -41,23 +38,18 @@ interface AddingFormProps {
 
 function AddingForm({ cookie, saving, saveError, onCookieChange, onSave, onCancel }: AddingFormProps) {
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <SubstackWarnings />
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="is-size-7 has-text-grey">
         Paste your Substack session cookie (<code>connect.sid</code>) here. Find it in your browser&apos;s
         DevTools → Application → Cookies → substack.com after logging in.
       </p>
-      <textarea
-        value={cookie}
-        onChange={(e) => onCookieChange(e.target.value)}
-        placeholder="connect.sid cookie value"
-        rows={3}
-        className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-      />
-      {saveError && <p className="text-xs text-red-600">{saveError}</p>}
-      <div className="flex gap-2">
-        <Button onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-        <Button plain onClick={onCancel}>Cancel</Button>
+      <textarea value={cookie} onChange={(e) => onCookieChange(e.target.value)}
+        placeholder="connect.sid cookie value" rows={3} className="textarea is-small" />
+      {saveError && <p className="is-size-7 has-text-danger">{saveError}</p>}
+      <div className="is-flex" style={{ gap: '0.5rem' }}>
+        <button className="button is-primary is-small" onClick={onSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button className="button is-ghost is-small" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );
@@ -75,16 +67,16 @@ interface ConfiguredViewProps {
 
 function ConfiguredView({ preview, testing, testResult, testError, onTest, onChange, onRemove }: ConfiguredViewProps) {
   return (
-    <div className="space-y-3">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <SubstackWarnings />
-      <div className="flex items-center justify-between gap-4">
-        <span className="text-xs text-zinc-500">{preview}</span>
-        <div className="flex items-center gap-2">
-          {testResult === 'ok' && <span className="text-xs text-green-600">✓</span>}
-          {testResult === 'error' && <span className="text-xs text-red-600">{testError}</span>}
-          <Button outline onClick={onTest} disabled={testing}>Test</Button>
-          <Button outline onClick={onChange}>Change</Button>
-          <Button outline onClick={onRemove}>Remove</Button>
+      <div className="is-flex is-align-items-center is-justify-content-space-between" style={{ gap: '1rem' }}>
+        <span className="is-size-7 has-text-grey">{preview}</span>
+        <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
+          {testResult === 'ok' && <span className="is-size-7 has-text-success">✓</span>}
+          {testResult === 'error' && <span className="is-size-7 has-text-danger">{testError}</span>}
+          <button className="button is-outlined is-small" onClick={onTest} disabled={testing}>Test</button>
+          <button className="button is-outlined is-small" onClick={onChange}>Change</button>
+          <button className="button is-outlined is-small" onClick={onRemove}>Remove</button>
         </div>
       </div>
     </div>
@@ -143,8 +135,8 @@ export default function SubstackNotesPanel() {
   const { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel } = useSubstackPanel();
 
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-      <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-zinc-100">Substack Notes</h3>
+    <div className="box p-4">
+      <h3 className="has-text-weight-medium is-size-7 mb-3">Substack Notes</h3>
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}
       {panelState === 'adding' && (
         <AddingForm cookie={cookie} saving={saving} saveError={saveError} onCookieChange={setCookie}

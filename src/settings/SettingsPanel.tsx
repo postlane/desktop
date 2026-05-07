@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { Button } from '../components/catalyst/button';
 import ReposTab from './ReposTab';
 import SchedulerTab from './SchedulerTab';
 import AnalyticsTab from './AnalyticsTab';
@@ -30,30 +29,23 @@ export default function SettingsPanel({ onClose, onTimezoneChange, onRepoChange,
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'repos');
 
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-zinc-900">
-      <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-700">
-        <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Settings</h1>
-        <Button plain onClick={onClose} aria-label="Close settings">✕</Button>
+    <div className="is-flex" style={{ flexDirection: 'column', height: '100%', background: 'white' }}>
+      <div className="is-flex is-align-items-center is-justify-content-space-between px-5 py-4" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
+        <h1 className="has-text-weight-semibold">Settings</h1>
+        <button className="button is-ghost is-small" onClick={onClose} aria-label="Close settings">✕</button>
       </div>
-      <div className="flex border-b border-zinc-200 px-6 dark:border-zinc-700" role="tablist">
-        {(['repos', 'scheduler', 'analytics', 'app'] as Tab[]).map((tab) => (
-          <button
-            key={tab}
-            role="tab"
-            aria-selected={activeTab === tab}
-            onClick={() => setActiveTab(tab)}
-            className={[
-              'px-4 py-3 text-sm font-medium border-b-2 -mb-px focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
-              activeTab === tab
-                ? 'border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100'
-                : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300',
-            ].join(' ')}
-          >
-            {TAB_LABELS[tab]}
-          </button>
-        ))}
+      <div className="tabs mb-0" role="tablist">
+        <ul>
+          {(['repos', 'scheduler', 'analytics', 'app'] as Tab[]).map((tab) => (
+            <li key={tab} className={activeTab === tab ? 'is-active' : ''}>
+              <a role="tab" aria-selected={activeTab === tab} onClick={() => setActiveTab(tab)}>
+                {TAB_LABELS[tab]}
+              </a>
+            </li>
+          ))}
+        </ul>
       </div>
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="p-5" style={{ flex: 1, overflowY: 'auto' }}>
         {activeTab === 'repos' && <ReposTab onRepoChange={() => onRepoChange?.()} onAddWorkspace={onAddWorkspace} onAddRepo={onAddRepo} />}
         {activeTab === 'scheduler' && <SchedulerTab />}
         {activeTab === 'analytics' && <AnalyticsTab repoId={activeRepoId ?? null} />}

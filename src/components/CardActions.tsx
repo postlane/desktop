@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Button } from './catalyst/button';
-
 interface CardActionsProps {
   editing: boolean;
   count: number;
@@ -34,24 +32,24 @@ export default function CardActions({
   onStartEdit,
 }: CardActionsProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
       <span className={counterClass}>{count}/{limit}</span>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="is-flex is-align-items-center ml-auto" style={{ gap: '0.5rem' }}>
         {editing ? (
           <>
-            <Button plain onClick={onCancelEdit}>Cancel</Button>
-            <Button color="zinc" onClick={onSaveEdit} disabled={isOverLimit}>Save</Button>
+            <button className="button is-ghost is-small" onClick={onCancelEdit}>Cancel</button>
+            <button className="button is-small" onClick={onSaveEdit} disabled={isOverLimit}>Save</button>
           </>
         ) : (
           <>
-            {onSave && <Button plain onClick={onStartEdit} aria-label="Edit">Edit</Button>}
-            {onImageClick && <Button plain onClick={onImageClick} aria-label="Image">Image</Button>}
+            {onSave && <button className="button is-ghost is-small" aria-label="Edit" onClick={onStartEdit}>Edit</button>}
+            {onImageClick && <button className="button is-ghost is-small" aria-label="Image" onClick={onImageClick}>Image</button>}
             {onApprove && (
-              <Button color="green" onClick={onApprove} disabled={isOverLimit}>
+              <button className="button is-success is-small" onClick={onApprove} disabled={isOverLimit}>
                 {approveLabel}
-              </Button>
+              </button>
             )}
-            {onDelete && <Button color="rose" onClick={onDelete}>Delete</Button>}
+            {onDelete && <button className="button is-danger is-small" onClick={onDelete}>Delete</button>}
           </>
         )}
       </div>

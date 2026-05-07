@@ -3,10 +3,8 @@
 import { useState, useCallback } from 'react';
 import { useTimezone, formatTimestamp, getTimezoneOffsetLabel } from '../TimezoneContext';
 import { invoke } from '@tauri-apps/api/core';
-import { ChevronDownIcon } from '@heroicons/react/20/solid';
-import { DevicePhoneMobileIcon, ComputerDesktopIcon } from '@heroicons/react/24/outline';
-import { Button } from '../components/catalyst/button';
-import { Badge } from '../components/catalyst/badge';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faChevronDown, faMobileScreen, faDesktop } from '@fortawesome/free-solid-svg-icons';
 import PostPreview from '../components/PostPreview';
 import type { DraftPost, Platform } from '../types';
 import { PLATFORM_LABELS, PLATFORM_ORDER } from '../constants/platforms';
@@ -54,13 +52,13 @@ function platformsOnPost(post: DraftPost): Platform[] {
 
 function PlatformTabs({ platforms, active, onChange }: { platforms: Platform[]; active: Platform; onChange: (_p: Platform) => void }) {
   return (
-    <div role="tablist" className="flex gap-1 border-b border-zinc-200 dark:border-zinc-700">
+    <div role="tablist" className="tabs is-boxed is-small">
       {platforms.map((p, i) => (
-        <button key={p} role="tab" aria-selected={p === active} onClick={() => onChange(p)} data-slot="tab"
-          className={['px-3 py-1.5 text-sm font-medium border-b-2 -mb-px focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500', p === active ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'].join(' ')}
+        <a key={p} role="tab" aria-selected={p === active} onClick={() => onChange(p)}
+          className={'tab' + (p === active ? ' is-active' : '')}
           aria-label={`${PLATFORM_LABELS[p] ?? p} (${i + 1})`}>
           {PLATFORM_LABELS[p] ?? p}
-        </button>
+        </a>
       ))}
     </div>
   );
@@ -68,11 +66,11 @@ function PlatformTabs({ platforms, active, onChange }: { platforms: Platform[]; 
 
 function PlatformResults({ results }: { results: Record<string, string> }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="tags">
       {Object.entries(results).map(([platform, result]) => (
-        <span key={platform} className="flex items-center gap-1 text-xs">
-          <span className="capitalize text-zinc-600 dark:text-zinc-400">{platform}</span>
-          {result === 'sent' || result === 'success' ? <span className="text-green-600">✓</span> : <span className="text-red-600">✗</span>}
+        <span key={platform} className="is-flex is-align-items-center is-size-7" style={{ gap: '0.25rem' }}>
+          <span className="is-capitalized has-text-grey">{platform}</span>
+          {result === 'sent' || result === 'success' ? <span className="has-text-success">✓</span> : <span className="has-text-danger">✗</span>}
         </span>
       ))}
     </div>
@@ -80,12 +78,14 @@ function PlatformResults({ results }: { results: Record<string, string> }) {
 }
 
 function ViewToggle({ mobileView, onChange }: { mobileView: boolean; onChange: (_m: boolean) => void }) {
-  const activeClass = 'rounded bg-zinc-200 p-0.5 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-100';
-  const inactiveClass = 'p-0.5 text-zinc-400 dark:text-zinc-500';
   return (
-    <div className="flex items-center gap-1 pb-px">
-      <Button plain onClick={() => onChange(true)} aria-label="Mobile view" aria-pressed={mobileView} className={mobileView ? activeClass : inactiveClass}><DevicePhoneMobileIcon className="h-4 w-4" /></Button>
-      <Button plain onClick={() => onChange(false)} aria-label="Desktop view" aria-pressed={!mobileView} className={!mobileView ? activeClass : inactiveClass}><ComputerDesktopIcon className="h-4 w-4" /></Button>
+    <div className="is-flex is-align-items-center" style={{ gap: '0.25rem' }}>
+      <button className={'button is-ghost is-small' + (mobileView ? ' has-background-grey-lighter' : '')} onClick={() => onChange(true)} aria-label="Mobile view" aria-pressed={mobileView}>
+        <FontAwesomeIcon icon={faMobileScreen} />
+      </button>
+      <button className={'button is-ghost is-small' + (!mobileView ? ' has-background-grey-lighter' : '')} onClick={() => onChange(false)} aria-label="Desktop view" aria-pressed={!mobileView}>
+        <FontAwesomeIcon icon={faDesktop} />
+      </button>
     </div>
   );
 }
@@ -93,41 +93,40 @@ function ViewToggle({ mobileView, onChange }: { mobileView: boolean; onChange: (
 function PostCardErrors({ contentLoadError, attributionEnabled, approveError, saveError, retryError }: { contentLoadError: string | null; attributionEnabled: boolean; approveError: string | null; saveError: string | null; retryError: string | null }) {
   return (
     <>
-      {contentLoadError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{contentLoadError}</p>}
-      {!attributionEnabled && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Attribution footer disabled — toggle in Settings → App</p>}
-      {approveError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{approveError}</p>}
-      {saveError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{saveError}</p>}
-      {retryError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{retryError}</p>}
+      {contentLoadError && <p className="has-text-danger is-size-7 mt-2">{contentLoadError}</p>}
+      {!attributionEnabled && <p className="has-text-warning-dark is-size-7 mt-1">Attribution footer disabled — toggle in Settings → App</p>}
+      {approveError && <p className="has-text-danger is-size-7 mt-2">{approveError}</p>}
+      {saveError && <p className="has-text-danger is-size-7 mt-2">{saveError}</p>}
+      {retryError && <p className="has-text-danger is-size-7 mt-2">{retryError}</p>}
     </>
   );
 }
 
 function PostCardImageInput({ imageUrl, imageInput, fetchingOg, ogFetchError, onInputChange, onSave, onRemove, onCancel }: { imageUrl: string | null; imageInput: string; fetchingOg: boolean; ogFetchError: string | null; onInputChange: (_v: string) => void; onSave: (_url: string) => void; onRemove: () => void; onCancel: () => void }) {
   return (
-    <div className="mt-3 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <input type="url" aria-label="Image URL" placeholder="https://example.com/image.png or paste a page URL" value={imageInput} onChange={(e) => onInputChange(e.target.value)} className="flex-1 rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        {imageUrl && <Button plain onClick={onRemove} className="text-rose-700 dark:text-rose-400">Remove</Button>}
-        <Button onClick={() => onSave(imageInput)} disabled={!imageInput.startsWith('https://') || fetchingOg} aria-label="Save image">{fetchingOg ? 'Resolving…' : 'Save image'}</Button>
-        <Button plain onClick={onCancel}>Cancel</Button>
+    <div className="mt-3" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
+        <input type="url" aria-label="Image URL" placeholder="https://example.com/image.png or paste a page URL" value={imageInput} onChange={(e) => onInputChange(e.target.value)} className="input is-small" style={{ flex: 1 }} />
+        {imageUrl && <button className="button is-ghost is-small has-text-danger" onClick={onRemove}>Remove</button>}
+        <button className="button is-small" onClick={() => onSave(imageInput)} disabled={!imageInput.startsWith('https://') || fetchingOg} aria-label="Save image">{fetchingOg ? 'Resolving…' : 'Save image'}</button>
+        <button className="button is-ghost is-small" onClick={onCancel}>Cancel</button>
       </div>
-      {ogFetchError && <span className="text-xs text-amber-600 dark:text-amber-400">{ogFetchError}</span>}
+      {ogFetchError && <span className="has-text-warning-dark is-size-7">{ogFetchError}</span>}
     </div>
   );
 }
 
 function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError, onInstructionChange, onQueue, onCancel }: { post: DraftPost; redraftInstruction: string; redraftQueued: boolean; redraftError: string | null; onInstructionChange: (_v: string) => void; onQueue: () => void; onCancel: () => void }) {
   return (
-    <div className="mt-4 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <input type="search" placeholder="Ask the LLM to revise… e.g. 'make it shorter'" aria-label="Redraft instruction" value={redraftInstruction} onChange={(e) => onInstructionChange(e.target.value)} maxLength={10000} className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500" />
-        <Button outline disabled={!redraftInstruction.trim()} onClick={onQueue}>Queue for redraft</Button>
+    <div className="mt-4" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
+        <input type="search" placeholder="Ask the LLM to revise… e.g. 'make it shorter'" aria-label="Redraft instruction" value={redraftInstruction} onChange={(e) => onInstructionChange(e.target.value)} maxLength={10000} className="input is-small" style={{ flex: 1 }} />
+        <button className="button is-outlined is-small" disabled={!redraftInstruction.trim()} onClick={onQueue}>Queue for redraft</button>
       </div>
-      {redraftError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{redraftError}</p>}
-      {redraftQueued && <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">Queued for redraft — open your IDE and run <code>/redraft-post</code>.</p>}
-      {redraftQueued && <button type="button" onClick={onCancel} className="text-sm text-gray-500 underline hover:text-gray-700">Cancel redraft</button>}
-      {/* post is used for redraft context */}
-      <span data-post-folder={post.post_folder} className="hidden" />
+      {redraftError && <p className="has-text-danger is-size-7 mt-2">{redraftError}</p>}
+      {redraftQueued && <p className="has-text-grey is-size-7 mt-2">Queued for redraft — open your IDE and run <code>/redraft-post</code>.</p>}
+      {redraftQueued && <button type="button" onClick={onCancel} className="button is-ghost is-small">Cancel redraft</button>}
+      <span data-post-folder={post.post_folder} style={{ display: 'none' }} />
     </div>
   );
 }
@@ -174,11 +173,11 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
 
   return (
     <div className="mt-4">
-      <div className="flex items-center justify-between">
+      <div className="is-flex is-align-items-center is-justify-content-space-between">
         <PlatformTabs platforms={platforms} active={activeTab} onChange={onTabChange} />
         <ViewToggle mobileView={mobileView} onChange={setMobileView} />
       </div>
-      <div data-testid="preview-container" className={`mt-3 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-800 ${mobileView ? 'max-w-[375px]' : 'max-w-[600px]'}`}>
+      <div data-testid="preview-container" data-mobile={mobileView ? 'true' : 'false'} className="mt-3" style={{ maxWidth: mobileView ? 375 : 600, background: 'var(--bulma-scheme-main-bis)', borderRadius: '0.5rem', padding: '0.75rem' }}>
         <PostPreview content={postContent} platform={activeTab} imageUrl={imageUrl ?? undefined}
           charLimit={mastodonCharLimit} onSave={handleSave}
           onImageClick={() => { setImageInput(imageUrl ?? ''); setAddingImage(true); setOgFetchError(null); }}
@@ -195,11 +194,11 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
 function PostCardMeta({ post, localSchedule }: { post: DraftPost; localSchedule: string | null }) {
   const tz = useTimezone();
   return (
-    <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+    <p className="has-text-grey is-size-7 mt-1">
       {post.platforms.join(' · ')}
       {localSchedule && <> · {formatTimestamp(localSchedule, tz)} {getTimezoneOffsetLabel(tz)}</>}
-      {post.schedule_source === 'default' && <> · <span className="rounded bg-zinc-100 px-1 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">auto</span></>}
-      {post.llm_model && <> · <span className="rounded bg-zinc-100 px-1 py-0.5 text-xs text-zinc-400 dark:bg-zinc-800">{post.llm_model}</span></>}
+      {post.schedule_source === 'default' && <> · <span className="tag is-light is-size-7">auto</span></>}
+      {post.llm_model && <> · <span className="tag is-light is-size-7">{post.llm_model}</span></>}
     </p>
   );
 }
@@ -207,8 +206,8 @@ function PostCardMeta({ post, localSchedule }: { post: DraftPost; localSchedule:
 function FailedErrorBanner({ error, platformResults }: { error: string | null; platformResults: Record<string, string> | null }) {
   if (!error) return null;
   return (
-    <div className="mt-3 rounded-lg bg-red-50 p-3 dark:bg-red-900/20">
-      <p className="text-xs text-red-700 dark:text-red-400">{error}</p>
+    <div className="notification is-danger is-light mt-3" style={{ padding: '0.75rem' }}>
+      <p className="is-size-7">{error}</p>
       {platformResults && <div className="mt-2"><PlatformResults results={platformResults} /></div>}
     </div>
   );
@@ -216,9 +215,9 @@ function FailedErrorBanner({ error, platformResults }: { error: string | null; p
 
 function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: () => void }) {
   return (
-    <div role="alert" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+    <div role="alert" className="notification is-warning is-light mt-3 is-size-7" style={{ padding: '0.5rem 0.75rem' }}>
       Posted via {provider} — your primary provider has reached its limit.{' '}
-      <button type="button" onClick={onDismiss} className="font-medium underline">Got it</button>
+      <button type="button" onClick={onDismiss} className="button is-ghost is-small has-text-weight-medium" style={{ textDecoration: 'underline' }}>Got it</button>
     </div>
   );
 }
@@ -230,30 +229,30 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [localSchedule, setLocalSchedule] = useState<string | null>(post.schedule ?? null);
   const platforms = platformsOnPost(post);
   const { approving, approveError, approveSuccessNotice, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
-  const focusClass = isFocused ? 'ring-2 ring-blue-500 bg-blue-50/40 dark:bg-blue-900/10' : '';
   const handleKeyDown = usePostCardKeyboard(isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded);
 
   return (
-    <article role="article" data-post-card onKeyDown={handleKeyDown} tabIndex={0} className={`rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900 focus:outline-none ${focusClass}`}>
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <Badge color="zinc">{post.repo_name}</Badge>
-            {isFailed && <Badge color="red">Failed</Badge>}
+    <article role="article" data-post-card onKeyDown={handleKeyDown} tabIndex={0}
+      className={'box' + (isFocused ? ' has-background-info-light' : '')} style={{ padding: '1rem' }}>
+      <div className="is-flex is-align-items-flex-start" style={{ gap: '0.75rem' }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="tags mb-1" style={{ gap: '0.5rem' }}>
+            <span className="tag is-light">{post.repo_name}</span>
+            {isFailed && <span className="tag is-danger is-light">Failed</span>}
           </div>
-          <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{triggerText(post)}</p>
+          <p className="has-text-weight-medium is-size-7" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{triggerText(post)}</p>
           <PostCardMeta post={post} localSchedule={localSchedule} />
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button color="blue" onClick={() => setExpanded((v) => !v)} aria-label="Preview" aria-expanded={expanded}>
-            <ChevronDownIcon className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-            Preview
-          </Button>
+        <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', flexShrink: 0 }}>
+          <button className="button is-info is-small" onClick={() => setExpanded((v) => !v)} aria-label="Preview" aria-expanded={expanded}>
+            <FontAwesomeIcon icon={faChevronDown} style={{ transform: expanded ? 'rotate(180deg)' : undefined }} />
+            <span>Preview</span>
+          </button>
         </div>
       </div>
       {isFailed && <FailedErrorBanner error={post.error} platformResults={post.platform_results} />}
       {approveSuccessNotice && (
-        <p role="status" className="mt-2 text-xs font-medium text-green-600 dark:text-green-400">✓ {approveSuccessNotice}</p>
+        <p role="status" className="has-text-success has-text-weight-medium is-size-7 mt-2">✓ {approveSuccessNotice}</p>
       )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (

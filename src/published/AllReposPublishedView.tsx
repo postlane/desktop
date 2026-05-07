@@ -3,10 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
-import { Button } from '../components/catalyst/button';
-import { Badge } from '../components/catalyst/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/catalyst/table';
 import type { PublishedPost, ModelStats, PostAnalytics } from '../types';
+import { isPublishedPost } from '../ipc-guards';
 
 const PAGE_SIZE = 100;
 
@@ -18,30 +16,28 @@ function ModelBar({ stats }: { stats: ModelStats[] }) {
   const maxRate = Math.max(...stats.map((s) => s.edit_rate), 0.01);
 
   return (
-    <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
+    <section className="box mb-5">
       <div className="mb-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Edit rate by model</h2>
-          <span title="Edit rate = how often you changed the draft before approving. Does not account for dismissed posts." className="cursor-help text-xs text-zinc-400">ⓘ</span>
+        <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
+          <h2 className="has-text-weight-semibold is-size-7">Edit rate by model</h2>
+          <span title="Edit rate = how often you changed the draft before approving. Does not account for dismissed posts." className="has-text-grey-light is-size-7" style={{ cursor: 'help' }}>ⓘ</span>
         </div>
-        <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">How often posts needed editing before sending — lower is better.</p>
+        <p className="is-size-7 has-text-grey mt-1">How often posts needed editing before sending — lower is better.</p>
       </div>
-      <div className="space-y-3">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {stats.map((s) => {
           const pct = Math.round(s.edit_rate * 100);
           const barWidth = Math.round((s.edit_rate / maxRate) * 100);
           return (
             <div key={s.model}>
-              <div className="mb-1 flex items-center justify-between text-xs">
-                <span className={s.limited_data ? 'text-zinc-400' : 'text-zinc-700 dark:text-zinc-300'}>
+              <div className="is-flex is-justify-content-space-between is-size-7 mb-1">
+                <span className={s.limited_data ? 'has-text-grey-light' : 'has-text-grey-dark'}>
                   {s.model}
-                  {s.limited_data && <span className="ml-2 text-zinc-400">Limited data ({s.total_posts} posts)</span>}
+                  {s.limited_data && <span className="has-text-grey-light ml-2">Limited data ({s.total_posts} posts)</span>}
                 </span>
-                <span className={s.limited_data ? 'text-zinc-400' : 'text-zinc-600 dark:text-zinc-400'}>{pct}% edited ({s.total_posts} posts)</span>
+                <span className={s.limited_data ? 'has-text-grey-light' : 'has-text-grey'}>{pct}% edited ({s.total_posts} posts)</span>
               </div>
-              <div className="h-2 w-full rounded-full bg-zinc-100 dark:bg-zinc-800">
-                <div className={`h-2 rounded-full ${s.limited_data ? 'bg-zinc-300 dark:bg-zinc-600' : 'bg-zinc-700 dark:bg-zinc-300'}`} style={{ width: `${barWidth}%` }} />
-              </div>
+              <progress className="progress is-small" value={barWidth} max={100} style={{ height: '0.5rem' }} />
             </div>
           );
         })}
@@ -59,11 +55,11 @@ function useAllPublished() {
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
     const [postsResult, statsResult] = await Promise.allSettled([
-      invoke<PublishedPost[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }),
+      invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }),
       pageIndex === 0 ? invoke<ModelStats[]>('get_model_stats') : Promise.resolve(null),
     ]);
     if (postsResult.status === 'fulfilled') {
-      const result = postsResult.value;
+      const result = postsResult.value.filter(isPublishedPost);
       const hasMoreResults = result.length > PAGE_SIZE;
       const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
@@ -102,22 +98,15 @@ function AnalyticsToggleCell({ repoId, postFolder, sentAt }: { repoId: string; p
   }
 
   if (!triggered) return (
-    <button
-      aria-label="Load analytics"
-      title="Click to load analytics"
-      onClick={handleLoad}
-      className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-    >
-      —
-    </button>
+    <button aria-label="Load analytics" title="Click to load analytics" onClick={handleLoad} className="button is-ghost is-small has-text-grey-light">—</button>
   );
-  if (loading) return <span className="text-xs text-zinc-400">…</span>;
-  if (!analytics?.configured) return <span className="text-xs text-zinc-400">Set up Analytics — Settings → Analytics</span>;
+  if (loading) return <span className="has-text-grey-light is-size-7">…</span>;
+  if (!analytics?.configured) return <span className="has-text-grey-light is-size-7">Set up Analytics — Settings → Analytics</span>;
   if (analytics.unique_sessions === 0) {
     const isRecent = sentAt != null && (Date.now() - new Date(sentAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
-    return <span className="text-xs text-zinc-400">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
+    return <span className="has-text-grey-light is-size-7">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
   }
-  return <span className="text-xs">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
+  return <span className="is-size-7">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
 }
 
 function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: PublishedPost; onOpenLink: (_url: string) => void; onNavigateToRepo: (_repoId: string) => void }) {
@@ -130,20 +119,20 @@ function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: Publis
     .filter((l): l is { platform: string; url: string } => l.url !== null);
 
   return (
-    <TableRow>
-      <TableCell><button onClick={() => onNavigateToRepo(post.repo_id)} className="focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><Badge color="zinc">{post.repo_name}</Badge></button></TableCell>
-      <TableCell className="font-mono text-xs">{post.post_folder}</TableCell>
-      <TableCell className="text-xs text-zinc-500">{formatTimestamp(post.sent_at, tz)}</TableCell>
-      <TableCell className="text-xs">{sentPlatforms.join(', ')}</TableCell>
-      <TableCell className="text-xs capitalize">{post.provider ?? '—'}</TableCell>
-      <TableCell className="text-xs">{post.llm_model ?? '—'}</TableCell>
-      <TableCell className="text-xs"><AnalyticsToggleCell repoId={post.repo_id} postFolder={post.post_folder} sentAt={post.sent_at} /></TableCell>
-      <TableCell className="text-xs">
+    <tr>
+      <td><button onClick={() => onNavigateToRepo(post.repo_id)} className="button is-ghost is-small"><span className="tag is-light">{post.repo_name}</span></button></td>
+      <td className="is-family-monospace is-size-7">{post.post_folder}</td>
+      <td className="has-text-grey is-size-7">{formatTimestamp(post.sent_at, tz)}</td>
+      <td className="is-size-7">{sentPlatforms.join(', ')}</td>
+      <td className="is-size-7 is-capitalized">{post.provider ?? '—'}</td>
+      <td className="is-size-7">{post.llm_model ?? '—'}</td>
+      <td className="is-size-7"><AnalyticsToggleCell repoId={post.repo_id} postFolder={post.post_folder} sentAt={post.sent_at} /></td>
+      <td className="is-size-7">
         {viewLinks.length > 0 ? viewLinks.map((l) => (
-          <button key={l.platform} onClick={() => onOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="mr-2 text-blue-600 underline hover:text-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400 dark:hover:text-blue-200">{l.platform} ↗</button>
+          <button key={l.platform} onClick={() => onOpenLink(l.url)} aria-label={`View ${l.platform} post`} className="button is-ghost is-small has-text-link">{l.platform} ↗</button>
         )) : '—'}
-      </TableCell>
-    </TableRow>
+      </td>
+    </tr>
   );
 }
 
@@ -162,40 +151,44 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
     catch (e) { console.error('Failed to open URL:', e); }
   }
 
-  if (loading) return <div className="flex h-full items-center justify-center"><p className="text-sm text-zinc-400">Loading…</p></div>;
+  if (loading) return (
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%' }}>
+      <p className="is-size-7 has-text-grey">Loading…</p>
+    </div>
+  );
 
   const sentPosts = posts.filter((p) => p.status === 'sent');
   const showModelBar = sentPosts.length >= 10 && stats.length > 0;
 
   if (posts.length === 0) return (
-    <div className="flex h-full items-center justify-center p-8">
-      <p className="text-center text-sm text-zinc-500">No posts published yet. Draft your first post with <code className="font-mono">/draft-post</code> in your IDE.</p>
+    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
+      <p className="has-text-centered is-size-7 has-text-grey">No posts published yet. Draft your first post with <code>/draft-post</code> in your IDE.</p>
     </div>
   );
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">All repos — Published</h1>
-        <div className="flex items-center gap-3">
-          {exportStatus && <span className="text-xs text-zinc-500">{exportStatus}</span>}
-          <Button outline onClick={handleExport}>Export CSV</Button>
+    <div className="p-5">
+      <div className="is-flex is-align-items-center is-justify-content-space-between mb-5">
+        <h1 className="has-text-weight-semibold">All repos — Published</h1>
+        <div className="is-flex is-align-items-center" style={{ gap: '0.75rem' }}>
+          {exportStatus && <span className="is-size-7 has-text-grey">{exportStatus}</span>}
+          <button className="button is-outlined is-small" onClick={handleExport}>Export CSV</button>
         </div>
       </div>
       {showModelBar && <ModelBar stats={stats} />}
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableHeader>Repo</TableHeader><TableHeader>Slug</TableHeader><TableHeader>Sent</TableHeader>
-            <TableHeader>Platforms</TableHeader><TableHeader>Scheduler</TableHeader><TableHeader>Model</TableHeader>
-            <TableHeader>Engagement</TableHeader><TableHeader>Links</TableHeader>
-          </TableRow>
-        </TableHead>
-        <TableBody>
+      <table className="table is-fullwidth is-striped is-narrow is-hoverable">
+        <thead>
+          <tr>
+            <th>Repo</th><th>Slug</th><th>Sent</th>
+            <th>Platforms</th><th>Scheduler</th><th>Model</th>
+            <th>Engagement</th><th>Links</th>
+          </tr>
+        </thead>
+        <tbody>
           {sentPosts.map((post) => <PublishedPostRow key={`${post.repo_id}-${post.post_folder}`} post={post} onOpenLink={handleOpenLink} onNavigateToRepo={onNavigateToRepo} />)}
-        </TableBody>
-      </Table>
-      {hasMore && <div className="mt-4 text-center"><Button outline onClick={loadNextPage}>Load more</Button></div>}
+        </tbody>
+      </table>
+      {hasMore && <div className="mt-4 has-text-centered"><button className="button is-outlined is-small" onClick={loadNextPage}>Load more</button></div>}
     </div>
   );
 }
