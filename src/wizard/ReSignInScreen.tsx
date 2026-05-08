@@ -23,8 +23,13 @@ export default function ReSignInScreen({ onSignedIn, pollIntervalMs = 2000 }: Pr
     return () => clearInterval(interval);
   }, [onSignedIn, pollIntervalMs]);
 
-  function handleProvider(provider: string) {
-    openUrl(`https://postlane.dev/login?provider=${provider}`).catch(console.error);
+  async function handleProvider(provider: string) {
+    try {
+      const port = await invoke<number>('get_local_server_port');
+      openUrl(`https://postlane.dev/login?desktop=1&port=${port}&provider=${provider}`).catch(console.error);
+    } catch {
+      openUrl(`https://postlane.dev/login?desktop=1&provider=${provider}`).catch(console.error);
+    }
   }
 
   return (
