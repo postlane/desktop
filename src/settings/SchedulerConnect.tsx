@@ -28,6 +28,11 @@ const PROVIDER_HINTS: Partial<Record<Provider, { text: string; url: string; link
     url: 'https://docs.postlane.dev/scheduling/zernio',
     linkLabel: 'Zernio setup docs',
   },
+  publer: {
+    text: 'See our documentation on how to set up Publer.',
+    url: 'https://docs.postlane.dev/scheduling/publer',
+    linkLabel: 'Publer setup docs',
+  },
 };
 
 interface KeyEntryProps {
