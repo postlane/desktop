@@ -23,7 +23,7 @@ function ProviderPicker({ onSelect }: { onSelect: (p: Provider) => void }) {
         </button>
         <button
           className="button"
-          style={{ flex: '1 1 0', background: '#79C8C3', color: 'white', border: 'none' }}
+          style={{ flex: '1 1 0', background: 'white', color: '#1a1a1a', border: '1px solid #e0e0e0' }}
           onClick={() => onSelect('publer')}
         >
           <PublerLogo size={16} style={{ marginRight: 8 }} />
