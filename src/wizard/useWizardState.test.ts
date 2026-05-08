@@ -94,27 +94,15 @@ describe('useWizardState — step 4 scheduler', () => {
   });
 });
 
-describe('useWizardState — step 5 repo gate', () => {
-  it('test_next_blocked_on_step_5_without_repo', () => {
+describe('useWizardState — step 5 completion', () => {
+  it('test_next_on_step_5_sets_complete', () => {
     const { result } = renderHook(() => useWizardState());
     act(() => result.current.next()); // → 2
     act(() => result.current.setToken('tok'));
     act(() => result.current.next()); // → 3
     act(() => result.current.next()); // → 4
     act(() => result.current.skip()); // → 5
-    act(() => result.current.next()); // blocked — no repo
-    expect(result.current.step).toBe(5);
-  });
-
-  it('test_next_allowed_on_step_5_with_repo', () => {
-    const { result } = renderHook(() => useWizardState());
-    act(() => result.current.next()); // → 2
-    act(() => result.current.setToken('tok'));
-    act(() => result.current.next()); // → 3
-    act(() => result.current.next()); // → 4
-    act(() => result.current.skip()); // → 5
-    act(() => result.current.setRepoAdded(true));
-    act(() => result.current.next()); // complete
+    act(() => result.current.next()); // → complete
     expect(result.current.complete).toBe(true);
   });
 });

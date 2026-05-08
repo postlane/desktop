@@ -22,9 +22,13 @@ describe('Wizard', () => {
     expect(screen.getByText('Sign in to Postlane')).toBeDefined();
   });
 
-  it('test_wizard_completes_on_done', () => {
-    const onComplete = vi.fn();
-    render(<Wizard onComplete={onComplete} startAt={5} />);
-    expect(screen.getByText(/connect a repo/i)).toBeDefined();
+  it('test_renders_modal_complete_on_step_5', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={5} />);
+    expect(screen.getByRole('button', { name: /continue/i })).toBeDefined();
+  });
+
+  it('test_step_5_label_is_complete', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={5} />);
+    expect(screen.getByText(/complete/i)).toBeDefined();
   });
 });

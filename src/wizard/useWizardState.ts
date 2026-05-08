@@ -11,13 +11,11 @@ interface State {
   token: string | null;
   workspaceId: string | null;
   schedulerLinked: boolean;
-  repoAdded: boolean;
   complete: boolean;
 }
 
 function canAdvance(s: State): boolean {
   if (s.step === 2) return s.token !== null;
-  if (s.step === 5) return s.repoAdded;
   return true;
 }
 
@@ -43,7 +41,6 @@ export function useWizardState(options: WizardOptions = {}) {
     token: null,
     workspaceId: null,
     schedulerLinked: false,
-    repoAdded: false,
     complete: false,
   });
 
@@ -58,7 +55,6 @@ export function useWizardState(options: WizardOptions = {}) {
     skip: () => setState(applySkip),
     setToken: (token: string) => setState((s) => ({ ...s, token })),
     setWorkspaceId: (id: string) => setState((s) => ({ ...s, workspaceId: id })),
-    setRepoAdded: (v: boolean) => setState((s) => ({ ...s, repoAdded: v })),
     setSchedulerLinked: (v: boolean) => setState((s) => ({ ...s, schedulerLinked: v })),
   };
 }
