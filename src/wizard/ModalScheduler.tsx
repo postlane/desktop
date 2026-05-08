@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 import SchedulerConnect from '../settings/SchedulerConnect';
 
@@ -24,25 +25,37 @@ function PublerLogo() {
 
 function ProviderPicker({ onSelect }: { onSelect: (p: Provider) => void }) {
   return (
-    <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
-      <button
-        className="button is-flex-grow-1"
-        style={{ background: '#0052CC', color: 'white', border: 'none' }}
-        onClick={() => onSelect('zernio')}
-      >
-        <ZernioLogo />
-        <span>Zernio</span>
-        <span className="tag is-light is-small ml-2">Recommended</span>
-      </button>
-      <button
-        className="button is-flex-grow-1"
-        style={{ background: '#1B3A5C', color: 'white', border: 'none' }}
-        onClick={() => onSelect('publer')}
-      >
-        <PublerLogo />
-        Publer
-      </button>
-    </div>
+    <>
+      <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
+        <button
+          className="button is-flex-grow-1"
+          style={{ background: '#0052CC', color: 'white', border: 'none' }}
+          onClick={() => onSelect('zernio')}
+        >
+          <ZernioLogo />
+          <span>Zernio</span>
+          <span className="tag is-light is-small ml-2">Recommended</span>
+        </button>
+        <button
+          className="button is-flex-grow-1"
+          style={{ background: '#1B3A5C', color: 'white', border: 'none' }}
+          onClick={() => onSelect('publer')}
+        >
+          <PublerLogo />
+          Publer
+        </button>
+      </div>
+      <p className="is-size-7 has-text-grey">
+        You can add more schedulers from the dashboard.{' '}
+        <a
+          href="https://docs.postlane.dev/scheduling"
+          className="has-text-link"
+          onClick={(e) => { e.preventDefault(); openUrl('https://docs.postlane.dev/scheduling').catch(console.error); }}
+        >
+          Scheduling docs
+        </a>
+      </p>
+    </>
   );
 }
 
