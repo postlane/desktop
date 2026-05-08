@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }))
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({
     onResized: vi.fn().mockResolvedValue(() => {}),
@@ -18,10 +19,12 @@ vi.mock('./drafts/AllReposDraftsView', () => ({ default: () => <div>AllReposDraf
 vi.mock('./settings/SettingsPanel', () => ({ default: () => <div>SettingsPanel</div> }))
 
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import App from './App'
 
 const mockInvoke = vi.mocked(invoke)
+const mockListen = vi.mocked(listen)
 
 function makeAppState(overrides = {}) {
   return {
@@ -122,5 +125,21 @@ describe('App startup', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument()
     })
     expect(screen.getByRole('alert').textContent).toMatch(/Keyring unavailable/i)
+  })
+
+  it('shows ReSignInScreen when license:expired event fires', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'get_repos') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    mockListen.mockResolvedValue(() => {})
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+    const expiredEntry = mockListen.mock.calls.find(([ev]) => ev === 'license:expired')
+    expect(expiredEntry, 'license:expired listener must be registered').toBeDefined()
+    act(() => (expiredEntry![1] as () => void)())
+    await waitFor(() => expect(screen.getByText('ReSignInScreen')).toBeInTheDocument())
   })
 })

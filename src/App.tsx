@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
 import ReSignInScreen from './wizard/ReSignInScreen';
@@ -111,6 +112,11 @@ function useAppState() {
   const [repoVersion, setRepoVersion] = useState(0);
   const [postWizardNudge, setPostWizardNudge] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen('license:expired', () => setShowReSignIn(true));
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   useEffect(() => {
     Promise.all([
