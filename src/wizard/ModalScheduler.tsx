@@ -6,6 +6,46 @@ import SchedulerConnect from '../settings/SchedulerConnect';
 
 type Provider = 'zernio' | 'publer';
 
+function ZernioLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" style={{ marginRight: 8 }}>
+      <path d="M4 6h24v4L10 22h18v4H4v-4L22 10H4V6z" />
+    </svg>
+  );
+}
+
+function PublerLogo() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" style={{ marginRight: 8 }}>
+      <path d="M6 4h12a8 8 0 010 16H10v8H6V4zm4 4v8h8a4 4 0 000-8h-8z" />
+    </svg>
+  );
+}
+
+function ProviderPicker({ onSelect }: { onSelect: (p: Provider) => void }) {
+  return (
+    <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
+      <button
+        className="button is-flex-grow-1"
+        style={{ background: '#0052CC', color: 'white', border: 'none' }}
+        onClick={() => onSelect('zernio')}
+      >
+        <ZernioLogo />
+        <span>Zernio</span>
+        <span className="tag is-light is-small ml-2">Recommended</span>
+      </button>
+      <button
+        className="button is-flex-grow-1"
+        style={{ background: '#1B3A5C', color: 'white', border: 'none' }}
+        onClick={() => onSelect('publer')}
+      >
+        <PublerLogo />
+        Publer
+      </button>
+    </div>
+  );
+}
+
 interface Props {
   workspaceId: string;
   onNext: () => void;
@@ -57,23 +97,7 @@ export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedul
           onCancel={handleCancel}
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <button
-            className="button is-light is-fullwidth"
-            onClick={() => setSelectedProvider('zernio')}
-          >
-            <span className="is-flex is-align-items-center" style={{ gap: 8 }}>
-              Zernio
-              <span className="tag is-primary is-light is-small">Recommended</span>
-            </span>
-          </button>
-          <button
-            className="button is-light is-fullwidth"
-            onClick={() => setSelectedProvider('publer')}
-          >
-            Publer
-          </button>
-        </div>
+        <ProviderPicker onSelect={setSelectedProvider} />
       )}
     </WizardShell>
   );
