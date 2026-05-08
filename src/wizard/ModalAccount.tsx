@@ -10,7 +10,6 @@ import WizardShell from './WizardShell';
 interface Props {
   onNext: () => void;
   onBack?: () => void;
-  pollIntervalMs?: number;
 }
 
 function GitHubLogo() {
@@ -32,7 +31,7 @@ function GitLabLogo() {
   );
 }
 
-function useActivation(onNext: () => void, onError: (msg: string) => void, pollIntervalMs: number) {
+function useActivation(onNext: () => void, onError: (msg: string) => void) {
   useEffect(() => {
     const unsubs = [
       listen('license:activated', () => onNext()),
@@ -40,22 +39,12 @@ function useActivation(onNext: () => void, onError: (msg: string) => void, pollI
     ];
     return () => { unsubs.forEach((p) => p.then((fn) => fn())); };
   }, [onNext, onError]);
-
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const signed = await invoke<boolean>('get_license_signed_in');
-        if (signed) { clearInterval(interval); onNext(); }
-      } catch { /* ignore poll errors */ }
-    }, pollIntervalMs);
-    return () => clearInterval(interval);
-  }, [onNext, pollIntervalMs]);
 }
 
-export default function ModalAccount({ onNext, onBack, pollIntervalMs = 2000 }: Props) {
+export default function ModalAccount({ onNext, onBack }: Props) {
   const [activationError, setActivationError] = useState<string | null>(null);
 
-  useActivation(onNext, setActivationError, pollIntervalMs);
+  useActivation(onNext, setActivationError);
 
   async function handleProvider(provider: string) {
     setActivationError(null);

@@ -22,52 +22,37 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockInvoke.mockImplementation((cmd: string) => {
     if (cmd === 'get_local_server_port') return Promise.resolve(47312);
-    return Promise.resolve(false);
+    return Promise.resolve(undefined);
   });
   mockListen.mockResolvedValue(() => {});
 });
 
 describe('ModalAccount', () => {
   it('test_github_button_calls_openUrl', async () => {
-    render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
+    render(<ModalAccount onNext={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /github/i }));
     expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312&provider=github');
   });
 
   it('test_gitlab_button_calls_openUrl', async () => {
-    render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
+    render(<ModalAccount onNext={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /gitlab/i }));
     expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312&provider=gitlab');
   });
 
-  it('test_auto_advances_when_token_detected', async () => {
-    mockInvoke.mockResolvedValue(true);
-    const onNext = vi.fn();
-    render(<ModalAccount onNext={onNext} pollIntervalMs={30} />);
-    await waitFor(() => expect(onNext).toHaveBeenCalledOnce(), { timeout: 3000 });
-  });
-
-  it('test_poll_clears_on_unmount', () => {
-    const clearSpy = vi.spyOn(globalThis, 'clearInterval');
-    const { unmount } = render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
-    unmount();
-    expect(clearSpy).toHaveBeenCalled();
-    clearSpy.mockRestore();
-  });
-
   it('test_no_next_button', () => {
-    render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
+    render(<ModalAccount onNext={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /next/i })).toBeNull();
   });
 
   it('test_no_manual_checkin_button', () => {
-    render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
+    render(<ModalAccount onNext={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /already signed in/i })).toBeNull();
   });
 
   it('test_license_activated_event_calls_onNext', async () => {
     const onNext = vi.fn();
-    render(<ModalAccount onNext={onNext} pollIntervalMs={10000} />);
+    render(<ModalAccount onNext={onNext} />);
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('license:activated', expect.any(Function)));
     const entry = mockListen.mock.calls.find(([ev]) => ev === 'license:activated');
     if (!entry) throw new Error('license:activated listener not registered');
@@ -76,7 +61,7 @@ describe('ModalAccount', () => {
   });
 
   it('test_license_error_event_shows_message', async () => {
-    render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
+    render(<ModalAccount onNext={vi.fn()} />);
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('license:error', expect.any(Function)));
     const entry = mockListen.mock.calls.find(([ev]) => ev === 'license:error');
     if (!entry) throw new Error('license:error listener not registered');
