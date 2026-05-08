@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 type Provider = 'zernio' | 'publer' | 'outstand' | 'webhook' | 'mastodon';
 
@@ -21,7 +22,16 @@ interface Props {
   onCancel: () => void;
 }
 
+const PROVIDER_HINTS: Partial<Record<Provider, { text: string; url: string; linkLabel: string }>> = {
+  zernio: {
+    text: 'See our documentation on how to set up Zernio. It has the most flexibility of all schedulers.',
+    url: 'https://docs.postlane.dev/scheduling/zernio',
+    linkLabel: 'Zernio setup docs',
+  },
+};
+
 interface KeyEntryProps {
+  provider: Provider;
   apiKey: string;
   error: string | null;
   onKeyChange: (v: string) => void;
@@ -29,7 +39,8 @@ interface KeyEntryProps {
   onCancel: () => void;
 }
 
-function KeyEntry({ apiKey, error, onKeyChange, onConnect, onCancel }: KeyEntryProps) {
+function KeyEntry({ provider, apiKey, error, onKeyChange, onConnect, onCancel }: KeyEntryProps) {
+  const hint = PROVIDER_HINTS[provider];
   return (
     <div>
       {error && <div role="alert" className="notification is-danger is-light py-2 px-3 is-size-7 mb-3">{error}</div>}
@@ -39,6 +50,15 @@ function KeyEntry({ apiKey, error, onKeyChange, onConnect, onCancel }: KeyEntryP
           <input className="input is-small" type="text" value={apiKey}
             onChange={(e) => onKeyChange(e.target.value)} placeholder="Paste your API key here" />
         </div>
+        {hint && (
+          <p className="is-size-7 has-text-grey mt-2">
+            {hint.text}{' '}
+            <a className="has-text-link" href={hint.url}
+              onClick={(e) => { e.preventDefault(); openUrl(hint.url).catch(console.error); }}>
+              {hint.linkLabel}
+            </a>
+          </p>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         <button className="button is-primary is-small" onClick={onConnect} disabled={apiKey.trim().length === 0}>Connect</button>
@@ -124,5 +144,5 @@ export default function SchedulerConnect({ workspaceId, provider, onSuccess, onC
     return <ProfileList profiles={profiles} selectedIds={selectedIds} error={error} saving={saving}
       onToggle={toggleProfile} onSave={handleSave} onCancel={onCancel} />;
   }
-  return <KeyEntry apiKey={apiKey} error={error} onKeyChange={setApiKey} onConnect={handleConnect} onCancel={onCancel} />;
+  return <KeyEntry provider={provider} apiKey={apiKey} error={error} onKeyChange={setApiKey} onConnect={handleConnect} onCancel={onCancel} />;
 }
