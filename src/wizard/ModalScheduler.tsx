@@ -4,44 +4,29 @@ import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 import SchedulerConnect from '../settings/SchedulerConnect';
+import { ZernioLogo, PublerLogo } from '../assets/logos';
 
 type Provider = 'zernio' | 'publer';
-
-function ZernioLogo() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" style={{ marginRight: 8 }}>
-      <path d="M4 6h24v4L10 22h18v4H4v-4L22 10H4V6z" />
-    </svg>
-  );
-}
-
-function PublerLogo() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" style={{ marginRight: 8 }}>
-      <path d="M6 4h12a8 8 0 010 16H10v8H6V4zm4 4v8h8a4 4 0 000-8h-8z" />
-    </svg>
-  );
-}
 
 function ProviderPicker({ onSelect }: { onSelect: (p: Provider) => void }) {
   return (
     <>
       <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
         <button
-          className="button is-flex-grow-1"
-          style={{ background: '#D9472A', color: 'white', border: 'none' }}
+          className="button"
+          style={{ flex: '1 1 0', background: '#D9472A', color: 'white', border: 'none' }}
           onClick={() => onSelect('zernio')}
         >
-          <ZernioLogo />
+          <ZernioLogo size={16} style={{ marginRight: 8 }} />
           <span>Zernio</span>
           <span className="tag is-light is-small ml-2">Recommended</span>
         </button>
         <button
-          className="button is-flex-grow-1"
-          style={{ background: '#79C8C3', color: 'white', border: 'none' }}
+          className="button"
+          style={{ flex: '1 1 0', background: '#79C8C3', color: 'white', border: 'none' }}
           onClick={() => onSelect('publer')}
         >
-          <PublerLogo />
+          <PublerLogo size={16} style={{ marginRight: 8 }} />
           Publer
         </button>
       </div>
