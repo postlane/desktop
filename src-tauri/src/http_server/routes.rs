@@ -30,7 +30,17 @@ pub(super) async fn activate_handler(
     log::info!("[activate] token received (length={})", params.token.len());
 
     if let Some(tx) = &state.activation_tx {
-        let _ = tx.send(params.token).await;
+        match tx.try_send(params.token) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                log::warn!("[activate] activation channel full");
+                return (StatusCode::SERVICE_UNAVAILABLE, "Activation in progress — try again in a moment").into_response();
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                log::error!("[activate] activation channel closed");
+                return (StatusCode::SERVICE_UNAVAILABLE, "Activation unavailable").into_response();
+            }
+        }
     }
 
     Html(concat!(
@@ -431,6 +441,25 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_activate_returns_503_when_channel_is_full() {
+        let (tx, _rx) = tokio::sync::mpsc::channel::<String>(1);
+        // Fill the channel
+        tx.try_send("filler.filler.filler".to_string()).unwrap();
+        let state = ServerState {
+            token: "tok".to_string(),
+            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
+            activation_tx: Some(tx),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]

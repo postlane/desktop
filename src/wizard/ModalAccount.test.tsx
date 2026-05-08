@@ -31,13 +31,13 @@ describe('ModalAccount', () => {
   it('test_github_button_calls_openUrl', async () => {
     render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
     await userEvent.click(screen.getByRole('button', { name: /github/i }));
-    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312');
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312&provider=github');
   });
 
   it('test_gitlab_button_calls_openUrl', async () => {
     render(<ModalAccount onNext={vi.fn()} pollIntervalMs={10000} />);
     await userEvent.click(screen.getByRole('button', { name: /gitlab/i }));
-    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312');
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312&provider=gitlab');
   });
 
   it('test_auto_advances_when_token_detected', async () => {
