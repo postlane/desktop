@@ -6,7 +6,7 @@ import ModalWelcome from './ModalWelcome';
 import ModalAccount from './ModalAccount';
 import ModalWorkspace from './ModalWorkspace';
 import ModalScheduler from './ModalScheduler';
-import ModalRepository from './ModalRepository';
+import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
 
 interface Props {
@@ -62,10 +62,10 @@ export default function Wizard({ onComplete, startAt }: Props) {
   }
 
   return (
-    <ModalRepository
-      workspaceId={wizard.workspaceId ?? ''}
-      onBack={wizard.back}
+    <ModalComplete
+      schedulerLinked={wizard.schedulerLinked}
       onComplete={onComplete}
+      onBack={wizard.back}
     />
   );
 }
