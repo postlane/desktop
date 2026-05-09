@@ -73,7 +73,7 @@ export default function ModalWorkspace({ onNext, onBack, onPricingGate }: Props)
       onNext(result.project_id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('no_free_slot')) { onPricingGate(); }
+      if (msg.includes('No free project slot')) { onPricingGate(); }
       else { setError(`Failed to create workspace: ${msg}`); }
     } finally {
       setLoading(false);
