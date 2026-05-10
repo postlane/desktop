@@ -13,10 +13,18 @@ vi.mock('@tauri-apps/api/window', () => ({
 }))
 vi.mock('./wizard/Wizard', () => ({ default: () => <div>Wizard</div> }))
 vi.mock('./wizard/ReSignInScreen', () => ({ default: () => <div>ReSignInScreen</div> }))
-vi.mock('./nav/LeftNav', () => ({ default: () => <div>LeftNav</div> }))
+vi.mock('./nav/LeftNav', () => ({
+  default: ({ onNavigate }: { onNavigate?: (_v: { view: string }) => void }) => (
+    <>
+      <div>LeftNav</div>
+      <button data-testid="leftnav-nav" onClick={() => onNavigate?.({ view: 'no_orgs' })} />
+    </>
+  ),
+}))
 vi.mock('./telemetry/TelemetryConsentModal', () => ({ default: () => null }))
 vi.mock('./drafts/AllReposDraftsView', () => ({ default: () => <div>AllReposDraftsView</div> }))
 vi.mock('./settings/SettingsPanel', () => ({ default: () => <div>SettingsPanel</div> }))
+vi.mock('./settings/OrgSettingsView', () => ({ default: () => <div>OrgSettingsView</div> }))
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -81,7 +89,7 @@ describe('useWindowSizePersistence error logging', () => {
   })
 })
 
-describe('App startup', () => {
+describe('App startup — routing', () => {
   it('test_shows_wizard_on_first_launch', async () => {
     mockInvoke.mockImplementation((cmd: unknown) => {
       if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: false }))
@@ -121,10 +129,29 @@ describe('App startup', () => {
       return Promise.resolve(null)
     })
     render(<App />)
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument()
-    })
+    await waitFor(() => { expect(screen.getByRole('alert')).toBeInTheDocument() })
     expect(screen.getByRole('alert').textContent).toMatch(/Keyring unavailable/i)
+  })
+})
+
+describe('App startup — state initialisation', () => {
+  it('test_app_initialises_system_timezone_on_first_launch', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ timezone: '' }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'get_repos') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => {
+      const saveCalls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'save_app_state_command')
+      const tzSave = saveCalls.find(([, arg]) => {
+        const a = arg as Record<string, unknown>
+        const s = a.state as Record<string, unknown> | undefined
+        return typeof s?.timezone === 'string' && s.timezone !== ''
+      })
+      expect(tzSave, 'save_app_state_command must be called with { state: { timezone: ... } }').toBeDefined()
+    })
   })
 
   it('shows ReSignInScreen when license:expired event fires', async () => {
@@ -142,5 +169,45 @@ describe('App startup', () => {
     if (!expiredEntry) throw new Error('license:expired listener not registered')
     act(() => (expiredEntry[1] as () => void)())
     await waitFor(() => expect(screen.getByText('ReSignInScreen')).toBeInTheDocument())
+  })
+})
+
+describe('App startup — post-wizard nudge', () => {
+  it('navigates to OrgSettingsView on startup when post_wizard_completed absent and projects exist', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([{ id: 'p1', name: 'My Org', workspace_type: 'personal', tier: 'free', billing_active: true, is_owner: true }])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('OrgSettingsView')).toBeInTheDocument())
+  })
+
+  it('does not navigate to OrgSettingsView when post_wizard_completed is true', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([{ id: 'p1', name: 'My Org', workspace_type: 'personal', tier: 'free', billing_active: true, is_owner: true }])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+    expect(screen.queryByText('OrgSettingsView')).not.toBeInTheDocument()
+  })
+
+  it('does not navigate to OrgSettingsView when list_projects returns empty', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+    expect(screen.queryByText('OrgSettingsView')).not.toBeInTheDocument()
   })
 })

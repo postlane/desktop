@@ -4,6 +4,8 @@ pub mod account_config;
 pub mod analytics;
 pub mod app_state;
 pub mod commands;
+pub mod deep_link_routing;
+pub mod draft_edits;
 pub mod draft_queries;
 pub mod draft_schedule;
 pub mod engagement_cache;
@@ -13,8 +15,12 @@ pub mod license;
 pub mod mastodon_oauth;
 pub mod model_stats;
 pub mod nav_commands;
+pub mod og_image;
+pub mod org_published;
 pub mod parser;
+pub mod platform_constants;
 pub mod post_approval;
+pub mod post_meta;
 pub mod post_editor;
 pub mod post_io;
 pub mod post_mutations;
@@ -25,6 +31,7 @@ pub mod project_registry;
 pub mod providers;
 pub mod published_queries;
 pub mod repo_mgmt;
+pub mod repo_project_filter;
 pub mod repo_queries;
 pub mod scheduler_credentials;
 pub mod security;
@@ -118,56 +125,60 @@ fn register_close_to_tray(app: &tauri::App) {
     }
 }
 
-/// Registers the `postlane://activate?token=...` deep link handler.
-/// On a valid 200 response: stores the token in the OS keyring and writes the cache.
-/// Emits `license:activated` with `{ display_name }` on success, or `license:error` with
-/// `{ message }` on failure — the frontend listens for these to show the confirmation banner.
+/// Registers the `postlane://` deep link handler.
+/// Routes by host+path via `deep_link_routing::classify` — query strings are never logged.
+/// `postlane://activate` → license activation. Stubs logged at `info!`. Unknown → `warn!`.
 fn register_deep_link_handler(app_handle: tauri::AppHandle) {
+    use deep_link_routing::DeepLinkPath;
+    use tauri::Emitter;
     use tauri_plugin_deep_link::DeepLinkExt;
     use tauri_plugin_keyring::KeyringExt;
-    use tauri::Emitter;
 
     app_handle.clone().deep_link().on_open_url(move |event| {
         for url in event.urls() {
             let url_str = url.to_string();
             let handle = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                let token = match license::deep_link::parse_activate_url(&url_str) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        log::warn!("Deep link rejected: {}", e);
-                        let _ = handle.emit("license:error", serde_json::json!({ "message": user_facing_activation_error(&e) }));
-                        return;
-                    }
-                };
-                let client = providers::scheduling::build_client();
-                let keyring_handle = handle.clone();
-                let result = license::deep_link::handle_activate(
-                    &token,
-                    &client,
-                    license::POSTLANE_API_BASE,
-                    move |t| keyring_handle.keyring().set_password("postlane", "license", t)
-                        .map_err(|e| e.to_string()),
-                    license::validator::write_license_cache,
-                )
-                .await;
-                match result {
-                    Ok(display_name) => {
-                        log::info!("License activated for {}", display_name);
-                        let _ = handle.emit(
-                            "license:activated",
-                            serde_json::json!({ "display_name": display_name }),
-                        );
-                    }
-                    Err(e) => {
-                        log::warn!("License activation failed: {}", e);
-                        let _ = handle.emit(
-                            "license:error",
-                            serde_json::json!({ "message": user_facing_activation_error(&e) }),
-                        );
-                    }
+            match deep_link_routing::classify(&url_str) {
+                DeepLinkPath::Draft | DeepLinkPath::OauthCallback => {
+                    log::info!("Deep link: {}", deep_link_routing::log_safe_url(&url_str));
                 }
-            });
+                DeepLinkPath::Unknown { path } => {
+                    log::warn!("Unknown deep link path: {}", path);
+                }
+                DeepLinkPath::Activate => {
+                    tauri::async_runtime::spawn(async move {
+                        let token = match license::deep_link::parse_activate_url(&url_str) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                log::warn!("License deep link rejected: {}", e);
+                                let _ = handle.emit("license:error", serde_json::json!({ "message": user_facing_activation_error(&e) }));
+                                return;
+                            }
+                        };
+                        let client = providers::scheduling::build_client();
+                        let keyring_handle = handle.clone();
+                        let result = license::deep_link::handle_activate(
+                            &token,
+                            &client,
+                            license::POSTLANE_API_BASE,
+                            move |t| keyring_handle.keyring().set_password("postlane", "license", t)
+                                .map_err(|e| e.to_string()),
+                            license::validator::write_license_cache,
+                        )
+                        .await;
+                        match result {
+                            Ok(display_name) => {
+                                log::info!("License activated for {}", display_name);
+                                let _ = handle.emit("license:activated", serde_json::json!({ "display_name": display_name }));
+                            }
+                            Err(e) => {
+                                log::warn!("License activation failed: {}", e);
+                                let _ = handle.emit("license:error", serde_json::json!({ "message": user_facing_activation_error(&e) }));
+                            }
+                        }
+                    });
+                }
+            }
         }
     });
 }
@@ -356,28 +367,34 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         repo_queries::get_repos,
         draft_queries::get_all_drafts,
         published_queries::get_repo_published, published_queries::get_all_published,
+        org_published::get_org_published,
         model_stats::get_model_stats,
         nav_commands::get_app_version, nav_commands::get_autostart_enabled,
         nav_commands::get_attribution, nav_commands::set_attribution,
         account_config::list_profiles_for_repo, account_config::save_account_id,
         account_config::get_account_ids,
         nav_commands::read_app_state_command, nav_commands::save_app_state_command,
+        nav_commands::get_app_state,
         app_state::set_wizard_completed,
         app_state::set_default_post_time,
         post_ops::get_drafts, post_approval::approve_post,
         post_ops::get_post_content, post_ops::dismiss_post, post_ops::delete_post,
         post_ops::retry_post, post_ops::queue_redraft, post_ops::cancel_redraft,
         repo_mgmt::add_repo, repo_mgmt::remove_repo, repo_mgmt::set_repo_active,
+        repo_project_filter::list_repos_for_project, repo_project_filter::unregister_repo,
         repo_mgmt::check_repo_health, repo_mgmt::update_repo_path,
         repo_mgmt::update_scheduler_config,
         scheduler_credentials::get_libsecret_status, scheduler_credentials::has_scheduler_configured,
         scheduler_credentials::has_provider_credential, scheduler_credentials::save_scheduler_credential,
         scheduler_credentials::get_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
+        scheduler_credentials::remove_scheduler_credential, scheduler_credentials::list_scheduler_profiles,
+        scheduler_credentials::add_scheduler_credential,
         scheduler_credentials::save_repo_scheduler_key, scheduler_credentials::remove_repo_scheduler_key,
         scheduler_credentials::get_per_repo_scheduler_key,
         commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv,
-        post_editor::update_post_content, post_editor::update_post_image, post_editor::fetch_og_image,
+        post_editor::update_post_content, post_editor::update_post_image,
+        og_image::fetch_og_image, og_image::validate_url_safe,
         post_schedule::update_post_schedule,
         mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
         mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
@@ -386,12 +403,17 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         telemetry_commands::get_telemetry_consent, telemetry_commands::set_telemetry_consent,
         scheduling_commands::get_scheduler_usage,
         license::get_license_signed_in,
+        license::sign_out,
+        license::get_license_display_name,
+        nav_commands::get_watcher_status,
         get_local_server_port,
         project_registry::check_project_status, project_registry::check_billing_gate,
         project_registry::create_project, project_registry::write_project_id_to_config,
         project_registry::register_repo_with_project, project_registry::save_project_voice_guide,
         project_registry::get_project_voice_guide,
         project_registry::get_repo_remote_name, project_registry::read_project_id_from_path,
+        project_registry::list_projects, project_registry::delete_project,
+        draft_edits::save_post_draft,
     ])
 }
 

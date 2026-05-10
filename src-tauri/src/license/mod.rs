@@ -18,6 +18,20 @@ pub fn get_license_signed_in(app_handle: tauri::AppHandle) -> bool {
     )
 }
 
+/// Removes the license token from the OS keyring, signing the user out.
+#[tauri::command]
+pub fn sign_out(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_keyring::KeyringExt;
+    app_handle.keyring().delete_password("postlane", "license")
+        .map_err(|e| format!("Failed to sign out: {}", e))
+}
+
+/// Returns the display name from the license cache, or None if not signed in.
+#[tauri::command]
+pub fn get_license_display_name() -> Option<String> {
+    validator::read_license_cache().and_then(|c| c.user.display_name)
+}
+
 #[cfg(test)]
 mod tests {
     // get_license_signed_in cannot be unit-tested without a real Tauri AppHandle.

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import AllReposPublishedView from './AllReposPublishedView';
-import type { PublishedPost, ModelStats } from '../types';
+import type { PublishedPost } from '../types';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
@@ -33,21 +33,9 @@ function makeSent(overrides: Partial<PublishedPost> = {}): PublishedPost {
   };
 }
 
-function makeStats(overrides: Partial<ModelStats> = {}): ModelStats {
-  return {
-    model: 'claude-sonnet-4-6',
-    total_posts: 20,
-    edited_posts: 5,
-    edit_rate: 0.25,
-    limited_data: false,
-    ...overrides,
-  };
-}
-
-function setupMocks(posts: PublishedPost[], stats: ModelStats[]) {
+function setupMocks(posts: PublishedPost[]) {
   mockInvoke.mockImplementation(async (cmd: unknown) => {
     if (cmd === 'get_all_published') return posts;
-    if (cmd === 'get_model_stats') return stats;
     if (cmd === 'export_history_csv') return '/Users/test/Downloads/postlane-history.csv';
     if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
     return null;
@@ -60,63 +48,11 @@ function setupMocks(posts: PublishedPost[], stats: ModelStats[]) {
 
 describe('AllReposPublishedView — empty state', () => {
   it('shows empty state when no posts', async () => {
-    setupMocks([], []);
+    setupMocks([]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() =>
       expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Model comparison bar
-// ---------------------------------------------------------------------------
-
-describe('AllReposPublishedView — model comparison bar', () => {
-  it('hidden when fewer than 10 total sent posts', async () => {
-    const posts = Array.from({ length: 9 }, (_, i) =>
-      makeSent({ post_folder: `p${i}` }),
-    );
-    setupMocks(posts, [makeStats({ total_posts: 9 })]);
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByText('p0'));
-    expect(screen.queryByText(/edit rate/i)).not.toBeInTheDocument();
-  });
-
-  it('shown when 10+ total sent posts', async () => {
-    const posts = Array.from({ length: 10 }, (_, i) =>
-      makeSent({ post_folder: `p${i}` }),
-    );
-    setupMocks(posts, [makeStats({ total_posts: 10 })]);
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() =>
-      expect(screen.getByText(/edit rate/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('shows model name and edit rate percentage', async () => {
-    const posts = Array.from({ length: 10 }, (_, i) => makeSent({ post_folder: `p${i}` }));
-    setupMocks(posts, [makeStats({ model: 'claude-sonnet-4-6', edit_rate: 0.25, total_posts: 20 })]);
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByText(/edit rate/i));
-    expect(screen.getAllByText(/claude-sonnet-4-6/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/25%/)).toBeInTheDocument();
-  });
-
-  it('shows "Limited data" label for models with 5–19 posts', async () => {
-    const posts = Array.from({ length: 10 }, (_, i) => makeSent({ post_folder: `p${i}` }));
-    setupMocks(posts, [makeStats({ total_posts: 10, limited_data: true })]);
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByText(/edit rate/i));
-    expect(screen.getByText(/limited data/i)).toBeInTheDocument();
-  });
-
-  it('shows edit rate tooltip text', async () => {
-    const posts = Array.from({ length: 10 }, (_, i) => makeSent({ post_folder: `p${i}` }));
-    setupMocks(posts, [makeStats({ total_posts: 10 })]);
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByText(/edit rate/i));
-    expect(screen.getByTitle(/how often you changed/i)).toBeInTheDocument();
   });
 });
 
@@ -126,7 +62,7 @@ describe('AllReposPublishedView — model comparison bar', () => {
 
 describe('AllReposPublishedView — sent posts table', () => {
   it('shows Repo column with repo name', async () => {
-    setupMocks([makeSent({ repo_name: 'my-app' })], []);
+    setupMocks([makeSent({ repo_name: 'my-app' })]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() =>
       expect(screen.getAllByText('my-app').length).toBeGreaterThan(0),
@@ -135,7 +71,7 @@ describe('AllReposPublishedView — sent posts table', () => {
 
   it('clicking repo badge calls onNavigateToRepo', async () => {
     const onNav = vi.fn();
-    setupMocks([makeSent({ repo_id: 'r1', repo_name: 'my-app' })], []);
+    setupMocks([makeSent({ repo_id: 'r1', repo_name: 'my-app' })]);
     render(<AllReposPublishedView onNavigateToRepo={onNav} />);
     await waitFor(() => screen.getAllByText('my-app'));
     fireEvent.click(screen.getAllByText('my-app')[0]);
@@ -146,7 +82,7 @@ describe('AllReposPublishedView — sent posts table', () => {
     const posts = Array.from({ length: 101 }, (_, i) =>
       makeSent({ post_folder: `p${String(i).padStart(3, '0')}` }),
     );
-    setupMocks(posts, []);
+    setupMocks(posts);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(
       () => expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument(),
@@ -161,7 +97,7 @@ describe('AllReposPublishedView — sent posts table', () => {
 
 describe('AllReposPublishedView — export CSV', () => {
   it('shows Export CSV button', async () => {
-    setupMocks([makeSent()], []);
+    setupMocks([makeSent()]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /export csv/i })).toBeInTheDocument(),
@@ -169,7 +105,7 @@ describe('AllReposPublishedView — export CSV', () => {
   });
 
   it('calls export_history_csv and shows success path', async () => {
-    setupMocks([makeSent()], []);
+    setupMocks([makeSent()]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByRole('button', { name: /export csv/i }));
     fireEvent.click(screen.getByRole('button', { name: /export csv/i }));
@@ -185,14 +121,14 @@ describe('AllReposPublishedView — export CSV', () => {
 
 describe('AllReposPublishedView — scheduler column', () => {
   it('shows provider name in Scheduler column when present', async () => {
-    setupMocks([makeSent({ provider: 'zernio' })], []);
+    setupMocks([makeSent({ provider: 'zernio' })]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByText('post-001'));
     expect(screen.getByText('zernio')).toBeInTheDocument();
   });
 
   it('shows — in Scheduler column when provider is null', async () => {
-    setupMocks([makeSent({ provider: null })], []);
+    setupMocks([makeSent({ provider: null })]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByText('post-001'));
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
@@ -205,20 +141,17 @@ describe('AllReposPublishedView — scheduler column', () => {
 
 describe('AllReposPublishedView — view links', () => {
   it('shows — when platform_urls is null', async () => {
-    setupMocks([makeSent({ platform_urls: null })], []);
+    setupMocks([makeSent({ platform_urls: null })]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByText('post-001'));
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
   it('shows clickable view link when platform_urls has a URL', async () => {
-    setupMocks(
-      [makeSent({
-        platform_results: { x: 'sent' },
-        platform_urls: { x: 'https://x.com/i/web/status/42' },
-      })],
-      [],
-    );
+    setupMocks([makeSent({
+      platform_results: { x: 'sent' },
+      platform_urls: { x: 'https://x.com/i/web/status/42' },
+    })]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByText('post-001'));
     expect(screen.getByRole('button', { name: /view x post/i })).toBeInTheDocument();
@@ -231,7 +164,6 @@ describe('AllReposPublishedView — view links', () => {
           platform_results: { x: 'sent' },
           platform_urls: { x: 'https://x.com/i/web/status/77' },
         })];
-      if (cmd === 'get_model_stats') return [];
       return undefined;
     });
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
@@ -246,12 +178,12 @@ describe('AllReposPublishedView — view links', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cmd+H keyboard shortcut (tested at App level — just verify the component renders)
+// Renders correctly
 // ---------------------------------------------------------------------------
 
 describe('AllReposPublishedView — renders correctly', () => {
   it('renders without crashing', async () => {
-    setupMocks([], []);
+    setupMocks([]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() =>
       expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),
@@ -267,7 +199,6 @@ describe('AllReposPublishedView — export error', () => {
   it('shows error message when export fails', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return [makeSent()];
-      if (cmd === 'get_model_stats') return [];
       if (cmd === 'export_history_csv') throw new Error('Permission denied');
       return null;
     });
@@ -291,7 +222,6 @@ describe('AllReposPublishedView — load more', () => {
     );
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return firstPage;
-      if (cmd === 'get_model_stats') return [];
       if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
       return null;
     });
@@ -311,7 +241,7 @@ describe('AllReposPublishedView — load more', () => {
 
 describe('AllReposPublishedView — analytics lazy load', () => {
   it('does not call get_post_analytics on initial render', async () => {
-    setupMocks([makeSent()], []);
+    setupMocks([makeSent()]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByText('post-001'));
     expect(mockInvoke).not.toHaveBeenCalledWith('get_post_analytics', expect.anything());
@@ -320,7 +250,6 @@ describe('AllReposPublishedView — analytics lazy load', () => {
   it('shows not-configured CTA after clicking the load trigger', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return [makeSent()];
-      if (cmd === 'get_model_stats') return [];
       if (cmd === 'get_post_analytics') return { configured: false, sessions: 0, unique_sessions: 0, top_referrer: null };
       return null;
     });
@@ -333,7 +262,6 @@ describe('AllReposPublishedView — analytics lazy load', () => {
   it('shows zero-sessions message when configured but no traffic', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return [makeSent()];
-      if (cmd === 'get_model_stats') return [];
       if (cmd === 'get_post_analytics') return { configured: true, sessions: 0, unique_sessions: 0, top_referrer: null };
       return null;
     });
@@ -356,19 +284,6 @@ describe('AllReposPublishedView — fetch error', () => {
       expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),
     );
   });
-
-  it('still shows posts when get_model_stats fails (§review-eng-medium)', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_all_published') return [makeSent()];
-      if (cmd === 'get_model_stats') throw new Error('stats unavailable');
-      if (cmd === 'get_post_analytics') return { sessions: 0, unique_sessions: 0, top_referrer: null };
-      return null;
-    });
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() =>
-      expect(screen.getByText('post-001')).toBeInTheDocument(),
-    );
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -377,7 +292,7 @@ describe('AllReposPublishedView — fetch error', () => {
 
 describe('AllReposPublishedView — analytics UX improvements', () => {
   it('shows a title tooltip on the load analytics trigger', async () => {
-    setupMocks([makeSent()], []);
+    setupMocks([makeSent()]);
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() => screen.getByText('post-001'));
     const trigger = screen.getByRole('button', { name: /load analytics/i });
@@ -387,7 +302,6 @@ describe('AllReposPublishedView — analytics UX improvements', () => {
   it('shows unique and total session counts when analytics are loaded with traffic', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return [makeSent()];
-      if (cmd === 'get_model_stats') return [];
       if (cmd === 'get_post_analytics') return { configured: true, sessions: 100, unique_sessions: 42, top_referrer: null };
       return null;
     });
@@ -404,7 +318,6 @@ describe('AllReposPublishedView — analytics UX improvements', () => {
     const recentSentAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return [makeSent({ sent_at: recentSentAt })];
-      if (cmd === 'get_model_stats') return [];
       if (cmd === 'get_post_analytics') return { configured: true, sessions: 0, unique_sessions: 0, top_referrer: null };
       return null;
     });
@@ -415,35 +328,15 @@ describe('AllReposPublishedView — analytics UX improvements', () => {
   });
 });
 
-// §review-product-medium — model bar discoverability
-describe('AllReposPublishedView — model bar discoverability (§review-product-medium)', () => {
-  function setup10Posts() {
-    const posts = Array.from({ length: 10 }, (_, i) => makeSent({ post_folder: `p${i}` }));
-    setupMocks(posts, [makeStats({ total_posts: 10 })]);
-  }
-
-  it('shows a description explaining the model bar when it first appears', async () => {
-    setup10Posts();
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByText(/edit rate/i));
-    expect(screen.getByText(/how often posts needed editing before sending/i)).toBeInTheDocument();
-  });
-
-  it('description is not shown when model bar is hidden', async () => {
-    const posts = Array.from({ length: 9 }, (_, i) => makeSent({ post_folder: `p${i}` }));
-    setupMocks(posts, [makeStats({ total_posts: 9 })]);
-    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
-    await waitFor(() => screen.getByText('p0'));
-    expect(screen.queryByText(/how often posts needed editing before sending/i)).not.toBeInTheDocument();
-  });
-});
+// ---------------------------------------------------------------------------
+// IPC guard
+// ---------------------------------------------------------------------------
 
 describe('AllReposPublishedView — IPC guard', () => {
   it('test_filters_invalid_ipc_shapes', async () => {
     const badShape = { repo_id: 'r1', post_folder: 'bad-post', status: 'sent', sent_at: null, platforms: 'not-an-array' };
     mockInvoke.mockImplementation(async (cmd: unknown) => {
       if (cmd === 'get_all_published') return [makeSent({ post_folder: 'valid-post' }), badShape];
-      if (cmd === 'get_model_stats') return [];
       return null;
     });
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);

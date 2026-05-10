@@ -46,12 +46,20 @@ describe('AddWorkspaceModal', () => {
 
   it('shows the API error inline and keeps the modal open when create_project rejects', async () => {
     const onClose = vi.fn();
-    mockInvoke.mockRejectedValue(new Error('no_free_slot'));
+    mockInvoke.mockRejectedValue(new Error('No free project slot. Subscribe at postlane.dev/billing'));
     render(<AddWorkspaceModal onClose={onClose} onCreated={vi.fn()} />);
     fireEvent.change(screen.getByRole('textbox', { name: /workspace name/i }), { target: { value: 'New Workspace' } });
     fireEvent.click(screen.getByRole('button', { name: /create workspace/i }));
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('shows the no-free-slot message when create_project returns no_free_slot error', async () => {
+    mockInvoke.mockRejectedValue(new Error('No free project slot. Subscribe at postlane.dev/billing'));
+    render(<AddWorkspaceModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: /workspace name/i }), { target: { value: 'New Workspace' } });
+    fireEvent.click(screen.getByRole('button', { name: /create workspace/i }));
+    expect(await screen.findByText(/no free workspace slot/i)).toBeInTheDocument();
   });
 
   it('calls onClose and does not call create_project when Cancel is clicked', () => {

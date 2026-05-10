@@ -47,7 +47,7 @@ fn cache_path() -> Result<PathBuf, String> {
     Ok(postlane_dir()?.join("license_cache.json"))
 }
 
-fn read_license_cache() -> Option<LicenseCache> {
+pub fn read_license_cache() -> Option<LicenseCache> {
     let path = cache_path().ok()?;
     let content = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str::<LicenseCache>(&content).ok().filter(|c| c.version == 1)

@@ -2,7 +2,7 @@
 
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import type { RepoWithStatus, AppStateFile, ViewSelection } from '../types';
+import type { RepoWithStatus, AppStateFile, ViewSelection, OrgNavView, GlobalSettingsSection } from '../types';
 
 export function useAppStateRestore(
   repos: RepoWithStatus[],
@@ -15,18 +15,41 @@ export function useAppStateRestore(
       .then((appState) => {
         const validIds = appState.nav.expanded_repos.filter((id) => repos.some((r) => r.id === id));
         setExpandedIds(new Set(validIds));
-        const lastRepoId = appState.nav.last_repo_id;
-        const validViews = ['all_repos', 'repo'] as const;
-        const validSections = ['drafts', 'published'] as const;
-        const lastView = appState.nav.last_view;
-        const lastSection = appState.nav.last_section;
-        if (lastRepoId && repos.some((r) => r.id === lastRepoId) && (validViews as readonly string[]).includes(lastView) && (validSections as readonly string[]).includes(lastSection)) {
-          onNavigate({ view: lastView as ViewSelection['view'], repoId: lastRepoId, section: lastSection as ViewSelection['section'] });
-          setExpandedIds((prev) => new Set([...prev, lastRepoId]));
-        }
+        const sel = restoreViewSelection(
+          appState.nav.last_view,
+          appState.nav.last_repo_id,
+          appState.nav.last_section,
+        );
+        if (sel) onNavigate(sel);
       })
       .catch(() => { /* silently default to empty state on missing/corrupt app_state.json */ });
     // Only restore once when repos first load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repos.length > 0]);
+}
+
+function toOrgNavSection(s: string): OrgNavView {
+  if (s === 'queue' || s === 'history' || s === 'settings') return s;
+  return 'queue';
+}
+
+function toGlobalSection(s: string): GlobalSettingsSection {
+  if (s === 'account' || s === 'preferences' || s === 'system') return s;
+  return 'account';
+}
+
+function restoreViewSelection(
+  lastView: string,
+  lastProjectId: string | null,
+  lastSection: string,
+): ViewSelection | null {
+  if (lastView === 'org_queue' && lastProjectId) return { view: 'org_queue', projectId: lastProjectId };
+  if (lastView === 'org_history' && lastProjectId) return { view: 'org_history', projectId: lastProjectId };
+  if (lastView === 'org_settings' && lastProjectId) {
+    return { view: 'org_settings', projectId: lastProjectId, section: toOrgNavSection(lastSection) };
+  }
+  if (lastView === 'global_settings') {
+    return { view: 'global_settings', section: toGlobalSection(lastSection) };
+  }
+  return null;
 }

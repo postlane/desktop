@@ -32,6 +32,9 @@ function makePost(overrides: Partial<DraftPost> = {}): DraftPost {
     schedule: '2026-06-01T10:00:00Z', trigger: 'Launched v2.0',
     platform_results: null, error: null, image_url: null,
     llm_model: 'claude-sonnet-4-6', created_at: '2026-04-15T09:00:00Z',
+    project_id: null,
+    platform: 'x',
+    text: '',
     ...overrides,
   };
 }

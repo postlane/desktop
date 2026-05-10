@@ -98,28 +98,56 @@ pub fn dismiss_post(repo_path: String, post_folder: String, state: tauri::State<
     dismiss_post_impl(&repo_path, &post_folder, &state, consent)
 }
 
-pub fn delete_post_impl(repo_path: &str, post_folder: &str) -> Result<(), String> {
-    if post_folder.contains('/') || post_folder.contains('\\') || post_folder.contains("..") {
-        return Err("Invalid post folder: must not contain path separators or '..'".to_string());
+/// Deletes a single platform's `.md` file from a post folder.
+/// If this was the last .md file in the folder, meta.json remains on disk.
+/// This is a known v1 limitation — ghost folders with only meta.json accumulate over time.
+/// A cleanup pass is planned for v2.
+pub fn delete_post_impl(
+    repo_path: &str,
+    post_folder: &str,
+    platform: &str,
+    state: &AppState,
+) -> Result<(), String> {
+    if std::path::Path::new(post_folder).components().count() != 1 {
+        return Err(format!(
+            "Invalid post folder '{}': must be a single path component.",
+            post_folder
+        ));
     }
-
-    let post_path = PathBuf::from(repo_path)
+    if std::path::Path::new(platform).components().count() != 1 {
+        return Err(format!(
+            "Invalid platform '{}': must be a single path component.",
+            platform
+        ));
+    }
+    let canonical = fs::canonicalize(repo_path)
+        .map_err(|e| format!("Failed to canonicalize repo path: {}", e))?;
+    let canonical_str = canonical.to_str().ok_or("Repo path is not valid UTF-8")?.to_string();
+    {
+        let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+        if !repos.repos.iter().any(|r| r.path == canonical_str) {
+            return Err(format!("Repo '{}' is not registered", canonical_str));
+        }
+    }
+    let md_path = canonical
         .join(".postlane/posts")
-        .join(post_folder);
-
-    if !post_path.exists() {
-        return Err(format!("Post folder not found: {}", post_path.display()));
+        .join(post_folder)
+        .join(format!("{}.md", platform));
+    if !md_path.exists() {
+        return Err(format!("{}.md not found in {}", platform, post_folder));
     }
-
-    fs::remove_dir_all(&post_path)
-        .map_err(|e| format!("Failed to delete post: {}", e))?;
-
-    Ok(())
+    fs::remove_file(&md_path)
+        .map_err(|e| format!("Failed to delete {}.md: {}", platform, e))
 }
 
 #[tauri::command]
-pub fn delete_post(repo_path: String, post_folder: String) -> Result<(), String> {
-    delete_post_impl(&repo_path, &post_folder)
+pub fn delete_post(
+    repo_path: String,
+    post_folder: String,
+    platform: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    delete_post_impl(&repo_path, &post_folder, &platform, &state)
 }
 
 pub fn get_post_content_impl(
@@ -808,5 +836,86 @@ mod tests {
             Some("success"),
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- §delete_post ---
+
+    fn make_delete_state(canonical_str: &str) -> AppState {
+        AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: canonical_str.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        })
+    }
+
+    #[test]
+    fn test_delete_post_removes_only_the_specified_platform_file() {
+        let dir = std::env::temp_dir().join("postlane_test_delete_post_platform");
+        let post_path = dir.join(".postlane/posts/post-del");
+        fs::create_dir_all(&post_path).expect("create post dir");
+        fs::write(post_path.join("x.md"), "x content").expect("write x.md");
+        fs::write(post_path.join("linkedin.md"), "linkedin content").expect("write linkedin.md");
+        fs::write(post_path.join("meta.json"), "{}").expect("write meta.json");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_delete_state(&canonical_str);
+        let result = delete_post_impl(&canonical_str, "post-del", "x", &state);
+        assert!(result.is_ok(), "delete x.md should succeed: {:?}", result);
+        assert!(!post_path.join("x.md").exists(), "x.md must be deleted");
+        assert!(post_path.join("linkedin.md").exists(), "linkedin.md must NOT be deleted");
+        assert!(post_path.join("meta.json").exists(), "meta.json must NOT be deleted");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_delete_post_rejects_multi_segment_post_folder() {
+        let dir = std::env::temp_dir().join("postlane_test_delete_multi_seg");
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_delete_state(&canonical_str);
+        let result = delete_post_impl(&canonical_str, "a/b", "x", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_delete_post_rejects_path_traversal() {
+        let dir = std::env::temp_dir().join("postlane_test_delete_traversal");
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_delete_state(&canonical_str);
+        let result = delete_post_impl(&canonical_str, "../etc", "x", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_delete_post_rejects_path_traversal_in_platform() {
+        let dir = std::env::temp_dir().join("postlane_test_delete_traversal_platform");
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_delete_state(&canonical_str);
+        let result = delete_post_impl(&canonical_str, "post-a", "../secrets", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_lowercase().contains("invalid platform"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_delete_post_rejects_path_not_in_repos() {
+        let state = make_delete_state("/some/other/repo");
+        let result = delete_post_impl("/tmp", "post-a", "x", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not registered"));
     }
 }

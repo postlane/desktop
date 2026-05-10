@@ -21,24 +21,6 @@ const IMAGE_CDN_HOSTNAMES: &[&str] = &[
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif", "svg"];
 
-fn og_regex() -> &'static regex::Regex {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| {
-        regex::Regex::new(
-            r#"<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']"#
-        ).expect("og:image regex is valid")
-    })
-}
-
-fn og_regex_rev() -> &'static regex::Regex {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| {
-        regex::Regex::new(
-            r#"<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']"#
-        ).expect("og:image rev regex is valid")
-    })
-}
-
 /// Returns true if the URL points directly to an image file rather than a web page.
 /// Used by the frontend to decide whether to attempt OG image extraction.
 pub fn is_direct_image_url(url: &str) -> bool {
@@ -163,122 +145,10 @@ pub fn update_post_image(
     update_post_image_impl(&repo_path, &post_folder, image_url.as_deref())
 }
 
-fn fmt_network_err(e: impl std::fmt::Display) -> String {
-    format!("unreachable: {}", e)
-}
-
-/// Fetches the og:image URL from a web page.
-/// Returns Ok(Some(url)) if found, Ok(None) if the page has no og:image,
-/// Err if the fetch fails or the URL is unsafe.
-#[tauri::command]
-pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
-    if !url.starts_with("https://") {
-        return Err("URL must start with https://".to_string());
-    }
-
-    if crate::security::ssrf_check::is_private_url(&url) {
-        return Err("URL resolves to a private or reserved address".to_string());
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .user_agent("Postlane/1.0 (og-image-fetch)")
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-    // lgtm[rust/non-https-url] -- unreachable for non-https: guard at top of fn returns Err first
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(fmt_network_err)?;
-
-    // If the URL points directly to an image, return it as-is without reading the body.
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    if content_type.starts_with("image/") {
-        return Ok(Some(url));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(fmt_network_err)?;
-    if bytes.len() > 512 * 1024 {
-        return Err("Response too large (max 512 KB)".to_string());
-    }
-    let html = String::from_utf8_lossy(&bytes).to_string();
-
-    // Extract og:image with a simple regex — avoids pulling in a full HTML parser.
-    // Also handle reversed attribute order: content before property.
-    let image_url = og_regex()
-        .captures(&html)
-        .or_else(|| og_regex_rev().captures(&html))
-        .and_then(|caps| caps.get(1))
-        .map(|m| m.as_str().to_string());
-
-    // Validate the extracted URL: must be https://, not a private IP.
-    if let Some(ref img_url) = image_url {
-        if !img_url.starts_with("https://") || crate::security::ssrf_check::is_private_url(img_url) {
-            return Ok(None);
-        }
-    }
-
-    Ok(image_url)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // --- fetch_og_image: synchronous validation ---
-
-    #[tokio::test]
-    async fn test_fetch_og_image_rejects_http_url() {
-        let result = fetch_og_image("http://example.com/page".to_string()).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("https://"));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_og_image_rejects_private_ip_direct() {
-        let result = fetch_og_image("https://127.0.0.1/".to_string()).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("private"));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_og_image_rejects_localhost() {
-        let result = fetch_og_image("https://localhost/".to_string()).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("private"));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_og_image_rejects_aws_metadata() {
-        let result = fetch_og_image("https://169.254.169.254/latest/meta-data/".to_string()).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("private"));
-    }
-
-    // §review-product-medium — network fetch errors must use "unreachable: " prefix
-    // so the frontend can map them to a distinct user-friendly message.
-
-    #[test]
-    fn test_network_error_uses_unreachable_prefix() {
-        let err = fmt_network_err("connection refused");
-        assert!(err.starts_with("unreachable: "), "expected 'unreachable: ' prefix, got: {}", err);
-    }
-
-    #[test]
-    fn test_network_error_preserves_detail() {
-        let err = fmt_network_err("timeout after 5s");
-        assert!(err.contains("timeout after 5s"), "error detail must be preserved in: {}", err);
-    }
 
     // --- update_post_content_impl: path traversal ---
 

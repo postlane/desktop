@@ -99,7 +99,19 @@ pub struct AppStateFile {
     /// Global default post time for new drafts. None = no pre-population.
     #[serde(default)]
     pub default_post_time: Option<DefaultPostTime>,
+    /// Set to true when the user dismisses the unassigned-draft warning banner.
+    #[serde(default)]
+    pub dismissed_unassigned_draft_warning: bool,
+    /// Whether to trigger macOS system notifications when new drafts are detected.
+    #[serde(default = "default_notifications_enabled")]
+    pub notifications_enabled: bool,
+    /// Set to true after the user completes the post-wizard setup flow (connect repo + add accounts).
+    /// Uses serde default so existing files without this field deserialise as false.
+    #[serde(default)]
+    pub post_wizard_completed: bool,
 }
+
+fn default_notifications_enabled() -> bool { true }
 
 impl Default for AppStateFile {
     fn default() -> Self {
@@ -122,6 +134,9 @@ impl Default for AppStateFile {
             telemetry_consent: false,
             consent_asked: false,
             default_post_time: None,
+            dismissed_unassigned_draft_warning: false,
+            notifications_enabled: true,
+            post_wizard_completed: false,
         }
     }
 }
@@ -282,6 +297,9 @@ mod tests {
             telemetry_consent: false,
             consent_asked: false,
             default_post_time: None,
+            notifications_enabled: true,
+            dismissed_unassigned_draft_warning: false,
+            post_wizard_completed: false,
         };
 
         let path = dir.join("app_state.json");
@@ -357,6 +375,9 @@ mod tests {
             telemetry_consent: false,
             consent_asked: false,
             default_post_time: None,
+            notifications_enabled: true,
+            dismissed_unassigned_draft_warning: false,
+            post_wizard_completed: false,
         };
 
         // Clean up before test
@@ -522,6 +543,9 @@ mod tests {
             telemetry_consent: false,
             consent_asked: false,
             default_post_time: None,
+            notifications_enabled: true,
+            dismissed_unassigned_draft_warning: false,
+            post_wizard_completed: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
@@ -684,5 +708,23 @@ mod tests {
 
         let path = app_state_path().expect("path");
         let _ = std::fs::remove_file(path);
+    }
+
+    // ── post_wizard_completed ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_post_wizard_completed_round_trips() {
+        let state = AppStateFile { post_wizard_completed: true, ..AppStateFile::default() };
+        let json = serde_json::to_string(&state).expect("serialize");
+        let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
+        assert!(loaded.post_wizard_completed, "post_wizard_completed must survive round-trip");
+    }
+
+    #[test]
+    fn test_post_wizard_completed_absent_field_defaults_to_false() {
+        // JSON written before post_wizard_completed existed must deserialise as false
+        let json = r#"{"version":1,"window":{"width":1100,"height":700,"x":0,"y":0},"nav":{"last_view":"all_repos","last_repo_id":null,"last_section":"drafts","expanded_repos":[]},"wizard_completed":true,"timezone":"","telemetry_consent":false,"consent_asked":true}"#;
+        let loaded: AppStateFile = serde_json::from_str(json).expect("should parse");
+        assert!(!loaded.post_wizard_completed, "missing post_wizard_completed must default to false");
     }
 }

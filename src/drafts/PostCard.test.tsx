@@ -39,6 +39,9 @@ function makePost(overrides: Partial<DraftPost> = {}): DraftPost {
     image_url: null,
     llm_model: 'claude-sonnet-4-6',
     created_at: '2026-04-15T09:00:00Z',
+    project_id: null,
+    platform: 'x',
+    text: '',
     ...overrides,
   };
 }

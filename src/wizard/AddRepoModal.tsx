@@ -6,9 +6,10 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 interface Props {
   onClose: () => void;
+  projectId: string;
 }
 
-export default function AddRepoModal({ onClose }: Props) {
+export default function AddRepoModal({ onClose, projectId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -27,7 +28,10 @@ export default function AddRepoModal({ onClose }: Props) {
 
     setLoading(true);
     try {
-      await invoke('add_repo', { path: selected });
+      const repo = await invoke<{ path: string }>('add_repo', { path: selected });
+      if (projectId) {
+        await invoke('write_project_id_to_config', { repoPath: repo.path, projectId });
+      }
       onClose();
     } catch {
       setError("This folder hasn't been set up yet. Run `npx postlane init` inside it first.");

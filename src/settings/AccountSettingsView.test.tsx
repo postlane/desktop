@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
+vi.mock('../context/ProjectsProvider', () => ({ useProjectsContext: vi.fn() }))
+vi.mock('../context/DraftPostsProvider', () => ({ useDraftPostsContext: vi.fn() }))
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }))
+
+import { invoke } from '../ipc/invoke'
+import { useProjectsContext } from '../context/ProjectsProvider'
+import { useDraftPostsContext } from '../context/DraftPostsProvider'
+import { openUrl } from '@tauri-apps/plugin-opener'
+import AccountSettingsView from './AccountSettingsView'
+
+const mockInvoke = vi.mocked(invoke)
+const mockProjectsCtx = vi.mocked(useProjectsContext)
+const mockDraftCtx = vi.mocked(useDraftPostsContext)
+const mockOpenUrl = vi.mocked(openUrl)
+const mockClearProjects = vi.fn()
+const mockClearDrafts = vi.fn()
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockInvoke.mockImplementation(async (cmd) => {
+    if (cmd === 'get_license_display_name') return 'alice@example.com'
+    if (cmd === 'sign_out') return undefined
+    return null
+  })
+  mockProjectsCtx.mockReturnValue({ projects: [], loading: false, error: null, refresh: vi.fn(), clear: mockClearProjects })
+  mockDraftCtx.mockReturnValue({ drafts: [], loading: false, error: null, refresh: vi.fn(), clear: mockClearDrafts })
+})
+
+// ── Display name ───────────────────────────────────────────────────────────────
+
+describe('AccountSettingsView — display name', () => {
+  it('calls get_license_display_name on mount', async () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('get_license_display_name'))
+  })
+
+  it('shows the display name', async () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('alice@example.com')).toBeInTheDocument())
+  })
+
+  it('shows fallback when display name is null', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_license_display_name') return null
+      return undefined
+    })
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('Signed in')).toBeInTheDocument())
+  })
+})
+
+// ── Sign out ───────────────────────────────────────────────────────────────────
+
+describe('AccountSettingsView — sign out', () => {
+  it('calls sign_out invoke when Sign out is clicked', async () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('sign_out'))
+  })
+
+  it('calls projectsContext.clear() on sign out', async () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
+    await waitFor(() => expect(mockClearProjects).toHaveBeenCalled())
+  })
+
+  it('calls draftPostsContext.clear() on sign out', async () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
+    await waitFor(() => expect(mockClearDrafts).toHaveBeenCalled())
+  })
+
+  it('calls onSignedOut callback after sign out', async () => {
+    const onSignedOut = vi.fn()
+    render(<AccountSettingsView onSignedOut={onSignedOut} />)
+    fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
+    await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
+  })
+})
+
+// ── Account link ───────────────────────────────────────────────────────────────
+
+describe('AccountSettingsView — account link', () => {
+  it('opens postlane.dev/account via openUrl', async () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Manage account/i }))
+    await waitFor(() => expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/account'))
+  })
+
+  it('does not render a Delete Account button', () => {
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /Delete account/i })).not.toBeInTheDocument()
+  })
+})

@@ -273,10 +273,11 @@ pub fn approve_all_from_tray(app: AppHandle) {
         }
     };
 
-    let ready: Vec<(String, String)> = drafts
+    // Collect (repo_path, post_folder, platforms) for each ready draft.
+    let ready: Vec<(String, String, Vec<String>)> = drafts
         .into_iter()
         .filter(|d| d.status == "ready")
-        .map(|d| (d.repo_path, d.post_folder))
+        .map(|d| (d.repo_path, d.post_folder, d.platforms))
         .collect();
 
     if ready.is_empty() {
@@ -299,23 +300,27 @@ pub fn approve_all_from_tray(app: AppHandle) {
                 let app_inner = app_for_show.clone();
                 tauri::async_runtime::spawn(async move {
                     let state: tauri::State<AppState> = app_inner.state();
-                    for (repo_path, post_folder) in &ready {
-                        let consent = crate::app_state::read_app_state().telemetry_consent;
-                        if let Err(e) = approve_post_impl(
-                            repo_path,
-                            post_folder,
-                            &state,
-                            Some(&app_inner),
-                            consent,
-                        )
-                        .await
-                        {
-                            log::error!(
-                                "Tray approve failed for {}/{}: {}",
+                    for (repo_path, post_folder, platforms) in &ready {
+                        for platform in platforms {
+                            let consent = crate::app_state::read_app_state().telemetry_consent;
+                            if let Err(e) = approve_post_impl(
                                 repo_path,
                                 post_folder,
-                                e
-                            );
+                                platform,
+                                &state,
+                                Some(&app_inner),
+                                consent,
+                            )
+                            .await
+                            {
+                                log::error!(
+                                    "Tray approve failed for {}/{}/{}: {}",
+                                    repo_path,
+                                    post_folder,
+                                    platform,
+                                    e
+                                );
+                            }
                         }
                     }
                     refresh_tray(&app_inner);
