@@ -227,18 +227,16 @@ fn spawn_http_server(
         activation_tx: Some(activation_tx),
     };
 
+    // Bind synchronously so the port file is written before setup_app returns.
+    // This eliminates a race where the wizard appeared before the async server wrote the file.
+    let listener = http_server::bind_listener(47312)?;
+    let port = listener.local_addr()?.port();
+    http_server::write_port_file(port)?;
+    log::info!("HTTP server bound to port {}", port);
+
     tauri::async_runtime::spawn(async move {
-        match http_server::start_server(server_state, 47312).await {
-            Ok(port) => {
-                if let Err(e) = http_server::write_port_file(port) {
-                    log::error!("Failed to write port file: {}", e);
-                } else {
-                    log::info!("HTTP server started on port {}", port);
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to start HTTP server: {}", e);
-            }
+        if let Err(e) = http_server::serve_on_listener(server_state, listener).await {
+            log::error!("Failed to start HTTP server: {}", e);
         }
     });
 

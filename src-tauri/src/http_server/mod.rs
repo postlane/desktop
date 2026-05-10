@@ -87,6 +87,32 @@ pub fn create_router(state: ServerState) -> Router {
         .with_state(state)
 }
 
+/// Binds a TCP listener on 127.0.0.1 synchronously.
+/// Tries `preferred_port` first; falls back to OS-assigned port if unavailable.
+/// Sets non-blocking mode so the listener can be handed to tokio without blocking.
+pub fn bind_listener(preferred_port: u16) -> Result<std::net::TcpListener, std::io::Error> {
+    let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", preferred_port))
+        .or_else(|_| std::net::TcpListener::bind("127.0.0.1:0"))?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
+}
+
+/// Starts serving on a pre-bound listener.
+/// Converts the `std::net` listener to tokio and spawns the axum server.
+pub async fn serve_on_listener(
+    state: ServerState,
+    listener: std::net::TcpListener,
+) -> Result<(), std::io::Error> {
+    let tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+    let app = create_router(state);
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(tokio_listener, app).await {
+            log::error!("HTTP server error: {}", e);
+        }
+    });
+    Ok(())
+}
+
 /// Starts the HTTP server on 127.0.0.1:47312 (or fallback port).
 /// Returns the bound port number.
 pub async fn start_server(
@@ -304,5 +330,13 @@ mod tests {
             assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
         }
         let _ = fs::remove_file(&token_path);
+    }
+
+    #[test]
+    fn test_bind_listener_binds_to_loopback() {
+        let listener = bind_listener(0).expect("bind_listener failed");
+        let addr = listener.local_addr().expect("local_addr failed");
+        assert!(addr.ip().is_loopback(), "must bind to 127.0.0.1");
+        assert_ne!(addr.port(), 0);
     }
 }
