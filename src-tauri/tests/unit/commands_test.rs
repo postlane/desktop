@@ -245,6 +245,7 @@ mod approve_post_tests {
         let result = approve_post_impl(
             repo_path.to_str().unwrap(),
             "post1",
+            "x",
             &state,
             None,
             false,
@@ -279,6 +280,7 @@ mod approve_post_tests {
         let result = approve_post_impl(
             repo_path.to_str().unwrap(),
             "nonexistent",
+            "x",
             &state,
             None,
             false,
@@ -314,6 +316,7 @@ mod approve_post_tests {
         let result = approve_post_impl(
             repo_path.to_str().unwrap(),
             "post1",
+            "x",
             &state,
             None,
             false,
@@ -410,17 +413,29 @@ mod delete_post_tests {
     use super::*;
 
     #[test]
-    fn test_delete_post_removes_folder() {
+    fn test_delete_post_removes_platform_md() {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
         let post_folder = repo_path.join(".postlane/posts/post1");
         fs::create_dir_all(&post_folder).unwrap();
         fs::write(post_folder.join("x.md"), "Hello").unwrap();
 
-        let result = delete_post_impl(repo_path.to_str().unwrap(), "post1");
+        let canonical = fs::canonicalize(&repo_path).unwrap();
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "repo1".to_string(),
+                name: "Test Repo".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        });
+
+        let result = delete_post_impl(repo_path.to_str().unwrap(), "post1", "x", &state);
 
         assert!(result.is_ok());
-        assert!(!post_folder.exists());
+        assert!(!post_folder.join("x.md").exists(), "x.md must be deleted");
     }
 
     #[test]
@@ -429,18 +444,32 @@ mod delete_post_tests {
         let repo_path = temp_dir.path().join("repo1");
         fs::create_dir_all(&repo_path).unwrap();
 
-        let result = delete_post_impl(repo_path.to_str().unwrap(), "../evil");
+        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let result = delete_post_impl(repo_path.to_str().unwrap(), "../evil", "x", &state);
 
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_delete_post_errors_when_folder_missing() {
+    fn test_delete_post_errors_when_md_missing() {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
-        fs::create_dir_all(&repo_path).unwrap();
+        let post_folder = repo_path.join(".postlane/posts/post1");
+        fs::create_dir_all(&post_folder).unwrap();
 
-        let result = delete_post_impl(repo_path.to_str().unwrap(), "nonexistent");
+        let canonical = fs::canonicalize(&repo_path).unwrap();
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "repo1".to_string(),
+                name: "Test Repo".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        });
+
+        let result = delete_post_impl(repo_path.to_str().unwrap(), "post1", "x", &state);
 
         assert!(result.is_err());
     }
