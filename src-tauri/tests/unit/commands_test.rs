@@ -291,13 +291,16 @@ mod approve_post_tests {
     }
 
     #[tokio::test]
-    async fn test_approve_post_fails_without_meta_json() {
-        // Setup: Create repo and post folder without meta.json
+    async fn test_approve_post_with_absent_meta_json_uses_default() {
+        // PostMeta::load returns Ok(default) when meta.json is absent, so approve succeeds.
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
         fs::create_dir_all(&repo_path).unwrap();
+        // Canonicalize so validate_repo_path's canonicalize matches the registered path.
+        let canonical = fs::canonicalize(&repo_path).unwrap();
+        let canonical_str = canonical.to_str().unwrap().to_string();
 
-        let post_folder = repo_path.join(".postlane/posts/post1");
+        let post_folder = canonical.join(".postlane/posts/post1");
         fs::create_dir_all(&post_folder).unwrap();
 
         let repos_config = ReposConfig {
@@ -305,16 +308,15 @@ mod approve_post_tests {
             repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
-                path: repo_path.to_str().unwrap().to_string(),
+                path: canonical_str.clone(),
                 active: true,
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
         let state = AppState::new(repos_config);
 
-        // Test: Try to approve post without meta.json
         let result = approve_post_impl(
-            repo_path.to_str().unwrap(),
+            &canonical_str,
             "post1",
             "x",
             &state,
@@ -322,8 +324,7 @@ mod approve_post_tests {
             false,
         ).await;
 
-        // Assert: Should fail with validation error
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 }
 
