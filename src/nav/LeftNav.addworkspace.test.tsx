@@ -1,61 +1,60 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
+
+vi.mock('../context/ProjectsProvider', () => ({ useProjectsContext: vi.fn() }));
+vi.mock('../context/DraftPostsProvider', () => ({ useDraftPostsContext: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: vi.fn().mockReturnValue({
+    outerSize: vi.fn().mockResolvedValue({ width: 1100, height: 700 }),
+    outerPosition: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
+  }),
+}));
+
+import { useProjectsContext } from '../context/ProjectsProvider';
+import { useDraftPostsContext } from '../context/DraftPostsProvider';
 import LeftNav from './LeftNav';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../hooks/useRepoData', () => ({
-  useRepoData: () => ({ repos: [], loadError: null, refresh: vi.fn() }),
-}));
-vi.mock('../hooks/useAppStateRestore', () => ({ useAppStateRestore: vi.fn() }));
-vi.mock('../hooks/useMetaChangedListener', () => ({ useMetaChangedListener: () => null }));
-vi.mock('../hooks/useWatcherHealth', () => ({ useWatcherHealth: () => new Set() }));
-vi.mock('../hooks/useNavPersistence', () => ({ useNavPersistence: () => vi.fn() }));
+const DEFAULT_VIEW = { view: 'no_orgs' as const };
 
-const DEFAULT_VIEW = { view: 'all_repos' as const, repoId: null, section: 'drafts' as const };
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(useProjectsContext).mockReturnValue({
+    projects: [], loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+  });
+  vi.mocked(useDraftPostsContext).mockReturnValue({
+    drafts: [], loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+  });
+});
 
-beforeEach(() => vi.clearAllMocks());
-
-describe('LeftNav — add workspace button (§17.3)', () => {
-  it('renders the add workspace button with correct aria-label', () => {
+describe('LeftNav — Add org button (§17.3 migrated)', () => {
+  it('shows disabled Add org button with v1.2 tooltip when onAddWorkspace provided', () => {
     render(
       <LeftNav
         currentView={DEFAULT_VIEW}
         onNavigate={vi.fn()}
         onSettingsOpen={vi.fn()}
-        onAddRepo={vi.fn()}
         onAddWorkspace={vi.fn()}
       />,
     );
-    expect(screen.getByRole('button', { name: /add workspace/i })).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /add.*org/i });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute('title', expect.stringMatching(/v1\.2/i));
   });
 
-  it('calls onAddWorkspace when the button is clicked', () => {
-    const onAddWorkspace = vi.fn();
+  it('Add org button is disabled — v1.2 feature not yet active', () => {
     render(
       <LeftNav
         currentView={DEFAULT_VIEW}
         onNavigate={vi.fn()}
         onSettingsOpen={vi.fn()}
-        onAddRepo={vi.fn()}
-        onAddWorkspace={onAddWorkspace}
+        onAddWorkspace={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /add workspace/i }));
-    expect(onAddWorkspace).toHaveBeenCalledOnce();
-  });
-
-  it('does not render the add workspace button when onAddWorkspace is not provided', () => {
-    render(
-      <LeftNav
-        currentView={DEFAULT_VIEW}
-        onNavigate={vi.fn()}
-        onSettingsOpen={vi.fn()}
-        onAddRepo={vi.fn()}
-      />,
-    );
-    expect(screen.queryByRole('button', { name: /add workspace/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add.*org/i })).toBeDisabled();
   });
 });

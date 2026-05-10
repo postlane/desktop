@@ -18,7 +18,7 @@ type WorkspaceType = 'personal' | 'organization' | 'client';
 
 function apiErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes('no_free_slot')) {
+  if (msg.includes('No free project slot')) {
     return 'You have no free workspace slot. Upgrade to add more workspaces.';
   }
   return `Failed to create workspace: ${msg}`;

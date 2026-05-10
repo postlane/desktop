@@ -28,6 +28,24 @@ pub struct Post {
     pub platform_urls: Option<HashMap<String, String>>,
     pub provider: Option<String>,
     pub sent_at: Option<String>,
+    // M19 additions — populated by rebuilt get_all_drafts (19.0.15)
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub model_name: Option<String>,
+    /// UTC ISO8601 timestamp the post is scheduled to publish; None if not scheduled.
+    /// Distinct from `schedule` (the raw string from meta.json) — this is the canonical field.
+    #[serde(default)]
+    pub scheduled_for: Option<String>,
+    /// Single platform key for this row (e.g. "x") — draft rows are one per platform.
+    #[serde(default)]
+    pub platform: String,
+    /// Post body text read from the platform .md file.
+    #[serde(default)]
+    pub text: String,
+    /// ISO8601 timestamp of most recent user edit; `None` if post has never been edited.
+    #[serde(default)]
+    pub edited_at: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -66,6 +84,27 @@ pub struct PostMeta {
     /// Stored so the UI can display the original local time. None means unknown or system default.
     #[serde(default)]
     pub schedule_timezone: Option<String>,
+}
+
+/// Per-platform published post row — returned by `get_org_published` (M19 History view).
+/// One row per (post_folder, platform) pair; sorted by `sent_at` descending.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct PublishedPost {
+    pub text: String,
+    pub platform: String,
+    pub repo_path: String,
+    pub post_folder: String,
+    pub sent_at: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub scheduler_ids: HashMap<String, String>,
+    #[serde(default)]
+    pub platform_urls: HashMap<String, String>,
+    /// Per-platform payload from the scheduler; empty map in v1.
+    /// `serde_json::Value` accepts any future v4 per-platform shape without a schema change.
+    #[serde(default)]
+    pub platform_results: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -162,6 +201,8 @@ mod tests {
             schedule: None, schedule_source: None, platform_results: None, llm_model: None, created_at: None,
             trigger: Some("Launch".to_string()), error: None, image_url: None,
             scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
+            project_id: None, model_name: None, scheduled_for: None,
+            platform: String::default(), text: String::default(), edited_at: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
@@ -182,12 +223,64 @@ mod tests {
             trigger: None, error: None, image_url: None,
             scheduler_ids: Some(ids), platform_urls: None,
             provider: Some("zernio".to_string()), sent_at: Some("2024-01-01T00:00:00Z".to_string()),
+            project_id: None, model_name: None, scheduled_for: None,
+            platform: String::default(), text: String::default(), edited_at: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.status, "sent");
         assert_eq!(back.provider.as_deref(), Some("zernio"));
         assert!(back.trigger.is_none());
+    }
+
+    #[test]
+    fn test_draft_post_includes_project_id() {
+        let post = Post {
+            repo_id: "r1".to_string(), repo_name: "R".to_string(),
+            repo_path: "/r".to_string(), post_folder: "f".to_string(),
+            status: "ready".to_string(), platforms: vec![],
+            schedule: None, schedule_source: None, platform_results: None,
+            llm_model: None, model_name: None, created_at: None,
+            trigger: None, error: None, image_url: None,
+            scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
+            project_id: Some("proj-abc".to_string()), scheduled_for: None,
+            platform: String::default(), text: String::default(), edited_at: None,
+        };
+        let json = serde_json::to_string(&post).expect("serializes");
+        let back: Post = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.project_id, Some("proj-abc".to_string()));
+    }
+
+    #[test]
+    fn test_draft_post_project_id_null_when_absent() {
+        let json = r#"{"repo_id":"r","repo_name":"R","repo_path":"/r","post_folder":"f","status":"ready","platforms":[],"schedule":null,"schedule_source":null,"platform_results":null,"llm_model":null,"created_at":null,"trigger":null,"error":null,"image_url":null,"scheduler_ids":null,"platform_urls":null,"provider":null,"sent_at":null}"#;
+        let post: Post = serde_json::from_str(json).expect("deserializes");
+        assert_eq!(post.project_id, None);
+    }
+
+    #[test]
+    fn test_draft_post_includes_model_name() {
+        let post = Post {
+            repo_id: "r1".to_string(), repo_name: "R".to_string(),
+            repo_path: "/r".to_string(), post_folder: "f".to_string(),
+            status: "ready".to_string(), platforms: vec![],
+            schedule: None, schedule_source: None, platform_results: None,
+            llm_model: None, model_name: Some("claude-sonnet-4-5".to_string()), created_at: None,
+            trigger: None, error: None, image_url: None,
+            scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
+            project_id: None, scheduled_for: None,
+            platform: String::default(), text: String::default(), edited_at: None,
+        };
+        let json = serde_json::to_string(&post).expect("serializes");
+        let back: Post = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.model_name, Some("claude-sonnet-4-5".to_string()));
+    }
+
+    #[test]
+    fn test_draft_post_model_name_null_when_absent() {
+        let json = r#"{"repo_id":"r","repo_name":"R","repo_path":"/r","post_folder":"f","status":"ready","platforms":[],"schedule":null,"schedule_source":null,"platform_results":null,"llm_model":null,"created_at":null,"trigger":null,"error":null,"image_url":null,"scheduler_ids":null,"platform_urls":null,"provider":null,"sent_at":null}"#;
+        let post: Post = serde_json::from_str(json).expect("deserializes");
+        assert_eq!(post.model_name, None);
     }
 
     #[test]
@@ -205,5 +298,95 @@ mod tests {
 
         assert_eq!(deserialized.post_id, "test-id");
         assert_eq!(deserialized.content_preview.len(), preview.len());
+    }
+
+    #[test]
+    fn test_published_post_includes_project_id() {
+        let post = PublishedPost {
+            project_id: Some("proj-abc".to_string()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&post).expect("serialize");
+        let back: PublishedPost = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.project_id, Some("proj-abc".to_string()));
+    }
+
+    #[test]
+    fn test_published_post_project_id_null_when_absent() {
+        let json = r#"{"text":"","platform":"x","repo_path":"","post_folder":"","sent_at":""}"#;
+        let post: PublishedPost = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(post.project_id, None);
+    }
+
+    #[test]
+    fn test_published_post_scheduler_ids_default_empty_when_absent() {
+        let json = r#"{"text":"","platform":"x","repo_path":"","post_folder":"","sent_at":""}"#;
+        let post: PublishedPost = serde_json::from_str(json).expect("deserialize");
+        assert!(post.scheduler_ids.is_empty());
+    }
+
+    #[test]
+    fn test_published_post_platform_urls_default_empty_when_absent() {
+        let json = r#"{"text":"","platform":"x","repo_path":"","post_folder":"","sent_at":""}"#;
+        let post: PublishedPost = serde_json::from_str(json).expect("deserialize");
+        assert!(post.platform_urls.is_empty());
+    }
+
+    #[test]
+    fn test_draft_post_includes_scheduled_for() {
+        let post = Post {
+            repo_id: "r1".to_string(), repo_name: "R".to_string(),
+            repo_path: "/r".to_string(), post_folder: "f".to_string(),
+            status: "ready".to_string(), platforms: vec![],
+            schedule: None, schedule_source: None, platform_results: None,
+            llm_model: None, model_name: None, created_at: None,
+            trigger: None, error: None, image_url: None,
+            scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
+            project_id: None, scheduled_for: Some("2026-06-01T10:00:00Z".to_string()),
+            platform: String::default(), text: String::default(), edited_at: None,
+        };
+        let json = serde_json::to_string(&post).expect("serializes");
+        let back: Post = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.scheduled_for.as_deref(), Some("2026-06-01T10:00:00Z"));
+    }
+
+    #[test]
+    fn test_draft_post_scheduled_for_null_when_absent() {
+        let json = r#"{"repo_id":"r","repo_name":"R","repo_path":"/r","post_folder":"f","status":"ready","platforms":[],"schedule":null,"schedule_source":null,"platform_results":null,"llm_model":null,"created_at":null,"trigger":null,"error":null,"image_url":null,"scheduler_ids":null,"platform_urls":null,"provider":null,"sent_at":null}"#;
+        let post: Post = serde_json::from_str(json).expect("deserializes");
+        assert_eq!(post.scheduled_for, None);
+    }
+
+    #[test]
+    fn test_draft_post_edited_at_round_trips() {
+        let post = Post {
+            repo_id: "r1".to_string(), repo_name: "R".to_string(),
+            repo_path: "/r".to_string(), post_folder: "f".to_string(),
+            status: "ready".to_string(), platforms: vec![],
+            schedule: None, schedule_source: None, platform_results: None,
+            llm_model: None, model_name: None, created_at: None,
+            trigger: None, error: None, image_url: None,
+            scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
+            project_id: None, scheduled_for: None,
+            edited_at: Some("2026-05-10T12:00:00Z".to_string()),
+            platform: String::default(), text: String::default(),
+        };
+        let json = serde_json::to_string(&post).expect("serializes");
+        let back: Post = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.edited_at.as_deref(), Some("2026-05-10T12:00:00Z"));
+    }
+
+    #[test]
+    fn test_draft_post_edited_at_null_when_absent() {
+        let json = r#"{"repo_id":"r","repo_name":"R","repo_path":"/r","post_folder":"f","status":"ready","platforms":[],"schedule":null,"schedule_source":null,"platform_results":null,"llm_model":null,"created_at":null,"trigger":null,"error":null,"image_url":null,"scheduler_ids":null,"platform_urls":null,"provider":null,"sent_at":null}"#;
+        let post: Post = serde_json::from_str(json).expect("deserializes");
+        assert_eq!(post.edited_at, None);
+    }
+
+    #[test]
+    fn test_published_post_platform_results_default_empty_when_absent() {
+        let json = r#"{"text":"","platform":"x","repo_path":"","post_folder":"","sent_at":""}"#;
+        let post: PublishedPost = serde_json::from_str(json).expect("deserialize");
+        assert!(post.platform_results.is_empty());
     }
 }

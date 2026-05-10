@@ -8,7 +8,7 @@ use crate::storage::ReposConfig;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
-use tauri::State;
+use tauri::{Emitter, State};
 use tauri_plugin_keyring::KeyringExt;
 
 /// Validates a project ID: non-empty, alphanumeric + hyphens + underscores only.
@@ -34,6 +34,17 @@ fn reject_if_symlink(path: &std::path::Path) -> Result<(), String> {
 }
 
 // ── Public types ─────────────────────────────────────────────────────────────
+
+/// Lightweight project summary returned by `list_projects`.
+#[derive(serde::Serialize, Deserialize, Clone, Debug)]
+pub struct ProjectSummary {
+    pub id: String,
+    pub name: String,
+    pub workspace_type: String,
+    pub tier: String,
+    pub billing_active: bool,
+    pub is_owner: bool,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum ProjectStatus {
@@ -69,6 +80,19 @@ impl std::fmt::Display for CreateProjectError {
         }
     }
 }
+
+/// Canonical error returned to the frontend when any web API command receives HTTP 401.
+/// The TypeScript `src/ipc/invoke.ts` wrapper detects this string and navigates to
+/// AccountSettingsView. All web API commands must use this constant — never return a
+/// free-form "401" string that the wrapper won't detect.
+///
+/// Auth token pattern (M19):
+///   - Token stored in OS keyring under service "postlane", account "license"
+///   - Retrieved via `app.keyring().get_password("postlane", "license")`
+///   - Passed as `Bearer {token}` via `client.bearer_auth(token)`
+///   - On HTTP 401: return `Err(SESSION_EXPIRED_ERROR.to_string())`
+///   - No automatic refresh in v1 (no refresh token flow)
+pub const SESSION_EXPIRED_ERROR: &str = "session_expired";
 
 fn require_license_token(opt: Option<String>) -> Result<String, String> {
     opt.ok_or_else(|| "No license token — sign in at postlane.dev/login".to_string())
@@ -320,8 +344,12 @@ pub async fn get_project_voice_guide_with_client(
     let url = format!("{}/v1/projects/{}", base_url, project_id);
     let resp = client.get(&url).bearer_auth(token).send().await
         .map_err(|e| format!("Backend error: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("Backend returned {}", resp.status()));
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Err(SESSION_EXPIRED_ERROR.to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("Backend returned {}", status));
     }
     resp.json::<ProjectVoiceGuideResponse>().await
         .map(|r| r.voice_guide)
@@ -348,6 +376,9 @@ pub async fn save_project_voice_guide_with_client(
     base_url: &str,
     token: &str,
 ) -> Result<(), String> {
+    if voice_guide.len() > 5000 {
+        return Err(format!("voice_guide must be 5000 characters or fewer (got {})", voice_guide.len()));
+    }
     validate_project_id(project_id)?;
     let url = format!("{}/v1/projects/{}", base_url, project_id);
     let resp = client
@@ -358,11 +389,100 @@ pub async fn save_project_voice_guide_with_client(
         .await
         .map_err(|e| format!("Backend error: {}", e))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("Backend returned {}", resp.status()));
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Err(SESSION_EXPIRED_ERROR.to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("Backend returned {}", status));
     }
     vg_cache_invalidate(project_id);
     Ok(())
+}
+
+/// Calls `DELETE {base_url}/v1/projects/{project_id}`.
+/// On 204: deregisters all repos whose config.json matches `project_id`.
+/// On any other status (including 401, 403): returns `Err` without touching local state.
+pub async fn delete_project_with_client(
+    project_id: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    state: &crate::app_state::AppState,
+) -> Result<(), String> {
+    validate_project_id(project_id)?;
+    let url = format!("{}/v1/projects/{}", base_url, project_id);
+    let resp = client.delete(&url).bearer_auth(token).send().await
+        .map_err(|e| format!("Network error: {}", e))?;
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Err(SESSION_EXPIRED_ERROR.to_string());
+    }
+    if status.as_u16() != 204 {
+        return Err(format!("Backend returned {} — project not deleted", status));
+    }
+    let matching = crate::repo_project_filter::list_repos_for_project_impl(project_id, state)?;
+    for repo in &matching {
+        if let Err(e) = crate::repo_project_filter::unregister_repo_impl(&repo.id, state) {
+            log::error!("[delete_project] failed to remove repo '{}': {}", repo.id, e);
+            return Err(format!(
+                "Project deleted remotely but failed to remove repo '{}' from local registry: {}",
+                repo.id, e
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_project(
+    project_id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<(), String> {
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
+    let client = build_client();
+    delete_project_with_client(&project_id, &client, POSTLANE_API_BASE, &token, &state).await?;
+    let _ = app.emit(crate::platform_constants::PROJECTS_CHANGED_EVENT, ());
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct ListProjectsResponse {
+    projects: Vec<ProjectSummary>,
+}
+
+/// Calls `GET {base_url}/v1/projects` and returns the project list.
+/// Returns `Err(SESSION_EXPIRED_ERROR)` on 401; `Err(...)` on any other non-200.
+pub async fn list_projects_with_client(
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<Vec<ProjectSummary>, String> {
+    let url = format!("{}/v1/projects", base_url);
+    let resp = client.get(&url).bearer_auth(token).send().await
+        .map_err(|e| format!("Backend error: {}", e))?;
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Err(SESSION_EXPIRED_ERROR.to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("Backend returned {}", status));
+    }
+    resp.json::<ListProjectsResponse>().await
+        .map(|r| r.projects)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
+pub async fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectSummary>, String> {
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
+    let client = build_client();
+    list_projects_with_client(&client, POSTLANE_API_BASE, &token).await
 }
 
 fn sha256_hex(input: &str) -> String {
@@ -873,6 +993,32 @@ mod tests {
         assert!(matches!(result, Err(CreateProjectError::InvalidWorkspaceType(_))));
     }
 
+    // ── 19.0.19: SessionExpired on 401 ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_project_voice_guide_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(401);
+        });
+        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "expired-tok").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "HTTP 401 must return session_expired error");
+    }
+
+    #[tokio::test]
+    async fn test_save_project_voice_guide_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-abc");
+            then.status(401);
+        });
+        let result = save_project_voice_guide_with_client("proj-abc", "Guide text.", &build_test_client(), &server.base_url(), "expired-tok").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "HTTP 401 must return session_expired error");
+    }
+
     // ── get_project_voice_guide ──────────────────────────────────────────────
 
     #[tokio::test]
@@ -941,6 +1087,25 @@ mod tests {
         save_project_voice_guide_with_client("proj-abc", "", &build_test_client(), &server.base_url(), "tok")
             .await
             .expect("should accept empty voice guide");
+    }
+
+    #[tokio::test]
+    async fn test_save_project_voice_guide_returns_error_on_http_failure() {
+        // Use an unreachable port to simulate network failure
+        let result = save_project_voice_guide_with_client(
+            "proj-abc", "Direct.", &build_test_client(), "http://127.0.0.1:1", "tok",
+        ).await;
+        assert!(result.is_err(), "network failure must return Err");
+    }
+
+    #[tokio::test]
+    async fn test_save_project_voice_guide_rejects_voice_guide_exceeding_5000_chars() {
+        let long_guide = "x".repeat(5001);
+        let result = save_project_voice_guide_with_client(
+            "proj-abc", &long_guide, &build_test_client(), "http://127.0.0.1:1", "tok",
+        ).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("5000"), "error must mention the limit");
     }
 
     // ── sha256_hex ────────────────────────────────────────────────────────────
@@ -1145,5 +1310,148 @@ mod tests {
         get_project_voice_guide_cached("proj-vgcache4", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
         get_project_voice_guide_cached("proj-vgcache4", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
         mock.assert_hits(2);
+    }
+
+    // ── delete_project (19.2.1) ──────────────────────────────────────────────
+
+    fn make_state_with_repos(repos: Vec<crate::storage::Repo>) -> AppState {
+        use crate::storage::ReposConfig;
+        AppState::new(ReposConfig { version: 1, repos })
+    }
+
+    fn make_repo_entry(id: &str, path: &str) -> crate::storage::Repo {
+        crate::storage::Repo {
+            id: id.to_string(),
+            name: id.to_string(),
+            path: path.to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn write_project_config(repo_dir: &std::path::Path, project_id: &str) {
+        let pl_dir = repo_dir.join(".postlane");
+        fs::create_dir_all(&pl_dir).expect("create .postlane");
+        fs::write(
+            pl_dir.join("config.json"),
+            format!(r#"{{"project_id":"{}"}}"#, project_id),
+        ).expect("write config.json");
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_succeeds_on_204() {
+        let home = dirs::home_dir().expect("home dir");
+        let dir = home.join("postlane_test_del_proj_204");
+        write_project_config(&dir, "proj-to-delete");
+
+        let state = make_state_with_repos(vec![make_repo_entry("r1", dir.to_str().unwrap())]);
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::DELETE).path("/v1/projects/proj-to-delete");
+            then.status(204);
+        });
+
+        let result = delete_project_with_client("proj-to-delete", &build_test_client(), &server.base_url(), "tok", &state).await;
+        assert!(result.is_ok(), "204 must return Ok: {:?}", result);
+
+        let repos = state.repos.lock().expect("lock");
+        assert!(!repos.repos.iter().any(|r| r.id == "r1"), "r1 must be deregistered after 204");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_deregisters_local_repos_only_after_204() {
+        let home = dirs::home_dir().expect("home dir");
+        let dir = home.join("postlane_test_del_proj_403_noderegister");
+        write_project_config(&dir, "proj-protected");
+
+        let state = make_state_with_repos(vec![make_repo_entry("r1", dir.to_str().unwrap())]);
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::DELETE).path("/v1/projects/proj-protected");
+            then.status(403);
+        });
+
+        let result = delete_project_with_client("proj-protected", &build_test_client(), &server.base_url(), "tok", &state).await;
+        assert!(result.is_err(), "403 must return Err");
+
+        let repos = state.repos.lock().expect("lock");
+        assert!(repos.repos.iter().any(|r| r.id == "r1"), "r1 must NOT be deregistered on 403");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_returns_error_on_403() {
+        let state = make_state_with_repos(vec![]);
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::DELETE).path("/v1/projects/proj-abc");
+            then.status(403);
+        });
+
+        let result = delete_project_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok", &state).await;
+        assert!(result.is_err(), "403 must return Err");
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_returns_error_on_network_failure() {
+        let state = make_state_with_repos(vec![]);
+        let result = delete_project_with_client("proj-abc", &build_test_client(), "http://127.0.0.1:19993", "tok", &state).await;
+        assert!(result.is_err(), "network failure must return Err");
+    }
+
+    // ── list_projects (19.1.3) ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_list_projects_returns_vec_on_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/projects");
+            then.status(200).json_body(serde_json::json!({
+                "projects": [{
+                    "id": "proj-1",
+                    "name": "Postlane",
+                    "workspace_type": "organization",
+                    "tier": "free",
+                    "billing_active": true,
+                    "is_owner": true
+                }]
+            }));
+        });
+
+        let result = list_projects_with_client(&build_test_client(), &server.base_url(), "tok").await;
+        let projects = result.expect("list_projects_with_client should succeed for 200 response");
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].id, "proj-1");
+        assert_eq!(projects[0].name, "Postlane");
+        assert_eq!(projects[0].workspace_type, "organization");
+        assert_eq!(projects[0].tier, "free");
+        assert!(projects[0].billing_active);
+        assert!(projects[0].is_owner);
+    }
+
+    #[tokio::test]
+    async fn test_list_projects_returns_error_on_http_failure() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/projects");
+            then.status(503);
+        });
+
+        let result = list_projects_with_client(&build_test_client(), &server.base_url(), "tok").await;
+        assert!(result.is_err(), "HTTP 503 must return Err");
+    }
+
+    #[tokio::test]
+    async fn test_list_projects_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/projects");
+            then.status(401);
+        });
+
+        let result = list_projects_with_client(&build_test_client(), &server.base_url(), "expired-tok").await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "HTTP 401 must return session_expired error");
     }
 }

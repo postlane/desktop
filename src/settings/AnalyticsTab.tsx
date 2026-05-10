@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
+// v2 stub — per-post analytics deferred; not wired to any route in M19
 
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';

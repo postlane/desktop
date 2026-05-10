@@ -29,6 +29,9 @@ function makePost(overrides: Partial<DraftPost> = {}): DraftPost {
     image_url: null,
     llm_model: null,
     created_at: null,
+    project_id: null,
+    platform: 'x',
+    text: '',
     ...overrides,
   };
 }

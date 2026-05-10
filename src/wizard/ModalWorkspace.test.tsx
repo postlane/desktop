@@ -42,7 +42,7 @@ describe('ModalWorkspace', () => {
 
   it('test_calls_onPricingGate_on_402', async () => {
     const onPricingGate = vi.fn();
-    mockInvoke.mockRejectedValue(new Error('no_free_slot'));
+    mockInvoke.mockRejectedValue(new Error('No free project slot. Subscribe at postlane.dev/billing'));
     render(<ModalWorkspace onNext={vi.fn()} onBack={vi.fn()} onPricingGate={onPricingGate} />);
     await userEvent.type(screen.getByRole('textbox'), 'Acme');
     await userEvent.click(screen.getByRole('button', { name: /next/i }));

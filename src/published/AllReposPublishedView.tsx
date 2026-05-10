@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
-import type { PublishedPost, ModelStats, PostAnalytics } from '../types';
+import type { PublishedPost, PostAnalytics } from '../types';
 import { isPublishedPost } from '../ipc-guards';
 
 const PAGE_SIZE = 100;
@@ -12,74 +12,33 @@ interface Props {
   onNavigateToRepo: (_repoId: string) => void;
 }
 
-function ModelBar({ stats }: { stats: ModelStats[] }) {
-  const maxRate = Math.max(...stats.map((s) => s.edit_rate), 0.01);
-
-  return (
-    <section className="box mb-5">
-      <div className="mb-3">
-        <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
-          <h2 className="has-text-weight-semibold is-size-7">Edit rate by model</h2>
-          <span title="Edit rate = how often you changed the draft before approving. Does not account for dismissed posts." className="has-text-grey-light is-size-7" style={{ cursor: 'help' }}>ⓘ</span>
-        </div>
-        <p className="is-size-7 has-text-grey mt-1">How often posts needed editing before sending — lower is better.</p>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        {stats.map((s) => {
-          const pct = Math.round(s.edit_rate * 100);
-          const barWidth = Math.round((s.edit_rate / maxRate) * 100);
-          return (
-            <div key={s.model}>
-              <div className="is-flex is-justify-content-space-between is-size-7 mb-1">
-                <span className={s.limited_data ? 'has-text-grey-light' : 'has-text-grey-dark'}>
-                  {s.model}
-                  {s.limited_data && <span className="has-text-grey-light ml-2">Limited data ({s.total_posts} posts)</span>}
-                </span>
-                <span className={s.limited_data ? 'has-text-grey-light' : 'has-text-grey'}>{pct}% edited ({s.total_posts} posts)</span>
-              </div>
-              <progress className="progress is-small" value={barWidth} max={100} style={{ height: '0.5rem' }} />
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function useAllPublished() {
   const [posts, setPosts] = useState<PublishedPost[]>([]);
-  const [stats, setStats] = useState<ModelStats[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
-    const [postsResult, statsResult] = await Promise.allSettled([
-      invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }),
-      pageIndex === 0 ? invoke<ModelStats[]>('get_model_stats') : Promise.resolve(null),
-    ]);
-    if (postsResult.status === 'fulfilled') {
-      const result = postsResult.value.filter(isPublishedPost);
+    try {
+      const result = (await invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }))
+        .filter(isPublishedPost);
       const hasMoreResults = result.length > PAGE_SIZE;
       const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
-    } else {
-      console.error('get_all_published failed:', postsResult.reason);
-    }
-    if (statsResult.status === 'fulfilled' && statsResult.value) {
-      setStats(statsResult.value);
-    } else if (statsResult.status === 'rejected') {
-      console.error('get_model_stats failed:', statsResult.reason);
+    } catch (e) {
+      console.error('get_all_published failed:', e);
     }
     setLoading(false);
   }, []);
 
   useEffect(() => { setPage(0); setPosts([]); setLoading(true); loadPage(0, false); }, [loadPage]);
 
-  const loadNextPage = useCallback(() => { const next = page + 1; setPage(next); loadPage(next, true); }, [page, loadPage]);
+  const loadNextPage = useCallback(() => {
+    const next = page + 1; setPage(next); loadPage(next, true);
+  }, [page, loadPage]);
 
-  return { posts, stats, hasMore, loading, loadNextPage };
+  return { posts, hasMore, loading, loadNextPage };
 }
 
 function AnalyticsToggleCell({ repoId, postFolder, sentAt }: { repoId: string; postFolder: string; sentAt?: string | null }) {
@@ -138,7 +97,7 @@ function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: Publis
 
 export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
-  const { posts, stats, hasMore, loading, loadNextPage } = useAllPublished();
+  const { posts, hasMore, loading, loadNextPage } = useAllPublished();
 
   async function handleExport() {
     setExportStatus(null);
@@ -158,7 +117,6 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   );
 
   const sentPosts = posts.filter((p) => p.status === 'sent');
-  const showModelBar = sentPosts.length >= 10 && stats.length > 0;
 
   if (posts.length === 0) return (
     <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
@@ -175,7 +133,6 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
           <button className="button is-outlined is-small" onClick={handleExport}>Export CSV</button>
         </div>
       </div>
-      {showModelBar && <ModelBar stats={stats} />}
       <table className="table is-fullwidth is-striped is-narrow is-hoverable">
         <thead>
           <tr>

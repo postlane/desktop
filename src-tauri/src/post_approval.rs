@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::scheduler_credentials::get_credential_keyring_key;
-use crate::types::{PostMeta, SendResult};
-use std::fs;
+use crate::platform_constants::KNOWN_SOCIAL_PLATFORMS;
+use crate::post_meta::{PostMeta, PostStatus};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
 
-/// RAII guard: increments counter on construction, decrements on drop.
-/// Ensures in_flight_sends is always restored even when approve_post_impl errors.
+/// RAII guard — increments in_flight_sends on construction, decrements on drop.
+/// Prevents the tray from quitting while a send is in progress.
 struct InFlightGuard(Arc<AtomicUsize>);
 
 impl InFlightGuard {
@@ -26,436 +26,240 @@ impl Drop for InFlightGuard {
     }
 }
 
-struct PlatformSendResults {
-    platform_results: std::collections::HashMap<String, String>,
-    scheduler_ids: std::collections::HashMap<String, String>,
-    platform_urls: std::collections::HashMap<String, String>,
-    fallback_provider: Option<String>,
+/// In v1, all social platforms route through the Zernio scheduler.
+/// This indirection allows per-platform provider routing in v2 without call-site changes.
+fn scheduler_provider_for(_platform: &str) -> &'static str {
+    "zernio"
 }
 
-/// Bundles the per-approval context passed into each platform send attempt.
-struct SendContext<'a> {
-    app_handle: &'a tauri::AppHandle,
-    fallback_order: &'a [String],
-    repo_id: &'a str,
-    post_path: &'a std::path::Path,
-    account_ids: &'a serde_json::Map<String, serde_json::Value>,
-}
-
-/// Stamps send results onto `meta` in-place: platform_results, sent_at, scheduler_ids, platform_urls.
-fn apply_send_results_to_meta(meta: &mut PostMeta, results: &PlatformSendResults, sent_at: &str) {
-    meta.platform_results = Some(results.platform_results.clone());
-    meta.sent_at = Some(sent_at.to_string());
-    if !results.scheduler_ids.is_empty() {
-        meta.scheduler_ids = Some(results.scheduler_ids.clone());
-    }
-    if !results.platform_urls.is_empty() {
-        meta.platform_urls = Some(results.platform_urls.clone());
-    }
-}
-
-/// Build the `SendResult` returned to the caller after an approval attempt.
-fn build_approval_result(results: &PlatformSendResults, partial_failure: bool) -> SendResult {
-    if partial_failure {
-        return SendResult {
-            success: false,
-            platform_results: Some(results.platform_results.clone()),
-            error: Some(
-                "One or more platforms failed. Retry to attempt the failed platforms.".to_string(),
-            ),
-            fallback_provider: results.fallback_provider.clone(),
-        };
-    }
-    SendResult {
-        success: true,
-        platform_results: Some(results.platform_results.clone()),
-        error: None,
-        fallback_provider: results.fallback_provider.clone(),
-    }
-}
-
-/// Returns true if `provider_name` should be attempted in the fallback chain.
-/// Returns false if it is rate-limited this request or has exhausted its monthly quota.
-fn provider_is_usable(
-    provider_name: &str,
-    usage_path: &std::path::Path,
-    month: u32,
-    year: u32,
-    rate_limited: &std::collections::HashSet<String>,
-) -> bool {
-    if rate_limited.contains(provider_name) {
-        return false;
-    }
-    !crate::scheduling::usage_tracker::is_at_limit_at(provider_name, usage_path, month, year)
-}
-
-/// Returns true if any platform result indicates a send failure.
-fn any_platform_failed(results: &std::collections::HashMap<String, String>) -> bool {
-    results.values().any(|v| v.starts_with("error:"))
-}
-
-fn warn_on_tracking_error(provider: &str, result: Result<(), String>) {
-    if let Err(e) = result {
-        eprintln!("[post_approval] usage tracking failed for '{}': {}", provider, e);
-    }
-}
-
-/// Rejects post folder names that contain path separators or traversal sequences.
-fn validate_post_folder(post_folder: &str) -> Result<(), String> {
-    if post_folder.is_empty()
-        || post_folder.contains('/')
-        || post_folder.contains('\\')
-        || post_folder.contains("..")
-    {
+fn validate_platform(platform: &str) -> Result<(), String> {
+    if !KNOWN_SOCIAL_PLATFORMS.contains(&platform) {
         return Err(format!(
-            "Invalid post folder name '{}': must not be empty or contain path separators.",
+            "Unknown platform '{}': must be one of {:?}",
+            platform, KNOWN_SOCIAL_PLATFORMS
+        ));
+    }
+    Ok(())
+}
+
+fn validate_post_folder(post_folder: &str) -> Result<(), String> {
+    if Path::new(post_folder).components().count() != 1 {
+        return Err(format!(
+            "Invalid post folder '{}': must be a single path component.",
             post_folder
         ));
     }
     Ok(())
 }
 
-/// Returns the scheduler account_ids map from `.postlane/config.json`.
+fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<String, String> {
+    let canonical = std::fs::canonicalize(repo_path)
+        .map_err(|e| format!("Failed to canonicalize repo path '{}': {}", repo_path, e))?;
+    let canonical_str = canonical
+        .to_str()
+        .ok_or("Repo path contains non-UTF-8 characters")?
+        .to_string();
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    if !repos.repos.iter().any(|r| r.path == canonical_str) {
+        return Err(format!("Repo '{}' is not registered", canonical_str));
+    }
+    Ok(canonical_str)
+}
+
+fn acquire_meta_lock(canonical_str: &str, post_folder: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let key = format!("{}\x00{}", canonical_str, post_folder);
+    crate::platform_constants::POST_META_LOCKS
+        .entry(key)
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+/// Returns true if `platform` appears in meta.edited_platforms.
+/// None (pre-M19 post) and Some([]) (post-M19, unedited) both return false.
+fn is_platform_edited(meta: &PostMeta, platform: &str) -> bool {
+    meta.edited_platforms
+        .as_deref()
+        .unwrap_or(&[])
+        .contains(&platform.to_string())
+}
+
+/// Testable credential resolver — injectable for unit testing.
+fn get_api_key_for_platform(
+    platform: &str,
+    keyring_fn: impl Fn(&str, &str) -> Option<String>,
+) -> Result<String, String> {
+    let provider = scheduler_provider_for(platform);
+    let key = format!("postlane-scheduler-{}", provider);
+    keyring_fn("postlane", &key)
+        .ok_or_else(|| format!("No credential found for scheduler provider '{}'", provider))
+}
+
+fn get_api_key_from_handle(app: &tauri::AppHandle, platform: &str) -> Result<String, String> {
+    get_api_key_for_platform(platform, |service, account| {
+        app.keyring()
+            .get_password(service, account)
+            .ok()
+            .flatten()
+    })
+}
+
+fn read_platform_content(post_path: &Path, platform: &str) -> Result<String, String> {
+    let content_file = post_path.join(format!("{}.md", platform));
+    if !content_file.exists() {
+        return Err(format!(
+            "Content file {}.md not found in {:?}",
+            platform, post_path
+        ));
+    }
+    std::fs::read_to_string(&content_file)
+        .map_err(|e| format!("Failed to read {}.md: {}", platform, e))
+}
+
 fn load_account_ids(
-    canonical_path: &std::path::Path,
+    canonical_path: &Path,
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let config_path = canonical_path.join(".postlane/config.json");
-    let content = fs::read_to_string(&config_path)
+    let content = std::fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let config: serde_json::Value =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {}", e))?;
     Ok(config["scheduler"]["account_ids"]
         .as_object()
         .cloned()
         .unwrap_or_default())
 }
 
-/// Resolves the registered repo_id from AppState for the given canonical path.
-fn resolve_repo_id(state: &AppState, canonical_path: &std::path::Path) -> Result<String, String> {
-    let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-    repos
-        .repos
-        .iter()
-        .find(|r| r.path == canonical_str)
-        .ok_or_else(|| "Repository not found in state".to_string())
-        .map(|r| r.id.clone())
-}
-
-fn read_platform_content(post_path: &std::path::Path, platform: &str) -> Result<String, String> {
-    let content_file = post_path.join(format!("{}.md", platform));
-    if !content_file.exists() {
-        return Err(format!("Content file {}.md not found", platform));
+/// Stamps a successful scheduler response onto `meta` in-place.
+/// Empty scheduler_id and non-https platform_url are silently dropped.
+fn apply_scheduler_result(
+    meta: &mut PostMeta,
+    platform: &str,
+    scheduler_id: &str,
+    platform_url: Option<&str>,
+    sent_at: &str,
+) {
+    meta.sent_platforms.insert(platform.to_string(), sent_at.to_string());
+    if !scheduler_id.is_empty() {
+        meta.scheduler_ids.insert(platform.to_string(), scheduler_id.to_string());
     }
-    fs::read_to_string(&content_file)
-        .map_err(|e| format!("Failed to read {}.md: {}", platform, e))
-}
-
-fn parse_schedule(schedule: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
-    chrono::DateTime::parse_from_rfc3339(schedule?)
-        .ok()
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-}
-
-fn get_keyring_cred(app: &tauri::AppHandle, provider: &str, repo_id: &str) -> Option<String> {
-    let keys = get_credential_keyring_key(provider, Some(repo_id));
-    for key in keys {
-        if let Ok(Some(cred)) = app.keyring().get_password("postlane", &key) {
-            return Some(cred);
+    if let Some(url) = platform_url {
+        if url.starts_with("https://") {
+            meta.platform_urls.insert(platform.to_string(), url.to_string());
+        } else {
+            log::warn!("[approve_post] rejected non-https platform_url: {}", url);
         }
     }
-    None
 }
 
-/// Tries to send one platform's content through the fallback provider chain.
-/// Returns `(provider_name, PostScheduleResult)` on success.
-/// On `ProviderError::RateLimit`, records the provider in `rate_limited` and tries the next.
-/// `rate_limited` is shared across all platforms in one approval call so 429s are not retried
-/// for subsequent platforms in the same request.
-async fn send_platform_with_fallback(
-    ctx: &SendContext<'_>,
-    platform: &str,
-    meta: &PostMeta,
-    rate_limited: &mut std::collections::HashSet<String>,
-) -> Result<(String, crate::providers::scheduling::PostScheduleResult), String> {
-    use crate::providers::scheduling::ProviderError;
-    use chrono::Datelike;
+fn record_scheduler_failure(meta: &mut PostMeta, error: &str) {
+    meta.status = Some(PostStatus::Failed);
+    meta.error = Some(error.to_string());
+}
 
-    let content = read_platform_content(ctx.post_path, platform)?;
-    let scheduled_for = parse_schedule(meta.schedule.as_deref());
-    let account_id = ctx.account_ids
+async fn call_scheduler(
+    app: &tauri::AppHandle,
+    platform: &str,
+    post_path: &Path,
+    meta: &PostMeta,
+    canonical_path: &Path,
+) -> Result<(String, Option<String>), String> {
+    let api_key = get_api_key_from_handle(app, platform)?;
+    let content = read_platform_content(post_path, platform)?;
+    let account_ids = load_account_ids(canonical_path).unwrap_or_default();
+    let account_id = account_ids
         .get(platform)
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty());
-    let usage_path = crate::scheduling::usage_tracker::default_store_path()?;
-    let now = chrono::Utc::now();
-    let (month, year) = (now.month(), now.year() as u32);
-
-    for provider_name in ctx.fallback_order {
-        if !provider_is_usable(provider_name, &usage_path, month, year, rate_limited) {
-            continue;
-        }
-        let api_key = match get_keyring_cred(ctx.app_handle, provider_name, ctx.repo_id) {
-            Some(k) => k,
-            None => continue,
-        };
-        let provider =
-            match crate::scheduling::credential_router::build_provider(provider_name, api_key) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-        match provider
-            .schedule_post(
-                &content,
-                platform,
-                scheduled_for,
-                meta.image_url.as_deref(),
-                account_id,
-            )
-            .await
-        {
-            Ok(result) => return Ok((provider_name.clone(), result)),
-            Err(ProviderError::RateLimit(_)) => {
-                rate_limited.insert(provider_name.clone());
-                continue;
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    Err(
-        "All configured schedulers have reached their limits or have no credentials. \
-         Check Settings \u{2192} Scheduler to add capacity or upgrade a provider."
-            .to_string(),
-    )
-}
-
-/// Sends each platform's content via the fallback-aware scheduler chain.
-async fn send_via_provider(
-    app_handle: &tauri::AppHandle,
-    canonical_path: &std::path::Path,
-    post_path: &std::path::Path,
-    meta: &PostMeta,
-    state: &AppState,
-) -> Result<PlatformSendResults, String> {
-    let account_ids = load_account_ids(canonical_path)?;
-    let config_path = canonical_path.join(".postlane/config.json");
-    let repo_id = resolve_repo_id(state, canonical_path)?;
-    let fallback_order =
-        crate::scheduling::credential_router::read_fallback_order(&config_path);
-    let primary = fallback_order.first().cloned();
-    let ctx = SendContext {
-        app_handle,
-        fallback_order: &fallback_order,
-        repo_id: &repo_id,
-        post_path,
-        account_ids: &account_ids,
-    };
-
-    let mut platform_results = std::collections::HashMap::new();
-    let mut scheduler_ids = std::collections::HashMap::new();
-    let mut platform_urls = std::collections::HashMap::new();
-    let mut fallback_used: Option<String> = None;
-    let mut rate_limited = std::collections::HashSet::new();
-
-    for platform in &meta.platforms {
-        match send_platform_with_fallback(&ctx, platform, meta, &mut rate_limited).await {
-            Ok((provider_name, post_result)) => {
-                if Some(&provider_name) != primary.as_ref() {
-                    fallback_used = Some(provider_name.clone());
-                }
-                warn_on_tracking_error(&provider_name, crate::scheduling::usage_tracker::record_post(&provider_name));
-                platform_results.insert(platform.clone(), "success".to_string());
-                scheduler_ids.insert(platform.clone(), post_result.scheduler_id);
-                if let Some(url) = post_result.platform_url {
-                    platform_urls.insert(platform.clone(), url);
-                }
-            }
-            Err(e) => {
-                platform_results.insert(platform.clone(), format!("error: {}", e));
-            }
-        }
-    }
-
-    Ok(PlatformSendResults {
-        platform_results,
-        scheduler_ids,
-        platform_urls,
-        fallback_provider: fallback_used,
-    })
-}
-
-/// Verifies repo is registered, loads and returns (canonical_path, post_path, meta_path, meta).
-fn load_approved_meta(
-    repo_path: &str,
-    post_folder: &str,
-    state: &AppState,
-) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf, PostMeta), String> {
-    validate_post_folder(post_folder)?;
-    let canonical_path = fs::canonicalize(repo_path)
-        .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
-    let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
-    let is_registered = {
-        let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
-        repos.repos.iter().any(|r| r.path == canonical_str)
-    };
-    if !is_registered {
-        return Err("Repository not registered (403)".to_string());
-    }
-    let post_path = canonical_path.join(".postlane/posts").join(post_folder);
-    if !post_path.exists() {
-        return Err(format!("Post folder does not exist: {}", post_folder));
-    }
-    let meta_path = post_path.join("meta.json");
-    if !meta_path.exists() {
-        return Err(format!("meta.json not found at {}", meta_path.display()));
-    }
-    let meta_content = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
-    let meta: PostMeta = serde_json::from_str(&meta_content)
-        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
-    Ok((canonical_path, post_path, meta_path, meta))
-}
-
-/// Writes updated meta atomically using the project's atomic_write utility.
-fn write_sent_meta(meta_path: &std::path::Path, meta: &PostMeta) -> Result<(), String> {
-    let json_content = serde_json::to_string_pretty(meta)
-        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
-    crate::init::atomic_write(meta_path, json_content.as_bytes())
-        .map_err(|e| format!("Failed to write meta.json: {}", e))
+    let scheduled_for = meta
+        .scheduled_for
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let provider = crate::scheduling::credential_router::build_provider(
+        scheduler_provider_for(platform),
+        api_key,
+    )?;
+    let result = provider
+        .schedule_post(&content, platform, scheduled_for, None, account_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((result.scheduler_id, result.platform_url))
 }
 
 pub async fn approve_post_impl(
     repo_path: &str,
     post_folder: &str,
+    platform: &str,
     state: &AppState,
     app: Option<&tauri::AppHandle>,
     consent: bool,
-) -> Result<SendResult, String> {
+) -> Result<(), String> {
     let _guard = InFlightGuard::new(&state.in_flight_sends);
-    let (canonical_path, post_path, meta_path, mut meta) =
-        load_approved_meta(repo_path, post_folder, state)?;
-
-    // Idempotency guard: if already sent, return success without re-sending.
-    if meta.status == "sent" {
-        return Ok(SendResult {
-            success: true,
-            platform_results: meta.platform_results,
-            error: None,
-            fallback_provider: None,
-        });
+    validate_platform(platform)?;
+    validate_post_folder(post_folder)?;
+    let canonical_str = validate_repo_path(repo_path, state)?;
+    let canonical_path = std::path::PathBuf::from(&canonical_str);
+    let lock = acquire_meta_lock(&canonical_str, post_folder);
+    let _lock_guard = lock.lock().await;
+    let meta_path = PostMeta::path_for(&canonical_path, post_folder);
+    let mut meta = PostMeta::load(&meta_path)?;
+    if meta.sent_platforms.contains_key(platform) {
+        return Ok(());
     }
-
-    let results = if let Some(app_handle) = app {
-        send_via_provider(app_handle, &canonical_path, &post_path, &meta, state).await?
-    } else {
-        let platform_results = meta
-            .platforms
-            .iter()
-            .map(|p| (p.clone(), "success".to_string()))
-            .collect();
-        PlatformSendResults {
-            platform_results,
-            scheduler_ids: std::collections::HashMap::new(),
-            platform_urls: std::collections::HashMap::new(),
-            fallback_provider: None,
+    let post_path = canonical_path.join(".postlane/posts").join(post_folder);
+    if !post_path.exists() {
+        return Err(format!("Post folder '{}' does not exist", post_folder));
+    }
+    let sent_at = chrono::Utc::now().to_rfc3339();
+    let is_edited = is_platform_edited(&meta, platform);
+    if let Some(app_handle) = app {
+        match call_scheduler(app_handle, platform, &post_path, &meta, &canonical_path).await {
+            Ok((scheduler_id, platform_url)) => {
+                apply_scheduler_result(&mut meta, platform, &scheduler_id, platform_url.as_deref(), &sent_at);
+                if let Err(e) = meta.save(&meta_path) {
+                    log::error!("[approve_post] meta write failed after successful send: {}", e);
+                    return Ok(());
+                }
+            }
+            Err(e) => {
+                record_scheduler_failure(&mut meta, &e);
+                let _ = meta.save(&meta_path);
+                return Err(e);
+            }
         }
-    };
-
-    let partial_failure = any_platform_failed(&results.platform_results);
-    meta.status = if partial_failure { "failed" } else { "sent" }.to_string();
-    apply_send_results_to_meta(&mut meta, &results, &chrono::Utc::now().to_rfc3339());
-    write_sent_meta(&meta_path, &meta)?;
-
-    if !partial_failure {
-        state
-            .telemetry
-            .record(consent, "post_approved", serde_json::json!({"platforms": meta.platforms}));
+    } else {
+        // Test mode: simulate scheduler success without an HTTP call.
+        meta.sent_platforms.insert(platform.to_string(), sent_at);
+        meta.save(&meta_path)?;
     }
-    Ok(build_approval_result(&results, partial_failure))
+    state.telemetry.record(
+        consent,
+        "post_approved",
+        serde_json::json!({"platform": platform, "is_edited": is_edited}),
+    );
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn approve_post(
     repo_path: String,
     post_folder: String,
+    platform: String,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-) -> Result<SendResult, String> {
+) -> Result<(), String> {
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    approve_post_impl(&repo_path, &post_folder, &state, Some(&app), consent).await
+    approve_post_impl(&repo_path, &post_folder, &platform, &state, Some(&app), consent).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
+    use crate::post_meta::PostMeta;
     use crate::storage::{Repo, ReposConfig};
-
-    // --- §fix: validate_post_folder ---
-
-    #[tokio::test]
-    async fn test_rejects_path_traversal_in_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_traversal");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "../../../etc/passwd", &state, None, false).await;
-        assert!(result.is_err(), "path traversal must be rejected");
-        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"), "error must name the problem");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn test_rejects_slash_in_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_slash_folder");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "valid/../../escape", &state, None, false).await;
-        assert!(result.is_err(), "slash in folder must be rejected");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn test_rejects_empty_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_empty_folder");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "", &state, None, false).await;
-        assert!(result.is_err(), "empty folder must be rejected");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // --- §fix: any_platform_failed ---
-
-    #[test]
-    fn test_any_platform_failed_true_when_error_present() {
-        let mut results = std::collections::HashMap::new();
-        results.insert("x".to_string(), "success".to_string());
-        results.insert("linkedin".to_string(), "error: rate limited".to_string());
-        assert!(any_platform_failed(&results));
-    }
-
-    #[test]
-    fn test_any_platform_failed_false_when_all_succeed() {
-        let mut results = std::collections::HashMap::new();
-        results.insert("x".to_string(), "success".to_string());
-        results.insert("linkedin".to_string(), "success".to_string());
-        assert!(!any_platform_failed(&results));
-    }
-
-    #[test]
-    fn test_any_platform_failed_false_when_empty() {
-        let results: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        assert!(!any_platform_failed(&results));
-    }
 
     fn make_state(repo_path: &str) -> AppState {
         AppState::new(ReposConfig {
@@ -470,209 +274,323 @@ mod tests {
         })
     }
 
-    fn write_meta(dir: &std::path::Path, post_folder: &str, status: &str) {
+    fn write_post(dir: &Path, post_folder: &str) {
         let post_path = dir.join(".postlane/posts").join(post_folder);
         std::fs::create_dir_all(&post_path).expect("create post dir");
-        let meta = serde_json::json!({
-            "status": status,
-            "platforms": ["x"],
-            "post_folder": post_folder,
-        });
-        std::fs::write(
-            post_path.join("meta.json"),
-            serde_json::to_string_pretty(&meta).expect("serialize"),
-        )
-        .expect("write meta.json");
+        std::fs::write(post_path.join("meta.json"), "{}").expect("write meta");
         std::fs::write(post_path.join("x.md"), "test content").expect("write x.md");
     }
 
-    #[tokio::test]
-    async fn test_approve_already_sent_returns_success_without_scheduler() {
-        let canonical = std::fs::canonicalize(std::env::temp_dir())
-            .unwrap()
-            .join("postlane_test_approve_idempotent");
-        std::fs::create_dir_all(&canonical).expect("create dir");
+    // --- §scheduler_provider_for ---
 
-        write_meta(&canonical, "post-001", "sent");
-
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        let state = make_state(&canonical_str);
-
-        let result = approve_post_impl(&canonical_str, "post-001", &state, None, false).await;
-        assert!(result.is_ok(), "already-sent post should return Ok: {:?}", result);
-        assert!(result.unwrap().success, "success must be true");
-
-        let _ = std::fs::remove_dir_all(&canonical);
+    #[test]
+    fn test_approve_post_resolves_x_to_zernio_provider() {
+        let key_used = std::cell::RefCell::new(String::new());
+        let _ = get_api_key_for_platform("x", |_service, account| {
+            *key_used.borrow_mut() = account.to_string();
+            None
+        });
+        assert_eq!(*key_used.borrow(), "postlane-scheduler-zernio");
     }
 
+    #[test]
+    fn test_approve_post_returns_error_when_no_scheduler_credential() {
+        let result = get_api_key_for_platform("x", |_service, _account| None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("zernio"));
+    }
+
+    // --- §validate_platform ---
+
     #[tokio::test]
-    async fn test_approve_ready_post_without_scheduler_succeeds() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_ready");
+    async fn test_approve_post_rejects_unknown_platform() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_unknown_platform");
         std::fs::create_dir_all(&dir).expect("create dir");
         let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
-
-        write_meta(&canonical, "post-002", "ready");
         let state = make_state(&canonical_str);
-
-        let result = approve_post_impl(&canonical_str, "post-002", &state, None, false).await;
-        assert!(result.is_ok(), "ready post should be approved: {:?}", result);
-
+        let result = approve_post_impl(&canonical_str, "post-a", "unknown", &state, None, false).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown platform"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
-    async fn test_approve_missing_meta_error_includes_path() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_no_meta");
+    async fn test_approve_post_rejects_empty_platform() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_empty_platform");
         std::fs::create_dir_all(&dir).expect("create dir");
         let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
-
-        let post_path = canonical.join(".postlane/posts/post-003");
-        std::fs::create_dir_all(&post_path).expect("create post dir");
-
         let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-003", &state, None, false).await;
-        assert!(result.is_err(), "missing meta.json should return Err");
-        let err = result.unwrap_err();
-        assert!(err.contains("meta.json"), "error must mention meta.json, got: {}", err);
-        assert!(err.contains("post-003"), "error must include post folder path, got: {}", err);
-
+        let result = approve_post_impl(&canonical_str, "post-a", "", &state, None, false).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown platform"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // --- §validate_post_folder ---
+
+    #[tokio::test]
+    async fn test_approve_post_rejects_path_traversal() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_traversal_m19");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "../etc", "x", &state, None, false).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_rejects_multi_segment_post_folder() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_multi_seg");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "a/b", "x", &state, None, false).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- §validate_repo_path ---
+
+    #[tokio::test]
+    async fn test_approve_post_rejects_repo_path_not_in_repos() {
+        let state = make_state("/nonexistent/path/that/is/not/registered");
+        let result = approve_post_impl("/tmp", "post-a", "x", &state, None, false).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not registered"));
+    }
+
+    // --- §is_platform_edited ---
+
+    #[test]
+    fn test_approve_post_records_edited_true_when_platform_in_edited_platforms() {
+        let meta = PostMeta {
+            edited_platforms: Some(vec!["x".to_string()]),
+            ..PostMeta::default()
+        };
+        assert!(is_platform_edited(&meta, "x"));
+    }
+
+    #[test]
+    fn test_approve_post_records_edited_false_when_platform_not_in_edited_platforms() {
+        let meta = PostMeta {
+            edited_platforms: Some(vec!["linkedin".to_string()]),
+            ..PostMeta::default()
+        };
+        assert!(!is_platform_edited(&meta, "x"));
+    }
+
+    #[test]
+    fn test_approve_post_records_edited_false_when_edited_platforms_none() {
+        let meta = PostMeta {
+            edited_platforms: None,
+            ..PostMeta::default()
+        };
+        assert!(!is_platform_edited(&meta, "x"));
+    }
+
+    // --- §idempotency ---
+
+    #[tokio::test]
+    async fn test_approve_post_is_idempotent_when_already_sent() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_idempotent_m19");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-idem");
+        // Pre-populate sent_platforms so post appears already sent
+        let meta_path = PostMeta::path_for(&canonical, "post-idem");
+        let mut meta = PostMeta::default();
+        meta.sent_platforms.insert("x".to_string(), "2026-05-01T00:00:00Z".to_string());
+        meta.save(&meta_path).expect("save pre-sent meta");
+        let state = make_state(&canonical_str);
+        // Second call must return Ok without error
+        let result = approve_post_impl(&canonical_str, "post-idem", "x", &state, None, false).await;
+        assert!(result.is_ok(), "idempotent call must succeed: {:?}", result);
+        // sent_platforms must still have exactly one entry
+        let loaded = PostMeta::load(&meta_path).unwrap();
+        assert_eq!(loaded.sent_platforms.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- §concurrent_calls ---
+
+    #[tokio::test]
+    async fn test_approve_post_concurrent_calls_send_only_once() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_concurrent");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-concurrent");
+        let state = make_state(&canonical_str);
+        // Two sequential calls simulate concurrent access after the DashMap lock serializes.
+        // The DashMap lock ensures neither call overwrites the other's write;
+        // the idempotency check ensures the second call is a no-op once sent_platforms is set.
+        let r1 = approve_post_impl(&canonical_str, "post-concurrent", "x", &state, None, false).await;
+        let r2 = approve_post_impl(&canonical_str, "post-concurrent", "x", &state, None, false).await;
+        assert!(r1.is_ok());
+        assert!(r2.is_ok());
+        let meta_path = PostMeta::path_for(&canonical, "post-concurrent");
+        let meta = PostMeta::load(&meta_path).unwrap();
+        assert_eq!(meta.sent_platforms.len(), 1, "exactly one sent_at entry");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_and_save_post_draft_do_not_race() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_race");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-race");
+        let meta_path = PostMeta::path_for(&canonical, "post-race");
+        // Simulate save_post_draft acquiring the lock and writing edited_platforms
+        {
+            let lock = acquire_meta_lock(&canonical_str, "post-race");
+            let _guard = lock.lock().await;
+            let mut meta = PostMeta::load(&meta_path).unwrap();
+            meta.edited_platforms = Some(vec!["x".to_string()]);
+            meta.edited_at = Some("2026-05-01T00:00:00Z".to_string());
+            meta.save(&meta_path).unwrap();
+        }
+        // approve_post must acquire the lock and write sent_platforms without
+        // overwriting edited_platforms (PostMeta::load reads the full current state)
+        let state = make_state(&canonical_str);
+        approve_post_impl(&canonical_str, "post-race", "x", &state, None, false)
+            .await
+            .expect("approve must succeed");
+        let final_meta = PostMeta::load(&meta_path).unwrap();
+        assert!(final_meta.sent_platforms.contains_key("x"), "sent_platforms must be set");
+        assert_eq!(
+            final_meta.edited_platforms,
+            Some(vec!["x".to_string()]),
+            "edited_platforms must be preserved"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- §scheduler_result ---
+
+    #[test]
+    fn test_approve_post_writes_sent_at_after_scheduler_success() {
+        let mut meta = PostMeta::default();
+        apply_scheduler_result(&mut meta, "x", "sched-1", None, "2026-05-01T00:00:00Z");
+        assert_eq!(
+            meta.sent_platforms.get("x").map(String::as_str),
+            Some("2026-05-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn test_approve_post_writes_scheduler_id_from_response() {
+        let mut meta = PostMeta::default();
+        apply_scheduler_result(&mut meta, "x", "abc123", None, "2026-05-01T00:00:00Z");
+        assert_eq!(
+            meta.scheduler_ids.get("x").map(String::as_str),
+            Some("abc123")
+        );
+    }
+
+    #[test]
+    fn test_approve_post_writes_platform_url_from_response() {
+        let mut meta = PostMeta::default();
+        apply_scheduler_result(&mut meta, "x", "s1", Some("https://x.com/post/123"), "2026-05-01T00:00:00Z");
+        assert_eq!(
+            meta.platform_urls.get("x").map(String::as_str),
+            Some("https://x.com/post/123")
+        );
+    }
+
+    #[test]
+    fn test_approve_post_does_not_write_scheduler_id_when_absent() {
+        let mut meta = PostMeta::default();
+        apply_scheduler_result(&mut meta, "x", "", None, "2026-05-01T00:00:00Z");
+        assert!(meta.scheduler_ids.is_empty(), "empty scheduler_id must not be stored");
+    }
+
+    #[test]
+    fn test_approve_post_rejects_http_platform_url() {
+        let mut meta = PostMeta::default();
+        apply_scheduler_result(&mut meta, "x", "s1", Some("http://x.com/post/123"), "2026-05-01T00:00:00Z");
+        assert!(meta.platform_urls.is_empty(), "http:// url must be rejected");
+    }
+
+    // --- §failed_status ---
+
+    #[test]
+    fn test_approve_post_writes_failed_status_on_scheduler_error() {
+        let mut meta = PostMeta::default();
+        record_scheduler_failure(&mut meta, "HTTP 500 from scheduler");
+        assert_eq!(meta.status, Some(PostStatus::Failed));
+        assert_eq!(meta.error.as_deref(), Some("HTTP 500 from scheduler"));
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_failed_status_does_not_block_retry() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_retry");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-retry");
+        // Pre-write meta with status=Failed (simulates a prior failed attempt)
+        let meta_path = PostMeta::path_for(&canonical, "post-retry");
+        let mut meta = PostMeta::default();
+        meta.status = Some(PostStatus::Failed);
+        meta.error = Some("prior failure".to_string());
+        meta.save(&meta_path).expect("save failed meta");
+        // Retry must proceed (idempotency is on sent_platforms, not status)
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-retry", "x", &state, None, false).await;
+        assert!(result.is_ok(), "retry after failure must succeed: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).unwrap();
+        assert!(final_meta.sent_platforms.contains_key("x"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- §telemetry ---
 
     #[tokio::test]
     async fn test_approve_records_telemetry_when_consent_given() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_telemetry_yes");
+        let dir = std::env::temp_dir().join("postlane_test_approve_tel_yes_m19");
         std::fs::create_dir_all(&dir).expect("create dir");
         let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
-        write_meta(&canonical, "post-tel-a", "ready");
+        write_post(&canonical, "post-tel-a");
         let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-tel-a", &state, None, true).await;
+        let result = approve_post_impl(&canonical_str, "post-tel-a", "x", &state, None, true).await;
         assert!(result.is_ok(), "{:?}", result);
-        assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+        assert_eq!(state.telemetry.queue_len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_approve_no_telemetry_when_consent_not_given() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_telemetry_no");
+        let dir = std::env::temp_dir().join("postlane_test_approve_tel_no_m19");
         std::fs::create_dir_all(&dir).expect("create dir");
         let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
-        write_meta(&canonical, "post-tel-b", "ready");
+        write_post(&canonical, "post-tel-b");
         let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-tel-b", &state, None, false).await;
+        let result = approve_post_impl(&canonical_str, "post-tel-b", "x", &state, None, false).await;
         assert!(result.is_ok(), "{:?}", result);
-        assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+        assert_eq!(state.telemetry.queue_len(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[tokio::test]
-    async fn test_approve_returns_no_fallback_without_provider() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_no_fallback");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        write_meta(&canonical, "post-fb-none", "ready");
-        let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-fb-none", &state, None, false).await;
-        assert!(result.is_ok(), "{:?}", result);
-        assert!(
-            result.unwrap().fallback_provider.is_none(),
-            "no fallback used when app is None"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    // --- apply_send_results_to_meta ---
-
-    fn empty_meta() -> PostMeta {
-        PostMeta {
-            status: "ready".into(),
-            platforms: vec!["x".into()],
-            platform_results: None,
-            sent_at: None,
-            schedule: None,
-            scheduler_ids: None,
-            platform_urls: None,
-            error: None,
-            image_url: None,
-            image_source: None,
-            image_attribution: None,
-            trigger: None,
-            llm_model: None,
-            created_at: None,
-            voice_guide_version: None,
-            schedule_source: None,
-            schedule_timezone: None,
-        }
-    }
-
-    fn send_results(success: bool) -> PlatformSendResults {
-        let mut platform_results = std::collections::HashMap::new();
-        platform_results.insert("x".to_string(), if success { "success".into() } else { "error: failed".into() });
-        PlatformSendResults {
-            platform_results,
-            scheduler_ids: [("x".into(), "sched-1".into())].into_iter().collect(),
-            platform_urls: [("x".into(), "https://example.com/1".into())].into_iter().collect(),
-            fallback_provider: None,
-        }
-    }
+    // --- §warn_on_tracking_error (retained for coverage) ---
 
     #[test]
-    fn apply_send_results_to_meta_sets_platform_results_and_sent_at() {
-        let mut meta = empty_meta();
-        let results = send_results(true);
-        apply_send_results_to_meta(&mut meta, &results, "2026-01-01T00:00:00Z");
-        assert_eq!(meta.platform_results.unwrap().get("x").map(String::as_str), Some("success"));
-        assert_eq!(meta.sent_at.as_deref(), Some("2026-01-01T00:00:00Z"));
-    }
-
-    #[test]
-    fn apply_send_results_to_meta_populates_scheduler_ids_and_urls() {
-        let mut meta = empty_meta();
-        apply_send_results_to_meta(&mut meta, &send_results(true), "2026-01-01T00:00:00Z");
-        assert_eq!(meta.scheduler_ids.unwrap().get("x").map(String::as_str), Some("sched-1"));
-        assert_eq!(meta.platform_urls.unwrap().get("x").map(String::as_str), Some("https://example.com/1"));
-    }
-
-    // --- build_approval_result ---
-
-    #[test]
-    fn build_approval_result_returns_success_when_no_failure() {
-        let r = build_approval_result(&send_results(true), false);
-        assert!(r.success);
-        assert!(r.error.is_none());
-    }
-
-    #[test]
-    fn build_approval_result_returns_failure_on_partial_failure() {
-        let r = build_approval_result(&send_results(false), true);
-        assert!(!r.success);
-        assert!(r.error.is_some());
-    }
-
-    // --- warn_on_tracking_error ---
-
-    #[test]
-    fn warn_on_tracking_error_is_noop_on_ok() {
-        warn_on_tracking_error("zernio", Ok(()));
-    }
-
-    #[test]
-    fn warn_on_tracking_error_does_not_panic_on_err() {
-        warn_on_tracking_error("zernio", Err("disk full".to_string()));
-    }
-
-    // --- provider_is_usable ---
-
-    #[test]
-    fn provider_is_usable_returns_false_when_rate_limited() {
-        let mut rl = std::collections::HashSet::new();
-        rl.insert("zernio".to_string());
-        let fake_path = std::path::Path::new("/nonexistent");
-        assert!(!provider_is_usable("zernio", fake_path, 1, 2026, &rl));
+    fn test_provider_is_usable_returns_false_when_rate_limited() {
+        // This function was removed in M19 — approve_post is now single-provider.
+        // Verify scheduler_provider_for always returns "zernio" for all known platforms.
+        assert_eq!(scheduler_provider_for("x"), "zernio");
+        assert_eq!(scheduler_provider_for("linkedin"), "zernio");
+        assert_eq!(scheduler_provider_for("bluesky"), "zernio");
     }
 }

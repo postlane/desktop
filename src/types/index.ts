@@ -45,6 +45,9 @@ export interface AppStateFile {
   telemetry_consent: boolean;
   consent_asked: boolean;
   default_post_time: { hour: number; minute: number; timezone: string } | null;
+  notifications_enabled?: boolean;
+  dismissed_unassigned_draft_warning?: boolean;
+  post_wizard_completed?: boolean;
 }
 
 /** Mirrors analytics::PostAnalytics */
@@ -62,14 +65,31 @@ export interface SchedulerProfile {
   platforms: string[];
 }
 
-export type Section = 'drafts' | 'published';
-export type NavView = 'all_repos' | 'repo';
+export type OrgNavView = 'queue' | 'history' | 'settings';
+export type GlobalSettingsSection = 'account' | 'preferences' | 'system';
 
-export interface ViewSelection {
-  view: NavView;
-  repoId: string | null;
-  section: Section;
+export interface OrgQueueView { view: 'org_queue'; projectId: string }
+export interface OrgHistoryView { view: 'org_history'; projectId: string }
+export interface OrgSettingsView { view: 'org_settings'; projectId: string; section: OrgNavView }
+export interface GlobalSettingsView { view: 'global_settings'; section: GlobalSettingsSection }
+export interface NoOrgsView { view: 'no_orgs' }
+
+export type ViewSelection = OrgQueueView | OrgHistoryView | OrgSettingsView | GlobalSettingsView | NoOrgsView;
+
+export interface Project {
+  id: string;
+  name: string;
+  workspace_type: 'personal' | 'organization' | 'client';
+  tier: string;
+  billing_active: boolean;
+  is_owner: boolean;
 }
+
+export type ImageState =
+  | { status: 'none' }
+  | { status: 'loading' }
+  | { status: 'loaded'; url: string }
+  | { status: 'error'; message: string }
 
 export type StatusIndicatorType =
   | { type: 'none' }        // inactive repo — no dot shown
@@ -105,6 +125,22 @@ export interface DraftPost extends PostBase {
   trigger: string | null;
   error: string | null;
   image_url: string | null;
+  /** project_id from repo config.json; null for repos added before M19 */
+  project_id: string | null;
+  /** LLM model that generated the post — populated by rebuilt get_all_drafts (19.0.15) */
+  model_name?: string | null;
+  /** UTC ISO8601 timestamp the post is scheduled to publish; null if not scheduled */
+  scheduled_for?: string | null;
+  /** ISO8601 timestamp of the most recent user edit; null if the post has never been edited */
+  edited_at?: string | null;
+  /** v2 stub: local download path for Unsplash image attached to this post */
+  image_download_location?: string | null;
+  /** v2 stub: Unsplash photographer attribution required by download endpoint compliance */
+  image_attribution?: { photographer_name: string; photographer_url: string } | null;
+  /** Single platform key for this row (e.g. "x") — draft rows are one per platform */
+  platform: string;
+  /** Post body text read from the platform .md file */
+  text: string;
 }
 
 /** Published/queued post — status 'sent' or 'queued' — returned by get_repo_published */
@@ -115,6 +151,13 @@ export interface PublishedPost extends PostBase {
   /** Scheduler provider name (e.g. "zernio") from repo config.json, or null */
   provider: string | null;
   sent_at: string | null;
+  // M19 fields — populated by get_org_published; optional for backward-compat with get_repo_published
+  /** Published post body text — read from the platform .md file */
+  text?: string | null;
+  /** Single platform key for this row (e.g. "x") — M19 History rows are per-platform */
+  platform?: string | null;
+  /** project_id from the repo's config.json */
+  project_id?: string | null;
 }
 
 /** Canonical union type covering both lifecycle stages */
@@ -130,11 +173,11 @@ export interface SendResult {
   fallback_provider: string | null;
 }
 
-/** Model edit-rate statistics — returned by get_model_stats */
-export interface ModelStats {
-  model: string;
-  total_posts: number;
+/** Global edit-rate aggregate — returned by get_model_stats (M19+) */
+export interface ModelStatsResponse {
+  edit_rate: number;           // 0.0–1.0; 0.0 when total_posts is 0
   edited_posts: number;
-  edit_rate: number;         // 0.0–1.0
-  limited_data: boolean;     // true when 5–19 posts
+  total_posts: number;
+  denominator_unit: string;    // "platform_approval"
+  pre_m19_post_count: number;  // approvals from posts where edited_platforms was absent
 }

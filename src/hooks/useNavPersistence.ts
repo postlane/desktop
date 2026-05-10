@@ -16,8 +16,12 @@ export function useNavPersistence(): (_ids: Set<string>, _view: ViewSelection) =
       try {
         const win = getCurrentWindow();
         const [size, pos] = await Promise.all([win.outerSize(), win.outerPosition()]);
+        const projectId = (view.view === 'org_queue' || view.view === 'org_history' || view.view === 'org_settings')
+          ? view.projectId : null;
+        const section = (view.view === 'org_settings' || view.view === 'global_settings')
+          ? view.section : '';
         await invoke<void>('save_app_state_command', {
-          state: { version: 1, window: { width: size.width, height: size.height, x: pos.x, y: pos.y }, nav: { last_view: view.view, last_repo_id: view.repoId, last_section: view.section, expanded_repos: [...ids] } },
+          state: { version: 1, window: { width: size.width, height: size.height, x: pos.x, y: pos.y }, nav: { last_view: view.view, last_repo_id: projectId, last_section: section, expanded_repos: [...ids] } },
         });
       } catch (e) { console.error('Failed to persist nav state:', e); }
     }, PERSIST_DEBOUNCE_MS);
