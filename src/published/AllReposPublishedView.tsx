@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import type { PublishedPost, PostAnalytics } from '../types';
 import { isPublishedPost } from '../ipc-guards';
@@ -20,10 +20,9 @@ function useAllPublished() {
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
     try {
-      const result = (await invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }))
-        .filter(isPublishedPost);
-      const hasMoreResults = result.length > PAGE_SIZE;
-      const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
+      const raw = await invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 });
+      const hasMoreResults = raw.length > PAGE_SIZE;
+      const slice = raw.slice(0, PAGE_SIZE).filter(isPublishedPost);
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
     } catch (e) {
@@ -97,6 +96,7 @@ function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: Publis
 
 export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [openLinkError, setOpenLinkError] = useState<string | null>(null);
   const { posts, hasMore, loading, loadNextPage } = useAllPublished();
 
   async function handleExport() {
@@ -106,8 +106,9 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   }
 
   async function handleOpenLink(url: string) {
+    setOpenLinkError(null);
     try { await invoke('plugin:opener|open_url', { url }); }
-    catch (e) { console.error('Failed to open URL:', e); }
+    catch (e) { setOpenLinkError(e instanceof Error ? e.message : 'Failed to open link'); }
   }
 
   if (loading) return (
@@ -129,6 +130,7 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
       <div className="is-flex is-align-items-center is-justify-content-space-between mb-5">
         <h1 className="has-text-weight-semibold">All repos — Published</h1>
         <div className="is-flex is-align-items-center" style={{ gap: '0.75rem' }}>
+          {openLinkError && <span className="is-size-7 has-text-danger">{openLinkError}</span>}
           {exportStatus && <span className="is-size-7 has-text-grey">{exportStatus}</span>}
           <button className="button is-outlined is-small" onClick={handleExport}>Export CSV</button>
         </div>

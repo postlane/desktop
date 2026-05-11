@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { invoke } from '../ipc/invoke';
 import { useWizardState } from './useWizardState';
 import ModalWelcome from './ModalWelcome';
 import ModalAccount from './ModalAccount';
@@ -17,6 +18,11 @@ interface Props {
 export default function Wizard({ onComplete, startAt }: Props) {
   const wizard = useWizardState({ startAt });
   const [showPricingGate, setShowPricingGate] = useState(false);
+
+  async function handleSkipToApp() {
+    try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ }
+    onComplete();
+  }
 
   if (showPricingGate) {
     return (
@@ -46,6 +52,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
         onNext={(workspaceId) => { wizard.setWorkspaceId(workspaceId); wizard.next(); }}
         onBack={wizard.back}
         onPricingGate={() => setShowPricingGate(true)}
+        onSkipToApp={handleSkipToApp}
       />
     );
   }
@@ -57,6 +64,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
         onNext={wizard.next}
         onBack={wizard.back}
         setSchedulerLinked={wizard.setSchedulerLinked}
+        onSkipToApp={handleSkipToApp}
       />
     );
   }

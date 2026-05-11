@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import MastodonOAuthPanel from './MastodonOAuthPanel';
 import SubstackNotesPanel from './SubstackNotesPanel';
 import WebhookPanel from './WebhookPanel';
@@ -186,12 +186,12 @@ function useSchedulerCreds() {
       setCreds((prev) => ({ ...prev, [provider]: { ...prev[provider], preview } }))
     )
 
-    COUNTED_PROVIDERS.forEach(async (provider) => {
+    void Promise.all(COUNTED_PROVIDERS.map(async (provider) => {
       try {
         const u = await invoke<UsageResponse>('get_scheduler_usage', { provider });
         if (!cancelled) setUsage((prev) => ({ ...prev, [provider]: u }));
       } catch { /* ignore — usage display is non-critical */ }
-    });
+    }));
 
     return () => { cancelled = true }
   }, []);

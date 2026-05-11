@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { listen } from '@tauri-apps/api/event';
 import PostCard from './PostCard';
 import type { DraftPost, MetaChangedPayload } from '../types';
@@ -131,10 +131,10 @@ function ApproveAllDialog({ open, readyCount, running, results, onClose, onConfi
 }
 
 function EmptyDraftsState() {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   async function handleCopy() {
-    try { await writeText('/draft-post'); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-    catch { /* ignore */ }
+    try { await writeText('/draft-post'); setCopyState('copied'); setTimeout(() => setCopyState('idle'), 2000); }
+    catch { setCopyState('error'); setTimeout(() => setCopyState('idle'), 2000); }
   }
   return (
     <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
@@ -143,7 +143,9 @@ function EmptyDraftsState() {
         <p className="is-size-7 has-text-grey mb-4">Run this command in your IDE to create one:</p>
         <div className="is-flex is-align-items-center is-justify-content-center has-background-grey-lighter" style={{ borderRadius: '0.5rem', padding: '0.75rem 1rem', gap: '0.75rem' }}>
           <code className="is-size-7">/draft-post</code>
-          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy /draft-post command">{copied ? '✓ Copied' : '📋 Copy'}</button>
+          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy /draft-post command">
+            {copyState === 'copied' ? '✓ Copied' : copyState === 'error' ? 'Failed to copy' : '📋 Copy'}
+          </button>
         </div>
       </div>
     </div>

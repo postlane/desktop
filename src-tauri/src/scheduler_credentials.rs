@@ -23,8 +23,9 @@ pub fn get_credential_keyring_key(provider: &str, repo_id: Option<&str>) -> Vec<
 
 pub fn mask_credential(credential: &str) -> String {
     let mask = "••••••••";
-    if credential.len() >= 4 {
-        let last_four = &credential[credential.len() - 4..];
+    let chars: Vec<char> = credential.chars().collect();
+    if chars.len() >= 4 {
+        let last_four: String = chars[chars.len() - 4..].iter().collect();
         format!("{}{}", mask, last_four)
     } else {
         mask.to_string()
@@ -460,6 +461,28 @@ pub fn list_scheduler_profiles(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_mask_credential_does_not_panic_on_multibyte_utf8_suffix() {
+        // "€€" is 6 bytes; len()-4=2 falls inside the 3-byte first '€' char.
+        // A byte-slice impl panics here; a char-aware impl must not.
+        let result = mask_credential("€€");
+        assert!(result.contains('•'), "must return masked output, not panic");
+    }
+
+    #[test]
+    fn test_mask_credential_shows_last_four_chars_not_bytes() {
+        // Each Japanese char is 3 bytes; last 4 chars = last 12 bytes.
+        // A byte-aware impl would return the wrong suffix.
+        let result = mask_credential("テストabcd");
+        assert!(result.ends_with("abcd"), "last 4 characters must be shown: got '{}'", result);
+    }
+
+    #[test]
+    fn test_mask_credential_short_string_returns_mask_only() {
+        let result = mask_credential("ab");
+        assert_eq!(result, "••••••••");
+    }
 
     #[test]
     fn test_save_accepts_publer() {

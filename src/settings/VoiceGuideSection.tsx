@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { confirm } from '@tauri-apps/plugin-dialog';
 
 const VOICE_GUIDE_TEMPLATE = `Write in a clear, direct tone. No marketing language.

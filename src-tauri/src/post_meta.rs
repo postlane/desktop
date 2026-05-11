@@ -10,6 +10,9 @@ pub enum PostStatus {
     #[default]
     Ok,
     Failed,
+    /// Catch-all for legacy string values written by pre-M19 code (e.g. "sent", "ready").
+    #[serde(other)]
+    Unknown,
 }
 
 /// Canonical representation of `.postlane/posts/{folder}/meta.json`.
@@ -177,5 +180,16 @@ mod tests {
         assert_eq!(loaded.status, original.status);
         assert_eq!(loaded.error, original.error);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_post_meta_load_tolerates_legacy_status_values() {
+        for legacy in &["sent", "ready", "dismissed", "queued"] {
+            let json = format!(r#"{{"status": "{}"}}"#, legacy);
+            let meta: PostMeta = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("should not fail on legacy status '{}': {}", legacy, e));
+            assert_ne!(meta.status, Some(PostStatus::Failed),
+                "legacy status '{}' must not be treated as failed", legacy);
+        }
     }
 }

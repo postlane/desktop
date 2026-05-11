@@ -116,19 +116,19 @@ describe('PreviewModal — OG image', () => {
 })
 
 describe('CharCount', () => {
-  it('shows remaining characters for x (280 limit)', () => {
+  it('shows used / limit for x (280 limit)', () => {
     render(<CharCount platform="x" text={'a'.repeat(100)} />)
-    expect(screen.getByText('180')).toBeInTheDocument()
+    expect(screen.getByText('100 / 280')).toBeInTheDocument()
   })
 
-  it('shows negative count when text exceeds limit', () => {
+  it('shows used / limit when over limit', () => {
     render(<CharCount platform="x" text={'a'.repeat(290)} />)
-    expect(screen.getByText('-10')).toBeInTheDocument()
+    expect(screen.getByText('290 / 280')).toBeInTheDocument()
   })
 
-  it('shows 0 when text is exactly at limit', () => {
+  it('shows used / limit when exactly at limit', () => {
     render(<CharCount platform="x" text={'a'.repeat(280)} />)
-    expect(screen.getByText('0')).toBeInTheDocument()
+    expect(screen.getByText('280 / 280')).toBeInTheDocument()
   })
 
   it('shows count in danger colour when over limit', () => {

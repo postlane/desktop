@@ -6,9 +6,9 @@ import '@testing-library/jest-dom';
 import RepoPublishedView from './RepoPublishedView';
 import type { PublishedPost } from '../types';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
@@ -289,11 +289,11 @@ describe('RepoPublishedView — analytics lazy load', () => {
 // ---------------------------------------------------------------------------
 
 describe('RepoPublishedView — fetch error', () => {
-  it('shows empty state when get_repo_published fails', async () => {
+  it('shows error message when get_repo_published fails (§review-silentcatch)', async () => {
     mockInvoke.mockRejectedValue(new Error('DB error'));
     render(<RepoPublishedView repoId="r1" />);
     await waitFor(() =>
-      expect(screen.getByText(/no posts sent yet/i)).toBeInTheDocument(),
+      expect(screen.getByText(/failed to load/i)).toBeInTheDocument(),
     );
   });
 });
@@ -367,6 +367,21 @@ describe('RepoPublishedView — analytics UX improvements', () => {
     await waitFor(() => screen.getByText('post-001'));
     fireEvent.click(screen.getByRole('button', { name: /load analytics/i }));
     await waitFor(() => expect(screen.getByText(/no sessions yet/i)).toBeInTheDocument());
+  });
+});
+
+describe('RepoPublishedView — link open error', () => {
+  it('shows error when opener fails (§review-silentcatch)', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repo_published')
+        return [makeSent({ platform_results: { x: 'sent' }, platform_urls: { x: 'https://x.com/i/web/status/999' } })];
+      if (cmd === 'plugin:opener|open_url') throw new Error('Plugin error');
+      return null;
+    });
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /view x post/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view x post/i }));
+    await waitFor(() => expect(screen.getByText(/plugin error/i)).toBeInTheDocument());
   });
 });
 

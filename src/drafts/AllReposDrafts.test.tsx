@@ -6,10 +6,10 @@ import '@testing-library/jest-dom';
 import AllReposDraftsView from './AllReposDraftsView';
 import type { DraftPost } from '../types';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
@@ -257,6 +257,22 @@ describe('AllReposDraftsView — approve all with failure', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Empty state — clipboard error
+// ---------------------------------------------------------------------------
+
+describe('AllReposDraftsView — empty state clipboard error', () => {
+  it('shows error feedback when clipboard copy fails in empty state (§review-silentcatch)', async () => {
+    mockWriteText.mockRejectedValue(new Error('no clipboard'));
+    mockInvoke.mockResolvedValue([]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByText(/no drafts waiting/i));
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/failed to copy/i)).toBeInTheDocument(),
+    );
+  });
+});
+
 // Fetch error
 // ---------------------------------------------------------------------------
 

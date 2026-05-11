@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { UsageBadge, type UsageResponse } from './SchedulerTab';
 
 type PanelState = 'idle' | 'adding' | 'configured';
@@ -95,6 +95,7 @@ function useWebhookPanel() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageResponse | undefined>(undefined);
 
   useEffect(() => {
@@ -130,21 +131,24 @@ function useWebhookPanel() {
   }
 
   async function handleRemove() {
+    setRemoveError(null);
     try {
       await invoke('delete_scheduler_credential', { provider: 'webhook' });
       setPreview(null); setPanelState('idle'); setTestResult(null);
-    } catch { /* silent */ }
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : 'Failed to remove webhook');
+    }
   }
 
   function handleCancel() {
     setPanelState(preview ? 'configured' : 'idle'); setUrl(''); setUrlError(null);
   }
 
-  return { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel };
+  return { panelState, setPanelState, url, urlError, saveError, removeError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel };
 }
 
 export default function WebhookPanel() {
-  const { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
+  const { panelState, setPanelState, url, urlError, saveError, removeError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
 
   return (
     <div className="box p-4">
@@ -152,6 +156,7 @@ export default function WebhookPanel() {
         <h3 className="has-text-weight-medium is-size-7">Webhook</h3>
         <UsageBadge usage={usage} />
       </div>
+      {removeError && <p role="alert" className="is-size-7 has-text-danger mb-2">{removeError}</p>}
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}
       {panelState === 'adding' && (
         <AddingForm url={url} urlError={urlError} saveError={saveError} saving={saving} onUrlChange={handleUrlChange}

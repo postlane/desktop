@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { useTimezone, getTimezoneOffsetLabel } from '../TimezoneContext';
 import type { AppStateFile } from '../types';
 import { LicenseSection } from './LicenseSection';
@@ -90,13 +90,17 @@ function useDefaultPostTime() {
   }
 
   function handleHourChange(value: string) {
+    if (!value) { void saveDefaultPostTime(null); return; }
     const hour = parseInt(value, 10);
+    if (isNaN(hour)) return;
     const minute = defaultPostTime?.minute ?? 0;
     void saveDefaultPostTime({ hour, minute, timezone: tz });
   }
 
   function handleMinuteChange(value: string) {
+    if (!value) { void saveDefaultPostTime(null); return; }
     const minute = parseInt(value, 10);
+    if (isNaN(minute)) return;
     const hour = defaultPostTime?.hour ?? 0;
     void saveDefaultPostTime({ hour, minute, timezone: tz });
   }

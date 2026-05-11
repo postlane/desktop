@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
 
 type WorkspaceType = 'personal' | 'organization' | 'client';
@@ -16,6 +16,7 @@ interface Props {
   onNext: (workspaceId: string) => void;
   onBack: () => void;
   onPricingGate: () => void;
+  onSkipToApp?: () => void;
 }
 
 function toWorkspaceType(v: string): WorkspaceType {
@@ -59,7 +60,7 @@ function WorkspaceForm({ name, workspaceType, error, onNameChange, onTypeChange 
   );
 }
 
-export default function ModalWorkspace({ onNext, onBack, onPricingGate }: Props) {
+export default function ModalWorkspace({ onNext, onBack, onPricingGate, onSkipToApp }: Props) {
   const [name, setName] = useState('');
   const [workspaceType, setWorkspaceType] = useState<WorkspaceType>('personal');
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +70,7 @@ export default function ModalWorkspace({ onNext, onBack, onPricingGate }: Props)
     setError(null);
     setLoading(true);
     try {
-      const result = await invoke<CreateProjectResult>('create_project', { name, workspaceType });
+      const result = await invoke<CreateProjectResult>('create_project', { name: name.trim(), workspaceType });
       onNext(result.project_id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -84,6 +85,7 @@ export default function ModalWorkspace({ onNext, onBack, onPricingGate }: Props)
     <WizardShell step={3} totalSteps={5} title="Name your workspace"
       subtitle="A workspace is a brand, org, or client — with its own scheduler and writing voice."
       onNext={handleNext} onBack={onBack} nextDisabled={name.trim().length === 0 || loading}
+      onSkip={onSkipToApp}
     >
       <WorkspaceForm name={name} workspaceType={workspaceType} error={error}
         onNameChange={setName} onTypeChange={setWorkspaceType} />

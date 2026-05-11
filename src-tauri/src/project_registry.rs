@@ -518,10 +518,15 @@ fn parse_remote_name(url: &str) -> Option<String> {
     stripped.split('/').next_back().filter(|s| !s.is_empty()).map(str::to_string)
 }
 
-/// Reads `.postlane/config.json` from an arbitrary path and returns the `project_id` field.
+/// Reads `.postlane/config.json` from a registered repo path and returns the `project_id` field.
+/// Rejects paths not in repos.json (Security Rule 2).
 /// Returns `Ok(None)` if the file doesn't exist or if `project_id` is not present.
-/// Returns `Err` only if the file exists but cannot be parsed as JSON.
-pub fn read_project_id_from_path_impl(path: &str) -> Result<Option<String>, String> {
+/// Returns `Err` if the path is unregistered or the file exists but cannot be parsed.
+pub fn read_project_id_from_path_impl(path: &str, repos: &ReposConfig) -> Result<Option<String>, String> {
+    let is_registered = repos.repos.iter().any(|r| r.path == path);
+    if !is_registered {
+        return Err(format!("Path '{}' is not in the registered repos list", path));
+    }
     let config_path = PathBuf::from(path).join(".postlane/config.json");
     if !config_path.exists() {
         return Ok(None);
@@ -534,8 +539,9 @@ pub fn read_project_id_from_path_impl(path: &str) -> Result<Option<String>, Stri
 }
 
 #[tauri::command]
-pub fn read_project_id_from_path(path: String) -> Result<Option<String>, String> {
-    read_project_id_from_path_impl(&path)
+pub fn read_project_id_from_path(path: String, state: State<AppState>) -> Result<Option<String>, String> {
+    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    read_project_id_from_path_impl(&path, &repos)
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -890,14 +896,35 @@ mod tests {
 
     // ── read_project_id_from_path ────────────────────────────────────────────
 
+    fn make_repos_with_path(path: &str) -> ReposConfig {
+        ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn test_read_project_id_from_path_rejects_unregistered_path() {
+        let repos = ReposConfig { version: 1, repos: vec![] };
+        let result = read_project_id_from_path_impl("/unregistered/path", &repos);
+        assert!(result.is_err(), "path not in repos.json must be rejected (Security Rule 2)");
+    }
+
     #[test]
     fn test_read_project_id_from_path_returns_id() {
         let dir = std::env::temp_dir().join("postlane_test_read_project_id_present");
         let config_dir = dir.join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"project_id":"proj-abc","scheduler":{"provider":"zernio"}}"#).expect("write config");
+        let repos = make_repos_with_path(dir.to_str().unwrap());
 
-        let result = read_project_id_from_path_impl(dir.to_str().unwrap());
+        let result = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos);
         assert_eq!(result, Ok(Some("proj-abc".to_string())));
         let _ = fs::remove_dir_all(&dir);
     }
@@ -908,8 +935,9 @@ mod tests {
         let config_dir = dir.join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write config");
+        let repos = make_repos_with_path(dir.to_str().unwrap());
 
-        let result = read_project_id_from_path_impl(dir.to_str().unwrap());
+        let result = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos);
         assert_eq!(result, Ok(None));
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1179,7 +1207,7 @@ mod tests {
         .expect("register_repo should succeed");
 
         // Phase 3: read config back — the chain is complete if this returns the same id
-        let read_back = read_project_id_from_path_impl(dir.to_str().unwrap())
+        let read_back = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos)
             .expect("read_project_id should not error");
 
         assert_eq!(

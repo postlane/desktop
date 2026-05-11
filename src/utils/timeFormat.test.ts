@@ -63,4 +63,8 @@ describe('formatScheduled', () => {
     const nyResult = formatScheduled('2024-06-03T09:00:00Z', 'America/New_York')
     expect(utcResult).not.toBe(nyResult)
   })
+
+  it('returns empty string when isoStr is empty (not "Invalid Date")', () => {
+    expect(formatScheduled('', 'UTC')).toBe('')
+  })
 })

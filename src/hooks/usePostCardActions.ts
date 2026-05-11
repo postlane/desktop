@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import type { DraftPost, SendResult } from '../types';
 

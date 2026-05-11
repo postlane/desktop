@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import type { RepoWithStatus } from '../types';
 
 export interface RepoSummary {
@@ -19,8 +19,8 @@ export function useRepoData() {
 
   const refresh = useCallback(async () => {
     try { const updated = await invoke<RepoWithStatus[]>('get_repos'); setRepos(updated); }
-    catch (e) { console.error('Failed to refresh repos:', e); }
-  }, []);
+    catch { setLoadError('Could not load repositories. Check logs.'); }
+  }, [setLoadError]);
 
   useEffect(() => {
     invoke<RepoWithStatus[]>('get_repos')
@@ -42,10 +42,10 @@ export function useProjectRepos(projectId: string) {
     try {
       const updated = await invoke<RepoSummary[]>('list_repos_for_project', { projectId });
       setRepos(updated);
-    } catch (e) {
-      console.error('Failed to refresh project repos:', e);
+    } catch {
+      setLoadError('Could not load repositories. Check logs.');
     }
-  }, [projectId]);
+  }, [projectId, setLoadError]);
 
   useEffect(() => {
     invoke<RepoSummary[]>('list_repos_for_project', { projectId })

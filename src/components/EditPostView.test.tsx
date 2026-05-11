@@ -144,10 +144,10 @@ describe('EditPostView — failed post shows Retry', () => {
 // ── Save button ────────────────────────────────────────────────────────────────
 
 describe('EditPostView — Save', () => {
-  it('Save button has warning class when text is dirty', () => {
+  it('Save button has warning background when text is dirty', () => {
     renderEdit()
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
-    expect(screen.getByRole('button', { name: /Save/i })).toHaveClass('is-warning')
+    expect(screen.getByRole('button', { name: /Save/i })).toHaveClass('has-background-warning')
   })
 
   it('calls save_post_draft with correct args', async () => {
@@ -195,6 +195,14 @@ describe('EditPostView — Delete', () => {
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('delete_post', {
       repoPath: '/repo1', postFolder: 'post-001', platform: 'x',
     }))
+  })
+
+  it('calls refresh after successful delete', async () => {
+    mockInvoke.mockImplementation(async (cmd) => { if (cmd === 'delete_post') return undefined; return null })
+    renderEdit()
+    fireEvent.click(screen.getByRole('button', { name: /Delete/i }))
+    fireEvent.click(screen.getByTestId('confirm-delete'))
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
   })
 })
 

@@ -7,8 +7,8 @@ import '@testing-library/jest-dom'
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
 vi.mock('../hooks/useRepoData', () => ({ useProjectRepos: vi.fn() }))
 vi.mock('../wizard/AddRepoModal', () => ({
-  default: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="add-repo-modal">
+  default: ({ onClose, projectId }: { onClose: () => void; projectId: string }) => (
+    <div data-testid="add-repo-modal" data-project-id={projectId}>
       <button onClick={onClose}>Close modal</button>
     </div>
   ),
@@ -123,5 +123,11 @@ describe('RepositoriesBlock — AddRepoModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
     fireEvent.click(screen.getByRole('button', { name: /Close modal/i }))
     expect(mockRefresh).toHaveBeenCalled()
+  })
+
+  it('passes the projectId to AddRepoModal (Security Rule 2: repo must be linked to the correct project)', () => {
+    render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
+    expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-id', 'proj-42')
   })
 })

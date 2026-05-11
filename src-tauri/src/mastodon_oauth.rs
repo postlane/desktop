@@ -77,7 +77,7 @@ pub async fn register_mastodon_app(
         }
     };
 
-    Ok(build_auth_url(&instance, &client_id))
+    build_auth_url(&instance, &client_id)
 }
 
 /// Exchanges an OAuth authorization code for an access token.
@@ -311,17 +311,16 @@ async fn fetch_acct(instance: &str, access_token: &str) -> Result<String, String
 }
 
 /// Constructs the OAuth authorization URL for the user to visit.
-fn build_auth_url(instance: &str, client_id: &str) -> String {
+fn build_auth_url(instance: &str, client_id: &str) -> Result<String, String> {
     let base = format!("https://{}/oauth/authorize", instance);
-    let mut url = url::Url::parse(&base).unwrap_or_else(|_| {
-        url::Url::parse("https://mastodon.social/oauth/authorize").expect("fallback URL must parse")
-    });
+    let mut url = url::Url::parse(&base)
+        .map_err(|e| format!("Invalid Mastodon instance '{}': {}", instance, e))?;
     url.query_pairs_mut()
         .append_pair("client_id", client_id)
         .append_pair("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
         .append_pair("response_type", "code")
         .append_pair("scope", "read write");
-    url.to_string()
+    Ok(url.to_string())
 }
 
 #[cfg(test)]
@@ -420,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_build_auth_url_format() {
-        let url = build_auth_url("mastodon.social", "abc123");
+        let url = build_auth_url("mastodon.social", "abc123").expect("valid instance must not fail");
         assert!(url.starts_with("https://mastodon.social/oauth/authorize"));
         assert!(url.contains("client_id=abc123"));
         assert!(url.contains("redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob"));
@@ -430,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_build_auth_url_encodes_special_chars_in_client_id() {
-        let url = build_auth_url("mastodon.social", "id&special=value");
+        let url = build_auth_url("mastodon.social", "id&special=value").expect("valid instance must not fail");
         let parsed = url::Url::parse(&url).expect("URL must be parseable");
         let client_id = parsed
             .query_pairs()
@@ -438,6 +437,13 @@ mod tests {
             .map(|(_, v)| v.to_string())
             .expect("client_id param must be present");
         assert_eq!(client_id, "id&special=value");
+    }
+
+    #[test]
+    fn test_build_auth_url_returns_error_for_invalid_instance() {
+        // An invalid instance must return Err rather than silently redirect to mastodon.social
+        let result = build_auth_url("not a valid::hostname", "abc123");
+        assert!(result.is_err(), "invalid instance must return Err, not a silent mastodon.social fallback");
     }
 
     /// Error messages for HTTP failures must not include raw response body (§review-security-low).

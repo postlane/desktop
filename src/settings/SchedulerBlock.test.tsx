@@ -11,8 +11,8 @@ import SchedulerBlock from './SchedulerBlock'
 
 const mockInvoke = vi.mocked(invoke)
 
-function makeProfile(overrides = {}) {
-  return { provider: 'zernio', label: 'Zernio', ...overrides }
+function makeProfile(overrides: { provider?: string; connected?: boolean } = {}) {
+  return { provider: 'zernio', connected: true, ...overrides }
 }
 
 beforeEach(() => {
@@ -36,10 +36,26 @@ describe('SchedulerBlock — list', () => {
     await waitFor(() => expect(screen.getByText('Zernio')).toBeInTheDocument())
   })
 
-  it('shows empty state when no profiles', async () => {
+  it('shows empty state when no profiles returned', async () => {
     mockInvoke.mockResolvedValue([])
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => expect(screen.getByText(/No scheduler connected/i)).toBeInTheDocument())
+  })
+
+  it('shows Connect button for unconnected provider (not empty state)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_scheduler_profiles') return [makeProfile({ connected: false })]
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Connect$/i })).toBeInTheDocument())
+    expect(screen.queryByText(/No scheduler connected/i)).not.toBeInTheDocument()
+  })
+
+  it('hides API key form when provider is already connected', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('Zernio')).toBeInTheDocument())
+    expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument()
   })
 })
 
@@ -80,37 +96,58 @@ describe('SchedulerBlock — remove', () => {
 // ── Connect ────────────────────────────────────────────────────────────────────
 
 describe('SchedulerBlock — connect', () => {
-  it('renders API key input as type="password"', () => {
-    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
-    const input = screen.getByLabelText(/API key/i)
-    expect(input).toHaveAttribute('type', 'password')
+  beforeEach(() => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_scheduler_profiles') return [makeProfile({ connected: false })]
+      return null
+    })
   })
 
-  it('show/hide toggle switches input type', () => {
+  it('shows Connect button for unconnected provider', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
-    const toggle = screen.getByRole('button', { name: /Show/i })
-    fireEvent.click(toggle)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Connect$/i })).toBeInTheDocument())
+  })
+
+  it('clicking Connect reveals API key input as type="password"', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/i }))
+    expect(screen.getByLabelText(/API key/i)).toHaveAttribute('type', 'password')
+  })
+
+  it('show/hide toggle switches input type', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Show/i }))
     expect(screen.getByLabelText(/API key/i)).toHaveAttribute('type', 'text')
     fireEvent.click(screen.getByRole('button', { name: /Hide/i }))
     expect(screen.getByLabelText(/API key/i)).toHaveAttribute('type', 'password')
   })
 
-  it('calls add_scheduler_credential with api key', async () => {
-    mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === 'list_scheduler_profiles') return []
-      return null
-    })
+  it('calls add_scheduler_credential with correct args', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
-    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'sk-test-123' } })
+    await waitFor(() => screen.getByRole('button', { name: /^Connect$/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Connect$/i }))
+    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'sk-test-123' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i }).find(b => !b.hasAttribute('disabled')) ?? screen.getByRole('button', { name: /^Connect$/i }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('add_scheduler_credential', {
       provider: 'zernio', apiKey: 'sk-test-123', projectId: 'proj-1',
     }))
   })
 
-  it('hides Connect form for non-owners', () => {
-    render(<SchedulerBlock projectId="proj-1" isOwner={false} />)
+  it('Cancel button hides the API key form', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/i }))
+    expect(screen.getByLabelText(/API key/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }))
     expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Connect$/i })).not.toBeInTheDocument()
+  })
+
+  it('hides Connect button for non-owners', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={false} />)
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Connect$/i })).not.toBeInTheDocument())
+    expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument()
   })
 })

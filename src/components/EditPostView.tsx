@@ -107,16 +107,17 @@ function ActionBar({ platform, isDirty, isOverLimit, isHistory, project, isFaile
       <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', padding: '0.75rem' }}>
         <button className="button is-small" disabled title="Re-run /draft-post to create a new draft.">Repost</button>
         <span className="is-size-7 has-text-grey">Post analytics — coming in v2.</span>
-        <button className="button is-small is-ghost" onClick={onPreview}>Preview</button>
+        <button className="button is-small has-background-link has-text-white" onClick={onPreview}>Preview</button>
       </div>
     );
   }
   return (
     <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', padding: '0.75rem' }}>
-      <button className="button is-small is-ghost" onClick={onPreview}>Preview</button>
-      <button className="button is-small is-light has-text-danger" onClick={onDelete} aria-label="Delete">Delete</button>
-      <button className={`button is-small ${isDirty ? 'is-warning' : 'is-light'}`} onClick={doSave} disabled={saveLoading}>Save</button>
-      <button className="button is-small is-primary" disabled={!!tip || approveLoading}
+      <button className="button is-small has-background-link has-text-white" onClick={onPreview}>Preview</button>
+      <button className="button is-small has-background-danger has-text-white" onClick={onDelete} aria-label="Delete">Delete</button>
+      <button className={`button is-small ${isDirty ? 'has-background-warning has-text-white' : 'has-background-white-ter has-text-grey'}`}
+        onClick={doSave} disabled={saveLoading}>Save</button>
+      <button className="button is-small has-background-success has-text-white" disabled={!!tip || approveLoading}
         title={tip ?? undefined} onClick={doApprove} aria-label={isFailed ? 'Retry' : 'Approve'}>
         {isFailed ? 'Retry' : 'Approve'}
       </button>
@@ -147,7 +148,7 @@ function ImageSection({ imageState, onCustomSet }: {
     <div className="px-4 py-2">
       {imageState.status === 'loaded' && (
         <img data-testid="og-image" src={imageState.url} alt="Post image"
-          style={{ maxWidth: '100%', borderRadius: 4, marginBottom: '0.5rem' }} />
+          style={{ maxWidth: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 4, marginBottom: '0.5rem' }} />
       )}
       {imageState.status === 'loading' && <span className="is-size-7 has-text-grey">Loading image…</span>}
       <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
@@ -170,7 +171,7 @@ function PostBody({ isHistory, text, setText, post, saveError, approveError }: {
     <div className="px-4 py-3" style={{ flex: 1 }}>
       {isHistory
         ? <div data-testid="post-text" className="is-size-7">{text}</div>
-        : <textarea className="textarea is-size-7" aria-label="Post content" value={text} onChange={(e) => setText(e.target.value)} />}
+        : <textarea className="textarea is-size-7" aria-label="Post content" rows={10} value={text} onChange={(e) => setText(e.target.value)} />}
       {isDraft(post) && post.status === 'failed' && post.error && <p role="alert" className="is-size-7 has-text-danger mt-2">{post.error}</p>}
       {saveError && <p role="alert" className="is-size-7 has-text-danger mt-1">{saveError}</p>}
       {approveError && <p role="alert" className="is-size-7 has-text-danger mt-1">{approveError}</p>}
@@ -252,6 +253,7 @@ function useApprovePost(
 }
 
 function useDeletePost(post: DraftPost | PublishedPost, platform: string, onBack: () => void) {
+  const { refresh } = useDraftPostsContext();
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -260,6 +262,7 @@ function useDeletePost(post: DraftPost | PublishedPost, platform: string, onBack
     setDeleteError(null);
     try {
       await invoke('delete_post', { repoPath: post.repo_path, postFolder: post.post_folder, platform });
+      refresh();
       onBack();
     } catch (e: unknown) {
       setDeleteError(String(e));
@@ -320,6 +323,22 @@ function useEditKeyboard(
   }, [isDirty, isHistory, isOverLimit, doSave, doApprove]);
 }
 
+function EditPostDialogs({ del, guard, previewOpen, onClosePreview, platform, text, imageState }: {
+  del: ReturnType<typeof useDeletePost>;
+  guard: ReturnType<typeof useDiscardGuard>;
+  previewOpen: boolean; onClosePreview: () => void;
+  platform: string; text: string; imageState: ImageState;
+}) {
+  return (
+    <>
+      {del.deleteConfirm && <DeleteModal platform={platform} onConfirm={del.confirmDelete}
+        onCancel={del.cancelDelete} loading={del.deleteLoading} error={del.deleteError} />}
+      {guard.pendingDiscard && <DiscardModal onDiscard={guard.handleDiscardConfirm} onCancel={guard.handleDiscardCancel} />}
+      {previewOpen && <PreviewModal platform={platform} text={text} imageState={imageState} onClose={onClosePreview} />}
+    </>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function EditPostView({
@@ -333,6 +352,9 @@ export default function EditPostView({
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
   useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
   const platform = post.platform ?? '';
+  const platformCfg = PLATFORM_CFG[platform];
+  const platformColor = platformCfg?.color ?? 'hsl(0,0%,50%)';
+  const platformLabel = platformCfg?.label ?? platform;
   const limit = CHAR_LIMITS[platform] ?? 0;
   const count = countChars(platform, text);
   const isOverLimit = limit > 0 && count > limit;
@@ -350,6 +372,10 @@ export default function EditPostView({
     <div className="is-flex" style={{ flexDirection: 'column', height: '100%' }}>
       <div className="is-flex is-align-items-center px-4 py-3" style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
         <button className="button is-small is-ghost" onClick={guard.handleBack} aria-label="Back">Back</button>
+        <span className="tag is-rounded is-small" data-testid="platform-badge"
+          style={{ background: platformColor, color: '#fff', flexShrink: 0 }}>
+          {platformLabel}
+        </span>
         <span className="is-size-7 has-text-grey">{post.post_folder}</span>
         <CharCount platform={platform} text={text} />
       </div>
@@ -361,10 +387,8 @@ export default function EditPostView({
         doApprove={approve.doApprove} approveLoading={approve.approveLoading}
         onDelete={del.requestDelete} onPreview={() => setPreviewOpen(true)}
         charCount={count} charLimit={limit} />
-      {del.deleteConfirm && <DeleteModal platform={platform} onConfirm={del.confirmDelete}
-        onCancel={del.cancelDelete} loading={del.deleteLoading} error={del.deleteError} />}
-      {guard.pendingDiscard && <DiscardModal onDiscard={guard.handleDiscardConfirm} onCancel={guard.handleDiscardCancel} />}
-      {previewOpen && <PreviewModal platform={platform} text={text} imageState={imageState} onClose={() => setPreviewOpen(false)} />}
+      <EditPostDialogs del={del} guard={guard} previewOpen={previewOpen} onClosePreview={() => setPreviewOpen(false)}
+        platform={platform} text={text} imageState={imageState} />
     </div>
   );
 }

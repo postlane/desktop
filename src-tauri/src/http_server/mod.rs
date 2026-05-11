@@ -29,6 +29,8 @@ use tokio::net::TcpListener;
 pub struct ServerState {
     pub token: String,
     pub repos: Arc<tokio::sync::Mutex<crate::storage::ReposConfig>>,
+    /// Path to repos.json. Injected so tests can use a temp path instead of ~/.postlane/repos.json.
+    pub repos_path: std::path::PathBuf,
     /// Sends a validated JWT token string to the activation receiver task.
     /// `None` in tests and before the server is fully initialised.
     pub activation_tx: Option<tokio::sync::mpsc::Sender<String>>,
@@ -242,7 +244,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos, activation_tx: None };
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -266,7 +268,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "tok".to_string(), repos, activation_tx: None };
+        let state = ServerState { token: "tok".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -285,7 +287,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos, activation_tx: None };
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None };
         let test_port = 57312u16;
         let bound_port = start_server(state, test_port).await.unwrap();
         assert_eq!(bound_port, test_port);

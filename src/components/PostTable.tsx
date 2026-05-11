@@ -57,29 +57,34 @@ function PlatformBadge({ platform }: { platform: string }) {
   );
 }
 
-function QueueRow({ post, isFirstInGroup, onSelect, timezone }: {
-  post: DraftPost;
-  isFirstInGroup: boolean;
+function GroupCard({ group, onSelect }: {
+  group: DraftGroup;
   onSelect: (_post: DraftPost) => void;
-  timezone: string;
 }) {
-  const timeLabel = post.scheduled_for
-    ? formatScheduled(post.scheduled_for, timezone)
-    : formatRelativeTime(post.created_at);
-  const rowClass = [
-    'post-row px-4 py-2 is-clickable has-background-white-ter',
-    post.status === 'failed' ? 'has-text-danger' : '',
-  ].join(' ').trim();
+  const firstPost = group.posts[0];
+  const label = firstPost?.trigger ?? group.post_folder;
   return (
-    <div data-testid="post-row" className={rowClass} style={{ borderLeft: '3px solid var(--bulma-link)', cursor: 'pointer' }}
-      onClick={() => onSelect(post)} role="button" tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') onSelect(post); }}>
-      {isFirstInGroup && (
-        <div data-testid="group-label" className="is-size-7 has-text-grey mb-1">{post.post_folder}</div>
-      )}
-      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
-        <PlatformBadge platform={post.platform} />
-        <span className="is-size-7 has-text-grey">{timeLabel}</span>
+    <div style={{ borderLeft: '3px solid var(--bulma-link)', marginBottom: '0.75rem' }}>
+      <div data-testid="group-label" className="px-4 pt-2 pb-2 is-size-7 has-text-weight-medium has-background-white-ter">
+        {label}
+      </div>
+      <div className="px-4 py-2 has-background-white-ter is-flex is-align-items-center"
+        style={{ gap: '0.5rem', borderTop: '1px solid var(--bulma-border-weak)' }}>
+        {group.posts.map((post) => {
+          const cfg = PLATFORM_CFG[post.platform];
+          const color = cfg?.color ?? 'hsl(0,0%,50%)';
+          const name = cfg?.label ?? post.platform;
+          const isFailed = post.status === 'failed';
+          return (
+            <button key={post.platform} data-testid="post-row"
+              aria-label={`Edit ${name} post`}
+              onClick={() => onSelect(post)}
+              className={'button is-small is-rounded' + (isFailed ? ' has-text-danger' : '')}
+              style={{ background: isFailed ? undefined : color, color: isFailed ? undefined : '#fff', border: 'none' }}>
+              {name}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -107,7 +112,7 @@ function HistoryRow({ post, timezone, onSelect }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-function QueueTable({ posts, onSelect, timezone }: PostTableQueueProps) {
+function QueueTable({ posts, onSelect, timezone: _timezone }: PostTableQueueProps) {
   if (posts.length === 0) {
     return (
       <div className="px-4 py-6 has-text-centered">
@@ -117,14 +122,9 @@ function QueueTable({ posts, onSelect, timezone }: PostTableQueueProps) {
   }
   const groups = groupDrafts(posts);
   return (
-    <div>
+    <div className="px-4 pt-4">
       {groups.map((group) => (
-        <div key={group.key}>
-          {group.posts.map((post, idx) => (
-            <QueueRow key={`${post.platform}`} post={post} isFirstInGroup={idx === 0}
-              onSelect={onSelect} timezone={timezone} />
-          ))}
-        </div>
+        <GroupCard key={group.key} group={group} onSelect={onSelect} />
       ))}
     </div>
   );

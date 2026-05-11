@@ -218,12 +218,14 @@ fn spawn_http_server(
     use tauri_plugin_keyring::KeyringExt;
     use tauri::Emitter;
 
+    let repos_path = init::postlane_dir()?.join("repos.json");
     let token = http_server::generate_and_write_token()?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
     let (activation_tx, mut activation_rx) = tokio::sync::mpsc::channel::<String>(4);
     let server_state = http_server::ServerState {
         token,
         repos: repos_arc,
+        repos_path,
         activation_tx: Some(activation_tx),
     };
 

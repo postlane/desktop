@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from '../ipc/invoke'
 import { loadSchedulerCreds } from './SchedulerTab'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
 const mockInvoke = vi.mocked(invoke)
 
 beforeEach(() => vi.clearAllMocks())

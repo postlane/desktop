@@ -6,7 +6,6 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
 import ReSignInScreen from './wizard/ReSignInScreen';
-import AddRepoModal from './wizard/AddRepoModal';
 import AddWorkspaceModal from './wizard/AddWorkspaceModal';
 import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
 import LeftNav from './nav/LeftNav';
@@ -119,10 +118,15 @@ export function MainContent({
   const { projects, loading: projectsLoading } = useProjectsContext();
 
   useEffect(() => {
-    if (!wizardNudgePending || projectsLoading || projects.length === 0) return;
-    onNavigate({ view: 'org_settings', projectId: projects[0].id, section: 'queue' });
-    onWizardNudgeHandled?.();
-  }, [wizardNudgePending, projects, projectsLoading, onNavigate, onWizardNudgeHandled]);
+    if (projectsLoading || projects.length === 0) return;
+    if (view.view !== 'no_orgs') return;
+    if (wizardNudgePending) {
+      onNavigate({ view: 'org_settings', projectId: projects[0].id, section: 'queue' });
+      onWizardNudgeHandled?.();
+    } else {
+      onNavigate({ view: 'org_queue', projectId: projects[0].id });
+    }
+  }, [wizardNudgePending, projects, projectsLoading, view, onNavigate, onWizardNudgeHandled]);
 
   if (view.view === 'org_queue') {
     return (
@@ -229,7 +233,6 @@ function useAppState() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [showWizard, setShowWizard] = useState(false);
   const [showReSignIn, setShowReSignIn] = useState(false);
-  const [showAddRepo, setShowAddRepo] = useState(false);
   const [showAddWorkspace, setShowAddWorkspace] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [timezone, setTimezone] = useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -285,7 +288,7 @@ function useAppState() {
 
   return {
     currentView, setCurrentView, showWizard, showReSignIn,
-    showAddRepo, setShowAddRepo, showAddWorkspace, setShowAddWorkspace, showConsentModal,
+    showAddWorkspace, setShowAddWorkspace, showConsentModal,
     timezone, setTimezone, repoVersion, setRepoVersion,
     initError, wizardNudgePending,
     handleWizardComplete, handleSignedIn, handleConsentChoice, handleWizardNudgeHandled, handleSignedOut,
@@ -305,7 +308,7 @@ function AppShell({
   showToast: (_msg: string) => void;
   toastMessage: string | null;
 }) {
-  const { currentView, showConsentModal, showAddRepo, setShowAddRepo, showAddWorkspace,
+  const { currentView, showConsentModal, showAddWorkspace,
     setShowAddWorkspace, setRepoVersion, wizardNudgePending,
     handleConsentChoice, handleWizardNudgeHandled, handleSignedOut, setTimezone } = appState;
   const { discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, editPostViewDirtyRef } = guard;
@@ -315,7 +318,6 @@ function AppShell({
         onSettingsOpen={() => handleNavClick({ view: 'global_settings', section: 'account' })}
         onAddWorkspace={() => setShowAddWorkspace(true)} />
       {showConsentModal && <TelemetryConsentModal onAccept={() => handleConsentChoice(true)} onDecline={() => handleConsentChoice(false)} />}
-      {showAddRepo && <AddRepoModal onClose={() => setShowAddRepo(false)} projectId="" />}
       {showAddWorkspace && <AddWorkspaceModal onClose={() => setShowAddWorkspace(false)} onCreated={() => { setShowAddWorkspace(false); setRepoVersion((v) => v + 1); }} />}
       {discardModalOpen && (
         <div className="modal is-active">

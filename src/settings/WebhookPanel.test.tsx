@@ -5,8 +5,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import WebhookPanel from './WebhookPanel';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-import { invoke } from '@tauri-apps/api/core';
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
@@ -170,5 +170,17 @@ describe('WebhookPanel — configured state', () => {
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'webhook' }),
     );
+  });
+
+  it('shows error message when Remove fails (§review-silentcatch)', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') return 'https://hooks.zapier.com/hooks/catch/abc';
+      if (cmd === 'delete_scheduler_credential') throw new Error('Keychain locked');
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
 });

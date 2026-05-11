@@ -3,7 +3,7 @@
 use crate::app_state::AppState;
 use crate::post_meta::{PostMeta, PostStatus};
 use crate::project_registry::read_project_id_from_path_impl;
-use crate::storage::Repo;
+use crate::storage::{Repo, ReposConfig};
 use crate::types::Post;
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -85,13 +85,13 @@ fn drafts_from_folder(
         .collect()
 }
 
-fn drafts_from_repo(repo: &Repo) -> Vec<Post> {
+fn drafts_from_repo(repo: &Repo, repos: &ReposConfig) -> Vec<Post> {
     let repo_path = PathBuf::from(&repo.path);
     let posts_dir = repo_path.join(".postlane/posts");
     if !posts_dir.exists() {
         return vec![];
     }
-    let project_id = read_project_id_from_path_impl(&repo.path).ok().flatten();
+    let project_id = read_project_id_from_path_impl(&repo.path, repos).ok().flatten();
     let Ok(entries) = std::fs::read_dir(&posts_dir) else {
         return vec![];
     };
@@ -113,7 +113,7 @@ pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
         .repos
         .iter()
         .filter(|r| r.active)
-        .flat_map(drafts_from_repo)
+        .flat_map(|repo| drafts_from_repo(repo, &repos))
         .collect();
     drafts.sort_by(|a, b| {
         a.repo_path

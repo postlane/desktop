@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTriangleExclamation, faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons';
 import { useProjectsContext } from '../context/ProjectsProvider';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
 import { deriveOrgColour } from '../utils/orgColour';
@@ -41,11 +41,13 @@ function AddOrgButton({ onClick }: { onClick?: () => void }) {
   );
 }
 
-function OrgSubNav({ projectId, currentView, onNavigate }: {
+function OrgSubNav({ projectId, currentView, onNavigate, queueBadge }: {
   projectId: string; currentView: ViewSelection; onNavigate: (_sel: ViewSelection) => void;
+  queueBadge: number;
 }) {
   const isQueue = currentView.view === 'org_queue' && currentView.projectId === projectId;
   const isHistory = currentView.view === 'org_history' && currentView.projectId === projectId;
+  const isSettings = currentView.view === 'org_settings' && currentView.projectId === projectId;
   function cls(active: boolean) {
     return 'button is-ghost is-small is-fullwidth is-justify-content-flex-start' +
       (active ? ' has-text-link has-text-weight-medium' : '');
@@ -53,9 +55,14 @@ function OrgSubNav({ projectId, currentView, onNavigate }: {
   return (
     <div style={{ marginLeft: '2.5rem', display: 'flex', flexDirection: 'column' }}>
       <button className={cls(isQueue)} aria-current={isQueue ? 'page' : undefined}
-        onClick={() => onNavigate({ view: 'org_queue', projectId })}>Queue</button>
+        onClick={() => onNavigate({ view: 'org_queue', projectId })}>
+        Queue
+        {queueBadge > 0 && <span className="tag is-info is-light is-rounded is-size-7" style={{ marginLeft: 'auto' }}>{queueBadge}</span>}
+      </button>
       <button className={cls(isHistory)} aria-current={isHistory ? 'page' : undefined}
         onClick={() => onNavigate({ view: 'org_history', projectId })}>History</button>
+      <button className={cls(isSettings)} aria-current={isSettings ? 'page' : undefined}
+        onClick={() => onNavigate({ view: 'org_settings', projectId, section: 'queue' })}>Settings</button>
     </div>
   );
 }
@@ -77,12 +84,9 @@ function OrgItem({ org, drafts, isExpanded, currentView, onToggle, onNavigate }:
         }}>{org.name[0]?.toUpperCase()}</span>
         <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronRight} className="is-size-7" style={{ flexShrink: 0 }} />
         <span className="is-size-7" style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{org.name}</span>
-        {!org.billing_active && (
-          <FontAwesomeIcon icon={faTriangleExclamation} aria-label="Billing inactive" className="has-text-warning is-size-7" />
-        )}
-        {badge > 0 && <span className="tag is-info is-light is-rounded is-size-7">{badge}</span>}
+        {!isExpanded && badge > 0 && <span className="tag is-info is-light is-rounded is-size-7">{badge}</span>}
       </button>
-      {isExpanded && <OrgSubNav projectId={org.id} currentView={currentView} onNavigate={onNavigate} />}
+      {isExpanded && <OrgSubNav projectId={org.id} currentView={currentView} onNavigate={onNavigate} queueBadge={badge} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 
 type PanelState = 'idle' | 'adding' | 'configured';
 
@@ -92,6 +92,7 @@ function useSubstackPanel() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<string>('get_scheduler_credential', { provider: 'substack_notes' })
@@ -118,25 +119,29 @@ function useSubstackPanel() {
   }
 
   async function handleRemove() {
+    setRemoveError(null);
     try {
       await invoke('delete_scheduler_credential', { provider: 'substack_notes' });
       setPreview(null); setPanelState('idle'); setTestResult(null);
-    } catch { /* silent */ }
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : 'Failed to remove credential');
+    }
   }
 
   function handleCancel() {
     setPanelState(preview ? 'configured' : 'idle'); setCookie(''); setSaveError(null);
   }
 
-  return { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel };
+  return { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, removeError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel };
 }
 
 export default function SubstackNotesPanel() {
-  const { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel } = useSubstackPanel();
+  const { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, removeError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel } = useSubstackPanel();
 
   return (
     <div className="box p-4">
       <h3 className="has-text-weight-medium is-size-7 mb-3">Substack Notes</h3>
+      {removeError && <p role="alert" className="is-size-7 has-text-danger mb-2">{removeError}</p>}
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}
       {panelState === 'adding' && (
         <AddingForm cookie={cookie} saving={saving} saveError={saveError} onCookieChange={setCookie}
