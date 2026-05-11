@@ -187,14 +187,10 @@ pub fn build_scheduling_provider(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::storage::Repo;
+    use crate::test_fixtures::make_state;
     use std::fs;
     use std::path::PathBuf;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
 
     fn write_config(dir: &std::path::Path, json: &str) -> PathBuf {
         let config_dir = dir.join(".postlane");

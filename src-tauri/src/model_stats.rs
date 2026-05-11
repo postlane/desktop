@@ -86,13 +86,9 @@ pub fn get_model_stats(state: State<'_, AppState>) -> Result<ModelStatsResponse,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::storage::Repo;
+    use crate::test_fixtures::{make_state, home_tmp};
     use std::fs;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
 
     fn make_repo(dir: &std::path::Path) -> Repo {
         Repo {
@@ -106,11 +102,6 @@ mod tests {
         let p = dir.join(".postlane/posts").join(folder);
         fs::create_dir_all(&p).expect("create dir");
         fs::write(p.join("meta.json"), meta_json).expect("write meta");
-    }
-
-    fn home_tmp(name: &str) -> PathBuf {
-        let home = dirs::home_dir().expect("home dir must exist in tests");
-        home.join(".postlane_test_tmp").join(name)
     }
 
     #[test]

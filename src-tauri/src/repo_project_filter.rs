@@ -100,23 +100,8 @@ pub fn unregister_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::test_fixtures::{make_state, make_repo};
     use std::fs;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
-
-    fn make_repo(id: &str, path: &str) -> Repo {
-        Repo {
-            id: id.to_string(),
-            name: id.to_string(),
-            path: path.to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }
-    }
 
     fn write_config(repo_dir: &std::path::Path, project_id: Option<&str>) {
         let postlane_dir = repo_dir.join(".postlane");

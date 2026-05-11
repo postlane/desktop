@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect } from 'react';
-import { invoke } from '../ipc/invoke';
+import { useState } from 'react';
+import { useCredentialPanel } from './useCredentialPanel';
 
-type PanelState = 'idle' | 'adding' | 'configured';
+const MASK_SUBSTACK = (raw: string) => `••••${raw.slice(-4)}`;
 
 function SubstackWarnings() {
   return (
@@ -84,55 +84,21 @@ function ConfiguredView({ preview, testing, testResult, testError, onTest, onCha
 }
 
 function useSubstackPanel() {
-  const [panelState, setPanelState] = useState<PanelState>('idle');
   const [cookie, setCookie] = useState('');
-  const [preview, setPreview] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    invoke<string>('get_scheduler_credential', { provider: 'substack_notes' })
-      .then((p) => { setPreview(p); setPanelState('configured'); })
-      .catch(() => { setPanelState('idle'); });
-  }, []);
+  const base = useCredentialPanel({ provider: 'substack_notes', maskCredential: MASK_SUBSTACK });
 
   async function handleSave() {
-    if (!cookie) return;
-    setSaving(true); setSaveError(null);
-    try {
-      await invoke('save_scheduler_credential', { provider: 'substack_notes', apiKey: cookie });
-      setPreview(`••••${cookie.slice(-4)}`); setCookie(''); setPanelState('configured');
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save credential');
-    } finally { setSaving(false); }
-  }
-
-  async function handleTest() {
-    setTesting(true); setTestResult(null);
-    try { await invoke('test_scheduler', { provider: 'substack_notes' }); setTestResult('ok'); }
-    catch (e) { setTestResult('error'); setTestError(e instanceof Error ? e.message : 'Test failed'); }
-    finally { setTesting(false); }
-  }
-
-  async function handleRemove() {
-    setRemoveError(null);
-    try {
-      await invoke('delete_scheduler_credential', { provider: 'substack_notes' });
-      setPreview(null); setPanelState('idle'); setTestResult(null);
-    } catch (e) {
-      setRemoveError(e instanceof Error ? e.message : 'Failed to remove credential');
-    }
+    const ok = await base.saveCredential(cookie);
+    if (ok) setCookie('');
   }
 
   function handleCancel() {
-    setPanelState(preview ? 'configured' : 'idle'); setCookie(''); setSaveError(null);
+    base.setPanelState(base.preview ? 'configured' : 'idle');
+    setCookie('');
+    base.setSaveError(null);
   }
 
-  return { panelState, setPanelState, cookie, setCookie, preview, saving, saveError, removeError, testing, testResult, testError, handleSave, handleTest, handleRemove, handleCancel };
+  return { ...base, cookie, setCookie, handleSave, handleCancel };
 }
 
 export default function SubstackNotesPanel() {

@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
-import type { PublishedPost, PostAnalytics } from '../types';
+import type { PublishedPost } from '../types';
 import { isPublishedPost } from '../ipc-guards';
+import { AnalyticsToggleCell } from './AnalyticsCell';
 
 const PAGE_SIZE = 100;
 
@@ -45,32 +46,6 @@ function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancel
   );
 }
 
-function AnalyticsToggleCell({ repoId, postFolder, sentAt }: { repoId: string; postFolder: string; sentAt?: string | null }) {
-  const [analytics, setAnalytics] = useState<PostAnalytics | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [triggered, setTriggered] = useState(false);
-
-  async function handleLoad() {
-    setTriggered(true);
-    setLoading(true);
-    try {
-      const data = await invoke<PostAnalytics>('get_post_analytics', { repoId, postFolder });
-      setAnalytics(data);
-    } catch { setAnalytics(null); }
-    finally { setLoading(false); }
-  }
-
-  if (!triggered) return (
-    <button aria-label="Load analytics" title="Click to load analytics" onClick={handleLoad} className="button is-ghost is-small has-text-grey-light">—</button>
-  );
-  if (loading) return <span className="has-text-grey-light is-size-7">…</span>;
-  if (!analytics?.configured) return <span className="has-text-grey-light is-size-7">Set up Analytics — Settings → Analytics</span>;
-  if (analytics.unique_sessions === 0) {
-    const isRecent = sentAt != null && (Date.now() - new Date(sentAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
-    return <span className="has-text-grey-light is-size-7">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
-  }
-  return <span className="is-size-7">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
-}
 
 function SentRow({ post, tz }: { post: PublishedPost; tz: string }) {
   const [openError, setOpenError] = useState<string | null>(null);

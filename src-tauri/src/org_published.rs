@@ -128,41 +128,8 @@ pub fn get_org_published(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::test_fixtures::{make_state, make_repo, home_tmp, write_config, write_meta};
     use std::fs;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
-
-    fn make_repo(id: &str, path: &str) -> Repo {
-        Repo {
-            id: id.to_string(),
-            name: id.to_string(),
-            path: path.to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }
-    }
-
-    /// Create a temp dir inside $HOME so the home-boundary check passes.
-    fn home_tmp(name: &str) -> PathBuf {
-        let home = dirs::home_dir().expect("home dir must exist in tests");
-        home.join(".postlane_test_tmp").join(name)
-    }
-
-    fn write_config(dir: &Path, json: &str) {
-        let config_dir = dir.join(".postlane");
-        fs::create_dir_all(&config_dir).expect("create .postlane");
-        fs::write(config_dir.join("config.json"), json).expect("write config.json");
-    }
-
-    fn write_meta(dir: &Path, folder: &str, json: &str) {
-        let p = dir.join(".postlane/posts").join(folder);
-        fs::create_dir_all(&p).expect("create post dir");
-        fs::write(p.join("meta.json"), json).expect("write meta.json");
-    }
 
     fn write_platform_md(dir: &Path, folder: &str, platform: &str, text: &str) {
         let p = dir.join(".postlane/posts").join(folder);

@@ -135,13 +135,9 @@ pub fn get_all_published(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::storage::Repo;
+    use crate::test_fixtures::make_state;
     use std::fs;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
 
     fn write_published_meta(dir: &std::path::Path, folder: &str, json: &str) {
         let p = dir.join(".postlane/posts").join(folder);
