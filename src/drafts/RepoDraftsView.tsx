@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { listen } from '@tauri-apps/api/event';
 import PostCard from './PostCard';
 import SchedulerSetupModal from '../scheduling/SchedulerSetupModal';
@@ -16,6 +16,7 @@ function useRepoDraftsState(repoId: string, onOpenSchedulerSettings?: () => void
   const [posts, setPosts] = useState<DraftPost[]>([]);
   const [repoName, setRepoName] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showSchedulerSetup, setShowSchedulerSetup] = useState(false);
   const [schedulerWarning, setSchedulerWarning] = useState(false);
 
@@ -30,9 +31,10 @@ function useRepoDraftsState(repoId: string, onOpenSchedulerSettings?: () => void
           return (b.created_at ?? '').localeCompare(a.created_at ?? '');
         });
       setPosts(filtered);
+      setError(null);
       if (filtered.length > 0) setRepoName(filtered[0].repo_name);
     } catch (e) {
-      console.error('get_all_drafts failed:', e);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -57,16 +59,24 @@ function useRepoDraftsState(repoId: string, onOpenSchedulerSettings?: () => void
   }, [repoId, refresh]);
 
   return {
-    posts, repoName, loading, showSchedulerSetup, schedulerWarning, refresh,
+    posts, repoName, loading, error, showSchedulerSetup, schedulerWarning, refresh,
     handleSetupLater: () => { setShowSchedulerSetup(false); setSchedulerWarning(true); },
     handleSchedulerDone: () => setShowSchedulerSetup(false),
     handleOpenSchedulerSettings: () => onOpenSchedulerSettings?.(),
   };
 }
 
+function DraftsError({ message }: { message: string }) {
+  return (
+    <div role="alert" className="notification is-danger is-light mx-5 mt-5 is-size-7">
+      Failed to load drafts: {message}
+    </div>
+  );
+}
+
 export default function RepoDraftsView({ repoId, onOpenSchedulerSettings }: Props) {
   const {
-    posts, repoName, loading, showSchedulerSetup, schedulerWarning, refresh,
+    posts, repoName, loading, error, showSchedulerSetup, schedulerWarning, refresh,
     handleSetupLater, handleSchedulerDone, handleOpenSchedulerSettings,
   } = useRepoDraftsState(repoId, onOpenSchedulerSettings);
 
@@ -77,6 +87,7 @@ export default function RepoDraftsView({ repoId, onOpenSchedulerSettings }: Prop
       </div>
     );
   }
+  if (error) return <DraftsError message={error} />;
 
   return (
     <>

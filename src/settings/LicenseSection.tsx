@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
@@ -35,11 +35,14 @@ export function LicenseSection() {
   }, []);
 
   async function handleSignIn() {
+    let url = 'https://postlane.dev/login?desktop=1';
     try {
-      await openUrl('https://postlane.dev/login');
+      const port = await invoke<number>('get_local_server_port');
+      url = `https://postlane.dev/login?desktop=1&port=${port}`;
     } catch (e) {
-      console.error('Failed to open sign-in page:', e);
+      console.error('[sign-in] get_local_server_port failed — opening without port:', e);
     }
+    await openUrl(url).catch(console.error);
   }
 
   if (signedIn === null) return null;

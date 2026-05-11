@@ -27,13 +27,16 @@ pub mod post_mutations;
 pub mod post_schedule;
 pub mod post_export;
 pub mod post_ops;
+pub mod project_cache;
 pub mod project_registry;
+pub mod project_validation;
 pub mod providers;
 pub mod published_queries;
 pub mod repo_mgmt;
 pub mod repo_project_filter;
 pub mod repo_queries;
 pub mod scheduler_credentials;
+pub mod scheduler_profiles;
 pub mod security;
 pub mod scheduling;
 pub mod storage;
@@ -43,6 +46,9 @@ pub mod tray;
 pub mod types;
 pub mod voice_guide_versions;
 pub mod watcher;
+
+#[cfg(test)]
+pub mod test_fixtures;
 
 use std::sync::Arc;
 use app_state::AppState;
@@ -218,12 +224,14 @@ fn spawn_http_server(
     use tauri_plugin_keyring::KeyringExt;
     use tauri::Emitter;
 
+    let repos_path = init::postlane_dir()?.join("repos.json");
     let token = http_server::generate_and_write_token()?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
     let (activation_tx, mut activation_rx) = tokio::sync::mpsc::channel::<String>(4);
     let server_state = http_server::ServerState {
         token,
         repos: repos_arc,
+        repos_path,
         activation_tx: Some(activation_tx),
     };
 
@@ -385,8 +393,8 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         scheduler_credentials::get_libsecret_status, scheduler_credentials::has_scheduler_configured,
         scheduler_credentials::has_provider_credential, scheduler_credentials::save_scheduler_credential,
         scheduler_credentials::get_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
-        scheduler_credentials::remove_scheduler_credential, scheduler_credentials::list_scheduler_profiles,
-        scheduler_credentials::add_scheduler_credential,
+        scheduler_profiles::remove_scheduler_credential, scheduler_profiles::list_scheduler_profiles,
+        scheduler_profiles::add_scheduler_credential,
         scheduler_credentials::save_repo_scheduler_key, scheduler_credentials::remove_repo_scheduler_key,
         scheduler_credentials::get_per_repo_scheduler_key,
         commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,

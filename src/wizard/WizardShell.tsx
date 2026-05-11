@@ -45,15 +45,13 @@ function WizardFooter({ step, totalSteps, onBack, onSkip, onNext, nextLabel, nex
           </button>
         )}
       </div>
-      <div className="is-flex is-align-items-center" style={{ gap: 16 }}>
+      <span className="is-size-7 has-text-grey">{step} / {totalSteps}</span>
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
         {onSkip && (
-          <button className="button is-ghost is-small" onClick={onSkip}>
+          <button className="button is-light is-small has-background-warning-light" onClick={onSkip}>
             Skip
           </button>
         )}
-        <span className="is-size-7 has-text-grey">{step} / {totalSteps}</span>
-      </div>
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
         {!nextHidden && (
           <button
             className="button is-primary is-small"

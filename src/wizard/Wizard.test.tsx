@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 
+import { invoke } from '../ipc/invoke';
 import Wizard from './Wizard';
 
-beforeEach(() => { vi.clearAllMocks(); });
+const mockInvoke = vi.mocked(invoke);
+
+beforeEach(() => { vi.clearAllMocks(); mockInvoke.mockResolvedValue(undefined); });
 
 describe('Wizard', () => {
   it('test_renders_modal_welcome_on_step_1', () => {
@@ -30,5 +33,31 @@ describe('Wizard', () => {
   it('test_step_5_label_is_complete', () => {
     render(<Wizard onComplete={vi.fn()} startAt={5} />);
     expect(screen.getByText(/complete/i)).toBeDefined();
+  });
+
+  it('step 3 shows a Skip button', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={3} />);
+    expect(screen.getByRole('button', { name: /^skip$/i })).toBeDefined();
+  });
+
+  it('clicking Skip on step 3 marks wizard complete and calls onComplete', async () => {
+    const onComplete = vi.fn();
+    render(<Wizard onComplete={onComplete} startAt={3} />);
+    fireEvent.click(screen.getByRole('button', { name: /^skip$/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
+    expect(onComplete).toHaveBeenCalled();
+  });
+
+  it('step 4 shows a Skip button', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={4} />);
+    expect(screen.getByRole('button', { name: /^skip$/i })).toBeDefined();
+  });
+
+  it('clicking Skip on step 4 marks wizard complete and calls onComplete', async () => {
+    const onComplete = vi.fn();
+    render(<Wizard onComplete={onComplete} startAt={4} />);
+    fireEvent.click(screen.getByRole('button', { name: /^skip$/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
+    expect(onComplete).toHaveBeenCalled();
   });
 });

@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-import { invoke } from '@tauri-apps/api/core';
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 import ModalComplete from './ModalComplete';

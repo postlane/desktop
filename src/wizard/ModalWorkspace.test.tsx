@@ -4,8 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-import { invoke } from '@tauri-apps/api/core';
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 import ModalWorkspace from './ModalWorkspace';
@@ -64,6 +64,17 @@ describe('ModalWorkspace', () => {
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('create_project', { name: 'Acme', workspaceType: 'organization' });
+    });
+  });
+
+  it('trims leading and trailing whitespace from name before create_project call', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockResolvedValue({ project_id: 'proj-abc', name: 'Acme', workspace_type: 'personal' });
+    render(<ModalWorkspace onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await userEvent.type(screen.getByRole('textbox'), '  Acme  ');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('create_project', { name: 'Acme', workspaceType: 'personal' });
     });
   });
 });

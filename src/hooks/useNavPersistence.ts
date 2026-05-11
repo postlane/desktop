@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useRef, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { ViewSelection } from '../types';
 

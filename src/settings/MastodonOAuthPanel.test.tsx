@@ -6,10 +6,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import MastodonOAuthPanel from './MastodonOAuthPanel';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 const mockInvoke = vi.mocked(invoke);
 const mockOpen = vi.mocked(openUrl);

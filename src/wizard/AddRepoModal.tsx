@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 interface Props {

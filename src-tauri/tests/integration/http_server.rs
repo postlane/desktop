@@ -4,19 +4,9 @@ use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
-use std::sync::OnceLock;
-
-// Mutex to ensure tests that use ~/.postlane directory run sequentially
-// This prevents race conditions when tests run in parallel
-static POSTLANE_DIR_MUTEX: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-
-fn get_postlane_dir_lock() -> &'static std::sync::Mutex<()> {
-    POSTLANE_DIR_MUTEX.get_or_init(|| std::sync::Mutex::new(()))
-}
 
 #[tokio::test]
 async fn test_send_with_correct_token_and_registered_path() {
-    // Setup: Create temp repo with config
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path().join("test-repo");
     fs::create_dir_all(&repo_path).unwrap();
@@ -26,7 +16,6 @@ async fn test_send_with_correct_token_and_registered_path() {
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("config.json"), "{}").unwrap();
 
-    // Create post folder with meta.json
     let posts_dir = config_dir.join("posts");
     fs::create_dir_all(&posts_dir).unwrap();
     let post_dir = posts_dir.join("test-post");
@@ -49,10 +38,8 @@ async fn test_send_with_correct_token_and_registered_path() {
     });
     fs::write(post_dir.join("meta.json"), serde_json::to_string(&meta).unwrap()).unwrap();
 
-    // Canonicalize path
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
 
-    // Setup repos config with registered path
     let repos_config = postlane_desktop_lib::storage::ReposConfig {
         version: 1,
         repos: vec![postlane_desktop_lib::storage::Repo {
@@ -64,14 +51,11 @@ async fn test_send_with_correct_token_and_registered_path() {
         }],
     };
 
-    // Generate token
     let token = "test-token-12345678901234567890";
-
-    // Start server
-    let repos_arc = Arc::new(Mutex::new(repos_config));
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
-        repos: repos_arc,
+        repos: Arc::new(Mutex::new(repos_config)),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -79,7 +63,6 @@ async fn test_send_with_correct_token_and_registered_path() {
         .await
         .unwrap();
 
-    // Test: POST /send with correct token and registered path
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/send", port))
@@ -92,7 +75,6 @@ async fn test_send_with_correct_token_and_registered_path() {
         .await
         .unwrap();
 
-    // Assert: Should return 200 with success: true
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["success"], true);
@@ -100,17 +82,14 @@ async fn test_send_with_correct_token_and_registered_path() {
 
 #[tokio::test]
 async fn test_send_with_path_traversal_returns_403() {
-    // Setup: Create repos config
-    let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![],
-    };
-
+    let temp_dir = TempDir::new().unwrap();
     let token = "test-token-12345678901234567890";
-    let repos_arc = Arc::new(Mutex::new(repos_config));
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
-        repos: repos_arc,
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -118,7 +97,6 @@ async fn test_send_with_path_traversal_returns_403() {
         .await
         .unwrap();
 
-    // Test: POST /send with path traversal attempt
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/send", port))
@@ -131,23 +109,19 @@ async fn test_send_with_path_traversal_returns_403() {
         .await
         .unwrap();
 
-    // Assert: Should return 403 (path not in repos.json)
     assert_eq!(response.status(), 403);
 }
 
 #[tokio::test]
 async fn test_send_with_wrong_token_returns_401() {
-    // Setup
-    let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![],
-    };
-
+    let temp_dir = TempDir::new().unwrap();
     let token = "correct-token-12345678901234567890";
-    let repos_arc = Arc::new(Mutex::new(repos_config));
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
-        repos: repos_arc,
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -155,7 +129,6 @@ async fn test_send_with_wrong_token_returns_401() {
         .await
         .unwrap();
 
-    // Test: POST /send with wrong token
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/send", port))
@@ -168,41 +141,27 @@ async fn test_send_with_wrong_token_returns_401() {
         .await
         .unwrap();
 
-    // Assert: Should return 401
     assert_eq!(response.status(), 401);
 }
 
 #[tokio::test]
 async fn test_register_with_valid_path() {
-    // Acquire lock to prevent race conditions with other tests using ~/.postlane
-    let _lock = get_postlane_dir_lock().lock().unwrap();
-
-    // Setup: Create temp repo with .git and config
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path().join("test-repo");
     fs::create_dir_all(&repo_path).unwrap();
     fs::create_dir_all(repo_path.join(".git")).unwrap();
-
-    let config_dir = repo_path.join(".postlane");
-    fs::create_dir_all(&config_dir).unwrap();
-    fs::write(config_dir.join("config.json"), "{}").unwrap();
+    fs::create_dir_all(repo_path.join(".postlane")).unwrap();
+    fs::write(repo_path.join(".postlane/config.json"), "{}").unwrap();
 
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
-
-    // Initialize postlane directory (needed for /register endpoint to write repos.json)
-    postlane_desktop_lib::init::init_postlane_dir().expect("Failed to init postlane dir");
-
-    // Setup server
-    let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![],
-    };
-
     let token = "test-token-12345678901234567890";
-    let repos_arc = Arc::new(Mutex::new(repos_config));
+
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
-        repos: repos_arc,
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -210,19 +169,15 @@ async fn test_register_with_valid_path() {
         .await
         .unwrap();
 
-    // Test: POST /register with valid path
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/register", port))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({
-            "path": canonical_path.to_str().unwrap()
-        }))
+        .json(&serde_json::json!({ "path": canonical_path.to_str().unwrap() }))
         .send()
         .await
         .unwrap();
 
-    // Assert: Should return 200 with success: true and name
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["success"], true);
@@ -231,17 +186,14 @@ async fn test_register_with_valid_path() {
 
 #[tokio::test]
 async fn test_register_with_invalid_path_returns_403() {
-    // Setup
-    let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![],
-    };
-
+    let temp_dir = TempDir::new().unwrap();
     let token = "test-token-12345678901234567890";
-    let repos_arc = Arc::new(Mutex::new(repos_config));
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
-        repos: repos_arc,
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -249,35 +201,28 @@ async fn test_register_with_invalid_path_returns_403() {
         .await
         .unwrap();
 
-    // Test: POST /register with path that doesn't exist
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/register", port))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({
-            "path": "/nonexistent/path/that/does/not/exist"
-        }))
+        .json(&serde_json::json!({ "path": "/nonexistent/path/that/does/not/exist" }))
         .send()
         .await
         .unwrap();
 
-    // Assert: Should return 403 (path not found or not accessible)
     assert_eq!(response.status(), 403);
 }
 
 #[tokio::test]
 async fn test_register_with_wrong_token_returns_401() {
-    // Setup
-    let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![],
-    };
-
+    let temp_dir = TempDir::new().unwrap();
     let token = "correct-token-12345678901234567890";
-    let repos_arc = Arc::new(Mutex::new(repos_config));
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
-        repos: repos_arc,
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -285,53 +230,37 @@ async fn test_register_with_wrong_token_returns_401() {
         .await
         .unwrap();
 
-    // Test: POST /register with wrong token
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/register", port))
         .header("Authorization", "Bearer wrong-token")
-        .json(&serde_json::json!({
-            "path": "/tmp/test"
-        }))
+        .json(&serde_json::json!({ "path": "/tmp/test" }))
         .send()
         .await
         .unwrap();
 
-    // Assert: Should return 401
     assert_eq!(response.status(), 401);
 }
 
 #[tokio::test]
 async fn test_register_actually_adds_repo_to_repos_json() {
-    // Acquire lock to prevent race conditions with other tests using ~/.postlane
-    let _lock = get_postlane_dir_lock().lock().unwrap();
-
-    // Setup: Create temp repo with .git and config
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path().join("test-repo");
     fs::create_dir_all(&repo_path).unwrap();
     fs::create_dir_all(repo_path.join(".git")).unwrap();
-
-    let config_dir = repo_path.join(".postlane");
-    fs::create_dir_all(&config_dir).unwrap();
-    fs::write(config_dir.join("config.json"), "{}").unwrap();
+    fs::create_dir_all(repo_path.join(".postlane")).unwrap();
+    fs::write(repo_path.join(".postlane/config.json"), "{}").unwrap();
 
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
-
-    // Initialize postlane directory (needed for /register endpoint to write repos.json)
-    postlane_desktop_lib::init::init_postlane_dir().expect("Failed to init postlane dir");
-
-    // Setup server with empty repos
-    let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![],
-    };
-
     let token = "test-token-12345678901234567890";
-    let repos_arc = Arc::new(Mutex::new(repos_config));
+    let repos_arc = Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+        version: 1, repos: vec![],
+    }));
+
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: repos_arc.clone(),
+        repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
     };
 
@@ -339,29 +268,78 @@ async fn test_register_actually_adds_repo_to_repos_json() {
         .await
         .unwrap();
 
-    // Test: POST /register
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://127.0.0.1:{}/register", port))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({
-            "path": canonical_path.to_str().unwrap()
-        }))
+        .json(&serde_json::json!({ "path": canonical_path.to_str().unwrap() }))
         .send()
         .await
         .unwrap();
 
-    // Assert: Should return 200
     assert_eq!(response.status(), 200);
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["success"], true);
     assert_eq!(body["name"], "test-repo");
 
-    // Verify: Repo was actually added to repos_arc
     let repos = repos_arc.lock().await;
     assert_eq!(repos.repos.len(), 1);
     assert_eq!(repos.repos[0].name, "test-repo");
     assert_eq!(repos.repos[0].path, canonical_path.to_str().unwrap());
     assert_eq!(repos.repos[0].active, true);
     assert!(!repos.repos[0].id.is_empty(), "ID should be generated");
+}
+
+#[tokio::test]
+async fn test_register_writes_to_state_repos_path_not_real_postlane_dir() {
+    // Verifies that /register writes to ServerState.repos_path, NOT to ~/.postlane/repos.json.
+    let temp_dir = TempDir::new().unwrap();
+    let isolated_repos_path = temp_dir.path().join("repos.json");
+
+    let repo_dir = temp_dir.path().join("test-repo");
+    fs::create_dir_all(&repo_dir).unwrap();
+    fs::create_dir_all(repo_dir.join(".git")).unwrap();
+    fs::create_dir_all(repo_dir.join(".postlane")).unwrap();
+    fs::write(repo_dir.join(".postlane/config.json"), "{}").unwrap();
+    let canonical_repo = fs::canonicalize(&repo_dir).unwrap();
+
+    let token = "test-token-isolation-check";
+    let server_state = postlane_desktop_lib::http_server::ServerState {
+        token: token.to_string(),
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: isolated_repos_path.clone(),
+        activation_tx: None,
+    };
+
+    let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
+        .await
+        .unwrap();
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("http://127.0.0.1:{}/register", port))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({ "path": canonical_repo.to_str().unwrap() }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    assert!(isolated_repos_path.exists(), "repos.json must be written to the isolated path");
+
+    let real_repos_path = postlane_desktop_lib::init::postlane_dir()
+        .unwrap()
+        .join("repos.json");
+    if real_repos_path.exists() {
+        let real_content: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&real_repos_path).unwrap()).unwrap();
+        let real_repos = real_content["repos"].as_array().unwrap();
+        assert!(
+            real_repos.iter().all(|r| r["name"] != "test-repo"),
+            "real repos.json must not contain the test repo"
+        );
+    }
 }

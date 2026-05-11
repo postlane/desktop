@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
 
 interface Props {

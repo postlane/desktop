@@ -3,7 +3,7 @@
 use crate::app_state::AppState;
 use crate::post_meta::{PostMeta, PostStatus};
 use crate::project_registry::read_project_id_from_path_impl;
-use crate::storage::Repo;
+use crate::storage::{Repo, ReposConfig};
 use crate::types::Post;
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -85,13 +85,13 @@ fn drafts_from_folder(
         .collect()
 }
 
-fn drafts_from_repo(repo: &Repo) -> Vec<Post> {
+fn drafts_from_repo(repo: &Repo, repos: &ReposConfig) -> Vec<Post> {
     let repo_path = PathBuf::from(&repo.path);
     let posts_dir = repo_path.join(".postlane/posts");
     if !posts_dir.exists() {
         return vec![];
     }
-    let project_id = read_project_id_from_path_impl(&repo.path).ok().flatten();
+    let project_id = read_project_id_from_path_impl(&repo.path, repos).ok().flatten();
     let Ok(entries) = std::fs::read_dir(&posts_dir) else {
         return vec![];
     };
@@ -113,7 +113,7 @@ pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
         .repos
         .iter()
         .filter(|r| r.active)
-        .flat_map(drafts_from_repo)
+        .flat_map(|repo| drafts_from_repo(repo, &repos))
         .collect();
     drafts.sort_by(|a, b| {
         a.repo_path
@@ -133,35 +133,9 @@ pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
 mod tests {
     use super::*;
     use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::test_fixtures::{make_state, make_repo, write_config, write_meta};
     use std::fs;
     use std::path::Path;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
-
-    fn make_repo(id: &str, path: &str) -> Repo {
-        Repo {
-            id: id.to_string(),
-            name: id.to_string(),
-            path: path.to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }
-    }
-
-    fn write_config(dir: &Path, json: &str) {
-        let d = dir.join(".postlane");
-        fs::create_dir_all(&d).expect("create .postlane");
-        fs::write(d.join("config.json"), json).expect("write config.json");
-    }
-
-    fn write_meta(dir: &Path, folder: &str, json: &str) {
-        let p = dir.join(".postlane/posts").join(folder);
-        fs::create_dir_all(&p).expect("create post dir");
-        fs::write(p.join("meta.json"), json).expect("write meta.json");
-    }
 
     fn write_md(dir: &Path, folder: &str, platform: &str, text: &str) {
         let p = dir.join(".postlane/posts").join(folder);

@@ -3,6 +3,7 @@
 use crate::app_state::AppState;
 use crate::init::atomic_write;
 use crate::license::POSTLANE_API_BASE;
+use crate::project_validation::{reject_if_symlink, validate_project_id};
 use crate::providers::scheduling::build_client;
 use crate::storage::ReposConfig;
 use serde::Deserialize;
@@ -10,28 +11,6 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{Emitter, State};
 use tauri_plugin_keyring::KeyringExt;
-
-/// Validates a project ID: non-empty, alphanumeric + hyphens + underscores only.
-/// Rejects slashes, spaces, and dot-sequences to prevent URL path traversal.
-fn validate_project_id(id: &str) -> Result<(), String> {
-    if id.is_empty() {
-        return Err("project_id must not be empty".to_string());
-    }
-    if !id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-        return Err(format!("project_id '{}' contains invalid characters (only a-z, A-Z, 0-9, hyphens, underscores allowed)", id));
-    }
-    Ok(())
-}
-
-fn reject_if_symlink(path: &std::path::Path) -> Result<(), String> {
-    match path.symlink_metadata() {
-        Ok(m) if m.file_type().is_symlink() => Err(format!(
-            "'{}' is a symlink — refusing to read/write to prevent path traversal",
-            path.display()
-        )),
-        Ok(_) | Err(_) => Ok(()),
-    }
-}
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -279,82 +258,10 @@ pub async fn register_repo_with_project_with_client(
     write_project_id_to_config_impl(repo_path, project_id, repos)
 }
 
-#[derive(Deserialize)]
-struct ProjectVoiceGuideResponse {
-    voice_guide: Option<String>,
-}
-
-type VoiceGuideEntry = (std::time::Instant, String);
-static VOICE_GUIDE_CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, VoiceGuideEntry>>> =
-    std::sync::OnceLock::new();
-const VOICE_GUIDE_CACHE_TTL_SECS: u64 = 3600;
-
-fn voice_guide_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, VoiceGuideEntry>> {
-    VOICE_GUIDE_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-fn vg_cache_get(project_id: &str, ttl_secs: u64) -> Option<String> {
-    let guard = voice_guide_cache().lock().ok()?;
-    let (fetched_at, content) = guard.get(project_id)?;
-    if fetched_at.elapsed().as_secs() < ttl_secs {
-        Some(content.clone())
-    } else {
-        None
-    }
-}
-
-fn vg_cache_set(project_id: &str, content: String) {
-    if let Ok(mut guard) = voice_guide_cache().lock() {
-        guard.insert(project_id.to_string(), (std::time::Instant::now(), content));
-    }
-}
-
-fn vg_cache_invalidate(project_id: &str) {
-    if let Ok(mut guard) = voice_guide_cache().lock() {
-        guard.remove(project_id);
-    }
-}
-
-pub(crate) async fn get_project_voice_guide_cached(
-    project_id: &str,
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-    ttl_secs: u64,
-) -> Result<Option<String>, String> {
-    if let Some(cached) = vg_cache_get(project_id, ttl_secs) {
-        return Ok(Some(cached));
-    }
-    let result = get_project_voice_guide_with_client(project_id, client, base_url, token).await?;
-    if let Some(ref content) = result {
-        vg_cache_set(project_id, content.clone());
-    }
-    Ok(result)
-}
-
-/// Calls `GET {base_url}/v1/projects/{project_id}` and returns the `voice_guide` field.
-/// Returns `Ok(None)` if the project has no voice guide; `Err` on network failure or non-200.
-pub async fn get_project_voice_guide_with_client(
-    project_id: &str,
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-) -> Result<Option<String>, String> {
-    validate_project_id(project_id)?;
-    let url = format!("{}/v1/projects/{}", base_url, project_id);
-    let resp = client.get(&url).bearer_auth(token).send().await
-        .map_err(|e| format!("Backend error: {}", e))?;
-    let status = resp.status();
-    if status.as_u16() == 401 {
-        return Err(SESSION_EXPIRED_ERROR.to_string());
-    }
-    if !status.is_success() {
-        return Err(format!("Backend returned {}", status));
-    }
-    resp.json::<ProjectVoiceGuideResponse>().await
-        .map(|r| r.voice_guide)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
+use crate::project_cache::{
+    get_project_voice_guide_cached, save_project_voice_guide_with_client,
+    VOICE_GUIDE_CACHE_TTL_SECS,
+};
 
 #[tauri::command]
 pub async fn get_project_voice_guide(
@@ -366,38 +273,6 @@ pub async fn get_project_voice_guide(
     )?;
     let client = build_client();
     get_project_voice_guide_cached(&project_id, &client, POSTLANE_API_BASE, &token, VOICE_GUIDE_CACHE_TTL_SECS).await
-}
-
-/// Calls `PATCH {base_url}/v1/projects/{project_id}` with `voice_guide`.
-pub async fn save_project_voice_guide_with_client(
-    project_id: &str,
-    voice_guide: &str,
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-) -> Result<(), String> {
-    if voice_guide.len() > 5000 {
-        return Err(format!("voice_guide must be 5000 characters or fewer (got {})", voice_guide.len()));
-    }
-    validate_project_id(project_id)?;
-    let url = format!("{}/v1/projects/{}", base_url, project_id);
-    let resp = client
-        .patch(&url)
-        .bearer_auth(token)
-        .json(&serde_json::json!({ "voice_guide": voice_guide }))
-        .send()
-        .await
-        .map_err(|e| format!("Backend error: {}", e))?;
-
-    let status = resp.status();
-    if status.as_u16() == 401 {
-        return Err(SESSION_EXPIRED_ERROR.to_string());
-    }
-    if !status.is_success() {
-        return Err(format!("Backend returned {}", status));
-    }
-    vg_cache_invalidate(project_id);
-    Ok(())
 }
 
 /// Calls `DELETE {base_url}/v1/projects/{project_id}`.
@@ -518,10 +393,15 @@ fn parse_remote_name(url: &str) -> Option<String> {
     stripped.split('/').next_back().filter(|s| !s.is_empty()).map(str::to_string)
 }
 
-/// Reads `.postlane/config.json` from an arbitrary path and returns the `project_id` field.
+/// Reads `.postlane/config.json` from a registered repo path and returns the `project_id` field.
+/// Rejects paths not in repos.json (Security Rule 2).
 /// Returns `Ok(None)` if the file doesn't exist or if `project_id` is not present.
-/// Returns `Err` only if the file exists but cannot be parsed as JSON.
-pub fn read_project_id_from_path_impl(path: &str) -> Result<Option<String>, String> {
+/// Returns `Err` if the path is unregistered or the file exists but cannot be parsed.
+pub fn read_project_id_from_path_impl(path: &str, repos: &ReposConfig) -> Result<Option<String>, String> {
+    let is_registered = repos.repos.iter().any(|r| r.path == path);
+    if !is_registered {
+        return Err(format!("Path '{}' is not in the registered repos list", path));
+    }
     let config_path = PathBuf::from(path).join(".postlane/config.json");
     if !config_path.exists() {
         return Ok(None);
@@ -534,8 +414,9 @@ pub fn read_project_id_from_path_impl(path: &str) -> Result<Option<String>, Stri
 }
 
 #[tauri::command]
-pub fn read_project_id_from_path(path: String) -> Result<Option<String>, String> {
-    read_project_id_from_path_impl(&path)
+pub fn read_project_id_from_path(path: String, state: State<AppState>) -> Result<Option<String>, String> {
+    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    read_project_id_from_path_impl(&path, &repos)
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -654,6 +535,7 @@ pub async fn save_project_voice_guide(
 mod tests {
     use super::*;
     use crate::storage::{Repo, ReposConfig};
+    use crate::test_fixtures::{make_state as make_state_with_repos, make_repo as make_repo_entry};
     use httpmock::prelude::*;
     use std::fs;
 
@@ -890,14 +772,35 @@ mod tests {
 
     // ── read_project_id_from_path ────────────────────────────────────────────
 
+    fn make_repos_with_path(path: &str) -> ReposConfig {
+        ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        }
+    }
+
+    #[test]
+    fn test_read_project_id_from_path_rejects_unregistered_path() {
+        let repos = ReposConfig { version: 1, repos: vec![] };
+        let result = read_project_id_from_path_impl("/unregistered/path", &repos);
+        assert!(result.is_err(), "path not in repos.json must be rejected (Security Rule 2)");
+    }
+
     #[test]
     fn test_read_project_id_from_path_returns_id() {
         let dir = std::env::temp_dir().join("postlane_test_read_project_id_present");
         let config_dir = dir.join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"project_id":"proj-abc","scheduler":{"provider":"zernio"}}"#).expect("write config");
+        let repos = make_repos_with_path(dir.to_str().unwrap());
 
-        let result = read_project_id_from_path_impl(dir.to_str().unwrap());
+        let result = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos);
         assert_eq!(result, Ok(Some("proj-abc".to_string())));
         let _ = fs::remove_dir_all(&dir);
     }
@@ -908,8 +811,9 @@ mod tests {
         let config_dir = dir.join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write config");
+        let repos = make_repos_with_path(dir.to_str().unwrap());
 
-        let result = read_project_id_from_path_impl(dir.to_str().unwrap());
+        let result = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos);
         assert_eq!(result, Ok(None));
         let _ = fs::remove_dir_all(&dir);
     }
@@ -993,121 +897,6 @@ mod tests {
         assert!(matches!(result, Err(CreateProjectError::InvalidWorkspaceType(_))));
     }
 
-    // ── 19.0.19: SessionExpired on 401 ───────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_get_project_voice_guide_returns_session_expired_on_401() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
-            then.status(401);
-        });
-        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "expired-tok").await;
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "HTTP 401 must return session_expired error");
-    }
-
-    #[tokio::test]
-    async fn test_save_project_voice_guide_returns_session_expired_on_401() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-abc");
-            then.status(401);
-        });
-        let result = save_project_voice_guide_with_client("proj-abc", "Guide text.", &build_test_client(), &server.base_url(), "expired-tok").await;
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "HTTP 401 must return session_expired error");
-    }
-
-    // ── get_project_voice_guide ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_get_voice_guide_returns_none_when_null() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
-            then.status(200).json_body(serde_json::json!({ "voice_guide": null }));
-        });
-        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok").await;
-        assert_eq!(result, Ok(None));
-    }
-
-    #[tokio::test]
-    async fn test_get_voice_guide_returns_some_when_set() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
-            then.status(200).json_body(serde_json::json!({ "voice_guide": "Direct and technical." }));
-        });
-        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok").await;
-        assert_eq!(result, Ok(Some("Direct and technical.".to_string())));
-    }
-
-    #[tokio::test]
-    async fn test_get_voice_guide_returns_err_on_non_200() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
-            then.status(404);
-        });
-        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), &server.base_url(), "tok").await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_voice_guide_returns_err_on_network_failure() {
-        let result = get_project_voice_guide_with_client("proj-abc", &build_test_client(), "http://127.0.0.1:1", "tok").await;
-        assert!(result.is_err());
-    }
-
-    // ── save_project_voice_guide ─────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_saves_voice_guide() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-abc");
-            then.status(200).json_body(serde_json::json!({ "id": "proj-abc" }));
-        });
-
-        save_project_voice_guide_with_client("proj-abc", "Direct and technical.", &build_test_client(), &server.base_url(), "tok")
-            .await
-            .expect("should succeed");
-        mock.assert();
-    }
-
-    #[tokio::test]
-    async fn test_accepts_empty_voice_guide() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-abc");
-            then.status(200).json_body(serde_json::json!({ "id": "proj-abc" }));
-        });
-
-        save_project_voice_guide_with_client("proj-abc", "", &build_test_client(), &server.base_url(), "tok")
-            .await
-            .expect("should accept empty voice guide");
-    }
-
-    #[tokio::test]
-    async fn test_save_project_voice_guide_returns_error_on_http_failure() {
-        // Use an unreachable port to simulate network failure
-        let result = save_project_voice_guide_with_client(
-            "proj-abc", "Direct.", &build_test_client(), "http://127.0.0.1:1", "tok",
-        ).await;
-        assert!(result.is_err(), "network failure must return Err");
-    }
-
-    #[tokio::test]
-    async fn test_save_project_voice_guide_rejects_voice_guide_exceeding_5000_chars() {
-        let long_guide = "x".repeat(5001);
-        let result = save_project_voice_guide_with_client(
-            "proj-abc", &long_guide, &build_test_client(), "http://127.0.0.1:1", "tok",
-        ).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("5000"), "error must mention the limit");
-    }
-
     // ── sha256_hex ────────────────────────────────────────────────────────────
 
     #[test]
@@ -1179,7 +968,7 @@ mod tests {
         .expect("register_repo should succeed");
 
         // Phase 3: read config back — the chain is complete if this returns the same id
-        let read_back = read_project_id_from_path_impl(dir.to_str().unwrap())
+        let read_back = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos)
             .expect("read_project_id should not error");
 
         assert_eq!(
@@ -1191,143 +980,8 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // ── validate_project_id ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_validate_project_id_accepts_alphanumeric_and_hyphens() {
-        assert!(validate_project_id("proj-abc-123").is_ok());
-        assert!(validate_project_id("abc").is_ok());
-        assert!(validate_project_id("proj_123-ABC").is_ok());
-    }
-
-    #[test]
-    fn test_validate_project_id_rejects_empty() {
-        let result = validate_project_id("");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("empty"));
-    }
-
-    #[test]
-    fn test_validate_project_id_rejects_slash() {
-        let result = validate_project_id("proj/../../etc/passwd");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("invalid"));
-    }
-
-    #[test]
-    fn test_validate_project_id_rejects_spaces() {
-        assert!(validate_project_id("proj name").is_err());
-    }
-
-    #[test]
-    fn test_validate_project_id_rejects_dot_sequences() {
-        assert!(validate_project_id("..").is_err());
-        assert!(validate_project_id("../other").is_err());
-    }
-
-    #[tokio::test]
-    async fn test_get_voice_guide_rejects_invalid_project_id() {
-        let result = get_project_voice_guide_with_client(
-            "proj/../../evil",
-            &build_test_client(),
-            "http://127.0.0.1:1",
-            "tok",
-        ).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("invalid"));
-    }
-
-    #[tokio::test]
-    async fn test_save_voice_guide_rejects_invalid_project_id() {
-        let result = save_project_voice_guide_with_client(
-            "proj name",
-            "guide text",
-            &build_test_client(),
-            "http://127.0.0.1:1",
-            "tok",
-        ).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("invalid"));
-    }
-
-    // ── voice guide caching (§review-ds-low) ─────────────────────────────────
-
-    #[tokio::test]
-    async fn test_voice_guide_cache_hit_avoids_second_request() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache1");
-            then.status(200).json_body(serde_json::json!({ "voice_guide": "Concise tone." }));
-        });
-        let r1 = get_project_voice_guide_cached("proj-vgcache1", &build_test_client(), &server.base_url(), "tok", 3600).await;
-        assert_eq!(r1.unwrap(), Some("Concise tone.".to_string()));
-        let r2 = get_project_voice_guide_cached("proj-vgcache1", &build_test_client(), &server.base_url(), "tok", 3600).await;
-        assert_eq!(r2.unwrap(), Some("Concise tone.".to_string()));
-        mock.assert_hits(1);
-    }
-
-    #[tokio::test]
-    async fn test_voice_guide_cache_expires_with_zero_ttl() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache2");
-            then.status(200).json_body(serde_json::json!({ "voice_guide": "Fresh voice." }));
-        });
-        get_project_voice_guide_cached("proj-vgcache2", &build_test_client(), &server.base_url(), "tok", 0).await.unwrap();
-        get_project_voice_guide_cached("proj-vgcache2", &build_test_client(), &server.base_url(), "tok", 0).await.unwrap();
-        mock.assert_hits(2);
-    }
-
-    #[tokio::test]
-    async fn test_voice_guide_cache_invalidated_on_save() {
-        let server = MockServer::start();
-        let get_mock = server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache3");
-            then.status(200).json_body(serde_json::json!({ "voice_guide": "Old voice." }));
-        });
-        let patch_mock = server.mock(|when, then| {
-            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-vgcache3");
-            then.status(200);
-        });
-        // Populate cache
-        get_project_voice_guide_cached("proj-vgcache3", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
-        // Save invalidates cache
-        save_project_voice_guide_with_client("proj-vgcache3", "New voice.", &build_test_client(), &server.base_url(), "tok").await.unwrap();
-        // Next get should re-fetch from server
-        get_project_voice_guide_cached("proj-vgcache3", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
-        get_mock.assert_hits(2);
-        patch_mock.assert_hits(1);
-    }
-
-    #[tokio::test]
-    async fn test_voice_guide_cache_miss_for_none_response() {
-        let server = MockServer::start();
-        let mock = server.mock(|when, then| {
-            when.method(httpmock::Method::GET).path("/v1/projects/proj-vgcache4");
-            then.status(200).json_body(serde_json::json!({ "voice_guide": null }));
-        });
-        // None responses are not cached — each call fetches
-        get_project_voice_guide_cached("proj-vgcache4", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
-        get_project_voice_guide_cached("proj-vgcache4", &build_test_client(), &server.base_url(), "tok", 3600).await.unwrap();
-        mock.assert_hits(2);
-    }
-
     // ── delete_project (19.2.1) ──────────────────────────────────────────────
 
-    fn make_state_with_repos(repos: Vec<crate::storage::Repo>) -> AppState {
-        use crate::storage::ReposConfig;
-        AppState::new(ReposConfig { version: 1, repos })
-    }
-
-    fn make_repo_entry(id: &str, path: &str) -> crate::storage::Repo {
-        crate::storage::Repo {
-            id: id.to_string(),
-            name: id.to_string(),
-            path: path.to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }
-    }
 
     fn write_project_config(repo_dir: &std::path::Path, project_id: &str) {
         let pl_dir = repo_dir.join(".postlane");

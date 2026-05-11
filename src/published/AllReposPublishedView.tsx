@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
-import type { PublishedPost, PostAnalytics } from '../types';
+import type { PublishedPost } from '../types';
 import { isPublishedPost } from '../ipc-guards';
+import { AnalyticsToggleCell } from './AnalyticsCell';
 
 const PAGE_SIZE = 100;
 
@@ -20,10 +21,9 @@ function useAllPublished() {
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
     try {
-      const result = (await invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 }))
-        .filter(isPublishedPost);
-      const hasMoreResults = result.length > PAGE_SIZE;
-      const slice = hasMoreResults ? result.slice(0, PAGE_SIZE) : result;
+      const raw = await invoke<unknown[]>('get_all_published', { offset: pageIndex * PAGE_SIZE, limit: PAGE_SIZE + 1 });
+      const hasMoreResults = raw.length > PAGE_SIZE;
+      const slice = raw.slice(0, PAGE_SIZE).filter(isPublishedPost);
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
     } catch (e) {
@@ -41,32 +41,6 @@ function useAllPublished() {
   return { posts, hasMore, loading, loadNextPage };
 }
 
-function AnalyticsToggleCell({ repoId, postFolder, sentAt }: { repoId: string; postFolder: string; sentAt?: string | null }) {
-  const [analytics, setAnalytics] = useState<PostAnalytics | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [triggered, setTriggered] = useState(false);
-
-  async function handleLoad() {
-    setTriggered(true);
-    setLoading(true);
-    try {
-      const data = await invoke<PostAnalytics>('get_post_analytics', { repoId, postFolder });
-      setAnalytics(data);
-    } catch { setAnalytics(null); }
-    finally { setLoading(false); }
-  }
-
-  if (!triggered) return (
-    <button aria-label="Load analytics" title="Click to load analytics" onClick={handleLoad} className="button is-ghost is-small has-text-grey-light">—</button>
-  );
-  if (loading) return <span className="has-text-grey-light is-size-7">…</span>;
-  if (!analytics?.configured) return <span className="has-text-grey-light is-size-7">Set up Analytics — Settings → Analytics</span>;
-  if (analytics.unique_sessions === 0) {
-    const isRecent = sentAt != null && (Date.now() - new Date(sentAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
-    return <span className="has-text-grey-light is-size-7">{isRecent ? 'No sessions yet' : 'No Postlane-referred sessions in the last 30 days'}</span>;
-  }
-  return <span className="is-size-7">{analytics.unique_sessions} unique · {analytics.sessions} total{analytics.top_referrer ? ` · ${analytics.top_referrer}` : ''}</span>;
-}
 
 function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: PublishedPost; onOpenLink: (_url: string) => void; onNavigateToRepo: (_repoId: string) => void }) {
   const tz = useTimezone();
@@ -97,6 +71,7 @@ function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: Publis
 
 export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [openLinkError, setOpenLinkError] = useState<string | null>(null);
   const { posts, hasMore, loading, loadNextPage } = useAllPublished();
 
   async function handleExport() {
@@ -106,8 +81,9 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   }
 
   async function handleOpenLink(url: string) {
+    setOpenLinkError(null);
     try { await invoke('plugin:opener|open_url', { url }); }
-    catch (e) { console.error('Failed to open URL:', e); }
+    catch (e) { setOpenLinkError(e instanceof Error ? e.message : 'Failed to open link'); }
   }
 
   if (loading) return (
@@ -129,6 +105,7 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
       <div className="is-flex is-align-items-center is-justify-content-space-between mb-5">
         <h1 className="has-text-weight-semibold">All repos — Published</h1>
         <div className="is-flex is-align-items-center" style={{ gap: '0.75rem' }}>
+          {openLinkError && <span className="is-size-7 has-text-danger">{openLinkError}</span>}
           {exportStatus && <span className="is-size-7 has-text-grey">{exportStatus}</span>}
           <button className="button is-outlined is-small" onClick={handleExport}>Export CSV</button>
         </div>

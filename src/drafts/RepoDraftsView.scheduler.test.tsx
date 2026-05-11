@@ -5,10 +5,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RepoDraftsView from './RepoDraftsView';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());

@@ -47,24 +47,39 @@ describe('PostTable — queue mode — one row per platform', () => {
 })
 
 describe('PostTable — queue mode — visual grouping', () => {
-  it('shows post_folder label on first row of a group', () => {
+  it('shows one group-label per post group', () => {
     const drafts = [
       makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'x' }),
       makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'linkedin' }),
     ]
     render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
     expect(screen.getAllByTestId('group-label')).toHaveLength(1)
+  })
+
+  it('shows trigger text as group label when trigger is set', () => {
+    const drafts = [
+      makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'x', trigger: 'Added new feature' }),
+      makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'linkedin', trigger: 'Added new feature' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('group-label')).toHaveTextContent('Added new feature')
+  })
+
+  it('falls back to post_folder when trigger is null', () => {
+    const drafts = [
+      makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'x', trigger: null }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
     expect(screen.getByTestId('group-label')).toHaveTextContent('my-post')
   })
 
-  it('applies background tint to grouped rows', () => {
+  it('renders one clickable badge per platform inside the group', () => {
     const drafts = [
       makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'x' }),
       makeDraft({ repo_path: '/repo1', post_folder: 'my-post', platform: 'linkedin' }),
     ]
     render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
-    const rows = screen.getAllByTestId('post-row')
-    rows.forEach((row) => expect(row).toHaveClass('has-background-white-ter'))
+    expect(screen.getAllByTestId('post-row')).toHaveLength(2)
   })
 
   it('creates separate groups for different (repo_path, post_folder) pairs', () => {
@@ -77,19 +92,15 @@ describe('PostTable — queue mode — visual grouping', () => {
   })
 })
 
-describe('PostTable — queue mode — time display', () => {
-  it('shows scheduled_for as "Scheduled for ..." when present', () => {
-    const draft = makeDraft({ scheduled_for: '2024-06-03T09:00:00Z' })
-    render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
-    expect(screen.getByText(/Scheduled for/)).toBeInTheDocument()
-  })
-
-  it('shows relative time when scheduled_for is null', () => {
-    const now = new Date()
-    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
-    const draft = makeDraft({ scheduled_for: null, created_at: twoHoursAgo })
-    render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
-    expect(screen.getByText(/ago/)).toBeInTheDocument()
+describe('PostTable — queue mode — badge layout', () => {
+  it('shows each platform badge with the platform label', () => {
+    const drafts = [
+      makeDraft({ platform: 'x' }),
+      makeDraft({ platform: 'bluesky' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByRole('button', { name: /edit x post/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /edit bluesky post/i })).toBeInTheDocument()
   })
 })
 

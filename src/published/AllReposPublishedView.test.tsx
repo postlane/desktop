@@ -6,9 +6,9 @@ import '@testing-library/jest-dom';
 import AllReposPublishedView from './AllReposPublishedView';
 import type { PublishedPost } from '../types';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
@@ -83,6 +83,24 @@ describe('AllReposPublishedView — sent posts table', () => {
       makeSent({ post_folder: `p${String(i).padStart(3, '0')}` }),
     );
     setupMocks(posts);
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument(),
+      { timeout: 10000 },
+    );
+  }, 12000);
+
+  it('shows Load more when 101 raw posts but some fail the isPublishedPost guard', async () => {
+    // 100 valid sent posts + 1 invalid-shape post = 101 raw items
+    // hasMore must be based on raw count (101 > 100) not filtered count
+    const validPosts = Array.from({ length: 100 }, (_, i) =>
+      makeSent({ post_folder: `p${String(i).padStart(3, '0')}` }),
+    );
+    const badShapePost = { repo_id: 'r1', post_folder: 'bad', status: 'sent', platforms: 'not-an-array' };
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published') return [...validPosts, badShapePost];
+      return null;
+    });
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(
       () => expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument(),
@@ -329,6 +347,24 @@ describe('AllReposPublishedView — analytics UX improvements', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Link open error
+// ---------------------------------------------------------------------------
+
+describe('AllReposPublishedView — link open error', () => {
+  it('shows error when opener fails (§review-silentcatch)', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_published')
+        return [makeSent({ platform_results: { x: 'sent' }, platform_urls: { x: 'https://x.com/i/web/status/77' } })];
+      if (cmd === 'plugin:opener|open_url') throw new Error('Opener failed');
+      return null;
+    });
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /view x post/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view x post/i }));
+    await waitFor(() => expect(screen.getByText(/opener failed/i)).toBeInTheDocument());
+  });
+});
+
 // IPC guard
 // ---------------------------------------------------------------------------
 

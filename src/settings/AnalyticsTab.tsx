@@ -2,7 +2,7 @@
 // v2 stub — per-post analytics deferred; not wired to any route in M19
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 
 interface Props {
   repoId: string | null;

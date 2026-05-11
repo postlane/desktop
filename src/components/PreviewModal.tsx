@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { ImageState } from '../types'
+import { PLATFORM_CFG, CHAR_LIMITS } from '../constants/platformConfig'
 import {
   countCharsX,
   countCharsBluesky,
@@ -9,17 +10,7 @@ import {
   countSubstackNotesChars,
 } from './charCount'
 
-export const CHAR_LIMITS: Record<string, number> = {
-  x: 280,
-  bluesky: 300,
-  mastodon: 500,
-  linkedin: 3000,
-  substack_notes: 280,
-  substack: 0,
-  product_hunt: 260,
-  show_hn: 0,
-  changelog: 0,
-}
+export { CHAR_LIMITS }
 
 const PLATFORM_WIDTH: Record<string, number> = {
   x: 598,
@@ -46,11 +37,10 @@ export function CharCount({ platform, text }: CharCountProps) {
   const limit = CHAR_LIMITS[platform] ?? 0
   if (limit === 0) return null
   const used = countForPlatform(platform, text)
-  const remaining = limit - used
-  const isOver = remaining < 0
+  const isOver = used > limit
   return (
     <span className={'is-size-7 ' + (isOver ? 'has-text-danger' : 'has-text-grey')}>
-      {remaining}
+      {used} / {limit}
     </span>
   )
 }
@@ -70,7 +60,10 @@ export default function PreviewModal({ platform, text, imageState, onClose }: Pr
       <div className="modal-background" data-testid="modal-overlay" onClick={onClose} />
       <div className="modal-card" style={{ maxWidth: width, width: '100%' }}>
         <header className="modal-card-head">
-          <span className="tag is-light mr-2">{platform}</span>
+          <span className="tag is-rounded is-small mr-2"
+            style={{ background: PLATFORM_CFG[platform]?.color ?? 'hsl(0,0%,50%)', color: '#fff' }}>
+            {PLATFORM_CFG[platform]?.label ?? platform}
+          </span>
           <CharCount platform={platform} text={text} />
           <button
             className="delete ml-auto"

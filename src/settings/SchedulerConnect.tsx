@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 type Provider = 'zernio' | 'publer' | 'outstand' | 'webhook' | 'mastodon';

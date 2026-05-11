@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';

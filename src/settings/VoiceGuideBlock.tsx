@@ -108,7 +108,7 @@ export default function VoiceGuideBlock({ projectId, isOwner }: Props) {
         ? <textarea className="textarea is-size-7" value={text} onChange={(e) => setText(e.target.value)} disabled={loadError} rows={6} />
         : <pre className="is-size-7" style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>}
       <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
-        <span data-testid="char-count" className={`is-size-7 ${isOverLimit ? 'has-text-danger' : 'has-text-grey'}`}>{charCount}</span>
+        <span data-testid="char-count" className={`is-size-7 ${isOverLimit ? 'has-text-danger' : 'has-text-grey'}`}>{charCount} / {CHAR_LIMIT}</span>
         {isOwner && (
           <>
             <div style={{ position: 'relative' }}>

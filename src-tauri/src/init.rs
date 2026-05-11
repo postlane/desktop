@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// Returns the path to the ~/.postlane directory
 pub fn postlane_dir() -> Result<PathBuf, String> {
@@ -17,21 +20,22 @@ pub fn init_postlane_dir() -> Result<(), String> {
         .map_err(|e| format!("Failed to create .postlane directory: {}", e))
 }
 
-/// Atomic write: writes content to a .tmp file then renames to target
-/// This prevents corruption if the process crashes mid-write
+/// Atomic write: writes content to a unique .tmp file then renames to target.
+/// Each call uses a unique tmp name (pid + monotonic counter) so parallel
+/// callers writing to the same target do not race on a shared .tmp file.
 pub fn atomic_write(target_path: &Path, content: &[u8]) -> std::io::Result<()> {
-    // Ensure parent directory exists
     if let Some(parent) = target_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let tmp_path = target_path.with_extension("tmp");
+    let seq = WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let stem = target_path.file_stem().unwrap_or_default().to_string_lossy();
+    let tmp_name = format!("{}.{}.{}.tmp", stem, pid, seq);
+    let tmp_path = target_path.with_file_name(tmp_name);
 
-    // Write to .tmp file first
     std::fs::write(&tmp_path, content)?;
-
-    // Atomically rename to target
-    std::fs::rename(tmp_path, target_path)?;
+    std::fs::rename(&tmp_path, target_path)?;
 
     Ok(())
 }
@@ -85,6 +89,29 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_atomic_write_concurrent_same_target_all_succeed() {
+        use std::sync::{Arc, Barrier};
+        let dir = std::env::temp_dir().join("postlane_test_atomic_concurrent");
+        fs::create_dir_all(&dir).expect("create test dir");
+        let target = dir.join("shared.json");
+        let n = 16usize;
+        let barrier = Arc::new(Barrier::new(n));
+        let handles: Vec<_> = (0..n).map(|i| {
+            let t = target.clone();
+            let b = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                b.wait();
+                atomic_write(&t, format!("content_{}", i).as_bytes())
+            })
+        }).collect();
+        let errors: Vec<_> = handles.into_iter()
+            .filter_map(|h| h.join().unwrap().err())
+            .collect();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(errors.is_empty(), "concurrent writes should all succeed, got: {:?}", errors);
     }
 
     #[test]

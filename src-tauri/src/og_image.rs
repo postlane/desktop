@@ -115,6 +115,7 @@ pub async fn fetch_og_image(url: String) -> Result<Option<String>, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
+        .user_agent("Mozilla/5.0 (compatible; Postlane/1.0; +https://postlane.dev)")
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     fetch_og_via_client(&url, &client).await

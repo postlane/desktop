@@ -3,7 +3,7 @@
 use crate::app_state::AppState;
 use crate::post_meta::PostMeta;
 use crate::project_registry::read_project_id_from_path_impl;
-use crate::storage::Repo;
+use crate::storage::{Repo, ReposConfig};
 use crate::types::PublishedPost;
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -64,13 +64,13 @@ fn collect_from_post_folder(
 
 /// Collect all published posts from one repo that match `project_id`.
 /// Returns empty if the repo is outside home, has no config, or has a mismatched project_id.
-fn collect_from_repo(repo: &Repo, project_id: &str, home_dir: &Path) -> Vec<PublishedPost> {
+fn collect_from_repo(repo: &Repo, project_id: &str, home_dir: &Path, repos: &ReposConfig) -> Vec<PublishedPost> {
     let repo_path = PathBuf::from(&repo.path);
     if !is_within_home(&repo_path, home_dir) {
         log::warn!("[get_org_published] skipping repo outside home: {}", repo.path);
         return vec![];
     }
-    let repo_pid = match read_project_id_from_path_impl(&repo.path) {
+    let repo_pid = match read_project_id_from_path_impl(&repo.path, repos) {
         Ok(Some(pid)) if pid == project_id => pid,
         Ok(_) => return vec![],
         Err(e) => {
@@ -111,7 +111,7 @@ pub fn get_org_published_impl(project_id: &str, state: &AppState) -> Result<Vec<
         .repos
         .iter()
         .filter(|r| r.active)
-        .flat_map(|repo| collect_from_repo(repo, project_id, &home_dir))
+        .flat_map(|repo| collect_from_repo(repo, project_id, &home_dir, &repos))
         .collect();
     results.sort_by(|a, b| b.sent_at.cmp(&a.sent_at));
     Ok(results)
@@ -128,41 +128,8 @@ pub fn get_org_published(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::test_fixtures::{make_state, make_repo, home_tmp, write_config, write_meta};
     use std::fs;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
-
-    fn make_repo(id: &str, path: &str) -> Repo {
-        Repo {
-            id: id.to_string(),
-            name: id.to_string(),
-            path: path.to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }
-    }
-
-    /// Create a temp dir inside $HOME so the home-boundary check passes.
-    fn home_tmp(name: &str) -> PathBuf {
-        let home = dirs::home_dir().expect("home dir must exist in tests");
-        home.join(".postlane_test_tmp").join(name)
-    }
-
-    fn write_config(dir: &Path, json: &str) {
-        let config_dir = dir.join(".postlane");
-        fs::create_dir_all(&config_dir).expect("create .postlane");
-        fs::write(config_dir.join("config.json"), json).expect("write config.json");
-    }
-
-    fn write_meta(dir: &Path, folder: &str, json: &str) {
-        let p = dir.join(".postlane/posts").join(folder);
-        fs::create_dir_all(&p).expect("create post dir");
-        fs::write(p.join("meta.json"), json).expect("write meta.json");
-    }
 
     fn write_platform_md(dir: &Path, folder: &str, platform: &str, text: &str) {
         let p = dir.join(".postlane/posts").join(folder);

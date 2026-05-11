@@ -1,10 +1,25 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { UsageBadge, type UsageResponse } from './SchedulerTab';
+import { useCredentialPanel } from './useCredentialPanel';
 
-type PanelState = 'idle' | 'adding' | 'configured';
+function maskWebhookUrl(url: string): string {
+  try {
+    const { protocol, hostname } = new URL(url);
+    const tail = url.slice(-8);
+    return `${protocol}//${hostname}/…${tail}`;
+  } catch {
+    return `…${url.slice(-12)}`;
+  }
+}
+
+function validateUrl(url: string): string | null {
+  if (!url) return null;
+  if (!url.startsWith('https://')) return 'Webhook URL must use https://';
+  return null;
+}
 
 interface IdleViewProps {
   onStartAdd: () => void;
@@ -69,38 +84,13 @@ function ConfiguredView({ preview, testing, testResult, testError, onTest, onCha
   );
 }
 
-function validateUrl(url: string): string | null {
-  if (!url) return null;
-  if (!url.startsWith('https://')) return 'Webhook URL must use https://';
-  return null;
-}
-
-function maskWebhookUrl(url: string): string {
-  try {
-    const { protocol, hostname } = new URL(url);
-    const tail = url.slice(-8);
-    return `${protocol}//${hostname}/…${tail}`;
-  } catch {
-    return `…${url.slice(-12)}`;
-  }
-}
-
 function useWebhookPanel() {
-  const [panelState, setPanelState] = useState<PanelState>('idle');
   const [url, setUrl] = useState('');
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'ok' | 'error' | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
   const [usage, setUsage] = useState<UsageResponse | undefined>(undefined);
+  const base = useCredentialPanel({ provider: 'webhook', maskCredential: maskWebhookUrl });
 
   useEffect(() => {
-    invoke<string>('get_scheduler_credential', { provider: 'webhook' })
-      .then((p) => { setPreview(maskWebhookUrl(p)); setPanelState('configured'); })
-      .catch(() => { setPanelState('idle'); });
     invoke<UsageResponse>('get_scheduler_usage', { provider: 'webhook' })
       .then(setUsage)
       .catch(() => { /* non-critical */ });
@@ -111,40 +101,21 @@ function useWebhookPanel() {
   async function handleSave() {
     const err = validateUrl(url);
     if (err) { setUrlError(err); return; }
-    if (!url) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await invoke('save_scheduler_credential', { provider: 'webhook', apiKey: url });
-      setPreview(maskWebhookUrl(url)); setUrl(''); setUrlError(null); setPanelState('configured');
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save credential');
-    } finally { setSaving(false); }
-  }
-
-  async function handleTest() {
-    setTesting(true); setTestResult(null);
-    try { await invoke('test_scheduler', { provider: 'webhook' }); setTestResult('ok'); }
-    catch (e) { setTestResult('error'); setTestError(e instanceof Error ? e.message : 'Test failed'); }
-    finally { setTesting(false); }
-  }
-
-  async function handleRemove() {
-    try {
-      await invoke('delete_scheduler_credential', { provider: 'webhook' });
-      setPreview(null); setPanelState('idle'); setTestResult(null);
-    } catch { /* silent */ }
+    const ok = await base.saveCredential(url);
+    if (ok) { setUrl(''); setUrlError(null); }
   }
 
   function handleCancel() {
-    setPanelState(preview ? 'configured' : 'idle'); setUrl(''); setUrlError(null);
+    base.setPanelState(base.preview ? 'configured' : 'idle');
+    setUrl('');
+    setUrlError(null);
   }
 
-  return { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel };
+  return { ...base, url, urlError, usage, handleUrlChange, handleSave, handleCancel };
 }
 
 export default function WebhookPanel() {
-  const { panelState, setPanelState, url, urlError, saveError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
+  const { panelState, setPanelState, url, urlError, saveError, removeError, preview, saving, testing, testResult, testError, usage, handleUrlChange, handleSave, handleTest, handleRemove, handleCancel } = useWebhookPanel();
 
   return (
     <div className="box p-4">
@@ -152,6 +123,7 @@ export default function WebhookPanel() {
         <h3 className="has-text-weight-medium is-size-7">Webhook</h3>
         <UsageBadge usage={usage} />
       </div>
+      {removeError && <p role="alert" className="is-size-7 has-text-danger mb-2">{removeError}</p>}
       {panelState === 'idle' && <IdleView onStartAdd={() => setPanelState('adding')} />}
       {panelState === 'adding' && (
         <AddingForm url={url} urlError={urlError} saveError={saveError} saving={saving} onUrlChange={handleUrlChange}

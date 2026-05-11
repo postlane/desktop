@@ -85,28 +85,8 @@ pub async fn save_post_draft(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::test_fixtures::{make_state, make_repo, setup_post_dir};
     use std::fs;
-
-    fn make_state(repos: Vec<Repo>) -> AppState {
-        AppState::new(ReposConfig { version: 1, repos })
-    }
-
-    fn make_repo(id: &str, path: &str) -> Repo {
-        Repo {
-            id: id.to_string(),
-            name: id.to_string(),
-            path: path.to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }
-    }
-
-    fn setup_post_dir(repo_dir: &std::path::Path, post_folder: &str) {
-        fs::create_dir_all(repo_dir.join(".postlane/posts").join(post_folder))
-            .expect("create post dir");
-    }
 
     #[tokio::test]
     async fn test_save_post_draft_writes_updated_text() {

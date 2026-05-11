@@ -5,9 +5,9 @@ import { invoke } from '../ipc/invoke';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface SchedulerProfile {
+interface SchedulerProviderStatus {
   provider: string;
-  label: string;
+  connected: boolean;
 }
 
 interface Props {
@@ -15,9 +15,19 @@ interface Props {
   isOwner: boolean;
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+function providerLabel(provider: string): string {
+  if (provider === 'zernio') return 'Zernio';
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
 
-function ConnectForm({ projectId, onConnected }: { projectId: string; onConnected: () => void }) {
+// ── ConnectForm ───────────────────────────────────────────────────────────────
+
+function ConnectForm({ provider, projectId, onConnected, onCancel }: {
+  provider: string;
+  projectId: string;
+  onConnected: () => void;
+  onCancel: () => void;
+}) {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -27,7 +37,7 @@ function ConnectForm({ projectId, onConnected }: { projectId: string; onConnecte
     setLoading(true);
     setError(null);
     try {
-      await invoke('add_scheduler_credential', { provider: 'zernio', apiKey, projectId });
+      await invoke('add_scheduler_credential', { provider, apiKey, projectId });
       setApiKey('');
       onConnected();
     } catch (e: unknown) {
@@ -38,17 +48,21 @@ function ConnectForm({ projectId, onConnected }: { projectId: string; onConnecte
   }
 
   return (
-    <div className="mt-3">
-      <label className="label is-small" htmlFor="scheduler-api-key">Zernio API key</label>
+    <div className="mt-2 pb-2" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
       <div className="is-flex" style={{ gap: '0.5rem' }}>
-        <input id="scheduler-api-key" aria-label="API key" type={showKey ? 'text' : 'password'}
+        <label className="is-sr-only" htmlFor={`scheduler-api-key-${provider}`}>API key</label>
+        <input id={`scheduler-api-key-${provider}`} aria-label="API key"
+          type={showKey ? 'text' : 'password'}
           className="input is-small" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-          placeholder="Enter your Zernio API key" style={{ flex: 1 }} />
+          placeholder={`Enter your ${providerLabel(provider)} API key`} style={{ flex: 1 }} />
         <button className="button is-small is-ghost" onClick={() => setShowKey((v) => !v)}>
           {showKey ? 'Hide' : 'Show'}
         </button>
         <button className="button is-small is-primary" onClick={handleConnect} disabled={loading || !apiKey}>
           Connect
+        </button>
+        <button className="button is-small is-ghost" onClick={onCancel} disabled={loading}>
+          Cancel
         </button>
       </div>
       {error && <p role="alert" className="is-size-7 has-text-danger mt-1">{error}</p>}
@@ -56,14 +70,41 @@ function ConnectForm({ projectId, onConnected }: { projectId: string; onConnecte
   );
 }
 
+// ── AvailableRow ──────────────────────────────────────────────────────────────
+
+function AvailableRow({ provider, projectId, expanded, onExpand, onConnected, onCancel }: {
+  provider: string;
+  projectId: string;
+  expanded: boolean;
+  onExpand: () => void;
+  onConnected: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div>
+      <div className="is-flex is-align-items-center py-2"
+        style={{ gap: '0.75rem', borderBottom: expanded ? 'none' : '1px solid var(--bulma-border-weak)' }}>
+        <span className="is-size-7 has-text-grey" style={{ flex: 1 }}>{providerLabel(provider)}</span>
+        {!expanded && (
+          <button className="button is-small is-outlined" onClick={onExpand}>Connect</button>
+        )}
+      </div>
+      {expanded && (
+        <ConnectForm provider={provider} projectId={projectId} onConnected={onConnected} onCancel={onCancel} />
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SchedulerBlock({ projectId, isOwner }: Props) {
-  const [profiles, setProfiles] = useState<SchedulerProfile[]>([]);
+  const [profiles, setProfiles] = useState<SchedulerProviderStatus[]>([]);
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadProfiles = useCallback(() => {
-    invoke<SchedulerProfile[]>('list_scheduler_profiles', { projectId })
+    invoke<SchedulerProviderStatus[]>('list_scheduler_profiles', { projectId })
       .then(setProfiles)
       .catch(() => setProfiles([]));
   }, [projectId]);
@@ -80,16 +121,17 @@ export default function SchedulerBlock({ projectId, isOwner }: Props) {
     }
   }
 
+  const connected = profiles.filter((p) => p.connected);
+  const available = profiles.filter((p) => !p.connected);
+
   return (
     <div>
       <p className="is-size-6 has-text-weight-medium mb-3">Scheduler</p>
-      {profiles.length === 0 && (
-        <p className="is-size-7 has-text-grey">No scheduler connected.</p>
-      )}
-      {profiles.map((p) => (
+      {profiles.length === 0 && <p className="is-size-7 has-text-grey">No scheduler connected.</p>}
+      {connected.map((p) => (
         <div key={p.provider} className="is-flex is-align-items-center py-2"
           style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
-          <span className="is-size-7" style={{ flex: 1 }}>{p.label}</span>
+          <span className="is-size-7" style={{ flex: 1 }}>{providerLabel(p.provider)}</span>
           {isOwner && (
             <button className="button is-small is-ghost has-text-danger"
               onClick={() => handleDisconnect(p.provider)} disabled={loading}>
@@ -98,7 +140,14 @@ export default function SchedulerBlock({ projectId, isOwner }: Props) {
           )}
         </div>
       ))}
-      {isOwner && <ConnectForm projectId={projectId} onConnected={loadProfiles} />}
+      {isOwner && available.map((p) => (
+        <AvailableRow key={p.provider} provider={p.provider} projectId={projectId}
+          expanded={expandedProvider === p.provider}
+          onExpand={() => setExpandedProvider(p.provider)}
+          onConnected={() => { setExpandedProvider(null); loadProfiles(); }}
+          onCancel={() => setExpandedProvider(null)}
+        />
+      ))}
     </div>
   );
 }

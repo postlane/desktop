@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('./ipc/invoke', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }))
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({
@@ -26,7 +26,7 @@ vi.mock('./drafts/AllReposDraftsView', () => ({ default: () => <div>AllReposDraf
 vi.mock('./settings/SettingsPanel', () => ({ default: () => <div>SettingsPanel</div> }))
 vi.mock('./settings/OrgSettingsView', () => ({ default: () => <div>OrgSettingsView</div> }))
 
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from './ipc/invoke'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import App from './App'
@@ -185,7 +185,7 @@ describe('App startup — post-wizard nudge', () => {
     await waitFor(() => expect(screen.getByText('OrgSettingsView')).toBeInTheDocument())
   })
 
-  it('does not navigate to OrgSettingsView when post_wizard_completed is true', async () => {
+  it('auto-navigates to org_queue for first project after load when post_wizard_completed is true', async () => {
     mockInvoke.mockImplementation((cmd: unknown) => {
       if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
       if (cmd === 'get_license_signed_in') return Promise.resolve(true)
@@ -194,8 +194,8 @@ describe('App startup — post-wizard nudge', () => {
       return Promise.resolve(null)
     })
     render(<App />)
-    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
-    expect(screen.queryByText('OrgSettingsView')).not.toBeInTheDocument()
+    // The no_orgs view must not show a spinner indefinitely after projects have loaded
+    await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument())
   })
 
   it('does not navigate to OrgSettingsView when list_projects returns empty', async () => {

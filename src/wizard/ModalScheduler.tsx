@@ -56,9 +56,10 @@ interface Props {
   onNext: () => void;
   onBack: () => void;
   setSchedulerLinked: (linked: boolean) => void;
+  onSkipToApp?: () => void;
 }
 
-export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedulerLinked }: Props) {
+export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedulerLinked, onSkipToApp }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [connectedProviders, setConnectedProviders] = useState<Provider[]>([]);
 
@@ -92,7 +93,7 @@ export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedul
       onNext={onNext}
       onBack={handleBack}
       nextHidden={!hasConnected || selectedProvider !== null}
-      onSkip={!hasConnected && !selectedProvider ? handleSkip : undefined}
+      onSkip={!hasConnected && !selectedProvider ? (onSkipToApp ?? handleSkip) : undefined}
     >
       {selectedProvider ? (
         <SchedulerConnect

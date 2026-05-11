@@ -16,7 +16,9 @@ export function formatRelativeTime(isoStr: string | null | undefined, now?: Date
 }
 
 export function formatScheduled(isoStr: string, timezone: string): string {
+  if (!isoStr) return '';
   const date = new Date(isoStr);
+  if (isNaN(date.getTime())) return '';
   const dayPart = new Intl.DateTimeFormat('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', timeZone: timezone,
   }).format(date);

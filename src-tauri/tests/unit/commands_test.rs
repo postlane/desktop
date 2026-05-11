@@ -368,7 +368,17 @@ mod dismiss_post_tests {
         .unwrap();
 
         // Test: Dismiss the post
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let canonical_repo = fs::canonicalize(&repo_path).unwrap();
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "repo1".to_string(),
+                name: "Test Repo".to_string(),
+                path: canonical_repo.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2024-01-01T00:00:00Z".to_string(),
+            }],
+        });
         let result = dismiss_post_impl(
             repo_path.to_str().unwrap(),
             "post1",

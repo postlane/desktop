@@ -40,9 +40,9 @@ describe('OrgSettingsView', () => {
     expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
   })
 
-  it('renders SchedulerBlock', async () => {
+  it('renders SchedulerBlock', () => {
     render(<OrgSettingsView org={makeProject()} />)
-    expect(screen.getByLabelText(/API key/i)).toBeInTheDocument()
+    expect(screen.getByText('Scheduler')).toBeInTheDocument()
   })
 
   it('renders VoiceGuideBlock', () => {

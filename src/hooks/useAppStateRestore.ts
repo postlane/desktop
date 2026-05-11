@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import type { RepoWithStatus, AppStateFile, ViewSelection, OrgNavView, GlobalSettingsSection } from '../types';
 
 export function useAppStateRestore(

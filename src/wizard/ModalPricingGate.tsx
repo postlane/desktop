@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 
@@ -45,13 +45,13 @@ function useBillingPoller(onPaid: () => void, pollIntervalMs: number, maxAttempt
     }, pollIntervalMs);
   }
 
-  return { polling, timedOut, begin };
+  return { polling, timedOut, begin, stopPolling };
 }
 
 export default function ModalPricingGate({
   onPaid, onBack, pollIntervalMs = 5000, maxAttempts = 120,
 }: Props) {
-  const { polling, timedOut, begin } = useBillingPoller(onPaid, pollIntervalMs, maxAttempts);
+  const { polling, timedOut, begin, stopPolling } = useBillingPoller(onPaid, pollIntervalMs, maxAttempts);
 
   async function handleSubscribe() {
     try { await openUrl('https://postlane.dev/billing'); } catch { /* ignore */ }
@@ -65,7 +65,7 @@ export default function ModalPricingGate({
       title="Add a new workspace"
       subtitle="You've used your free workspace. Each additional workspace is $5/month."
       onNext={() => { /* advance handled by polling */ }}
-      onBack={onBack}
+      onBack={() => { stopPolling(); onBack(); }}
       nextHidden
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

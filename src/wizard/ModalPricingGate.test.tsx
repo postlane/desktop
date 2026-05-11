@@ -4,10 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 const mockInvoke = vi.mocked(invoke);
 const mockOpenUrl = vi.mocked(openUrl);
@@ -48,5 +48,20 @@ describe('ModalPricingGate', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /check again/i })).toBeDefined();
     }, { timeout: 3000 });
+  });
+
+  it('test_back_button_stops_polling', async () => {
+    mockInvoke.mockResolvedValue('none');
+    const onBack = vi.fn();
+    render(<ModalPricingGate onPaid={vi.fn()} onBack={onBack} pollIntervalMs={30} maxAttempts={100} />);
+    await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
+    // wait for polling to start (at least one invoke call)
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalled(), { timeout: 500 });
+    await userEvent.click(screen.getByRole('button', { name: /← back/i }));
+    expect(onBack).toHaveBeenCalledOnce();
+    const countAfterBack = mockInvoke.mock.calls.length;
+    // interval must not fire after back is clicked
+    await new Promise(r => setTimeout(r, 120));
+    expect(mockInvoke.mock.calls.length).toBe(countAfterBack);
   });
 });

@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useTimezone, formatTimestamp, getTimezoneOffsetLabel } from '../TimezoneContext';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faMobileScreen, faDesktop } from '@fortawesome/free-solid-svg-icons';
 import PostPreview from '../components/PostPreview';

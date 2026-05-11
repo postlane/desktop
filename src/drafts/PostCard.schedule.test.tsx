@@ -7,10 +7,10 @@ import { TimezoneContext } from '../TimezoneContext';
 import PostCard from './PostCard';
 import type { DraftPost } from '../types';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ confirm: vi.fn() }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../ipc/invoke';
 import { confirm } from '@tauri-apps/plugin-dialog';
 const mockInvoke = vi.mocked(invoke);
 const mockConfirm = vi.mocked(confirm);

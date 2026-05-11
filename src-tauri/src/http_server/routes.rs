@@ -7,6 +7,7 @@ use axum::{
     response::{Html, IntoResponse, Json, Response},
 };
 use serde::Deserialize;
+use subtle::ConstantTimeEq;
 use super::{ErrorResponse, RegisterRequest, RegisterResponse, SendRequest, SendResponse, ServerState};
 
 #[derive(Deserialize)]
@@ -68,7 +69,7 @@ pub(super) async fn auth_middleware(
         .strip_prefix("Bearer ")
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    if token != state.token {
+    if token.as_bytes().ct_eq(state.token.as_bytes()).unwrap_u8() != 1 {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -224,18 +225,7 @@ pub(super) async fn register_handler(
     let mut repos = state.repos.lock().await;
     repos.repos.push(repo);
 
-    let postlane_dir = match crate::init::postlane_dir() {
-        Ok(dir) => dir,
-        Err(e) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to get postlane directory: {}", e),
-            );
-        }
-    };
-
-    let repos_path = postlane_dir.join("repos.json");
-    if let Err(e) = crate::storage::write_repos(&repos_path, &repos) {
+    if let Err(e) = crate::storage::write_repos(&state.repos_path, &repos) {
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to write repos.json: {:?}", e),
@@ -259,6 +249,7 @@ mod tests {
                 version: 1,
                 repos: vec![],
             })),
+            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: None,
         }
     }
@@ -277,7 +268,12 @@ mod tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         }));
-        (ServerState { token: "tok".to_string(), repos, activation_tx: None }, path_str)
+        (ServerState {
+            token: "tok".to_string(),
+            repos,
+            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            activation_tx: None,
+        }, path_str)
     }
 
     #[tokio::test]
@@ -397,6 +393,7 @@ mod tests {
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
                 version: 1, repos: vec![],
             })),
+            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: Some(tx),
         };
         let app = create_router(state);
@@ -451,6 +448,7 @@ mod tests {
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
+            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: Some(tx),
         };
         let app = create_router(state);
@@ -460,6 +458,41 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    /// Security: token comparison must use constant-time equality to prevent timing attacks.
+    /// This test verifies both correct rejection and correct acceptance behaviour.
+    #[tokio::test]
+    async fn test_timing_safe_token_comparison_rejects_wrong_token() {
+        let correct = "a".repeat(64);
+        let wrong_last = format!("{}b", "a".repeat(63));
+        let app = create_router(make_state(&correct));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", wrong_last))
+                .body(axum::body::Body::from(r#"{"repo_path": "/test", "post_folder": "test-post"}"#))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_timing_safe_token_comparison_accepts_correct_token() {
+        // With correct token, auth passes and we get a further error (forbidden/bad-request),
+        // not 401 Unauthorized.
+        let correct = "a".repeat(64);
+        let app = create_router(make_state(&correct));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", correct))
+                .body(axum::body::Body::from(r#"{"repo_path": "/nonexistent", "post_folder": "test-post"}"#))
+                .unwrap(),
+        ).await.unwrap();
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED, "correct token must pass auth middleware");
     }
 
     #[tokio::test]

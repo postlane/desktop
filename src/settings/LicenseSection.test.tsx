@@ -8,7 +8,7 @@ const mockInvoke = vi.fn();
 const mockListen = vi.fn();
 const mockOpenUrl = vi.fn();
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...a: unknown[]) => mockInvoke(...a) }));
+vi.mock('../ipc/invoke', () => ({ invoke: (...a: unknown[]) => mockInvoke(...a) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: (...a: unknown[]) => mockListen(...a) }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: (...a: unknown[]) => mockOpenUrl(...a) }));
 
@@ -18,6 +18,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockListen.mockResolvedValue(() => {});
   mockOpenUrl.mockResolvedValue(undefined);
+  mockInvoke.mockImplementation((cmd: string) => {
+    if (cmd === 'get_local_server_port') return Promise.resolve(47312);
+    return Promise.resolve(false);
+  });
 });
 
 describe('LicenseSection — sign-in state', () => {
@@ -36,15 +40,29 @@ describe('LicenseSection — sign-in state', () => {
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
   });
 
-  it('opens https://postlane.dev/login in the browser when the button is clicked', async () => {
-    mockInvoke.mockResolvedValue(false);
+  it('opens login URL with desktop=1 and port when the button is clicked', async () => {
     render(<LicenseSection />);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /sign in at postlane\.dev/i })).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole('button', { name: /sign in at postlane\.dev/i }));
     await waitFor(() =>
-      expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login'),
+      expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&port=47312'),
+    );
+  });
+
+  it('falls back to login without port when get_local_server_port fails', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_local_server_port') return Promise.reject(new Error('port not available'));
+      return Promise.resolve(false);
+    });
+    render(<LicenseSection />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /sign in at postlane\.dev/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /sign in at postlane\.dev/i }));
+    await waitFor(() =>
+      expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1'),
     );
   });
 });

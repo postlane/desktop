@@ -95,18 +95,9 @@ describe('LeftNav — OrgItem rendering', () => {
     expect(screen.getByLabelText(/workspace avatar for postlane/i)).toBeInTheDocument()
   })
 
-  it('shows billing warning icon when billing_active is false', () => {
+  it('does not show billing warning icon regardless of billing_active', () => {
     mockUseProjectsCtx.mockReturnValue({
       projects: [makeProject({ billing_active: false })],
-      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
-    })
-    renderNav()
-    expect(screen.getByLabelText(/billing inactive/i)).toBeInTheDocument()
-  })
-
-  it('does not show billing warning when billing is active', () => {
-    mockUseProjectsCtx.mockReturnValue({
-      projects: [makeProject({ billing_active: true })],
       loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
     })
     renderNav()
@@ -116,10 +107,10 @@ describe('LeftNav — OrgItem rendering', () => {
 
 // ── Badge counting ───────────────────────────────────────────────────────────
 
-describe('LeftNav — queue badge counting', () => {
-  it('shows badge count for drafts matching project_id', () => {
+describe('LeftNav — queue badge: collapsed org', () => {
+  it('shows badge on org row when collapsed', () => {
     mockUseProjectsCtx.mockReturnValue({
-      projects: [makeProject({ id: 'proj-1' })],
+      projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
       loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
     })
     mockUseDraftPostsCtx.mockReturnValue({
@@ -127,12 +118,59 @@ describe('LeftNav — queue badge counting', () => {
       loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
     })
     renderNav()
-    expect(screen.getByText('1')).toBeInTheDocument()
+    const orgBtn = screen.getByRole('button', { name: /acme/i })
+    expect(orgBtn).toHaveTextContent('1')
+  })
+
+  it('does not show badge when count is zero', () => {
+    mockUseProjectsCtx.mockReturnValue({
+      projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    mockUseDraftPostsCtx.mockReturnValue({
+      drafts: [makeDraft({ project_id: 'other-org' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    renderNav()
+    const orgBtn = screen.getByRole('button', { name: /acme/i })
+    expect(orgBtn).not.toHaveTextContent('1')
+  })
+})
+
+describe('LeftNav — queue badge: expanded org', () => {
+  it('shows badge count next to Queue when org is expanded', () => {
+    mockUseProjectsCtx.mockReturnValue({
+      projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    mockUseDraftPostsCtx.mockReturnValue({
+      drafts: [makeDraft({ post_folder: 'post-1' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    renderNav()
+    fireEvent.click(screen.getByText('Acme'))
+    const queueBtn = screen.getByRole('button', { name: /queue/i })
+    expect(queueBtn).toHaveTextContent('1')
+  })
+
+  it('hides badge from org row when expanded (badge moves to Queue)', () => {
+    mockUseProjectsCtx.mockReturnValue({
+      projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    mockUseDraftPostsCtx.mockReturnValue({
+      drafts: [makeDraft({ post_folder: 'post-1' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    renderNav()
+    fireEvent.click(screen.getByText('Acme'))
+    const orgBtn = screen.getByRole('button', { name: /acme/i })
+    expect(orgBtn).not.toHaveTextContent('1')
   })
 
   it('counts unique (repo_path, post_folder) pairs — three platform rows = badge of 1', () => {
     mockUseProjectsCtx.mockReturnValue({
-      projects: [makeProject({ id: 'proj-1' })],
+      projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
       loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
     })
     mockUseDraftPostsCtx.mockReturnValue({
@@ -144,27 +182,15 @@ describe('LeftNav — queue badge counting', () => {
       loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
     })
     renderNav()
+    fireEvent.click(screen.getByText('Acme'))
     expect(screen.getByText('1')).toBeInTheDocument()
-  })
-
-  it('does not show badge when count is zero', () => {
-    mockUseProjectsCtx.mockReturnValue({
-      projects: [makeProject({ id: 'proj-1' })],
-      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
-    })
-    mockUseDraftPostsCtx.mockReturnValue({
-      drafts: [makeDraft({ project_id: 'other-org' })],
-      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
-    })
-    renderNav()
-    expect(screen.queryByText('1')).not.toBeInTheDocument()
   })
 })
 
 // ── Expand / sub-nav ─────────────────────────────────────────────────────────
 
 describe('LeftNav — expand and sub-nav', () => {
-  it('clicking org row expands it to show Queue and History', () => {
+  it('clicking org row expands it to show Queue, History, and Settings', () => {
     mockUseProjectsCtx.mockReturnValue({
       projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
       loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
@@ -173,6 +199,19 @@ describe('LeftNav — expand and sub-nav', () => {
     fireEvent.click(screen.getByText('Acme'))
     expect(screen.getByText('Queue')).toBeInTheDocument()
     expect(screen.getByText('History')).toBeInTheDocument()
+    expect(screen.getByText('Settings')).toBeInTheDocument()
+  })
+
+  it('clicking Settings navigates to org_settings view', () => {
+    const onNavigate = vi.fn()
+    mockUseProjectsCtx.mockReturnValue({
+      projects: [makeProject({ id: 'proj-1', name: 'Acme' })],
+      loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
+    })
+    renderNav({ onNavigate, currentView: { view: 'org_queue', projectId: 'proj-1' } })
+    fireEvent.click(screen.getByText('Acme'))
+    fireEvent.click(screen.getByText('Settings'))
+    expect(onNavigate).toHaveBeenCalledWith({ view: 'org_settings', projectId: 'proj-1', section: 'queue' })
   })
 
   it('clicking Queue navigates to org_queue view', () => {

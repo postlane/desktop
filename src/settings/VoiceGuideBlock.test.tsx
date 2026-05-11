@@ -186,9 +186,9 @@ describe('VoiceGuideBlock — templates', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('save_project_voice_guide', expect.anything())
   })
 
-  it('shows character count', async () => {
+  it('shows character count in X / LIMIT format', async () => {
     render(<VoiceGuideBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => screen.getByTestId('char-count'))
-    expect(screen.getByTestId('char-count')).toHaveTextContent('11')
+    expect(screen.getByTestId('char-count')).toHaveTextContent('11 / 5000')
   })
 })
