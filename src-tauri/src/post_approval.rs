@@ -142,6 +142,7 @@ fn apply_scheduler_result(
     sent_at: &str,
 ) {
     meta.sent_platforms.insert(platform.to_string(), sent_at.to_string());
+    meta.status = Some(PostStatus::Sent);
     if !scheduler_id.is_empty() {
         meta.scheduler_ids.insert(platform.to_string(), scheduler_id.to_string());
     }
@@ -233,6 +234,7 @@ pub async fn approve_post_impl(
     } else {
         // Test mode: simulate scheduler success without an HTTP call.
         meta.sent_platforms.insert(platform.to_string(), sent_at);
+        meta.status = Some(PostStatus::Sent);
         meta.save(&meta_path)?;
     }
     state.telemetry.record(
@@ -519,6 +521,38 @@ mod tests {
         let mut meta = PostMeta::default();
         apply_scheduler_result(&mut meta, "x", "s1", Some("http://x.com/post/123"), "2026-05-01T00:00:00Z");
         assert!(meta.platform_urls.is_empty(), "http:// url must be rejected");
+    }
+
+    #[test]
+    fn test_apply_scheduler_result_sets_sent_status() {
+        let mut meta = PostMeta::default();
+        apply_scheduler_result(&mut meta, "x", "sched-1", None, "2026-05-01T00:00:00Z");
+        assert_eq!(
+            meta.status,
+            Some(PostStatus::Sent),
+            "apply_scheduler_result must set status=Sent so engagement_sync can find the post"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_writes_sent_status_to_meta() {
+        let dir = std::env::temp_dir().join("postlane_test_approve_sent_status_m19");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "my-post");
+        let state = make_state(&canonical_str);
+        approve_post_impl(&canonical_str, "my-post", "x", &state, None, false)
+            .await
+            .expect("should succeed");
+        let meta_path = PostMeta::path_for(&canonical, "my-post");
+        let meta = PostMeta::load(&meta_path).expect("load");
+        assert_eq!(
+            meta.status,
+            Some(PostStatus::Sent),
+            "approve_post must write status=sent so engagement_sync can pick up the post"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §failed_status ---

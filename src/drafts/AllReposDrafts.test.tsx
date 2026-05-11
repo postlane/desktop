@@ -277,11 +277,20 @@ describe('AllReposDraftsView — empty state clipboard error', () => {
 // ---------------------------------------------------------------------------
 
 describe('AllReposDraftsView — fetch error', () => {
-  it('shows empty state and does not crash when get_all_drafts fails', async () => {
+  it('shows an error notification when get_all_drafts fails — not empty state', async () => {
     mockInvoke.mockRejectedValue(new Error('DB locked'));
     render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
     await waitFor(() =>
-      expect(screen.getByText(/no drafts waiting/i)).toBeInTheDocument(),
+      expect(screen.getByRole('alert')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/no drafts waiting/i)).not.toBeInTheDocument();
+  });
+
+  it('includes the error message in the alert', async () => {
+    mockInvoke.mockRejectedValue(new Error('DB locked'));
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/failed to load/i),
     );
   });
 });

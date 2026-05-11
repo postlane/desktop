@@ -119,7 +119,7 @@ describe('RepoDraftsView — sorting and errors', () => {
     mockInvoke.mockRejectedValue(new Error('DB error'));
     render(<RepoDraftsView repoId="r1" />);
     await waitFor(() =>
-      expect(screen.getByText(/no drafts waiting/i)).toBeInTheDocument(),
+      expect(screen.getByRole('alert')).toBeInTheDocument(),
     );
   });
 });
@@ -169,3 +169,27 @@ describe('RepoDraftsView — meta-changed events', () => {
     expect(mockInvoke.mock.calls.length).toBe(callsBefore);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fetch error
+// ---------------------------------------------------------------------------
+
+describe('RepoDraftsView — fetch error', () => {
+  it('shows an error notification when get_all_drafts fails — not empty state', async () => {
+    mockInvoke.mockRejectedValue(new Error('IPC channel closed'));
+    render(<RepoDraftsView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/no drafts waiting/i)).not.toBeInTheDocument();
+  });
+
+  it('includes a failed to load message in the alert', async () => {
+    mockInvoke.mockRejectedValue(new Error('IPC channel closed'));
+    render(<RepoDraftsView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/failed to load/i),
+    );
+  });
+});
+

@@ -40,7 +40,7 @@ pub fn record_version(project_id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn lookup_version_at(project_id: &str, path: &Path) -> Option<String> {
-    read_versions_at(path).remove(project_id)
+    read_versions_at(path).get(project_id).cloned()
 }
 
 pub fn lookup_version(project_id: &str) -> Option<String> {

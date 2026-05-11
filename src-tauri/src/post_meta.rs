@@ -10,7 +10,10 @@ pub enum PostStatus {
     #[default]
     Ok,
     Failed,
-    /// Catch-all for legacy string values written by pre-M19 code (e.g. "sent", "ready").
+    /// Written by approve_post after a successful scheduler call.
+    /// Signals to engagement_sync that this post folder has published content.
+    Sent,
+    /// Catch-all for legacy string values written by pre-M19 code (e.g. "ready", "dismissed").
     #[serde(other)]
     Unknown,
 }
@@ -184,12 +187,21 @@ mod tests {
 
     #[test]
     fn test_post_meta_load_tolerates_legacy_status_values() {
-        for legacy in &["sent", "ready", "dismissed", "queued"] {
+        for legacy in &["ready", "dismissed", "queued"] {
             let json = format!(r#"{{"status": "{}"}}"#, legacy);
             let meta: PostMeta = serde_json::from_str(&json)
                 .unwrap_or_else(|e| panic!("should not fail on legacy status '{}': {}", legacy, e));
             assert_ne!(meta.status, Some(PostStatus::Failed),
                 "legacy status '{}' must not be treated as failed", legacy);
         }
+    }
+
+    #[test]
+    fn test_post_status_sent_round_trips() {
+        let json = r#"{"status": "sent"}"#;
+        let meta: PostMeta = serde_json::from_str(json).expect("should parse");
+        assert_eq!(meta.status, Some(PostStatus::Sent), "\"sent\" must deserialise as PostStatus::Sent");
+        let serialised = serde_json::to_string(&meta).expect("serialise");
+        assert!(serialised.contains("\"sent\""), "PostStatus::Sent must serialise as \"sent\"");
     }
 }

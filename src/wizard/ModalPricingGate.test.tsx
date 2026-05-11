@@ -49,4 +49,19 @@ describe('ModalPricingGate', () => {
       expect(screen.getByRole('button', { name: /check again/i })).toBeDefined();
     }, { timeout: 3000 });
   });
+
+  it('test_back_button_stops_polling', async () => {
+    mockInvoke.mockResolvedValue('none');
+    const onBack = vi.fn();
+    render(<ModalPricingGate onPaid={vi.fn()} onBack={onBack} pollIntervalMs={30} maxAttempts={100} />);
+    await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
+    // wait for polling to start (at least one invoke call)
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalled(), { timeout: 500 });
+    await userEvent.click(screen.getByRole('button', { name: /← back/i }));
+    expect(onBack).toHaveBeenCalledOnce();
+    const countAfterBack = mockInvoke.mock.calls.length;
+    // interval must not fire after back is clicked
+    await new Promise(r => setTimeout(r, 120));
+    expect(mockInvoke.mock.calls.length).toBe(countAfterBack);
+  });
 });
