@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
 import SchedulerConnect from '../settings/SchedulerConnect';
 import { ZernioLogo, UploadPostLogo } from '../assets/logos';
@@ -21,21 +22,23 @@ function ProviderPicker({ onSelect, connected }: PickerProps) {
           className="button"
           style={{ flex: '1 1 0', background: 'white', color: '#1a1a1a', border: '1px solid #e0e0e0' }}
           onClick={() => onSelect('zernio')}
-          disabled={connected.includes('zernio')}
         >
           <ZernioLogo size={16} style={{ marginRight: 8 }} />
           <span>Zernio</span>
-          <span className="tag is-light is-small ml-2">Recommended</span>
+          {connected.includes('zernio')
+            ? <span className="tag is-success is-light is-small ml-2">Connected</span>
+            : <span className="tag is-light is-small ml-2">Recommended</span>}
         </button>
         <button
           className="button"
           style={{ flex: '1 1 0', background: 'white', color: '#1a1a1a', border: '1px solid #e0e0e0' }}
           onClick={() => onSelect('upload_post')}
-          disabled={connected.includes('upload_post')}
         >
           <UploadPostLogo size={16} style={{ marginRight: 8 }} />
           <span>Upload Post</span>
-          <span className="tag is-light is-small ml-2">10 free</span>
+          {connected.includes('upload_post')
+            ? <span className="tag is-success is-light is-small ml-2">Connected</span>
+            : <span className="tag is-light is-small ml-2">10 free</span>}
         </button>
       </div>
       <p className="is-size-7 has-text-grey">
@@ -63,6 +66,14 @@ interface Props {
 export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedulerLinked, onSkipToApp }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [connectedProviders, setConnectedProviders] = useState<Provider[]>([]);
+
+  useEffect(() => {
+    invoke<string[]>('list_connected_providers', { repoId: null })
+      .then((providers) => {
+        if (Array.isArray(providers)) setConnectedProviders(providers as Provider[]);
+      })
+      .catch(() => {});
+  }, []);
 
   function handleSuccess(provider: string) {
     setConnectedProviders((prev) => [...prev, provider as Provider]);
