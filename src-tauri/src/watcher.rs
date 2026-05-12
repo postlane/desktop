@@ -19,6 +19,53 @@ pub fn should_fire_after_debounce(last_fired: Option<Instant>, min_interval: Dur
     }
 }
 
+fn watch_workspace_children<F>(
+    repo_id: String,
+    workspace_path: &Path,
+    watchers: &WatcherMap,
+    mut on_change: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnMut(Vec<PathBuf>) + Send + 'static,
+{
+    let posts_dirs: Vec<PathBuf> = crate::workspace::discover_child_repos(workspace_path)
+        .into_iter()
+        .map(|c| c.join(".postlane/posts"))
+        .filter(|p| p.exists())
+        .collect();
+    if posts_dirs.is_empty() {
+        return Ok(());
+    }
+    let last_fired: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                let meta_changes: Vec<PathBuf> = event
+                    .paths
+                    .iter()
+                    .filter(|p| p.file_name().and_then(|n| n.to_str()) == Some("meta.json"))
+                    .cloned()
+                    .collect();
+                if meta_changes.is_empty() {
+                    return;
+                }
+                let mut guard = last_fired.lock().unwrap_or_else(|e| e.into_inner());
+                if should_fire_after_debounce(*guard, DEBOUNCE_INTERVAL) {
+                    *guard = Some(Instant::now());
+                    drop(guard);
+                    on_change(meta_changes);
+                }
+            }
+        },
+        notify::Config::default(),
+    )?;
+    for posts_dir in &posts_dirs {
+        watcher.watch(posts_dir, RecursiveMode::Recursive)?;
+    }
+    watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(repo_id, watcher);
+    Ok(())
+}
+
 /// Starts watching a repo's posts directory for meta.json changes
 pub fn watch_repo<F>(
     repo_id: String,
@@ -29,6 +76,10 @@ pub fn watch_repo<F>(
 where
     F: FnMut(Vec<PathBuf>) + Send + 'static,
 {
+    if crate::workspace::is_workspace_root(repo_path) {
+        return watch_workspace_children(repo_id, repo_path, watchers, on_change);
+    }
+
     let posts_dir = repo_path.join(".postlane").join("posts");
 
     // If posts/ doesn't exist yet, return Ok - no-op, not an error
@@ -119,7 +170,7 @@ mod tests {
     #[test]
     fn test_watch_repo_nonexistent_posts_dir() {
         let dir = std::env::temp_dir().join("postlane_test_watcher_nonexistent");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        fs::create_dir_all(dir.join(".git")).expect("Failed to create test dir");
 
         let watchers: WatcherMap = Mutex::new(HashMap::new());
         let (tx, _rx) = mpsc::channel();
@@ -146,10 +197,10 @@ mod tests {
         let posts_dir = dir.join(".postlane").join("posts");
         let meta_dir = posts_dir.join("test-post");
 
-        // Pre-create directory AND file before starting the watcher.
-        // inotify IN_CREATE (new file) is less reliable on CI than IN_MODIFY
-        // (existing file changed). By writing a placeholder first we ensure
-        // the event we actually wait for is a modify, not a create.
+        // Pre-create .git so is_workspace_root returns false (single-repo path).
+        // Pre-create file before starting the watcher — IN_MODIFY is more reliable
+        // on CI than IN_CREATE.
+        fs::create_dir_all(dir.join(".git")).expect("create .git");
         fs::create_dir_all(&meta_dir).expect("Failed to create post dir");
         let meta_path = meta_dir.join("meta.json");
         fs::write(&meta_path, r#"{"status": "initial"}"#).expect("Failed to write initial meta.json");
@@ -194,6 +245,7 @@ mod tests {
     fn test_watch_repo_ignores_md_file_changes() {
         let dir = std::env::temp_dir().join("postlane_test_watcher_ignore");
         let posts_dir = dir.join(".postlane").join("posts");
+        fs::create_dir_all(dir.join(".git")).expect("create .git");
         fs::create_dir_all(&posts_dir).expect("Failed to create posts dir");
 
         let watchers: WatcherMap = Mutex::new(HashMap::new());
@@ -230,6 +282,7 @@ mod tests {
     fn test_stop_watcher() {
         let dir = std::env::temp_dir().join("postlane_test_watcher_stop");
         let posts_dir = dir.join(".postlane").join("posts");
+        fs::create_dir_all(dir.join(".git")).expect("create .git");
         fs::create_dir_all(&posts_dir).expect("Failed to create posts dir");
 
         let watchers: WatcherMap = Mutex::new(HashMap::new());
@@ -263,6 +316,7 @@ mod tests {
         for i in 0..3 {
             let dir = std::env::temp_dir().join(format!("postlane_test_watcher_all_{}", i));
             let posts_dir = dir.join(".postlane").join("posts");
+            fs::create_dir_all(dir.join(".git")).expect("create .git");
             fs::create_dir_all(&posts_dir).expect("Failed to create posts dir");
 
             let (tx, _rx) = mpsc::channel();
@@ -311,5 +365,35 @@ mod tests {
             panic!("intentional poison");
         }).join();
         stop_all_watchers(&arc);
+    }
+
+    // ── Workspace watcher (20.8.3) ────────────────────────────────────────────
+
+    #[test]
+    fn test_watch_repo_workspace_creates_watcher_for_child_posts_dirs() {
+        let ws = std::env::temp_dir().join("postlane_test_watcher_ws_basic");
+        let _ = fs::remove_dir_all(&ws);
+        fs::create_dir_all(ws.join("repo-a/.git")).expect("git a");
+        fs::create_dir_all(ws.join("repo-b/.git")).expect("git b");
+        fs::create_dir_all(ws.join("repo-a/.postlane/posts")).expect("posts a");
+        fs::create_dir_all(ws.join("repo-b/.postlane/posts")).expect("posts b");
+        let watchers: WatcherMap = Mutex::new(HashMap::new());
+        let result = watch_repo("ws".to_string(), &ws, &watchers, |_| {});
+        assert!(result.is_ok(), "workspace watch should not error");
+        assert_eq!(watchers.lock().unwrap().len(), 1, "one watcher entry per workspace repo_id");
+        stop_all_watchers(&watchers);
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn test_watch_repo_workspace_no_child_posts_dirs_is_noop() {
+        let ws = std::env::temp_dir().join("postlane_test_watcher_ws_noop");
+        let _ = fs::remove_dir_all(&ws);
+        fs::create_dir_all(ws.join("repo-a/.git")).expect("git");
+        let watchers: WatcherMap = Mutex::new(HashMap::new());
+        let result = watch_repo("ws".to_string(), &ws, &watchers, |_| {});
+        assert!(result.is_ok());
+        assert_eq!(watchers.lock().unwrap().len(), 0, "no watcher when no child has posts/");
+        let _ = fs::remove_dir_all(&ws);
     }
 }

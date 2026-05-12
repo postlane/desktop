@@ -8,7 +8,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 
 interface Props {
-  onNext: () => void;
+  onNext: (provider: string) => void;
   onBack?: () => void;
 }
 
@@ -31,23 +31,25 @@ function GitLabLogo() {
   );
 }
 
-function useActivation(onNext: () => void, onError: (msg: string) => void) {
+function useActivation(onNext: (provider: string) => void, onError: (msg: string) => void, activeProvider: string | null) {
   useEffect(() => {
     const unsubs = [
-      listen('license:activated', () => onNext()),
+      listen('license:activated', () => { if (activeProvider) onNext(activeProvider); }),
       listen<{ message: string }>('license:error', (e) => onError(e.payload.message)),
     ];
     return () => { unsubs.forEach((p) => p.then((fn) => fn())); };
-  }, [onNext, onError]);
+  }, [onNext, onError, activeProvider]);
 }
 
 export default function ModalAccount({ onNext, onBack }: Props) {
   const [activationError, setActivationError] = useState<string | null>(null);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
-  useActivation(onNext, setActivationError);
+  useActivation(onNext, setActivationError, activeProvider);
 
   async function handleProvider(provider: string) {
     setActivationError(null);
+    setActiveProvider(provider);
     try {
       const port = await invoke<number>('get_local_server_port');
       console.info(`[activate] opening login with port=${port}`);
@@ -65,7 +67,7 @@ export default function ModalAccount({ onNext, onBack }: Props) {
 
   return (
     <WizardShell step={2} totalSteps={5} title="Sign in to Postlane"
-      subtitle="Sign in to activate your Postlane account." onNext={onNext} onBack={onBack} nextHidden>
+      subtitle="Sign in to activate your Postlane account." onNext={() => {}} onBack={onBack} nextHidden>
       <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
         <button className="button is-flex-grow-1"
           style={{ background: '#24292f', color: 'white', border: 'none' }}

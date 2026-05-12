@@ -8,6 +8,7 @@ import WizardShell from './WizardShell';
 interface Props {
   onPaid: () => void;
   onBack: () => void;
+  onSkip?: (projectId: string) => void;
   pollIntervalMs?: number;
   maxAttempts?: number;
 }
@@ -49,13 +50,22 @@ function useBillingPoller(onPaid: () => void, pollIntervalMs: number, maxAttempt
 }
 
 export default function ModalPricingGate({
-  onPaid, onBack, pollIntervalMs = 5000, maxAttempts = 120,
+  onPaid, onBack, onSkip, pollIntervalMs = 5000, maxAttempts = 120,
 }: Props) {
   const { polling, timedOut, begin, stopPolling } = useBillingPoller(onPaid, pollIntervalMs, maxAttempts);
 
   async function handleSubscribe() {
     try { await openUrl('https://postlane.dev/billing'); } catch { /* ignore */ }
     begin();
+  }
+
+  async function handleSkip() {
+    if (!onSkip) return;
+    try {
+      const projects = await invoke<{ id: string }[]>('list_projects');
+      const first = projects[0];
+      if (first) onSkip(first.id);
+    } catch { /* non-fatal: skip button disappears if list_projects fails */ }
   }
 
   return (
@@ -79,6 +89,11 @@ export default function ModalPricingGate({
         >
           Subscribe — $5/month
         </button>
+        {onSkip && (
+          <button className="button is-light is-small" onClick={handleSkip}>
+            Skip — use existing workspace
+          </button>
+        )}
         {timedOut && (
           <button className="button is-light is-small" onClick={begin}>
             Check again

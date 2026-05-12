@@ -5,7 +5,7 @@ import { invoke } from '../ipc/invoke';
 import { useWizardState } from './useWizardState';
 import ModalWelcome from './ModalWelcome';
 import ModalAccount from './ModalAccount';
-import ModalWorkspace from './ModalWorkspace';
+import ModalOrgPicker from './ModalOrgPicker';
 import ModalScheduler from './ModalScheduler';
 import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
@@ -19,16 +19,18 @@ export default function Wizard({ onComplete, startAt }: Props) {
   const wizard = useWizardState({ startAt });
   const [showPricingGate, setShowPricingGate] = useState(false);
 
-  async function handleSkipToApp() {
-    try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ }
-    onComplete();
-  }
+  const handleSkipToApp = async () => { try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ } onComplete(); };
 
   if (showPricingGate) {
     return (
       <ModalPricingGate
         onPaid={() => setShowPricingGate(false)}
         onBack={() => setShowPricingGate(false)}
+        onSkip={(projectId) => {
+          wizard.setWorkspaceId(projectId);
+          setShowPricingGate(false);
+          wizard.next();
+        }}
       />
     );
   }
@@ -40,7 +42,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
   if (wizard.step === 2) {
     return (
       <ModalAccount
-        onNext={() => { wizard.setToken('detected'); wizard.next(); }}
+        onNext={(provider) => { wizard.setToken('detected'); wizard.setProvider(provider); wizard.next(); }}
         onBack={wizard.back}
       />
     );
@@ -48,11 +50,12 @@ export default function Wizard({ onComplete, startAt }: Props) {
 
   if (wizard.step === 3) {
     return (
-      <ModalWorkspace
+      <ModalOrgPicker
         onNext={(workspaceId) => { wizard.setWorkspaceId(workspaceId); wizard.next(); }}
         onBack={wizard.back}
         onPricingGate={() => setShowPricingGate(true)}
         onSkipToApp={handleSkipToApp}
+        provider={wizard.provider ?? 'github'}
       />
     );
   }

@@ -5,11 +5,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 const mockWriteText = vi.fn().mockResolvedValue(undefined);
 vi.stubGlobal('navigator', { clipboard: { writeText: mockWriteText } });
 
 import { invoke } from '../ipc/invoke';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 const mockInvoke = vi.mocked(invoke);
+const mockOpenDialog = vi.mocked(openDialog);
 
 import ModalRepository from './ModalRepository';
 
@@ -22,16 +25,92 @@ const defaultProps = {
 
 beforeEach(() => { vi.clearAllMocks(); });
 
-describe('ModalRepository — detecting phase', () => {
-  it('test_renders_cli_command_block', () => {
+describe('ModalRepository — folder picker — primary', () => {
+  it('test_folder_picker_button_is_primary_action', () => {
     mockInvoke.mockResolvedValue([]);
     render(<ModalRepository {...defaultProps} />);
+    expect(screen.getByRole('button', { name: /choose folder/i })).toBeDefined();
+  });
+
+  it('test_folder_picker_shows_connecting_during_flight', async () => {
+    let resolveFn!: (v: unknown) => void;
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'connect_repo_from_desktop') return new Promise(r => { resolveFn = r; });
+      return Promise.resolve([]);
+    });
+    mockOpenDialog.mockResolvedValue('/some/repo');
+    render(<ModalRepository {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(screen.getByText(/connecting/i)).toBeDefined());
+    resolveFn({ id: 'r1', name: 'my-repo', path: '/some/repo', active: true, added_at: '' });
+  });
+
+  it('test_folder_picker_success_shows_repo_name', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'connect_repo_from_desktop') return Promise.resolve({ id: 'r1', name: 'my-repo', path: '/some/repo', active: true, added_at: '' });
+      return Promise.resolve([]);
+    });
+    mockOpenDialog.mockResolvedValue('/some/repo');
+    render(<ModalRepository {...defaultProps} pollIntervalMs={10000} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(screen.getByText(/my-repo/i)).toBeDefined(), { timeout: 3000 });
+  });
+
+  it('test_folder_picker_failure_shows_inline_error', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'connect_repo_from_desktop') return Promise.reject('Not a git repository');
+      return Promise.resolve([]);
+    });
+    mockOpenDialog.mockResolvedValue('/some/repo');
+    render(<ModalRepository {...defaultProps} pollIntervalMs={10000} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(screen.getByText(/not a git repository/i)).toBeDefined(), { timeout: 3000 });
+  });
+
+  it('test_cancelled_folder_picker_does_nothing', async () => {
+    mockInvoke.mockResolvedValue([]);
+    mockOpenDialog.mockResolvedValue(null);
+    render(<ModalRepository {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    expect(screen.queryByText(/connecting/i)).toBeNull();
+  });
+});
+
+describe('ModalRepository — folder picker — CLI disclosure', () => {
+  it('test_cli_command_hidden_initially', () => {
+    mockInvoke.mockResolvedValue([]);
+    render(<ModalRepository {...defaultProps} />);
+    expect(screen.queryByText(/npx @postlane\/cli init/)).toBeNull();
+  });
+
+  it('test_cli_disclosure_reveals_command', async () => {
+    mockInvoke.mockResolvedValue([]);
+    render(<ModalRepository {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /set up manually/i }));
+    expect(screen.getByText(/npx @postlane\/cli init/)).toBeDefined();
+  });
+
+  it('test_copy_in_disclosure_copies_command', async () => {
+    mockInvoke.mockResolvedValue([]);
+    render(<ModalRepository {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /set up manually/i }));
+    await userEvent.click(screen.getByRole('button', { name: /copy/i }));
+    expect(mockWriteText).toHaveBeenCalledWith('npx @postlane/cli init');
+  });
+});
+
+describe('ModalRepository — detecting phase', () => {
+  it('test_renders_cli_command_after_disclosure', async () => {
+    mockInvoke.mockResolvedValue([]);
+    render(<ModalRepository {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /set up manually/i }));
     expect(screen.getByText(/npx @postlane\/cli init/)).toBeDefined();
   });
 
   it('test_copy_button_copies_command', async () => {
     mockInvoke.mockResolvedValue([]);
     render(<ModalRepository {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /set up manually/i }));
     await userEvent.click(screen.getByRole('button', { name: /copy/i }));
     expect(mockWriteText).toHaveBeenCalledWith('npx @postlane/cli init');
   });
@@ -76,6 +155,6 @@ describe('ModalRepository — done phase', () => {
     render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
     await waitFor(() => screen.getByRole('button', { name: /add another repo/i }), { timeout: 3000 });
     await userEvent.click(screen.getByRole('button', { name: /add another repo/i }));
-    expect(screen.getByText(/npx @postlane\/cli init/)).toBeDefined();
+    expect(screen.getByRole('button', { name: /choose folder/i })).toBeDefined();
   });
 });

@@ -12,7 +12,13 @@ import Wizard from './Wizard';
 
 const mockInvoke = vi.mocked(invoke);
 
-beforeEach(() => { vi.clearAllMocks(); mockInvoke.mockResolvedValue(undefined); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'list_provider_orgs') return [];
+    return undefined;
+  });
+});
 
 describe('Wizard', () => {
   it('test_renders_modal_welcome_on_step_1', () => {
@@ -35,14 +41,15 @@ describe('Wizard', () => {
     expect(screen.getByText(/complete/i)).toBeDefined();
   });
 
-  it('step 3 shows a Skip button', () => {
+  it('step 3 shows a Skip button after orgs load', async () => {
     render(<Wizard onComplete={vi.fn()} startAt={3} />);
-    expect(screen.getByRole('button', { name: /^skip$/i })).toBeDefined();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^skip$/i })).toBeDefined());
   });
 
   it('clicking Skip on step 3 marks wizard complete and calls onComplete', async () => {
     const onComplete = vi.fn();
     render(<Wizard onComplete={onComplete} startAt={3} />);
+    await waitFor(() => screen.getByRole('button', { name: /^skip$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^skip$/i }));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
     expect(onComplete).toHaveBeenCalled();
@@ -60,4 +67,5 @@ describe('Wizard', () => {
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
     expect(onComplete).toHaveBeenCalled();
   });
+
 });

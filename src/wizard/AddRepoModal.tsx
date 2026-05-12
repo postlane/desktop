@@ -24,17 +24,14 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
   async function handleBrowse() {
     setError(null);
     const selected = await openDialog({ directory: true });
-    if (!selected) return;
+    if (typeof selected !== 'string') return;
 
     setLoading(true);
     try {
-      const repo = await invoke<{ path: string }>('add_repo', { path: selected });
-      if (projectId) {
-        await invoke('write_project_id_to_config', { repoPath: repo.path, projectId });
-      }
+      await invoke('connect_repo_from_desktop', { repoPath: selected, projectId });
       onClose();
-    } catch {
-      setError("This folder hasn't been set up yet. Run `npx postlane init` inside it first.");
+    } catch (err) {
+      setError(typeof err === 'string' ? err : 'Failed to connect repository');
     } finally {
       setLoading(false);
     }
@@ -50,8 +47,7 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
         </header>
         <section className="modal-card-body">
           <p className="is-size-7 has-text-grey mb-3">
-            Select a folder where you've already run{' '}
-            <code>npx postlane init</code>.
+            Select a git repository folder to connect to this project.
           </p>
           {error && <p className="is-size-7 has-text-danger">{error}</p>}
         </section>

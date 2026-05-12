@@ -20,12 +20,8 @@ pub fn get_repo_config_impl(
         .find(|r| r.id == repo_id)
         .ok_or_else(|| format!("Repo '{}' not in registered repos", repo_id))?;
 
-    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let repo_path = PathBuf::from(&repo.path);
+    let config = crate::config_merge::read_merged_repo_config(&repo_path)?;
 
     let provider_name = config["scheduler"]["provider"]
         .as_str()
@@ -370,6 +366,30 @@ mod tests {
         }]);
         let result = get_repo_config_impl("r1", &state);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_repo_config_reads_provider_from_config_local_json() {
+        let dir = std::env::temp_dir().join("postlane_test_get_repo_config_local_ac");
+        let _ = fs::remove_dir_all(&dir);
+        // config.json has no scheduler.provider; config.local.json overrides
+        write_config(&dir, r#"{"version":1}"#);
+        let local_path = dir.join(".postlane").join("config.local.json");
+        fs::write(&local_path, r#"{"scheduler":{"provider":"zernio"}}"#)
+            .expect("write config.local.json");
+
+        let state = make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "My Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_repo_config_impl("r1", &state).expect("should succeed");
+        assert_eq!(result.1, "zernio");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

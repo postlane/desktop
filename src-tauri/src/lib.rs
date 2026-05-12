@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod account_config;
+pub mod config_merge;
+pub mod connect_repo;
 pub mod analytics;
 pub mod app_state;
 pub mod commands;
 pub mod deep_link_routing;
 pub mod draft_edits;
+pub mod draft_output;
 pub mod draft_queries;
 pub mod draft_schedule;
 pub mod engagement_cache;
@@ -29,6 +32,7 @@ pub mod post_export;
 pub mod post_ops;
 pub mod project_cache;
 pub mod project_registry;
+pub mod provider_orgs;
 pub mod project_validation;
 pub mod providers;
 pub mod published_queries;
@@ -46,6 +50,7 @@ pub mod tray;
 pub mod types;
 pub mod voice_guide_versions;
 pub mod watcher;
+pub mod workspace;
 
 #[cfg(test)]
 pub mod test_fixtures;
@@ -401,6 +406,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         post_export::export_history_csv,
         post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,
+        provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs,
         post_schedule::update_post_schedule,
         mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
         mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
@@ -419,6 +425,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         project_registry::get_project_voice_guide,
         project_registry::get_repo_remote_name, project_registry::read_project_id_from_path,
         project_registry::list_projects, project_registry::delete_project,
+        connect_repo::connect_repo_from_desktop,
         draft_edits::save_post_draft,
     ])
 }

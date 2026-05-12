@@ -9,6 +9,7 @@ interface WizardOptions {
 interface State {
   step: number;
   token: string | null;
+  provider: string | null;
   workspaceId: string | null;
   schedulerLinked: boolean;
   complete: boolean;
@@ -39,6 +40,7 @@ export function useWizardState(options: WizardOptions = {}) {
   const [state, setState] = useState<State>({
     step: options.startAt ?? 1,
     token: null,
+    provider: null,
     workspaceId: null,
     schedulerLinked: false,
     complete: false,
@@ -46,6 +48,7 @@ export function useWizardState(options: WizardOptions = {}) {
 
   return {
     step: state.step,
+    provider: state.provider,
     workspaceId: state.workspaceId,
     schedulerLinked: state.schedulerLinked,
     complete: state.complete,
@@ -54,6 +57,7 @@ export function useWizardState(options: WizardOptions = {}) {
     back: () => setState(applyBack),
     skip: () => setState(applySkip),
     setToken: (token: string) => setState((s) => ({ ...s, token })),
+    setProvider: (p: string) => setState((s) => ({ ...s, provider: p })),
     setWorkspaceId: (id: string) => setState((s) => ({ ...s, workspaceId: id })),
     setSchedulerLinked: (v: boolean) => setState((s) => ({ ...s, schedulerLinked: v })),
   };

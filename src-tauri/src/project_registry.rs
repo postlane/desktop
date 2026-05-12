@@ -44,6 +44,7 @@ pub enum CreateProjectError {
     InvalidName(String),
     InvalidWorkspaceType(String),
     NoFreeSlot,
+    OrgAlreadyRegistered,
     NoLicenseToken,
     Backend(String),
 }
@@ -54,6 +55,7 @@ impl std::fmt::Display for CreateProjectError {
             Self::InvalidName(msg) => write!(f, "Invalid project name: {}", msg),
             Self::InvalidWorkspaceType(t) => write!(f, "Invalid workspace type: '{}'. Must be personal, organization, or client", t),
             Self::NoFreeSlot => write!(f, "No free project slot. Subscribe at postlane.dev/billing"),
+            Self::OrgAlreadyRegistered => write!(f, "This GitHub/GitLab organisation is already linked to a Postlane project"),
             Self::NoLicenseToken => write!(f, "No license token — sign in at postlane.dev/login"),
             Self::Backend(msg) => write!(f, "Backend error: {}", msg),
         }
@@ -142,31 +144,44 @@ struct CreateProjectResponse {
 
 const VALID_WORKSPACE_TYPES: &[&str] = &["personal", "organization", "client"];
 
-/// Calls `POST {base_url}/v1/projects` with `name` and `workspace_type`.
+/// Calls `POST {base_url}/v1/projects` with name, workspace_type, and optional org identifiers.
 /// Returns `(project_id, name, workspace_type)` on success.
+/// When `provider_org_login` is supplied, name may be empty — the API derives it from the login.
 pub async fn create_project_with_client(
     name: &str,
     workspace_type: &str,
+    provider_org_login: Option<&str>,
+    provider_group_path: Option<&str>,
     client: &reqwest::Client,
     base_url: &str,
     token: &str,
 ) -> Result<(String, String, String), CreateProjectError> {
     let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err(CreateProjectError::InvalidName("name cannot be empty".to_string()));
-    }
-    if trimmed.len() > 100 {
-        return Err(CreateProjectError::InvalidName("name cannot exceed 100 characters".to_string()));
+    if provider_org_login.is_none() {
+        if trimmed.is_empty() {
+            return Err(CreateProjectError::InvalidName("name cannot be empty".to_string()));
+        }
+        if trimmed.len() > 100 {
+            return Err(CreateProjectError::InvalidName("name cannot exceed 100 characters".to_string()));
+        }
     }
     if !VALID_WORKSPACE_TYPES.contains(&workspace_type) {
         return Err(CreateProjectError::InvalidWorkspaceType(workspace_type.to_string()));
+    }
+
+    let mut body = serde_json::json!({ "name": trimmed, "workspace_type": workspace_type });
+    if let Some(login) = provider_org_login {
+        body["provider_org_login"] = serde_json::json!(login);
+    }
+    if let Some(path) = provider_group_path {
+        body["provider_group_path"] = serde_json::json!(path);
     }
 
     let url = format!("{}/v1/projects", base_url);
     let resp = client
         .post(&url)
         .bearer_auth(token)
-        .json(&serde_json::json!({ "name": trimmed, "workspace_type": workspace_type }))
+        .json(&body)
         .send()
         .await
         .map_err(|e| CreateProjectError::Backend(e.to_string()))?;
@@ -180,6 +195,7 @@ pub async fn create_project_with_client(
             Ok((body.project_id, body.name, body.workspace_type))
         }
         402 => Err(CreateProjectError::NoFreeSlot),
+        409 => Err(CreateProjectError::OrgAlreadyRegistered),
         _ => Err(CreateProjectError::Backend(format!("unexpected status {}", resp.status()))),
     }
 }
@@ -454,13 +470,27 @@ pub async fn check_billing_gate(app: tauri::AppHandle) -> Result<String, String>
 }
 
 #[tauri::command]
-pub async fn create_project(name: String, workspace_type: String, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub async fn create_project(
+    name: String,
+    workspace_type: String,
+    provider_org_login: Option<String>,
+    provider_group_path: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     let token = require_license_token(
         app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
     )?;
     let client = build_client();
     let (project_id, project_name, wt) =
-        create_project_with_client(&name, &workspace_type, &client, POSTLANE_API_BASE, &token)
+        create_project_with_client(
+            &name,
+            &workspace_type,
+            provider_org_login.as_deref(),
+            provider_group_path.as_deref(),
+            &client,
+            POSTLANE_API_BASE,
+            &token,
+        )
             .await
             .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "project_id": project_id, "name": project_name, "workspace_type": wt }))
@@ -654,7 +684,7 @@ mod tests {
             }));
         });
 
-        let result = create_project_with_client("My Project", "personal", &build_test_client(), &server.base_url(), "tok").await;
+        let result = create_project_with_client("My Project", "personal", None, None, &build_test_client(), &server.base_url(), "tok").await;
         let (id, name, _wt) = result.expect("create_project_with_client should succeed for 200 response");
         assert_eq!(id, "new-uuid-abc");
         assert_eq!(name, "My Project");
@@ -662,13 +692,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_project_rejects_empty_name_before_network_call() {
-        let result = create_project_with_client("", "personal", &build_test_client(), "http://127.0.0.1:19996", "tok").await;
+        let result = create_project_with_client("", "personal", None, None, &build_test_client(), "http://127.0.0.1:19996", "tok").await;
         assert!(matches!(result, Err(CreateProjectError::InvalidName(_))));
     }
 
     #[tokio::test]
     async fn test_create_project_rejects_whitespace_only_name() {
-        let result = create_project_with_client("   ", "personal", &build_test_client(), "http://127.0.0.1:19996", "tok").await;
+        let result = create_project_with_client("   ", "personal", None, None, &build_test_client(), "http://127.0.0.1:19996", "tok").await;
         assert!(matches!(result, Err(CreateProjectError::InvalidName(_))));
     }
 
@@ -680,7 +710,7 @@ mod tests {
             then.status(402).json_body(serde_json::json!({ "error": "no_free_slot" }));
         });
 
-        let result = create_project_with_client("Second Project", "personal", &build_test_client(), &server.base_url(), "tok").await;
+        let result = create_project_with_client("Second Project", "personal", None, None, &build_test_client(), &server.base_url(), "tok").await;
         assert!(matches!(result, Err(CreateProjectError::NoFreeSlot)));
     }
 
@@ -884,7 +914,7 @@ mod tests {
             }));
         });
 
-        let result = create_project_with_client("Acme", "organization", &build_test_client(), &server.base_url(), "tok").await;
+        let result = create_project_with_client("Acme", "organization", None, None, &build_test_client(), &server.base_url(), "tok").await;
         let (id, name, wt) = result.expect("create_project with organization workspace_type should succeed");
         assert_eq!(id, "org-uuid-abc");
         assert_eq!(name, "Acme");
@@ -893,8 +923,81 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_project_rejects_invalid_workspace_type() {
-        let result = create_project_with_client("Acme", "enterprise", &build_test_client(), "http://127.0.0.1:19994", "tok").await;
+        let result = create_project_with_client("Acme", "enterprise", None, None, &build_test_client(), "http://127.0.0.1:19994", "tok").await;
         assert!(matches!(result, Err(CreateProjectError::InvalidWorkspaceType(_))));
+    }
+
+    #[tokio::test]
+    async fn test_create_project_sends_provider_org_login_in_body() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/projects")
+                .body_contains("\"provider_org_login\":\"postlane\"");
+            then.status(200).json_body(serde_json::json!({
+                "project_id": "org-proj-uuid", "name": "postlane", "tier": "free",
+                "workspace_type": "organization"
+            }));
+        });
+
+        let result = create_project_with_client(
+            "postlane", "organization", Some("postlane"), None,
+            &build_test_client(), &server.base_url(), "tok",
+        ).await;
+        assert!(result.is_ok(), "should send provider_org_login and succeed: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_create_project_sends_provider_group_path_in_body() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/projects")
+                .body_contains("\"provider_group_path\":\"acme-corp\"");
+            then.status(200).json_body(serde_json::json!({
+                "project_id": "gl-proj-uuid", "name": "acme-corp", "tier": "free",
+                "workspace_type": "organization"
+            }));
+        });
+
+        let result = create_project_with_client(
+            "acme-corp", "organization", None, Some("acme-corp"),
+            &build_test_client(), &server.base_url(), "tok",
+        ).await;
+        assert!(result.is_ok(), "should send provider_group_path and succeed: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_create_project_returns_org_already_registered_on_409() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/projects");
+            then.status(409).json_body(serde_json::json!({ "error": "org_already_registered" }));
+        });
+
+        let result = create_project_with_client(
+            "postlane", "organization", Some("postlane"), None,
+            &build_test_client(), &server.base_url(), "tok",
+        ).await;
+        assert!(matches!(result, Err(CreateProjectError::OrgAlreadyRegistered)),
+            "HTTP 409 must map to OrgAlreadyRegistered, got: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_create_project_with_org_login_does_not_require_name() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/v1/projects");
+            then.status(200).json_body(serde_json::json!({
+                "project_id": "org-uuid", "name": "postlane", "tier": "free",
+                "workspace_type": "organization"
+            }));
+        });
+
+        // Empty name is permitted when provider_org_login is provided — name derived from login
+        let result = create_project_with_client(
+            "", "organization", Some("postlane"), None,
+            &build_test_client(), &server.base_url(), "tok",
+        ).await;
+        assert!(result.is_ok(), "empty name with org_login should not fail validation: {:?}", result);
     }
 
     // ── sha256_hex ────────────────────────────────────────────────────────────
@@ -951,7 +1054,7 @@ mod tests {
 
         // Phase 1: create project
         let (returned_id, returned_name, workspace_type) =
-            create_project_with_client("Integration Workspace", "personal", &client, &server.base_url(), "tok")
+            create_project_with_client("Integration Workspace", "personal", None, None, &client, &server.base_url(), "tok")
                 .await
                 .expect("create_project should succeed");
 
