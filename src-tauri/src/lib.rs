@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod account_config;
+pub mod project_api;
 pub mod config_merge;
 pub mod connect_repo;
 pub mod analytics;
