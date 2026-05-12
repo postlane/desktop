@@ -19,6 +19,7 @@ import { TimezoneContext, useTimezone } from './TimezoneContext';
 import { ProjectsProvider, useProjectsContext } from './context/ProjectsProvider';
 import { DraftPostsProvider, useDraftPostsContext } from './context/DraftPostsProvider';
 import { useSentPosts } from './hooks/useSentPosts';
+import OrgUpgradeBanner from './components/OrgUpgradeBanner';
 import type { AppStateFile, ViewSelection, DraftPost } from './types';
 
 const DEFAULT_VIEW: ViewSelection = { view: 'no_orgs' };
@@ -85,7 +86,12 @@ function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNa
   }
   if (loading) return <LoadingView />;
   if (error) return <QueueLoadError error={error} onRetry={refresh} />;
-  return <PostTable posts={projectDrafts} isHistory={false} onSelect={setSelectedPost} timezone={tz} />;
+  return (
+    <>
+      {project && <OrgUpgradeBanner project={project} onConnect={() => {}} />}
+      <PostTable posts={projectDrafts} isHistory={false} onSelect={setSelectedPost} timezone={tz} />
+    </>
+  );
 }
 
 function OrgHistoryView({ projectId }: { projectId: string }) {

@@ -48,6 +48,7 @@ export interface AppStateFile {
   notifications_enabled?: boolean;
   dismissed_unassigned_draft_warning?: boolean;
   post_wizard_completed?: boolean;
+  org_upgrade_banner_dismissed_v1_2?: boolean;
 }
 
 /** Mirrors analytics::PostAnalytics */
@@ -83,6 +84,8 @@ export interface Project {
   tier: string;
   billing_active: boolean;
   is_owner: boolean;
+  /** GitHub org login linked to this project. Null for projects created before v1.2. */
+  provider_org_login?: string | null;
 }
 
 export type ImageState =
