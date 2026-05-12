@@ -11,6 +11,7 @@ interface OrgSummary {
   avatar_url: string;
   is_personal: boolean;
   has_project: boolean;
+  project_id: string | null;
 }
 
 interface CreateProjectResult {
@@ -62,7 +63,7 @@ function OrgRow({ org, selected, onSelect }: OrgRowProps) {
         <strong>{org.login}</strong>
         {org.is_personal && <span className="tag is-small ml-2">Personal</span>}
       </span>
-      <span className="tag is-small">{org.has_project ? '$5/month' : 'Free'}</span>
+      {org.has_project && <span className="tag is-light is-small">Existing</span>}
     </button>
   );
 }
@@ -116,7 +117,7 @@ function OrgListView({ orgs, selectedOrg, name, createError, creating, onBack, o
       title="Choose your account or org"
       subtitle="Select the account or organisation this workspace is for."
       onNext={onNext} onBack={onBack}
-      nextDisabled={selectedOrg === null || name.trim().length === 0 || creating}
+      nextDisabled={selectedOrg === null || (!selectedOrg.has_project && name.trim().length === 0) || creating}
       onSkip={onSkipToApp}
     >
       <div role="listbox" aria-label="Organisations" className="mb-4">
@@ -124,7 +125,7 @@ function OrgListView({ orgs, selectedOrg, name, createError, creating, onBack, o
           <OrgRow key={org.login} org={org} selected={selectedOrg?.login === org.login} onSelect={() => onSelectOrg(org)} />
         ))}
       </div>
-      {selectedOrg !== null && (
+      {selectedOrg !== null && !selectedOrg.has_project && (
         <div className="field">
           <label className="label is-small">Workspace name</label>
           <div className="control">
@@ -132,6 +133,9 @@ function OrgListView({ orgs, selectedOrg, name, createError, creating, onBack, o
               onChange={(e) => onNameChange(e.target.value)} maxLength={100} />
           </div>
         </div>
+      )}
+      {selectedOrg !== null && selectedOrg.has_project && (
+        <p className="is-size-7 has-text-grey">You already have a workspace here. Click Next to open it.</p>
       )}
       {createError !== null && (
         <div role="alert" className="notification is-danger is-light py-2 px-3 is-size-7 mt-3">
@@ -177,7 +181,15 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
   }
 
   async function handleNext() {
-    if (!selectedOrg || name.trim().length === 0) return;
+    if (!selectedOrg) return;
+
+    // Existing workspace — route directly without creating
+    if (selectedOrg.has_project) {
+      if (selectedOrg.project_id) onNext(selectedOrg.project_id);
+      return;
+    }
+
+    if (name.trim().length === 0) return;
     setCreateError(null);
     setCreating(true);
     try {
