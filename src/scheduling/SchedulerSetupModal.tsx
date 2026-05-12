@@ -13,6 +13,7 @@ interface Props {
 
 const PROVIDERS = [
   { name: 'Zernio', key: 'zernio', description: 'Multi-platform scheduler — X, Bluesky, LinkedIn, Mastodon', freeTier: 'Free tier limit tracked by 429 responses' },
+  { name: 'Upload Post', key: 'upload_post', description: 'Multi-platform scheduler — X, Bluesky, LinkedIn, Instagram, TikTok, YouTube', freeTier: '10 uploads/month free' },
   { name: 'Buffer', key: 'buffer', description: 'Social media scheduling — 3 channels', freeTier: 'Free tier limit tracked by 429 responses' },
   { name: 'Ayrshare', key: 'ayrshare', description: 'Developer-focused multi-platform API', freeTier: 'No free tier — paid plans only' },
   { name: 'Publer', key: 'publer', description: 'Social media scheduler — all major platforms', freeTier: 'API requires a paid plan' },

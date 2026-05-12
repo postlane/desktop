@@ -6,18 +6,20 @@ import MastodonOAuthPanel from './MastodonOAuthPanel';
 import SubstackNotesPanel from './SubstackNotesPanel';
 import WebhookPanel from './WebhookPanel';
 
-export const PROVIDERS = ['zernio', 'publer', 'outstand'] as const;
+export const PROVIDERS = ['zernio', 'upload_post', 'publer', 'outstand'] as const;
 export type Provider = (typeof PROVIDERS)[number];
 
 const PROVIDER_NOTES: Partial<Record<Provider, string>> = {
-  publer: 'Free tier: up to 10 posts scheduled at once per account. API access may require a paid plan.',
+  upload_post: '10 uploads/month free. Supports Instagram, TikTok, and YouTube.',
+  publer: 'API access requires a paid plan.',
   outstand: '$5/month for 1,000 posts, then $0.01 per additional post.',
 };
 
 const PROVIDER_PLATFORMS: Record<Provider, string[]> = {
-  zernio:   ['X', 'LinkedIn', 'Bluesky', 'Mastodon', 'Instagram', 'Facebook', 'Pinterest'],
-  publer:   ['X', 'LinkedIn', 'Facebook', 'Instagram', 'Pinterest', 'TikTok', 'YouTube'],
-  outstand: ['X', 'LinkedIn', 'Instagram', 'Facebook'],
+  zernio:      ['X', 'LinkedIn', 'Bluesky', 'Mastodon', 'Instagram', 'Facebook', 'Pinterest'],
+  upload_post: ['X', 'Bluesky', 'LinkedIn', 'Instagram', 'TikTok', 'YouTube', 'Facebook', 'Reddit', 'Threads'],
+  publer:      ['X', 'LinkedIn', 'Facebook', 'Instagram', 'Pinterest', 'TikTok', 'YouTube'],
+  outstand:    ['X', 'LinkedIn', 'Instagram', 'Facebook'],
 };
 
 export interface UsageResponse {
@@ -153,7 +155,7 @@ function RemoveKeyDialog({ provider, input, onInputChange, onClose, onConfirm }:
   );
 }
 
-const COUNTED_PROVIDERS: Provider[] = ['publer', 'outstand'];
+const COUNTED_PROVIDERS: Provider[] = ['upload_post', 'publer', 'outstand'];
 
 export async function loadSchedulerCreds(
   isCancelled: () => boolean,
@@ -173,7 +175,7 @@ export async function loadSchedulerCreds(
 
 function useSchedulerCreds() {
   const init: CredentialState = { preview: null, testing: false, testResult: null, testError: null, adding: false, keyInput: '' };
-  const [creds, setCreds] = useState<Record<Provider, CredentialState>>({ zernio: { ...init }, publer: { ...init }, outstand: { ...init } });
+  const [creds, setCreds] = useState<Record<Provider, CredentialState>>({ zernio: { ...init }, upload_post: { ...init }, publer: { ...init }, outstand: { ...init } });
   const [removeProvider, setRemoveProvider] = useState<Provider | null>(null);
   const [removeInput, setRemoveInput] = useState('');
   const [usage, setUsage] = useState<Partial<Record<Provider, UsageResponse>>>({});
