@@ -3,6 +3,7 @@
 pub use crate::project_api::{
     check_billing_gate_with_client, check_project_status_with_client,
     create_project_with_client, list_projects_with_client,
+    update_project_org_login_with_client,
 };
 
 use crate::app_state::AppState;
@@ -354,6 +355,20 @@ pub async fn create_project(
             .await
             .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "project_id": project_id, "name": project_name, "workspace_type": wt }))
+}
+
+/// Sets `provider_org_login` on an existing project. Used by the v1.2 upgrade flow.
+#[tauri::command]
+pub async fn update_project_org_login(
+    project_id: String,
+    org_login: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
+    let client = build_client();
+    update_project_org_login_with_client(&project_id, &org_login, &client, POSTLANE_API_BASE, &token).await
 }
 
 #[tauri::command]

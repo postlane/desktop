@@ -167,6 +167,39 @@ pub async fn list_projects_with_client(
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
+/// Calls `PATCH {base_url}/v1/projects/{project_id}` to set `provider_org_login` on an
+/// existing project. Used by the v1.2 upgrade flow for users who created their project
+/// before the org-picker step existed.
+/// Returns `Err(SESSION_EXPIRED_ERROR)` on 401; `Err(...)` on any other non-200.
+pub async fn update_project_org_login_with_client(
+    project_id: &str,
+    org_login: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<(), String> {
+    if validate_project_id(project_id).is_err() {
+        return Err(format!("Invalid project_id: {}", project_id));
+    }
+    let url = format!("{}/v1/projects/{}", base_url, project_id);
+    let body = serde_json::json!({ "provider_org_login": org_login });
+    let resp = client
+        .patch(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Backend error: {}", e))?;
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Err(SESSION_EXPIRED_ERROR.to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("Backend returned {}", status));
+    }
+    Ok(())
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -577,5 +610,101 @@ mod tests {
             SESSION_EXPIRED_ERROR,
             "HTTP 401 must return session_expired error"
         );
+    }
+
+    // ── update_project_org_login ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_update_org_login_returns_ok_on_200() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH)
+                .path("/v1/projects/proj-abc");
+            then.status(200).json_body(serde_json::json!({ "ok": true }));
+        });
+
+        let result = update_project_org_login_with_client(
+            "proj-abc",
+            "my-org",
+            &build_test_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert!(result.is_ok(), "200 response must map to Ok(()), got: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_update_org_login_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH)
+                .path("/v1/projects/proj-abc");
+            then.status(401);
+        });
+
+        let result = update_project_org_login_with_client(
+            "proj-abc",
+            "my-org",
+            &build_test_client(),
+            &server.base_url(),
+            "expired-tok",
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "401 must return session expired");
+    }
+
+    #[tokio::test]
+    async fn test_update_org_login_returns_err_on_500() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH)
+                .path("/v1/projects/proj-abc");
+            then.status(500);
+        });
+
+        let result = update_project_org_login_with_client(
+            "proj-abc",
+            "my-org",
+            &build_test_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert!(result.is_err(), "non-200 must return Err");
+    }
+
+    #[tokio::test]
+    async fn test_update_org_login_sends_provider_org_login_in_body() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH)
+                .path("/v1/projects/proj-abc")
+                .body_contains("\"provider_org_login\":\"acme\"");
+            then.status(200).json_body(serde_json::json!({ "ok": true }));
+        });
+
+        let result = update_project_org_login_with_client(
+            "proj-abc",
+            "acme",
+            &build_test_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert!(result.is_ok(), "patch body must contain provider_org_login field");
+    }
+
+    #[tokio::test]
+    async fn test_update_org_login_rejects_invalid_project_id() {
+        let result = update_project_org_login_with_client(
+            "../../etc/passwd",
+            "my-org",
+            &build_test_client(),
+            "http://127.0.0.1:19993",
+            "tok",
+        )
+        .await;
+        assert!(result.is_err(), "invalid project_id must be rejected before network call");
     }
 }
