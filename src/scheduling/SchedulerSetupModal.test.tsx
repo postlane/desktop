@@ -33,7 +33,7 @@ describe('SchedulerSetupModal — rendering', () => {
 
   it('shows free tier notes', () => {
     render(<SchedulerSetupModal repoName="my-blog" onSetupLater={vi.fn()} />);
-    expect(screen.getByText(/10 posts\/month/i)).toBeInTheDocument();
+    expect(screen.getByText(/api requires a paid plan/i)).toBeInTheDocument();
     expect(screen.getByText(/1,000/i)).toBeInTheDocument();
   });
 
