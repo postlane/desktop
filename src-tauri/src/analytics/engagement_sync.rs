@@ -181,7 +181,7 @@ fn build_provider_for_post(
     let api_key = api_key.ok_or_else(|| {
         format!("No {} credentials for repo {}", post.provider, post.repo_uuid)
     })?;
-    crate::account_config::build_scheduling_provider(&post.provider, api_key)
+    crate::providers::scheduling::build_scheduling_provider(&post.provider, api_key)
 }
 
 /// Fetches engagement snapshots for all posts using a provider builder function.
