@@ -94,14 +94,36 @@ describe('useWizardState — step 4 scheduler', () => {
   });
 });
 
-describe('useWizardState — step 5 completion', () => {
-  it('test_next_on_step_5_sets_complete', () => {
+// 20.6.3: step 5 is now GitHub App install; step 6 sets complete
+describe('useWizardState — step 5 GitHub App (20.6.3)', () => {
+  it('test_next_on_step_5_advances_to_step_6', () => {
     const { result } = renderHook(() => useWizardState());
     act(() => result.current.next()); // → 2
     act(() => result.current.setToken('tok'));
     act(() => result.current.next()); // → 3
     act(() => result.current.next()); // → 4
-    act(() => result.current.skip()); // → 5
+    act(() => result.current.skip()); // skip scheduler → 5
+    act(() => result.current.next()); // → 6
+    expect(result.current.step).toBe(6);
+    expect(result.current.complete).toBe(false);
+  });
+
+  it('test_back_from_step_5_goes_to_step_4', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 5 }));
+    act(() => result.current.back());
+    expect(result.current.step).toBe(4);
+  });
+});
+
+describe('useWizardState — step 6 completion (20.6.3)', () => {
+  it('test_next_on_step_6_sets_complete', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.next()); // → 4
+    act(() => result.current.skip()); // skip scheduler → 5
+    act(() => result.current.next()); // → 6
     act(() => result.current.next()); // → complete
     expect(result.current.complete).toBe(true);
   });

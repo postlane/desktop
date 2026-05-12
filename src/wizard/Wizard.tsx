@@ -7,6 +7,7 @@ import ModalWelcome from './ModalWelcome';
 import ModalAccount from './ModalAccount';
 import ModalOrgPicker from './ModalOrgPicker';
 import ModalScheduler from './ModalScheduler';
+import ModalGitHubApp from './ModalGitHubApp';
 import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
 
@@ -20,20 +21,10 @@ export default function Wizard({ onComplete, startAt }: Props) {
   const [showPricingGate, setShowPricingGate] = useState(false);
 
   const handleSkipToApp = async () => { try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ } onComplete(); };
+  const closePricingGate = () => setShowPricingGate(false);
+  const handlePricingSkip = (id: string) => { wizard.setWorkspaceId(id); setShowPricingGate(false); wizard.next(); };
 
-  if (showPricingGate) {
-    return (
-      <ModalPricingGate
-        onPaid={() => setShowPricingGate(false)}
-        onBack={() => setShowPricingGate(false)}
-        onSkip={(projectId) => {
-          wizard.setWorkspaceId(projectId);
-          setShowPricingGate(false);
-          wizard.next();
-        }}
-      />
-    );
-  }
+  if (showPricingGate) return <ModalPricingGate onPaid={closePricingGate} onBack={closePricingGate} onSkip={handlePricingSkip} />;
 
   if (wizard.step === 1) {
     return <ModalWelcome onNext={wizard.next} />;
@@ -68,6 +59,16 @@ export default function Wizard({ onComplete, startAt }: Props) {
         onBack={wizard.back}
         setSchedulerLinked={wizard.setSchedulerLinked}
         onSkipToApp={handleSkipToApp}
+      />
+    );
+  }
+
+  if (wizard.step === 5) {
+    return (
+      <ModalGitHubApp
+        provider={wizard.provider ?? 'github'}
+        onNext={wizard.next}
+        onBack={wizard.back}
       />
     );
   }
