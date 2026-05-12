@@ -25,6 +25,8 @@ pub struct OrgSummary {
     pub is_personal: bool,
     /// True when a Postlane project already exists for this org.
     pub has_project: bool,
+    /// The project id of the existing project, if has_project is true.
+    pub project_id: Option<String>,
 }
 
 // ── fetch_avatar_bytes ─────────────────────────────────────────────────────
@@ -221,14 +223,16 @@ mod tests {
                         "display_name": "Hugo Elliott",
                         "avatar_url": "https://avatars.githubusercontent.com/u/1",
                         "is_personal": true,
-                        "has_project": false
+                        "has_project": false,
+                        "project_id": null
                     },
                     {
                         "login": "postlane",
                         "display_name": "Postlane",
                         "avatar_url": "https://avatars.githubusercontent.com/orgs/postlane",
                         "is_personal": false,
-                        "has_project": true
+                        "has_project": true,
+                        "project_id": "proj-abc-123"
                     }
                 ]
             }));
@@ -242,8 +246,10 @@ mod tests {
         assert_eq!(orgs[0].login, "hugoelliott");
         assert!(orgs[0].is_personal);
         assert!(!orgs[0].has_project);
+        assert!(orgs[0].project_id.is_none());
         assert_eq!(orgs[1].login, "postlane");
         assert!(orgs[1].has_project);
+        assert_eq!(orgs[1].project_id.as_deref(), Some("proj-abc-123"));
     }
 
     #[tokio::test]
