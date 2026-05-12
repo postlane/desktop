@@ -50,6 +50,7 @@ pub mod tray;
 pub mod types;
 pub mod voice_guide_versions;
 pub mod watcher;
+pub mod poll_routing;
 pub mod webhook_poller;
 pub mod workspace;
 
