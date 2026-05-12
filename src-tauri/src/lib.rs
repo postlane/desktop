@@ -139,6 +139,21 @@ fn register_close_to_tray(app: &tauri::App) {
 }
 
 /// Registers the `postlane://` deep link handler.
+/// Emits `github:app-installed` or `github:install-error` based on the OAuth callback URL.
+fn handle_oauth_callback(url: &str, handle: &tauri::AppHandle) {
+    use tauri::Emitter;
+    log::info!("Deep link: {}", deep_link_routing::log_safe_url(url));
+    match deep_link_routing::installation_id_from_url(url) {
+        Some(id) => {
+            let _ = handle.emit("github:app-installed", serde_json::json!({ "installation_id": id }));
+        }
+        None => {
+            log::warn!("OAuth callback missing valid installation_id");
+            let _ = handle.emit("github:install-error", serde_json::json!({ "message": "Installation ID missing or invalid in callback URL." }));
+        }
+    }
+}
+
 /// Routes by host+path via `deep_link_routing::classify` — query strings are never logged.
 /// `postlane://activate` → license activation. Stubs logged at `info!`. Unknown → `warn!`.
 fn register_deep_link_handler(app_handle: tauri::AppHandle) {
@@ -152,8 +167,11 @@ fn register_deep_link_handler(app_handle: tauri::AppHandle) {
             let url_str = url.to_string();
             let handle = app_handle.clone();
             match deep_link_routing::classify(&url_str) {
-                DeepLinkPath::Draft | DeepLinkPath::OauthCallback => {
+                DeepLinkPath::Draft => {
                     log::info!("Deep link: {}", deep_link_routing::log_safe_url(&url_str));
+                }
+                DeepLinkPath::OauthCallback => {
+                    handle_oauth_callback(&url_str, &handle);
                 }
                 DeepLinkPath::Unknown { path } => {
                     log::warn!("Unknown deep link path: {}", path);
