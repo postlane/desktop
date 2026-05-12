@@ -81,13 +81,13 @@ pub async fn fetch_avatar_bytes(url: String) -> Result<String, String> {
 
 // ── list_provider_orgs ─────────────────────────────────────────────────────
 
-/// Response shape from `GET /api/v1/provider/orgs`.
+/// Response shape from `GET /v1/provider/orgs`.
 #[derive(Deserialize)]
 struct ProviderOrgsResponse {
     orgs: Vec<OrgSummary>,
 }
 
-/// Calls `GET {base_url}/api/v1/provider/orgs?provider={provider}` with the
+/// Calls `GET {base_url}/v1/provider/orgs?provider={provider}` with the
 /// license token and returns the list of provider orgs.
 pub async fn list_provider_orgs_with_client(
     provider: &str,
@@ -95,7 +95,7 @@ pub async fn list_provider_orgs_with_client(
     base_url: &str,
     token: &str,
 ) -> Result<Vec<OrgSummary>, String> {
-    let url = format!("{}/api/v1/provider/orgs?provider={}", base_url, provider);
+    let url = format!("{}/v1/provider/orgs?provider={}", base_url, provider);
     let resp = client
         .get(&url)
         .bearer_auth(token)
@@ -212,7 +212,7 @@ mod tests {
     async fn test_list_provider_orgs_returns_vec_on_success() {
         let server = MockServer::start();
         server.mock(|when, then| {
-            when.method(GET).path("/api/v1/provider/orgs")
+            when.method(GET).path("/v1/provider/orgs")
                 .query_param("provider", "github");
             then.status(200).json_body(serde_json::json!({
                 "orgs": [
@@ -250,7 +250,7 @@ mod tests {
     async fn test_list_provider_orgs_returns_session_expired_on_401() {
         let server = MockServer::start();
         server.mock(|when, then| {
-            when.method(GET).path("/api/v1/provider/orgs");
+            when.method(GET).path("/v1/provider/orgs");
             then.status(401);
         });
 
@@ -264,7 +264,7 @@ mod tests {
     async fn test_list_provider_orgs_returns_scope_not_granted_on_403() {
         let server = MockServer::start();
         server.mock(|when, then| {
-            when.method(GET).path("/api/v1/provider/orgs");
+            when.method(GET).path("/v1/provider/orgs");
             then.status(403).json_body(serde_json::json!({ "error": "scope_not_granted" }));
         });
 
@@ -278,7 +278,7 @@ mod tests {
     async fn test_list_provider_orgs_passes_provider_query_param() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
-            when.method(GET).path("/api/v1/provider/orgs")
+            when.method(GET).path("/v1/provider/orgs")
                 .query_param("provider", "gitlab");
             then.status(200).json_body(serde_json::json!({ "orgs": [] }));
         });
