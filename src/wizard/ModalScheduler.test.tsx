@@ -18,7 +18,13 @@ const defaultProps = {
   setSchedulerLinked: vi.fn(),
 };
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'list_connected_providers') return [];
+    return undefined;
+  });
+});
 
 describe('ModalScheduler — picker', () => {
   it('test_renders_provider_options_and_skip', () => {
@@ -58,30 +64,29 @@ describe('ModalScheduler — picker', () => {
   });
 });
 
-describe('ModalScheduler — after connecting first provider', () => {
-  async function connectZernio() {
-    mockInvoke.mockResolvedValue(undefined);
-    render(<ModalScheduler {...defaultProps} />);
-    await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
-    await userEvent.type(screen.getByRole('textbox'), 'my-api-key');
-    await userEvent.click(screen.getByRole('button', { name: /connect/i }));
-    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
-  }
+async function connectZernio(overrides: { onNext?: () => void; setSchedulerLinked?: (b: boolean) => void } = {}) {
+  render(<ModalScheduler {...defaultProps} {...overrides} />);
+  await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
+  await userEvent.type(screen.getByRole('textbox'), 'my-api-key');
+  await userEvent.click(screen.getByRole('button', { name: /connect/i }));
+  await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+}
 
+describe('ModalScheduler — after connecting first provider', () => {
   it('test_stays_on_picker_without_advancing', async () => {
     const onNext = vi.fn();
-    mockInvoke.mockResolvedValue(undefined);
-    render(<ModalScheduler {...defaultProps} onNext={onNext} />);
-    await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
-    await userEvent.type(screen.getByRole('textbox'), 'my-api-key');
-    await userEvent.click(screen.getByRole('button', { name: /connect/i }));
-    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+    await connectZernio({ onNext });
     expect(onNext).not.toHaveBeenCalled();
   });
 
-  it('test_connected_provider_button_is_disabled', async () => {
+  it('test_connected_provider_button_shows_connected_badge', async () => {
     await connectZernio();
-    expect((screen.getByRole('button', { name: /zernio/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected');
+  });
+
+  it('test_connected_provider_button_remains_clickable', async () => {
+    await connectZernio();
+    expect((screen.getByRole('button', { name: /zernio/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('test_skip_is_hidden', async () => {
@@ -96,28 +101,71 @@ describe('ModalScheduler — after connecting first provider', () => {
 
   it('test_next_button_calls_onNext', async () => {
     const onNext = vi.fn();
-    mockInvoke.mockResolvedValue(undefined);
-    render(<ModalScheduler {...defaultProps} onNext={onNext} />);
-    await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
-    await userEvent.type(screen.getByRole('textbox'), 'my-api-key');
-    await userEvent.click(screen.getByRole('button', { name: /connect/i }));
-    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+    await connectZernio({ onNext });
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     expect(onNext).toHaveBeenCalledOnce();
   });
 
   it('test_sets_scheduler_linked_true', async () => {
     const setSchedulerLinked = vi.fn();
-    mockInvoke.mockResolvedValue(undefined);
-    render(<ModalScheduler {...defaultProps} setSchedulerLinked={setSchedulerLinked} />);
-    await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
-    await userEvent.type(screen.getByRole('textbox'), 'my-api-key');
-    await userEvent.click(screen.getByRole('button', { name: /connect/i }));
-    await waitFor(() => expect(setSchedulerLinked).toHaveBeenCalledWith(true));
+    await connectZernio({ setSchedulerLinked });
+    expect(setSchedulerLinked).toHaveBeenCalledWith(true);
   });
 
   it('test_second_provider_button_remains_enabled', async () => {
     await connectZernio();
     expect((screen.getByRole('button', { name: /upload post/i }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe('ModalScheduler — pre-connected providers', () => {
+  function setupPreConnected(providers: string[]) {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_connected_providers') return providers;
+      return undefined;
+    });
+  }
+
+  it('shows Connected badge on button for pre-connected provider', async () => {
+    setupPreConnected(['zernio']);
+    render(<ModalScheduler {...defaultProps} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
+    );
+  });
+
+  it('pre-connected provider button is not disabled', async () => {
+    setupPreConnected(['zernio']);
+    render(<ModalScheduler {...defaultProps} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
+    );
+    expect((screen.getByRole('button', { name: /zernio/i }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('clicking a pre-connected button still opens key entry', async () => {
+    setupPreConnected(['zernio']);
+    render(<ModalScheduler {...defaultProps} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
+    expect(screen.getByRole('textbox')).toBeDefined();
+  });
+
+  it('Next is visible immediately when a provider is pre-connected', async () => {
+    setupPreConnected(['zernio']);
+    render(<ModalScheduler {...defaultProps} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /next/i })).toBeDefined());
+    expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
+  });
+
+  it('unconnected provider button shows no Connected badge', async () => {
+    setupPreConnected(['zernio']);
+    render(<ModalScheduler {...defaultProps} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
+    );
+    expect(screen.getByRole('button', { name: /upload post/i }).textContent).not.toContain('Connected');
   });
 });

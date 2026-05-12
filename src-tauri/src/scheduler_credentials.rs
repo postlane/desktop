@@ -332,6 +332,27 @@ pub fn has_provider_credential(repo_id: String, provider: String, app: tauri::Ap
     false
 }
 
+pub fn list_connected_providers_impl<F>(repo_id: Option<&str>, has_cred: F) -> Vec<String>
+where
+    F: Fn(&str, Option<&str>) -> bool,
+{
+    VALID_PROVIDERS
+        .iter()
+        .filter(|&&p| has_cred(p, repo_id))
+        .map(|&p| p.to_string())
+        .collect()
+}
+
+/// Returns the names of all providers that have a credential stored.
+/// Safe to call from the frontend — does not expose credential values.
+#[tauri::command]
+pub fn list_connected_providers(repo_id: Option<String>, app: tauri::AppHandle) -> Vec<String> {
+    list_connected_providers_impl(repo_id.as_deref(), |provider, rid| {
+        let keys = get_credential_keyring_key(provider, rid);
+        keys.iter().any(|key| matches!(app.keyring().get_password("postlane", key), Ok(Some(_))))
+    })
+}
+
 #[tauri::command]
 pub fn get_libsecret_status(state: State<AppState>) -> Result<Option<bool>, String> {
     let flag = state
@@ -616,6 +637,40 @@ mod tests {
     #[test]
     fn credential_found_returns_false_silently_on_not_found_error() {
         assert!(!credential_found("postlane/zernio/r1", Err("no entry found".to_string())));
+    }
+
+    // --- list_connected_providers ---
+
+    #[test]
+    fn test_list_connected_providers_empty_when_none_configured() {
+        let result = list_connected_providers_impl(None, |_, _| false);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_list_connected_providers_returns_single_provider() {
+        let result = list_connected_providers_impl(None, |p, _| p == "zernio");
+        assert_eq!(result, vec!["zernio"]);
+    }
+
+    #[test]
+    fn test_list_connected_providers_returns_multiple_providers() {
+        let result = list_connected_providers_impl(None, |p, _| p == "zernio" || p == "upload_post");
+        assert!(result.contains(&"zernio".to_string()));
+        assert!(result.contains(&"upload_post".to_string()));
+    }
+
+    #[test]
+    fn test_list_connected_providers_passes_repo_id_to_closure() {
+        let result = list_connected_providers_impl(Some("r1"), |_, rid| rid == Some("r1"));
+        assert_eq!(result.len(), VALID_PROVIDERS.len(), "all providers should match when repo_id matches");
+    }
+
+    #[test]
+    fn test_list_connected_providers_excludes_unconfigured_providers() {
+        let result = list_connected_providers_impl(None, |p, _| p == "zernio");
+        assert!(!result.contains(&"upload_post".to_string()));
+        assert!(!result.contains(&"buffer".to_string()));
     }
 
 }
