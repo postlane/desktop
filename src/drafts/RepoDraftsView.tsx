@@ -66,6 +66,44 @@ function useRepoDraftsState(repoId: string, onOpenSchedulerSettings?: () => void
   };
 }
 
+function repoBasename(path: string): string {
+  return path.split(/[/\\]/).filter(Boolean).pop() ?? path;
+}
+
+function PostList({ posts, onRefresh }: { posts: DraftPost[]; onRefresh: () => void }) {
+  return (
+    <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      {posts.map((post) => (
+        <PostCard
+          key={`${post.repo_id}-${post.post_folder}`}
+          post={post}
+          onApproved={onRefresh}
+          onDismissed={onRefresh}
+        />
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceDrafts({ posts, onRefresh }: { posts: DraftPost[]; onRefresh: () => void }) {
+  const paths = [...new Set(posts.map((p) => p.repo_path))].sort();
+  if (paths.length <= 1) {
+    return <PostList posts={posts} onRefresh={onRefresh} />;
+  }
+  return (
+    <>
+      {paths.map((path) => (
+        <div key={path}>
+          <div className="px-5 pt-4 pb-2">
+            <h2 className="is-size-7 has-text-weight-semibold has-text-grey">{repoBasename(path)}</h2>
+          </div>
+          <PostList posts={posts.filter((p) => p.repo_path === path)} onRefresh={onRefresh} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 function DraftsError({ message }: { message: string }) {
   return (
     <div role="alert" className="notification is-danger is-light mx-5 mt-5 is-size-7">
@@ -121,16 +159,7 @@ export default function RepoDraftsView({ repoId, onOpenSchedulerSettings }: Prop
           </p>
         </div>
       ) : (
-        <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          {posts.map((post) => (
-            <PostCard
-              key={`${post.repo_id}-${post.post_folder}`}
-              post={post}
-              onApproved={refresh}
-              onDismissed={refresh}
-            />
-          ))}
-        </div>
+        <WorkspaceDrafts posts={posts} onRefresh={refresh} />
       )}
     </>
   );

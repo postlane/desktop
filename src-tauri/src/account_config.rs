@@ -20,12 +20,8 @@ pub fn get_repo_config_impl(
         .find(|r| r.id == repo_id)
         .ok_or_else(|| format!("Repo '{}' not in registered repos", repo_id))?;
 
-    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let repo_path = PathBuf::from(&repo.path);
+    let config = crate::config_merge::read_merged_repo_config(&repo_path)?;
 
     let provider_name = config["scheduler"]["provider"]
         .as_str()
@@ -96,7 +92,7 @@ pub async fn list_profiles_for_repo(
         format!("No {} API key configured. Add it in Settings → Scheduler.", provider_name)
     })?;
 
-    let provider = build_scheduling_provider(&provider_name, api_key)?;
+    let provider = crate::providers::scheduling::build_scheduling_provider(&provider_name, api_key)?;
     provider.list_profiles().await.map_err(|e: ProviderError| e.to_string())
 }
 
@@ -159,30 +155,6 @@ pub fn get_account_ids(
     Ok(account_ids)
 }
 
-/// Builds a scheduling provider from its name and API key.
-/// Shared by `list_profiles_for_repo` and `engagement_sync`.
-pub fn build_scheduling_provider(
-    name: &str,
-    api_key: String,
-) -> Result<Box<dyn crate::providers::scheduling::SchedulingProvider>, String> {
-    use crate::providers::scheduling::ayrshare::AyrshareProvider;
-    use crate::providers::scheduling::buffer::BufferProvider;
-    use crate::providers::scheduling::outstand::OutstandProvider;
-    use crate::providers::scheduling::publer::PublerProvider;
-    use crate::providers::scheduling::substack_notes::SubstackNotesProvider;
-    use crate::providers::scheduling::webhook::WebhookProvider;
-    use crate::providers::scheduling::zernio::ZernioProvider;
-    Ok(match name {
-        "zernio" => Box::new(ZernioProvider::new(api_key)),
-        "buffer" => Box::new(BufferProvider::new(api_key)),
-        "ayrshare" => Box::new(AyrshareProvider::new(api_key)),
-        "publer" => Box::new(PublerProvider::new(api_key)),
-        "outstand" => Box::new(OutstandProvider::new(api_key)),
-        "substack_notes" => Box::new(SubstackNotesProvider::new(api_key)),
-        "webhook" => Box::new(WebhookProvider::new(api_key)),
-        other => return Err(format!("Unknown scheduler provider: {}", other)),
-    })
-}
 
 #[cfg(test)]
 mod tests {
@@ -198,18 +170,6 @@ mod tests {
         let config_path = config_dir.join("config.json");
         fs::write(&config_path, json).expect("write config.json");
         config_path
-    }
-
-    #[test]
-    fn test_build_scheduling_provider_unknown_returns_error() {
-        let err = build_scheduling_provider("nonexistent-provider", "key".to_string())
-            .err().expect("should return error for unknown provider");
-        assert!(err.contains("Unknown scheduler provider"), "Error: {}", err);
-    }
-
-    #[test]
-    fn test_build_scheduling_provider_known_succeeds() {
-        assert!(build_scheduling_provider("zernio", "test-key".to_string()).is_ok());
     }
 
     #[test]
@@ -370,6 +330,30 @@ mod tests {
         }]);
         let result = get_repo_config_impl("r1", &state);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_repo_config_reads_provider_from_config_local_json() {
+        let dir = std::env::temp_dir().join("postlane_test_get_repo_config_local_ac");
+        let _ = fs::remove_dir_all(&dir);
+        // config.json has no scheduler.provider; config.local.json overrides
+        write_config(&dir, r#"{"version":1}"#);
+        let local_path = dir.join(".postlane").join("config.local.json");
+        fs::write(&local_path, r#"{"scheduler":{"provider":"zernio"}}"#)
+            .expect("write config.local.json");
+
+        let state = make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "My Repo".to_string(),
+            path: dir.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+
+        let result = get_repo_config_impl("r1", &state).expect("should succeed");
+        assert_eq!(result.1, "zernio");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

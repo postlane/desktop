@@ -219,11 +219,43 @@ where
     }
 }
 
+/// Builds a scheduling provider from its name and API key.
+pub fn build_scheduling_provider(
+    name: &str,
+    api_key: String,
+) -> Result<Box<dyn SchedulingProvider>, String> {
+    Ok(match name {
+        "zernio" => Box::new(zernio::ZernioProvider::new(api_key)),
+        "buffer" => Box::new(buffer::BufferProvider::new(api_key)),
+        "ayrshare" => Box::new(ayrshare::AyrshareProvider::new(api_key)),
+        "publer" => Box::new(publer::PublerProvider::new(api_key)),
+        "outstand" => Box::new(outstand::OutstandProvider::new(api_key)),
+        "substack_notes" => Box::new(substack_notes::SubstackNotesProvider::new(api_key)),
+        "webhook" => Box::new(webhook::WebhookProvider::new(api_key)),
+        other => return Err(format!("Unknown scheduler provider: {}", other)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+
+    // ── build_scheduling_provider ─────────────────────────────────────────────
+
+    #[test]
+    fn test_build_scheduling_provider_unknown_returns_error() {
+        let err = build_scheduling_provider("nonexistent-provider", "key".to_string())
+            .err()
+            .expect("should return error for unknown provider");
+        assert!(err.contains("Unknown scheduler provider"), "Error: {}", err);
+    }
+
+    #[test]
+    fn test_build_scheduling_provider_known_succeeds() {
+        assert!(build_scheduling_provider("zernio", "test-key".to_string()).is_ok());
+    }
 
     // A provider that only overrides list_profiles — test_connection should use the default.
     struct MinimalProvider {

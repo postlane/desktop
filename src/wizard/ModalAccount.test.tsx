@@ -50,14 +50,19 @@ describe('ModalAccount', () => {
     expect(screen.queryByRole('button', { name: /already signed in/i })).toBeNull();
   });
 
-  it('test_license_activated_event_calls_onNext', async () => {
+  it('test_license_activated_event_calls_onNext_with_provider', async () => {
     const onNext = vi.fn();
     render(<ModalAccount onNext={onNext} />);
-    await waitFor(() => expect(mockListen).toHaveBeenCalledWith('license:activated', expect.any(Function)));
-    const entry = mockListen.mock.calls.find(([ev]) => ev === 'license:activated');
-    if (!entry) throw new Error('license:activated listener not registered');
-    act(() => (entry[1] as () => void)());
-    expect(onNext).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole('button', { name: /github/i }));
+    // Effect re-runs after activeProvider is set — use the most recently registered listener
+    await waitFor(() => {
+      const entries = mockListen.mock.calls.filter(([ev]) => ev === 'license:activated');
+      expect(entries.length).toBeGreaterThanOrEqual(2);
+    });
+    const entries = mockListen.mock.calls.filter(([ev]) => ev === 'license:activated');
+    const latest = entries[entries.length - 1];
+    act(() => (latest[1] as () => void)());
+    expect(onNext).toHaveBeenCalledWith('github');
   });
 
   it('test_license_error_event_shows_message', async () => {

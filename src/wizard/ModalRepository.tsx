@@ -2,9 +2,18 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import WizardShell from './WizardShell';
 
 const CLI_COMMAND = 'npx @postlane/cli init';
+
+interface Repo {
+  id: string;
+  name: string;
+  path: string;
+  active: boolean;
+  added_at: string;
+}
 
 interface Props {
   workspaceId: string;
@@ -44,43 +53,73 @@ function RepoDone({ repoName, onComplete, onAddAnother }: DoneProps) {
   );
 }
 
-interface DetectingProps {
+interface PickerProps {
   onBack: () => void;
+  connecting: boolean;
+  connectError: string | null;
+  cliExpanded: boolean;
   copied: boolean;
+  onChooseFolder: () => void;
+  onToggleCli: () => void;
   onCopy: () => void;
 }
 
-function RepoDetecting({ onBack, copied, onCopy }: DetectingProps) {
+function RepoPickerStep({ onBack, connecting, connectError, cliExpanded, copied, onChooseFolder, onToggleCli, onCopy }: PickerProps) {
   return (
     <WizardShell step={5} totalSteps={5} title="Connect a repo"
-      subtitle="Run this command in your repo's root directory."
+      subtitle="Point Postlane at a git repository on your computer."
       onNext={() => {}} onBack={onBack} nextHidden>
       <div>
-        <div className="field has-addons mb-4">
-          <div className="control is-expanded">
-            <code className="input is-small is-family-code"
-              style={{ display: 'flex', alignItems: 'center', background: '#f5f5f5', userSelect: 'all' }}>
-              {CLI_COMMAND}
-            </code>
-          </div>
-          <div className="control">
-            <button className="button is-small is-light" onClick={onCopy}>
-              {copied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
+        <button className="button is-primary mb-3" onClick={onChooseFolder} disabled={connecting}>
+          {connecting ? 'Connecting…' : 'Choose folder'}
+        </button>
+        {connectError && (
+          <p className="help is-danger mb-3">{connectError}</p>
+        )}
+        <div>
+          <button className="button is-ghost is-small" onClick={onToggleCli}>
+            Set up manually with CLI
+          </button>
+          {cliExpanded && (
+            <div className="field has-addons mt-2">
+              <div className="control is-expanded">
+                <code className="input is-small is-family-code"
+                  style={{ display: 'flex', alignItems: 'center', background: '#f5f5f5', userSelect: 'all' }}>
+                  {CLI_COMMAND}
+                </code>
+              </div>
+              <div className="control">
+                <button className="button is-small is-light" onClick={onCopy}>
+                  {copied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          )}
+          {cliExpanded && (
+            <p className="is-size-7 has-text-grey mt-2">
+              This window will update automatically when your repo is detected.
+            </p>
+          )}
         </div>
-        <p className="is-size-7 has-text-grey">
-          It takes about 30 seconds. This window will update automatically when your repo is detected.
-        </p>
       </div>
     </WizardShell>
   );
 }
 
-export default function ModalRepository({ workspaceId, onBack, onComplete, pollIntervalMs = 3000 }: Props) {
+interface RepoConnectState {
+  detectedRepo: string | null;
+  detecting: boolean;
+  connecting: boolean;
+  connectError: string | null;
+  connectFolder: () => Promise<void>;
+  reset: () => void;
+}
+
+function useRepoConnect(workspaceId: string, pollIntervalMs: number): RepoConnectState {
   const [detectedRepo, setDetectedRepo] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!detecting) return;
@@ -99,6 +138,37 @@ export default function ModalRepository({ workspaceId, onBack, onComplete, pollI
     return () => clearInterval(interval);
   }, [detecting, workspaceId, pollIntervalMs]);
 
+  async function connectFolder() {
+    const result = await openDialog({ directory: true });
+    if (typeof result !== 'string') return;
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const repo = await invoke<Repo>('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
+      setDetectedRepo(repo.name);
+      setDetecting(false);
+      setConnecting(false);
+    } catch (err) {
+      setConnectError(typeof err === 'string' ? err : 'Failed to connect repository');
+      setConnecting(false);
+    }
+  }
+
+  function reset() {
+    setDetectedRepo(null);
+    setDetecting(true);
+    setConnecting(false);
+    setConnectError(null);
+  }
+
+  return { detectedRepo, detecting, connecting, connectError, connectFolder, reset };
+}
+
+export default function ModalRepository({ workspaceId, onBack, onComplete, pollIntervalMs = 3000 }: Props) {
+  const { detectedRepo, detecting, connecting, connectError, connectFolder, reset } = useRepoConnect(workspaceId, pollIntervalMs);
+  const [cliExpanded, setCliExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   async function handleCopy() {
     await navigator.clipboard.writeText(CLI_COMMAND);
     setCopied(true);
@@ -106,7 +176,18 @@ export default function ModalRepository({ workspaceId, onBack, onComplete, pollI
   }
 
   if (!detecting && detectedRepo) {
-    return <RepoDone repoName={detectedRepo} onComplete={onComplete} onAddAnother={() => setDetecting(true)} />;
+    return <RepoDone repoName={detectedRepo} onComplete={onComplete} onAddAnother={reset} />;
   }
-  return <RepoDetecting onBack={onBack} copied={copied} onCopy={handleCopy} />;
+  return (
+    <RepoPickerStep
+      onBack={onBack}
+      connecting={connecting}
+      connectError={connectError}
+      cliExpanded={cliExpanded}
+      copied={copied}
+      onChooseFolder={connectFolder}
+      onToggleCli={() => setCliExpanded(e => !e)}
+      onCopy={handleCopy}
+    />
+  );
 }

@@ -4,9 +4,9 @@ import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 import SchedulerConnect from '../settings/SchedulerConnect';
-import { ZernioLogo, PublerLogo } from '../assets/logos';
+import { ZernioLogo, UploadPostLogo } from '../assets/logos';
 
-type Provider = 'zernio' | 'publer';
+type Provider = 'zernio' | 'upload_post';
 
 interface PickerProps {
   onSelect: (p: Provider) => void;
@@ -30,11 +30,12 @@ function ProviderPicker({ onSelect, connected }: PickerProps) {
         <button
           className="button"
           style={{ flex: '1 1 0', background: 'white', color: '#1a1a1a', border: '1px solid #e0e0e0' }}
-          onClick={() => onSelect('publer')}
-          disabled={connected.includes('publer')}
+          onClick={() => onSelect('upload_post')}
+          disabled={connected.includes('upload_post')}
         >
-          <PublerLogo size={16} style={{ marginRight: 8 }} />
-          Publer
+          <UploadPostLogo size={16} style={{ marginRight: 8 }} />
+          <span>Upload Post</span>
+          <span className="tag is-light is-small ml-2">10 free</span>
         </button>
       </div>
       <p className="is-size-7 has-text-grey">

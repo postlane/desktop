@@ -46,6 +46,9 @@ pub struct PostMeta {
     pub status: Option<PostStatus>,
     /// Error message when status = Some(PostStatus::Failed).
     pub error: Option<String>,
+    /// Child repo path that triggered this draft (workspace mode only).
+    /// `None` in single-repo mode or in pre-20.8 `meta.json` files — never treated as error.
+    pub repo_path: Option<String>,
 }
 
 impl PostMeta {
@@ -194,6 +197,31 @@ mod tests {
             assert_ne!(meta.status, Some(PostStatus::Failed),
                 "legacy status '{}' must not be treated as failed", legacy);
         }
+    }
+
+    #[test]
+    fn test_post_meta_absent_repo_path_reads_as_none() {
+        let dir = std::env::temp_dir().join("postlane_test_pm_no_repo_path");
+        fs::create_dir_all(&dir).expect("create dir");
+        let path = dir.join("meta.json");
+        // Pre-20.8 meta.json with no repo_path field
+        fs::write(&path, r#"{"model_name":"claude-test"}"#).expect("write");
+        let meta = PostMeta::load(&path).expect("load");
+        assert!(meta.repo_path.is_none(), "absent repo_path must be None, not an error");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_post_meta_repo_path_round_trips() {
+        let dir = std::env::temp_dir().join("postlane_test_pm_repo_path_rt");
+        fs::create_dir_all(&dir).expect("create dir");
+        let path = dir.join("meta.json");
+        let mut meta = PostMeta::default();
+        meta.repo_path = Some("/workspace/child-repo".to_string());
+        meta.save(&path).expect("save");
+        let loaded = PostMeta::load(&path).expect("load");
+        assert_eq!(loaded.repo_path, Some("/workspace/child-repo".to_string()));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

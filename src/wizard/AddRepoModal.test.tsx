@@ -29,17 +29,7 @@ describe('AddRepoModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('calls add_repo with the selected path on browse', async () => {
-    mockOpen.mockResolvedValue('/Users/test/my-repo');
-    mockInvoke.mockResolvedValue({ id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', active: true, added_at: '2026-01-01T00:00:00Z' });
-
-    render(<AddRepoModal onClose={vi.fn()} projectId="" />);
-    fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
-
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('add_repo', { path: '/Users/test/my-repo' }));
-  });
-
-  it('passes projectId to write_project_id_to_config when projectId is non-empty', async () => {
+  it('calls connect_repo_from_desktop with repoPath and projectId', async () => {
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue({ id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', active: true, added_at: '2026-01-01T00:00:00Z' });
 
@@ -47,33 +37,45 @@ describe('AddRepoModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
 
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('write_project_id_to_config', {
+      expect(mockInvoke).toHaveBeenCalledWith('connect_repo_from_desktop', {
         repoPath: '/Users/test/my-repo',
         projectId: 'proj-abc',
       })
     );
   });
 
-  it('does not call write_project_id_to_config when projectId is empty', async () => {
+  it('does not call add_repo or write_project_id_to_config', async () => {
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue({ id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', active: true, added_at: '2026-01-01T00:00:00Z' });
 
-    render(<AddRepoModal onClose={vi.fn()} projectId="" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="proj-abc" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
 
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('add_repo', { path: '/Users/test/my-repo' }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
+    expect(mockInvoke).not.toHaveBeenCalledWith('add_repo', expect.anything());
     expect(mockInvoke).not.toHaveBeenCalledWith('write_project_id_to_config', expect.anything());
   });
 
-  it('shows error and stays open when add_repo rejects', async () => {
+  it('calls onClose on success', async () => {
     const onClose = vi.fn();
     mockOpen.mockResolvedValue('/Users/test/my-repo');
-    mockInvoke.mockRejectedValue(new Error('config.json not found'));
+    mockInvoke.mockResolvedValue({ id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', active: true, added_at: '2026-01-01T00:00:00Z' });
 
     render(<AddRepoModal onClose={onClose} projectId="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
 
-    expect(await screen.findByText(/run.*postlane init/i)).toBeInTheDocument();
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it('shows backend error message and stays open when connect_repo_from_desktop rejects', async () => {
+    const onClose = vi.fn();
+    mockOpen.mockResolvedValue('/Users/test/my-repo');
+    mockInvoke.mockRejectedValue('NotAGitRepo: path is not a git repository');
+
+    render(<AddRepoModal onClose={onClose} projectId="" />);
+    fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
+
+    expect(await screen.findByText(/not a git repository/i)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
 });

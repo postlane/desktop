@@ -5,7 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faChevronRight } from '@fortawesome/free-solid-svg-icons';
 import { useProjectsContext } from '../context/ProjectsProvider';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
-import { deriveOrgColour } from '../utils/orgColour';
+import { deriveOrgColour } from '../formatting/orgColour';
 import { useNavPersistence } from '../hooks/useNavPersistence';
 import type { Project, DraftPost, ViewSelection } from '../types';
 

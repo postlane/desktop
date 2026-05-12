@@ -44,6 +44,15 @@ pub fn classify(url: &str) -> DeepLinkPath {
     }
 }
 
+/// Extracts a valid GitHub App installation ID from `postlane://oauth/callback?installation_id=...`.
+/// Returns `None` if the parameter is absent, non-numeric, or zero.
+pub fn installation_id_from_url(url: &str) -> Option<u64> {
+    let parsed = url::Url::parse(url).ok()?;
+    let id_str = parsed.query_pairs().find(|(k, _)| k == "installation_id")?.1;
+    let id: u64 = id_str.parse().ok()?;
+    if id == 0 { None } else { Some(id) }
+}
+
 /// Returns a log-safe representation of a deep link URL: `scheme://host/path` only.
 /// The query string and fragment are never included.
 pub fn log_safe_url(url: &str) -> String {
@@ -104,5 +113,35 @@ mod tests {
         let safe = log_safe_url("postlane://activate?token=SECRET.JWT.TOKEN");
         assert!(!safe.contains("SECRET"), "token must not appear in log");
         assert_eq!(safe, "postlane://activate");
+    }
+
+    #[test]
+    fn test_installation_id_from_url_parses_valid_id() {
+        let id = installation_id_from_url("postlane://oauth/callback?installation_id=12345678");
+        assert_eq!(id, Some(12345678));
+    }
+
+    #[test]
+    fn test_installation_id_from_url_returns_none_when_param_missing() {
+        let id = installation_id_from_url("postlane://oauth/callback");
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn test_installation_id_from_url_returns_none_for_non_numeric() {
+        let id = installation_id_from_url("postlane://oauth/callback?installation_id=abc");
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn test_installation_id_from_url_returns_none_for_zero() {
+        let id = installation_id_from_url("postlane://oauth/callback?installation_id=0");
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn test_installation_id_from_url_ignores_other_params() {
+        let id = installation_id_from_url("postlane://oauth/callback?setup_action=install&installation_id=99001122");
+        assert_eq!(id, Some(99001122));
     }
 }

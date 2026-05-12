@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { PLATFORM_CFG } from '../constants/platformConfig';
-import { formatRelativeTime, formatScheduled } from '../utils/timeFormat';
+import { formatRelativeTime, formatScheduled } from '../formatting/timeFormat';
 import type { DraftPost, PublishedPost } from '../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

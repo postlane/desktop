@@ -171,6 +171,33 @@ describe('RepoDraftsView — meta-changed events', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 20.8.6 — workspace grouping: group by repo_path when multiple child paths
+// ---------------------------------------------------------------------------
+
+describe('RepoDraftsView — workspace grouping (20.8.6)', () => {
+  it('shows child repo name as a heading when drafts come from multiple child paths', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ repo_id: 'ws', repo_name: 'my-workspace', repo_path: '/ws/repo-a', post_folder: 'p1', trigger: 'Post A' }),
+      makePost({ repo_id: 'ws', repo_name: 'my-workspace', repo_path: '/ws/repo-b', post_folder: 'p2', trigger: 'Post B' }),
+    ]);
+    render(<RepoDraftsView repoId="ws" />);
+    await waitFor(() => screen.getByText('Post A'));
+    expect(screen.getByText('repo-a')).toBeInTheDocument();
+    expect(screen.getByText('repo-b')).toBeInTheDocument();
+  });
+
+  it('does not show child repo headings when all drafts share the same path', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ repo_path: '/same/path', post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ repo_path: '/same/path', post_folder: 'p2', trigger: 'Post 2' }),
+    ]);
+    render(<RepoDraftsView repoId="r1" />);
+    await waitFor(() => screen.getByText('Post 1'));
+    expect(screen.getAllByRole('heading').length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fetch error
 // ---------------------------------------------------------------------------
 

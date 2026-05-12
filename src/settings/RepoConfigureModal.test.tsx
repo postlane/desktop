@@ -310,6 +310,27 @@ describe('RepoConfigureModal — friendly keychain errors (§15 review fix 8)', 
   });
 });
 
+describe('RepoConfigureModal — isOwner gate (20.7.10)', () => {
+  it('hides "Use a different account" button when isOwner is false', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} isOwner={false} />);
+    await waitFor(() => expect(screen.getByText(/using default credentials/i)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /use a different account/i })).not.toBeInTheDocument();
+  });
+
+  it('shows "Use a different account" button when isOwner is true', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} isOwner={true} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /use a different account/i })).toBeInTheDocument());
+  });
+
+  it('shows "Use a different account" button when isOwner is not specified (default)', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /use a different account/i })).toBeInTheDocument());
+  });
+});
+
 describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () => {
   it('shows a "no scheduler configured" message when currentProvider is null', () => {
     render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);

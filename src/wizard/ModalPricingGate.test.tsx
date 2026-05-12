@@ -14,18 +14,19 @@ const mockOpenUrl = vi.mocked(openUrl);
 
 import ModalPricingGate from './ModalPricingGate';
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockInvoke.mockResolvedValue('none');
+});
 
 describe('ModalPricingGate', () => {
   it('test_subscribe_opens_billing_url', async () => {
-    mockInvoke.mockResolvedValue('none');
     render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} pollIntervalMs={50} maxAttempts={1} />);
     await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
     expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/billing');
   });
 
   it('test_polling_calls_check_billing_gate', async () => {
-    mockInvoke.mockResolvedValue('none');
     render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} pollIntervalMs={30} maxAttempts={2} />);
     await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
     await waitFor(() => {
@@ -42,7 +43,6 @@ describe('ModalPricingGate', () => {
   });
 
   it('test_check_again_shown_after_timeout', async () => {
-    mockInvoke.mockResolvedValue('none');
     render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} pollIntervalMs={30} maxAttempts={2} />);
     await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
     await waitFor(() => {
@@ -51,7 +51,6 @@ describe('ModalPricingGate', () => {
   });
 
   it('test_back_button_stops_polling', async () => {
-    mockInvoke.mockResolvedValue('none');
     const onBack = vi.fn();
     render(<ModalPricingGate onPaid={vi.fn()} onBack={onBack} pollIntervalMs={30} maxAttempts={100} />);
     await userEvent.click(screen.getByRole('button', { name: /subscribe/i }));
@@ -63,5 +62,26 @@ describe('ModalPricingGate', () => {
     // interval must not fire after back is clicked
     await new Promise(r => setTimeout(r, 120));
     expect(mockInvoke.mock.calls.length).toBe(countAfterBack);
+  });
+
+  it('test_skip_button_is_rendered', () => {
+    render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /skip/i })).toBeDefined();
+  });
+
+  it('test_skip_fetches_first_project_and_calls_onSkip', async () => {
+    const onSkip = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_projects') return [{ id: 'proj-existing', name: 'Postlane', workspace_type: 'personal', tier: 'free', billing_active: false, is_owner: true }];
+      return 'none';
+    });
+    render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} onSkip={onSkip} />);
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }));
+    await waitFor(() => expect(onSkip).toHaveBeenCalledWith('proj-existing'));
+  });
+
+  it('test_skip_not_shown_when_onSkip_not_provided', () => {
+    render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
   });
 });

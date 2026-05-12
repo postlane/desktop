@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
-type Provider = 'zernio' | 'publer' | 'outstand' | 'webhook' | 'mastodon';
+type Provider = 'zernio' | 'publer' | 'outstand' | 'upload_post' | 'webhook' | 'mastodon';
 
 const PROVIDER_HINTS: Partial<Record<Provider, { text: string; url: string; linkLabel: string }>> = {
   zernio: {
@@ -16,6 +16,11 @@ const PROVIDER_HINTS: Partial<Record<Provider, { text: string; url: string; link
     text: 'See our documentation on how to set up Publer.',
     url: 'https://docs.postlane.dev/scheduling/publer',
     linkLabel: 'Publer setup docs',
+  },
+  upload_post: {
+    text: 'See our documentation on how to set up Upload Post.',
+    url: 'https://docs.postlane.dev/scheduling/upload-post',
+    linkLabel: 'Upload Post setup docs',
   },
 };
 

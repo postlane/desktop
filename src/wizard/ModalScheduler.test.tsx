@@ -24,7 +24,7 @@ describe('ModalScheduler — picker', () => {
   it('test_renders_provider_options_and_skip', () => {
     render(<ModalScheduler {...defaultProps} />);
     expect(screen.getByRole('button', { name: /zernio/i })).toBeDefined();
-    expect(screen.getByRole('button', { name: /publer/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /upload post/i })).toBeDefined();
     expect(screen.getByRole('button', { name: /skip/i })).toBeDefined();
   });
 
@@ -34,9 +34,9 @@ describe('ModalScheduler — picker', () => {
     expect(screen.getByRole('textbox')).toBeDefined();
   });
 
-  it('test_selecting_publer_opens_key_entry', async () => {
+  it('test_selecting_upload_post_opens_key_entry', async () => {
     render(<ModalScheduler {...defaultProps} />);
-    await userEvent.click(screen.getByRole('button', { name: /publer/i }));
+    await userEvent.click(screen.getByRole('button', { name: /upload post/i }));
     expect(screen.getByRole('textbox')).toBeDefined();
   });
 
@@ -118,6 +118,6 @@ describe('ModalScheduler — after connecting first provider', () => {
 
   it('test_second_provider_button_remains_enabled', async () => {
     await connectZernio();
-    expect((screen.getByRole('button', { name: /publer/i }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: /upload post/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+pub use crate::project_api::{
+    check_billing_gate_with_client, check_project_status_with_client,
+    create_project_with_client, list_projects_with_client,
+    update_project_org_login_with_client,
+};
+
 use crate::app_state::AppState;
 use crate::init::atomic_write;
 use crate::license::POSTLANE_API_BASE;
@@ -23,6 +29,8 @@ pub struct ProjectSummary {
     pub tier: String,
     pub billing_active: bool,
     pub is_owner: bool,
+    #[serde(default)]
+    pub provider_org_login: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,6 +52,7 @@ pub enum CreateProjectError {
     InvalidName(String),
     InvalidWorkspaceType(String),
     NoFreeSlot,
+    OrgAlreadyRegistered,
     NoLicenseToken,
     Backend(String),
 }
@@ -54,6 +63,7 @@ impl std::fmt::Display for CreateProjectError {
             Self::InvalidName(msg) => write!(f, "Invalid project name: {}", msg),
             Self::InvalidWorkspaceType(t) => write!(f, "Invalid workspace type: '{}'. Must be personal, organization, or client", t),
             Self::NoFreeSlot => write!(f, "No free project slot. Subscribe at postlane.dev/billing"),
+            Self::OrgAlreadyRegistered => write!(f, "This GitHub/GitLab organisation is already linked to a Postlane project"),
             Self::NoLicenseToken => write!(f, "No license token — sign in at postlane.dev/login"),
             Self::Backend(msg) => write!(f, "Backend error: {}", msg),
         }
@@ -77,112 +87,6 @@ fn require_license_token(opt: Option<String>) -> Result<String, String> {
     opt.ok_or_else(|| "No license token — sign in at postlane.dev/login".to_string())
 }
 
-// ── Pure functions (injectable deps for testability) ─────────────────────────
-
-#[derive(Deserialize)]
-struct ProjectStatusResponse {
-    status: String,
-}
-
-/// Calls `GET {base_url}/v1/projects/{project_id}` and maps the response to a `ProjectStatus`.
-pub async fn check_project_status_with_client(
-    project_id: &str,
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-) -> ProjectStatus {
-    if validate_project_id(project_id).is_err() {
-        return ProjectStatus::NotFound;
-    }
-    let url = format!("{}/v1/projects/{}", base_url, project_id);
-    let resp = client.get(&url).bearer_auth(token).send().await;
-    match resp {
-        Ok(r) if r.status().is_success() => {
-            match r.json::<ProjectStatusResponse>().await {
-                Ok(body) if body.status == "owned" => ProjectStatus::Owned,
-                _ => ProjectStatus::NotFound,
-            }
-        }
-        Ok(r) if r.status().as_u16() == 401 || r.status().as_u16() == 404 => ProjectStatus::NotFound,
-        _ => ProjectStatus::Offline,
-    }
-}
-
-#[derive(Deserialize)]
-struct BillingGateResponse {
-    slot: String,
-}
-
-/// Calls `GET {base_url}/v1/projects/gate` and maps the response to a `BillingGate`.
-pub async fn check_billing_gate_with_client(
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-) -> BillingGate {
-    let url = format!("{}/v1/projects/gate", base_url);
-    let resp = client.get(&url).bearer_auth(token).send().await;
-    match resp {
-        Ok(r) if r.status().is_success() => {
-            match r.json::<BillingGateResponse>().await {
-                Ok(body) if body.slot == "free" => BillingGate::Free,
-                Ok(_) => BillingGate::None,
-                Err(_) => BillingGate::Offline,
-            }
-        }
-        _ => BillingGate::Offline,
-    }
-}
-
-#[derive(Deserialize)]
-struct CreateProjectResponse {
-    project_id: String,
-    name: String,
-    workspace_type: String,
-}
-
-const VALID_WORKSPACE_TYPES: &[&str] = &["personal", "organization", "client"];
-
-/// Calls `POST {base_url}/v1/projects` with `name` and `workspace_type`.
-/// Returns `(project_id, name, workspace_type)` on success.
-pub async fn create_project_with_client(
-    name: &str,
-    workspace_type: &str,
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-) -> Result<(String, String, String), CreateProjectError> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err(CreateProjectError::InvalidName("name cannot be empty".to_string()));
-    }
-    if trimmed.len() > 100 {
-        return Err(CreateProjectError::InvalidName("name cannot exceed 100 characters".to_string()));
-    }
-    if !VALID_WORKSPACE_TYPES.contains(&workspace_type) {
-        return Err(CreateProjectError::InvalidWorkspaceType(workspace_type.to_string()));
-    }
-
-    let url = format!("{}/v1/projects", base_url);
-    let resp = client
-        .post(&url)
-        .bearer_auth(token)
-        .json(&serde_json::json!({ "name": trimmed, "workspace_type": workspace_type }))
-        .send()
-        .await
-        .map_err(|e| CreateProjectError::Backend(e.to_string()))?;
-
-    match resp.status().as_u16() {
-        200 => {
-            let body: CreateProjectResponse = resp
-                .json()
-                .await
-                .map_err(|e| CreateProjectError::Backend(e.to_string()))?;
-            Ok((body.project_id, body.name, body.workspace_type))
-        }
-        402 => Err(CreateProjectError::NoFreeSlot),
-        _ => Err(CreateProjectError::Backend(format!("unexpected status {}", resp.status()))),
-    }
-}
 
 /// Writes `project_id` into `.postlane/config.json` atomically.
 /// Path must be in the registered repos list (security rule 2).
@@ -324,33 +228,6 @@ pub async fn delete_project(
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct ListProjectsResponse {
-    projects: Vec<ProjectSummary>,
-}
-
-/// Calls `GET {base_url}/v1/projects` and returns the project list.
-/// Returns `Err(SESSION_EXPIRED_ERROR)` on 401; `Err(...)` on any other non-200.
-pub async fn list_projects_with_client(
-    client: &reqwest::Client,
-    base_url: &str,
-    token: &str,
-) -> Result<Vec<ProjectSummary>, String> {
-    let url = format!("{}/v1/projects", base_url);
-    let resp = client.get(&url).bearer_auth(token).send().await
-        .map_err(|e| format!("Backend error: {}", e))?;
-    let status = resp.status();
-    if status.as_u16() == 401 {
-        return Err(SESSION_EXPIRED_ERROR.to_string());
-    }
-    if !status.is_success() {
-        return Err(format!("Backend returned {}", status));
-    }
-    resp.json::<ListProjectsResponse>().await
-        .map(|r| r.projects)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
 #[tauri::command]
 pub async fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectSummary>, String> {
     let token = require_license_token(
@@ -454,16 +331,44 @@ pub async fn check_billing_gate(app: tauri::AppHandle) -> Result<String, String>
 }
 
 #[tauri::command]
-pub async fn create_project(name: String, workspace_type: String, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub async fn create_project(
+    name: String,
+    workspace_type: String,
+    provider_org_login: Option<String>,
+    provider_group_path: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
     let token = require_license_token(
         app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
     )?;
     let client = build_client();
     let (project_id, project_name, wt) =
-        create_project_with_client(&name, &workspace_type, &client, POSTLANE_API_BASE, &token)
+        create_project_with_client(
+            &name,
+            &workspace_type,
+            provider_org_login.as_deref(),
+            provider_group_path.as_deref(),
+            &client,
+            POSTLANE_API_BASE,
+            &token,
+        )
             .await
             .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "project_id": project_id, "name": project_name, "workspace_type": wt }))
+}
+
+/// Sets `provider_org_login` on an existing project. Used by the v1.2 upgrade flow.
+#[tauri::command]
+pub async fn update_project_org_login(
+    project_id: String,
+    org_login: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let token = require_license_token(
+        app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
+    )?;
+    let client = build_client();
+    update_project_org_login_with_client(&project_id, &org_login, &client, POSTLANE_API_BASE, &token).await
 }
 
 #[tauri::command]
@@ -560,40 +465,6 @@ mod tests {
         }
     }
 
-    // ── check_project_status ─────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_returns_owned_for_200_owned_response() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects/proj-123");
-            then.status(200).json_body(serde_json::json!({ "status": "owned", "tier": "free" }));
-        });
-
-        let status = check_project_status_with_client("proj-123", &build_test_client(), &server.base_url(), "tok").await;
-        assert_eq!(status, ProjectStatus::Owned);
-    }
-
-    #[tokio::test]
-    async fn test_returns_not_found_for_404_response() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects/proj-456");
-            then.status(404).json_body(serde_json::json!({ "id": "proj-456", "status": "not_found" }));
-        });
-
-        let status = check_project_status_with_client("proj-456", &build_test_client(), &server.base_url(), "tok").await;
-        assert_eq!(status, ProjectStatus::NotFound);
-    }
-
-    #[tokio::test]
-    async fn test_returns_offline_on_network_error() {
-        let status = check_project_status_with_client(
-            "proj-789", &build_test_client(), "http://127.0.0.1:19998", "tok",
-        ).await;
-        assert_eq!(status, ProjectStatus::Offline);
-    }
-
     // ── require_license_token ─────────────────────────────────────────────────
 
     #[test]
@@ -607,81 +478,6 @@ mod tests {
     fn test_require_license_token_returns_token_for_some() {
         let result = require_license_token(Some("tok-123".to_string()));
         assert_eq!(result.expect("require_license_token should return Ok for Some"), "tok-123");
-    }
-
-    // ── check_billing_gate ────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_gate_returns_free_for_new_user() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects/gate");
-            then.status(200).json_body(serde_json::json!({ "slot": "free" }));
-        });
-
-        let gate = check_billing_gate_with_client(&build_test_client(), &server.base_url(), "tok").await;
-        assert_eq!(gate, BillingGate::Free);
-    }
-
-    #[tokio::test]
-    async fn test_gate_returns_none_when_no_free_slot() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects/gate");
-            then.status(200).json_body(serde_json::json!({ "slot": "none" }));
-        });
-
-        let gate = check_billing_gate_with_client(&build_test_client(), &server.base_url(), "tok").await;
-        assert_eq!(gate, BillingGate::None);
-    }
-
-    #[tokio::test]
-    async fn test_gate_returns_offline_on_network_error() {
-        let gate = check_billing_gate_with_client(&build_test_client(), "http://127.0.0.1:19997", "tok").await;
-        assert_eq!(gate, BillingGate::Offline);
-    }
-
-    // ── create_project ───────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_creates_project_returns_id() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(POST).path("/v1/projects");
-            then.status(200).json_body(serde_json::json!({
-                "project_id": "new-uuid-abc", "name": "My Project", "tier": "free",
-                "workspace_type": "personal"
-            }));
-        });
-
-        let result = create_project_with_client("My Project", "personal", &build_test_client(), &server.base_url(), "tok").await;
-        let (id, name, _wt) = result.expect("create_project_with_client should succeed for 200 response");
-        assert_eq!(id, "new-uuid-abc");
-        assert_eq!(name, "My Project");
-    }
-
-    #[tokio::test]
-    async fn test_create_project_rejects_empty_name_before_network_call() {
-        let result = create_project_with_client("", "personal", &build_test_client(), "http://127.0.0.1:19996", "tok").await;
-        assert!(matches!(result, Err(CreateProjectError::InvalidName(_))));
-    }
-
-    #[tokio::test]
-    async fn test_create_project_rejects_whitespace_only_name() {
-        let result = create_project_with_client("   ", "personal", &build_test_client(), "http://127.0.0.1:19996", "tok").await;
-        assert!(matches!(result, Err(CreateProjectError::InvalidName(_))));
-    }
-
-    #[tokio::test]
-    async fn test_create_project_returns_error_on_402() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(POST).path("/v1/projects");
-            then.status(402).json_body(serde_json::json!({ "error": "no_free_slot" }));
-        });
-
-        let result = create_project_with_client("Second Project", "personal", &build_test_client(), &server.base_url(), "tok").await;
-        assert!(matches!(result, Err(CreateProjectError::NoFreeSlot)));
     }
 
     // ── write_project_id_to_config ───────────────────────────────────────────
@@ -870,33 +666,6 @@ mod tests {
         assert!(result.unwrap_err().contains("not in the registered repos list"));
     }
 
-    // ── create_project workspace_type ───────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_create_project_passes_workspace_type() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(POST).path("/v1/projects")
-                .body_contains("\"workspace_type\":\"organization\"");
-            then.status(200).json_body(serde_json::json!({
-                "project_id": "org-uuid-abc", "name": "Acme", "tier": "free",
-                "workspace_type": "organization"
-            }));
-        });
-
-        let result = create_project_with_client("Acme", "organization", &build_test_client(), &server.base_url(), "tok").await;
-        let (id, name, wt) = result.expect("create_project with organization workspace_type should succeed");
-        assert_eq!(id, "org-uuid-abc");
-        assert_eq!(name, "Acme");
-        assert_eq!(wt, "organization");
-    }
-
-    #[tokio::test]
-    async fn test_create_project_rejects_invalid_workspace_type() {
-        let result = create_project_with_client("Acme", "enterprise", &build_test_client(), "http://127.0.0.1:19994", "tok").await;
-        assert!(matches!(result, Err(CreateProjectError::InvalidWorkspaceType(_))));
-    }
-
     // ── sha256_hex ────────────────────────────────────────────────────────────
 
     #[test]
@@ -951,7 +720,7 @@ mod tests {
 
         // Phase 1: create project
         let (returned_id, returned_name, workspace_type) =
-            create_project_with_client("Integration Workspace", "personal", &client, &server.base_url(), "tok")
+            create_project_with_client("Integration Workspace", "personal", None, None, &client, &server.base_url(), "tok")
                 .await
                 .expect("create_project should succeed");
 
@@ -1054,58 +823,4 @@ mod tests {
         assert!(result.is_err(), "network failure must return Err");
     }
 
-    // ── list_projects (19.1.3) ───────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_list_projects_returns_vec_on_success() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects");
-            then.status(200).json_body(serde_json::json!({
-                "projects": [{
-                    "id": "proj-1",
-                    "name": "Postlane",
-                    "workspace_type": "organization",
-                    "tier": "free",
-                    "billing_active": true,
-                    "is_owner": true
-                }]
-            }));
-        });
-
-        let result = list_projects_with_client(&build_test_client(), &server.base_url(), "tok").await;
-        let projects = result.expect("list_projects_with_client should succeed for 200 response");
-        assert_eq!(projects.len(), 1);
-        assert_eq!(projects[0].id, "proj-1");
-        assert_eq!(projects[0].name, "Postlane");
-        assert_eq!(projects[0].workspace_type, "organization");
-        assert_eq!(projects[0].tier, "free");
-        assert!(projects[0].billing_active);
-        assert!(projects[0].is_owner);
-    }
-
-    #[tokio::test]
-    async fn test_list_projects_returns_error_on_http_failure() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects");
-            then.status(503);
-        });
-
-        let result = list_projects_with_client(&build_test_client(), &server.base_url(), "tok").await;
-        assert!(result.is_err(), "HTTP 503 must return Err");
-    }
-
-    #[tokio::test]
-    async fn test_list_projects_returns_session_expired_on_401() {
-        let server = MockServer::start();
-        server.mock(|when, then| {
-            when.method(GET).path("/v1/projects");
-            then.status(401);
-        });
-
-        let result = list_projects_with_client(&build_test_client(), &server.base_url(), "expired-tok").await;
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR, "HTTP 401 must return session_expired error");
-    }
 }

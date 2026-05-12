@@ -21,6 +21,7 @@ interface Props {
   repoName: string;
   currentProvider: string | null;
   projectId?: string;
+  isOwner?: boolean;
   onClose: () => void;
   onCredentialChange?: () => void;
 }
@@ -43,11 +44,11 @@ function NoProviderView({ onClose }: { onClose: () => void }) {
   );
 }
 
-function DefaultView({ onSwitchToCustom }: { onSwitchToCustom: () => void }) {
+function DefaultView({ onSwitchToCustom, isOwner = true }: { onSwitchToCustom: () => void; isOwner?: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <p className="is-size-7 has-text-grey">Using default credentials from Settings → Default scheduler</p>
-      <button className="button is-outlined is-small" onClick={onSwitchToCustom}>Use a different account</button>
+      {isOwner && <button className="button is-outlined is-small" onClick={onSwitchToCustom}>Use a different account</button>}
     </div>
   );
 }
@@ -142,7 +143,7 @@ function CustomForm({ repoId, initialProvider, onSaved, onCancel }: {
 type SchedulerBodyProps = {
   currentProvider: string | null; loading: boolean; mode: SchedulerMode;
   maskedKey: string | null; showForm: boolean; removeError: string | null;
-  repoId: string; activeProvider: string;
+  repoId: string; activeProvider: string; isOwner: boolean;
   onClose: () => void; onSwitchToCustom: () => void;
   onRemove: () => void; onSaved: (provider: string, masked: string) => void; onCancelForm: () => void;
 };
@@ -152,7 +153,7 @@ function SchedulerBody(p: SchedulerBodyProps) {
   if (p.loading) return <p role="status" className="is-size-7 has-text-grey">Loading…</p>;
   if (p.showForm) return <CustomForm repoId={p.repoId} initialProvider={p.activeProvider} onSaved={p.onSaved} onCancel={p.onCancelForm} />;
   if (p.mode === 'custom' && p.maskedKey) return <ConfiguredView maskedKey={p.maskedKey} removeError={p.removeError} onChange={p.onSwitchToCustom} onRemove={p.onRemove} />;
-  return <DefaultView onSwitchToCustom={p.onSwitchToCustom} />;
+  return <DefaultView onSwitchToCustom={p.onSwitchToCustom} isOwner={p.isOwner} />;
 }
 
 function useConfigureModal(repoId: string, currentProvider: string | null, onClose: () => void, onCredentialChange?: () => void) {
@@ -198,7 +199,7 @@ function useConfigureModal(repoId: string, currentProvider: string | null, onClo
   return { mode, maskedKey, activeProvider, showForm, setShowForm, loading, removeError, ref, handleRemove, handleSaved };
 }
 
-export default function RepoConfigureModal({ repoId, repoName, currentProvider, projectId, onClose, onCredentialChange }: Props) {
+export default function RepoConfigureModal({ repoId, repoName, currentProvider, projectId, isOwner = true, onClose, onCredentialChange }: Props) {
   const { mode, maskedKey, activeProvider, showForm, setShowForm, loading, removeError, ref, handleRemove, handleSaved } =
     useConfigureModal(repoId, currentProvider, onClose, onCredentialChange);
 
@@ -215,7 +216,7 @@ export default function RepoConfigureModal({ repoId, repoName, currentProvider, 
           <SchedulerBody
             currentProvider={currentProvider} loading={loading} mode={mode}
             maskedKey={maskedKey} showForm={showForm} removeError={removeError}
-            repoId={repoId} activeProvider={activeProvider}
+            repoId={repoId} activeProvider={activeProvider} isOwner={isOwner}
             onClose={onClose} onSwitchToCustom={() => setShowForm(true)}
             onRemove={handleRemove} onSaved={handleSaved} onCancelForm={() => setShowForm(false)}
           />

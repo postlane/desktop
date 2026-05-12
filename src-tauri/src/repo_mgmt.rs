@@ -220,7 +220,7 @@ pub fn update_repo_path(
     Ok(())
 }
 
-fn start_repo_watcher(
+pub fn start_repo_watcher(
     repo_id: &str,
     repo_path: &str,
     state: &AppState,

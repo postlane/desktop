@@ -2,3 +2,4 @@
 
 export { ZernioLogo } from './ZernioLogo';
 export { PublerLogo } from './PublerLogo';
+export { UploadPostLogo } from './UploadPostLogo';

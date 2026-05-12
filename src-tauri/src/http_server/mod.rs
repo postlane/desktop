@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+pub mod github_project_config;
 pub mod routes;
 
 use axum::{
@@ -8,6 +9,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use crate::project_registry::ProjectSummary;
 
 async fn add_cors_null_origin(
     request: axum::http::Request<axum::body::Body>,
@@ -34,6 +36,8 @@ pub struct ServerState {
     /// Sends a validated JWT token string to the activation receiver task.
     /// `None` in tests and before the server is fully initialised.
     pub activation_tx: Option<tokio::sync::mpsc::Sender<String>>,
+    /// Cached project list used by `/github-project-config`. Updated on sign-in.
+    pub projects: Arc<tokio::sync::RwLock<Vec<ProjectSummary>>>,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +71,7 @@ pub fn create_router(state: ServerState) -> Router {
     let protected_routes = Router::new()
         .route("/send", post(routes::send_handler))
         .route("/register", post(routes::register_handler))
+        .route("/github-project-config", get(github_project_config::github_project_config_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             routes::auth_middleware,
@@ -244,7 +249,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None };
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -268,7 +273,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "tok".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None };
+        let state = ServerState { token: "tok".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -287,7 +292,7 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None };
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let test_port = 57312u16;
         let bound_port = start_server(state, test_port).await.unwrap();
         assert_eq!(bound_port, test_port);

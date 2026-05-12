@@ -57,7 +57,7 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
     available
 }
 
-pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
+pub const VALID_PROVIDERS: [&str; 8] = ["zernio", "upload_post", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
 pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str, repo_id: Option<&str>) {
     let scope = if repo_id.is_some() { "repo" } else { "global" };
@@ -580,6 +580,20 @@ mod tests {
     #[test]
     fn log_libsecret_cleanup_error_is_noop_on_ok() {
         log_libsecret_cleanup_error(Ok(()), "__libsecret_test__");
+    }
+
+    // --- 20.7.12 credential keyring namespace distinction ---
+
+    #[test]
+    fn test_credential_keyring_namespaces_are_distinct_per_repo_vs_global() {
+        let per_repo = get_credential_keyring_key("zernio", Some("repo-id-123"));
+        let global = get_credential_keyring_key("zernio", None);
+        assert_eq!(per_repo[0], "zernio/repo-id-123", "per-repo key must use provider/repo_id format");
+        assert_eq!(per_repo[1], "zernio", "per-repo fallback must be the global key");
+        assert_eq!(global[0], "zernio", "global key must be just the provider name");
+        assert_ne!(per_repo[0], global[0], "per-repo and global keys must not collide");
+        assert_eq!(per_repo.len(), 2, "per-repo lookup must have two candidates (per-repo then global)");
+        assert_eq!(global.len(), 1, "global lookup must have exactly one candidate");
     }
 
     // --- credential_found ---

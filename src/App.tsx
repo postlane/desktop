@@ -19,6 +19,8 @@ import { TimezoneContext, useTimezone } from './TimezoneContext';
 import { ProjectsProvider, useProjectsContext } from './context/ProjectsProvider';
 import { DraftPostsProvider, useDraftPostsContext } from './context/DraftPostsProvider';
 import { useSentPosts } from './hooks/useSentPosts';
+import OrgUpgradeBanner from './components/OrgUpgradeBanner';
+import OrgLinkModal from './components/OrgLinkModal';
 import type { AppStateFile, ViewSelection, DraftPost } from './types';
 
 const DEFAULT_VIEW: ViewSelection = { view: 'no_orgs' };
@@ -67,9 +69,10 @@ function QueueLoadError({ error, onRetry }: { error: string; onRetry: () => void
 
 function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNavSel, onNavCancelled }: OrgQueueViewProps) {
   const [selectedPost, setSelectedPost] = useState<DraftPost | null>(null);
+  const [showOrgLink, setShowOrgLink] = useState(false);
   const tz = useTimezone();
   const { drafts, loading, error, refresh } = useDraftPostsContext();
-  const { projects } = useProjectsContext();
+  const { projects, refresh: refreshProjects } = useProjectsContext();
   const project = projects.find(p => p.id === projectId) ?? null;
   const projectDrafts = drafts.filter(d => d.project_id === projectId);
 
@@ -85,7 +88,29 @@ function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNa
   }
   if (loading) return <LoadingView />;
   if (error) return <QueueLoadError error={error} onRetry={refresh} />;
-  return <PostTable posts={projectDrafts} isHistory={false} onSelect={setSelectedPost} timezone={tz} />;
+  return (
+    <>
+      {project && <OrgUpgradeBanner project={project} onConnect={() => setShowOrgLink(true)} />}
+      {showOrgLink && project && (
+        <div className="modal is-active">
+          <div className="modal-background" onClick={() => setShowOrgLink(false)} />
+          <div className="modal-card">
+            <header className="modal-card-head">
+              <p className="modal-card-title is-size-6">Connect GitHub org</p>
+            </header>
+            <section className="modal-card-body">
+              <OrgLinkModal
+                projectId={project.id}
+                onDone={(_orgLogin) => { setShowOrgLink(false); refreshProjects(); onToast('GitHub org connected.'); }}
+                onClose={() => setShowOrgLink(false)}
+              />
+            </section>
+          </div>
+        </div>
+      )}
+      <PostTable posts={projectDrafts} isHistory={false} onSelect={setSelectedPost} timezone={tz} />
+    </>
+  );
 }
 
 function OrgHistoryView({ projectId }: { projectId: string }) {
