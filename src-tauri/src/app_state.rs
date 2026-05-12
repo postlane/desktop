@@ -109,6 +109,10 @@ pub struct AppStateFile {
     /// Uses serde default so existing files without this field deserialise as false.
     #[serde(default)]
     pub post_wizard_completed: bool,
+    /// Set to true when the user dismisses the v1.2 org-upgrade banner.
+    /// Uses serde default so pre-v1.2 app_state.json files deserialise as false (banner shown).
+    #[serde(default)]
+    pub org_upgrade_banner_dismissed_v1_2: bool,
 }
 
 fn default_notifications_enabled() -> bool { true }
@@ -137,6 +141,7 @@ impl Default for AppStateFile {
             dismissed_unassigned_draft_warning: false,
             notifications_enabled: true,
             post_wizard_completed: false,
+            org_upgrade_banner_dismissed_v1_2: false,
         }
     }
 }
@@ -300,6 +305,7 @@ mod tests {
             notifications_enabled: true,
             dismissed_unassigned_draft_warning: false,
             post_wizard_completed: false,
+            org_upgrade_banner_dismissed_v1_2: false,
         };
 
         let path = dir.join("app_state.json");
@@ -378,6 +384,7 @@ mod tests {
             notifications_enabled: true,
             dismissed_unassigned_draft_warning: false,
             post_wizard_completed: false,
+            org_upgrade_banner_dismissed_v1_2: false,
         };
 
         // Clean up before test
@@ -546,6 +553,7 @@ mod tests {
             notifications_enabled: true,
             dismissed_unassigned_draft_warning: false,
             post_wizard_completed: false,
+            org_upgrade_banner_dismissed_v1_2: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
@@ -726,5 +734,23 @@ mod tests {
         let json = r#"{"version":1,"window":{"width":1100,"height":700,"x":0,"y":0},"nav":{"last_view":"all_repos","last_repo_id":null,"last_section":"drafts","expanded_repos":[]},"wizard_completed":true,"timezone":"","telemetry_consent":false,"consent_asked":true}"#;
         let loaded: AppStateFile = serde_json::from_str(json).expect("should parse");
         assert!(!loaded.post_wizard_completed, "missing post_wizard_completed must default to false");
+    }
+
+    // ── org_upgrade_banner_dismissed_v1_2 ────────────────────────────────────
+
+    #[test]
+    fn test_org_upgrade_banner_dismissed_absent_field_defaults_to_false() {
+        // JSON written before v1.2 must deserialise with banner_dismissed = false
+        let json = r#"{"version":1,"window":{"width":1100,"height":700,"x":0,"y":0},"nav":{"last_view":"all_repos","last_repo_id":null,"last_section":"drafts","expanded_repos":[]},"wizard_completed":true,"timezone":"","telemetry_consent":false,"consent_asked":true}"#;
+        let loaded: AppStateFile = serde_json::from_str(json).expect("should parse");
+        assert!(!loaded.org_upgrade_banner_dismissed_v1_2, "missing field must default to false");
+    }
+
+    #[test]
+    fn test_org_upgrade_banner_dismissed_round_trips() {
+        let state = AppStateFile { org_upgrade_banner_dismissed_v1_2: true, ..AppStateFile::default() };
+        let json = serde_json::to_string(&state).expect("serialize");
+        let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
+        assert!(loaded.org_upgrade_banner_dismissed_v1_2, "must survive round-trip");
     }
 }
