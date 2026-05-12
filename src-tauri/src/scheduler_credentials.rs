@@ -57,7 +57,7 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
     available
 }
 
-pub const VALID_PROVIDERS: [&str; 7] = ["zernio", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
+pub const VALID_PROVIDERS: [&str; 8] = ["zernio", "upload_post", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
 pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str, repo_id: Option<&str>) {
     let scope = if repo_id.is_some() { "repo" } else { "global" };
