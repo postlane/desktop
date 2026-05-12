@@ -240,6 +240,7 @@ fn spawn_http_server(
         repos: repos_arc,
         repos_path,
         activation_tx: Some(activation_tx),
+        projects: Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     // Bind synchronously so the port file is written before setup_app returns.

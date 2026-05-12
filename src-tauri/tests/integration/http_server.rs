@@ -57,6 +57,7 @@ async fn test_send_with_correct_token_and_registered_path() {
         repos: Arc::new(Mutex::new(repos_config)),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -91,6 +92,7 @@ async fn test_send_with_path_traversal_returns_403() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -123,6 +125,7 @@ async fn test_send_with_wrong_token_returns_401() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -163,6 +166,7 @@ async fn test_register_with_valid_path() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -195,6 +199,7 @@ async fn test_register_with_invalid_path_returns_403() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -224,6 +229,7 @@ async fn test_register_with_wrong_token_returns_401() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -262,6 +268,7 @@ async fn test_register_actually_adds_repo_to_repos_json() {
         repos: repos_arc.clone(),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
@@ -311,6 +318,7 @@ async fn test_register_writes_to_state_repos_path_not_real_postlane_dir() {
         })),
         repos_path: isolated_repos_path.clone(),
         activation_tx: None,
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
     let port = postlane_desktop_lib::http_server::start_server(server_state, 0)

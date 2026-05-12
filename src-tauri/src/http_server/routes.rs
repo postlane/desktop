@@ -242,6 +242,10 @@ mod tests {
     use std::sync::Arc;
     use tower::ServiceExt;
 
+    fn empty_projects() -> std::sync::Arc<tokio::sync::RwLock<Vec<crate::project_registry::ProjectSummary>>> {
+        std::sync::Arc::new(tokio::sync::RwLock::new(vec![]))
+    }
+
     fn make_state(token: &str) -> ServerState {
         ServerState {
             token: token.to_string(),
@@ -251,6 +255,7 @@ mod tests {
             })),
             repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: None,
+            projects: empty_projects(),
         }
     }
 
@@ -273,6 +278,7 @@ mod tests {
             repos,
             repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: None,
+            projects: empty_projects(),
         }, path_str)
     }
 
@@ -395,6 +401,7 @@ mod tests {
             })),
             repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: Some(tx),
+            projects: empty_projects(),
         };
         let app = create_router(state);
         let response = app.oneshot(
@@ -450,6 +457,7 @@ mod tests {
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
             repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
             activation_tx: Some(tx),
+            projects: empty_projects(),
         };
         let app = create_router(state);
         let response = app.oneshot(
