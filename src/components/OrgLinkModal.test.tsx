@@ -13,6 +13,14 @@ vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }));
 
 beforeEach(() => vi.clearAllMocks());
 
+function setupSuccessfulConnectMocks() {
+  mockInvoke.mockImplementation(async (cmd: unknown) => {
+    if (cmd === 'list_provider_orgs') return ORG_LIST;
+    if (cmd === 'update_project_org_login') return null;
+    return null;
+  });
+}
+
 const ORG_LIST = [
   { login: 'acme', display_name: 'Acme Inc', avatar_url: '', is_personal: false, has_project: false },
   { login: 'bob', display_name: 'Bob', avatar_url: '', is_personal: true, has_project: false },
@@ -47,11 +55,7 @@ describe('OrgLinkModal — org list', () => {
 
 describe('OrgLinkModal — connect action', () => {
   it('calls update_project_org_login with selected org login', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'list_provider_orgs') return ORG_LIST;
-      if (cmd === 'update_project_org_login') return null;
-      return null;
-    });
+    setupSuccessfulConnectMocks();
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
     await waitFor(() => screen.getByText('acme'));
     fireEvent.click(screen.getByRole('option', { name: /acme/i }));
@@ -65,11 +69,7 @@ describe('OrgLinkModal — connect action', () => {
   });
 
   it('calls onDone with org login after successful connect', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'list_provider_orgs') return ORG_LIST;
-      if (cmd === 'update_project_org_login') return null;
-      return null;
-    });
+    setupSuccessfulConnectMocks();
     const onDone = vi.fn();
     render(<OrgLinkModal projectId="proj-1" onDone={onDone} onClose={() => {}} />);
     await waitFor(() => screen.getByText('acme'));
@@ -101,11 +101,7 @@ describe('OrgLinkModal — connect action', () => {
   });
 
   it('does not create a new project — update_project_org_login is used not create_project', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'list_provider_orgs') return ORG_LIST;
-      if (cmd === 'update_project_org_login') return null;
-      return null;
-    });
+    setupSuccessfulConnectMocks();
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
     await waitFor(() => screen.getByText('acme'));
     fireEvent.click(screen.getByRole('option', { name: /acme/i }));
