@@ -22,6 +22,9 @@ pub struct AppState {
     /// Tracks how many post-approval sends are currently in flight.
     /// Graceful shutdown polls this to zero before calling app.exit().
     pub in_flight_sends: Arc<AtomicUsize>,
+    /// Port the local HTTP server is bound to. Set by spawn_http_server so
+    /// get_local_server_port can fall back here if the port file is deleted.
+    pub http_port: Mutex<Option<u16>>,
 }
 
 impl AppState {
@@ -32,6 +35,7 @@ impl AppState {
             libsecret_available: Mutex::new(None),
             telemetry: Arc::new(TelemetryClient::new()),
             in_flight_sends: Arc::new(AtomicUsize::new(0)),
+            http_port: Mutex::new(None),
         }
     }
 }
