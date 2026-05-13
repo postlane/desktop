@@ -37,17 +37,6 @@ describe('Wizard', () => {
     expect(screen.getByRole('button', { name: /install github app/i })).toBeDefined();
   });
 
-  // Complete moved to step 6
-  it('test_renders_modal_complete_on_step_6', () => {
-    render(<Wizard onComplete={vi.fn()} startAt={6} />);
-    expect(screen.getByRole('button', { name: /continue/i })).toBeDefined();
-  });
-
-  it('test_step_6_label_is_complete', () => {
-    render(<Wizard onComplete={vi.fn()} startAt={6} />);
-    expect(screen.getByText(/complete/i)).toBeDefined();
-  });
-
   it('step 3 shows a Skip button after orgs load', async () => {
     render(<Wizard onComplete={vi.fn()} startAt={3} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /^skip$/i })).toBeDefined());
@@ -75,10 +64,17 @@ describe('Wizard', () => {
     expect(onComplete).toHaveBeenCalled();
   });
 
-  // 20.6.3: step 5 has a Skip that advances to Complete (step 6)
   it('test_step_5_skip_button_exists', () => {
     render(<Wizard onComplete={vi.fn()} startAt={5} />);
     expect(screen.getByRole('button', { name: /skip/i })).toBeDefined();
+  });
+
+  it('clicking Skip on step 5 marks wizard complete and calls onComplete', async () => {
+    const onComplete = vi.fn();
+    render(<Wizard onComplete={onComplete} startAt={5} />);
+    fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
+    expect(onComplete).toHaveBeenCalled();
   });
 
 });

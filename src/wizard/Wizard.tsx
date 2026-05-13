@@ -8,7 +8,6 @@ import ModalAccount from './ModalAccount';
 import ModalOrgPicker from './ModalOrgPicker';
 import ModalScheduler from './ModalScheduler';
 import ModalGitHubApp from './ModalGitHubApp';
-import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
 
 interface Props {
@@ -64,21 +63,11 @@ export default function Wizard({ onComplete, startAt }: Props) {
     );
   }
 
-  if (wizard.step === 5) {
-    return (
-      <ModalGitHubApp
-        provider={wizard.provider ?? 'github'}
-        workspaceId={wizard.workspaceId ?? ''}
-        onNext={wizard.next}
-        onBack={wizard.back}
-      />
-    );
-  }
-
   return (
-    <ModalComplete
-      schedulerLinked={wizard.schedulerLinked}
-      onComplete={onComplete}
+    <ModalGitHubApp
+      provider={wizard.provider ?? 'github'}
+      workspaceId={wizard.workspaceId ?? ''}
+      onNext={handleSkipToApp}
       onBack={wizard.back}
     />
   );

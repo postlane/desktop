@@ -55,11 +55,13 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !loading && !connectedName) onClose();
+    };
     document.addEventListener('keydown', onKey);
     ref.current?.focus();
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, loading, connectedName]);
 
   async function handleBrowse() {
     setError(null);
@@ -78,7 +80,7 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
 
   return (
     <div className="modal is-active">
-      <div className="modal-background" onClick={onClose} />
+      <div className="modal-background" onClick={loading || connectedName ? undefined : onClose} />
       <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
         <header className="modal-card-head">
           <p className="modal-card-title">Add a repo</p>
