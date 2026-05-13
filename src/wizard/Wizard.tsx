@@ -68,6 +68,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
     return (
       <ModalGitHubApp
         provider={wizard.provider ?? 'github'}
+        workspaceId={wizard.workspaceId ?? ''}
         onNext={wizard.next}
         onBack={wizard.back}
       />

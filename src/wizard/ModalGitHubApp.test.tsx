@@ -1,140 +1,110 @@
 // SPDX-License-Identifier: BUSL-1.1
-// Tests for 20.6.3 — wizard step 5: Install GitHub App button + deep link.
-// All tests must be RED before any implementation is written.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
+vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { listen } from '@tauri-apps/api/event';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { invoke } from '../ipc/invoke';
 import ModalGitHubApp from './ModalGitHubApp';
 
 const mockOpenUrl = vi.mocked(openUrl);
 const mockListen = vi.mocked(listen);
+const mockOpenDialog = vi.mocked(openDialog);
+const mockInvoke = vi.mocked(invoke);
+
+const defaultProps = {
+  provider: 'github',
+  workspaceId: 'ws-test',
+  onNext: vi.fn(),
+  onBack: vi.fn(),
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockListen.mockResolvedValue(() => {});
+  mockOpenDialog.mockResolvedValue(null);
+  mockInvoke.mockResolvedValue({ name: 'my-repo' });
 });
 
 // ---------------------------------------------------------------------------
 // Structure
 // ---------------------------------------------------------------------------
 
-describe('ModalGitHubApp — structure (20.6.3)', () => {
-  it('renders an "Install GitHub App" button', () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /install github app/i })).toBeDefined();
+describe('ModalConnectRepos — structure', () => {
+  it('renders step 5 of 5 in WizardShell', () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    expect(screen.getByText(/5\s*\/\s*5/)).toBeDefined();
   });
 
-  it('renders step 5 of 6 in WizardShell', () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getByText(/5\s*\/\s*6|step 5/i)).toBeDefined();
+  it('renders the Connect your repos heading', () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    expect(screen.getByRole('heading', { name: /connect your repos/i })).toBeDefined();
   });
 
-  it('has a heading describing repo connection', () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getByRole('heading', { name: /connect repos/i })).toBeDefined();
+  it('shows all three section headings for GitHub provider', () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    expect(screen.getByText('GitHub App')).toBeDefined();
+    expect(screen.getByText('Desktop folder')).toBeDefined();
+    expect(screen.getByText('CLI')).toBeDefined();
+  });
+
+  it('hides GitHub App section for non-GitHub provider', () => {
+    render(<ModalGitHubApp {...defaultProps} provider="gitlab" />);
+    expect(screen.queryByText('GitHub App')).toBeNull();
+    expect(screen.getByText('Desktop folder')).toBeDefined();
+    expect(screen.getByText('CLI')).toBeDefined();
   });
 });
 
 // ---------------------------------------------------------------------------
-// GitHub provider — primary path
+// GitHub App section
 // ---------------------------------------------------------------------------
 
-describe('ModalGitHubApp — GitHub provider (20.6.3)', () => {
-  it('clicking Install GitHub App opens the app install URL in the browser', async () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
+describe('ModalConnectRepos — GitHub App section', () => {
+  it('Install GitHub App button opens the app install URL', async () => {
+    render(<ModalGitHubApp {...defaultProps} />);
     fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
     expect(mockOpenUrl).toHaveBeenCalledOnce();
     const [url] = mockOpenUrl.mock.calls[0] as [string];
     expect(url).toMatch(/^https:\/\/github\.com\/apps\//);
   });
-
-  it('Install button is not hidden for GitHub provider', () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
-    const btn = screen.getByRole('button', { name: /install github app/i });
-    expect(btn).toBeDefined();
-  });
 });
 
 // ---------------------------------------------------------------------------
-// Non-GitHub provider — CLI fallback primary
+// Deep link events
 // ---------------------------------------------------------------------------
 
-describe('ModalGitHubApp — non-GitHub provider (20.6.7 preparation)', () => {
-  it('shows CLI fallback disclosure for GitLab provider', () => {
-    render(<ModalGitHubApp provider="gitlab" onNext={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getByText('npx @postlane/cli init')).toBeDefined();
-  });
-
-  it('Install GitHub App button is hidden for GitLab provider', () => {
-    render(<ModalGitHubApp provider="gitlab" onNext={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: /install github app/i })).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Navigation
-// ---------------------------------------------------------------------------
-
-describe('ModalGitHubApp — navigation (20.6.3)', () => {
-  it('onBack is called when Back is clicked', () => {
-    const onBack = vi.fn();
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={onBack} />);
-    fireEvent.click(screen.getByRole('button', { name: /back/i }));
-    expect(onBack).toHaveBeenCalledOnce();
-  });
-
-  it('shows a Skip option to advance without installing the app', () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /skip/i })).toBeDefined();
-  });
-
-  it('onNext is called when Skip is clicked', () => {
-    const onNext = vi.fn();
-    render(<ModalGitHubApp provider="github" onNext={onNext} onBack={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /skip/i }));
-    expect(onNext).toHaveBeenCalledOnce();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Deep link callback — wizard advancement (20.6.14 / 20.6.17 / 20.6.18)
-// ---------------------------------------------------------------------------
-
-describe('ModalGitHubApp — deep link callback (20.6.14)', () => {
-  it('registers a listener for github:app-installed on mount (20.6.17)', async () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
+describe('ModalConnectRepos — deep link events', () => {
+  it('registers listeners for github:app-installed and github:install-error on mount', async () => {
+    render(<ModalGitHubApp {...defaultProps} />);
     await waitFor(() => {
       expect(mockListen).toHaveBeenCalledWith('github:app-installed', expect.any(Function));
-    });
-  });
-
-  it('registers a listener for github:install-error on mount (20.6.18)', async () => {
-    render(<ModalGitHubApp provider="github" onNext={vi.fn()} onBack={vi.fn()} />);
-    await waitFor(() => {
       expect(mockListen).toHaveBeenCalledWith('github:install-error', expect.any(Function));
     });
   });
 
-  it('calls onNext when github:app-installed fires — wizard advances to step 6 (20.6.17)', async () => {
+  it('calls onNext when github:app-installed fires for GitHub provider', async () => {
     const onNext = vi.fn();
-    render(<ModalGitHubApp provider="github" onNext={onNext} onBack={vi.fn()} />);
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('github:app-installed', expect.any(Function)));
     const entry = mockListen.mock.calls.find(([ev]) => ev === 'github:app-installed');
     if (!entry) throw new Error('github:app-installed listener not registered');
-    act(() => (entry[1] as (e: { payload: { installation_id: number } }) => void)({ payload: { installation_id: 12345 } }));
+    act(() => (entry[1] as (e: { payload: { installation_id: number } }) => void)({ payload: { installation_id: 1 } }));
     expect(onNext).toHaveBeenCalledOnce();
   });
 
-  it('shows an inline error when github:install-error fires — wizard does not advance (20.6.18)', async () => {
+  it('shows an inline error and does not advance when github:install-error fires', async () => {
     const onNext = vi.fn();
-    render(<ModalGitHubApp provider="github" onNext={onNext} onBack={vi.fn()} />);
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('github:install-error', expect.any(Function)));
     const entry = mockListen.mock.calls.find(([ev]) => ev === 'github:install-error');
     if (!entry) throw new Error('github:install-error listener not registered');
@@ -143,13 +113,91 @@ describe('ModalGitHubApp — deep link callback (20.6.14)', () => {
     expect(onNext).not.toHaveBeenCalled();
   });
 
-  it('does not call onNext for non-GitHub provider when install event fires', async () => {
+  it('does not call onNext for non-GitHub provider when app-installed fires', async () => {
     const onNext = vi.fn();
-    render(<ModalGitHubApp provider="gitlab" onNext={onNext} onBack={vi.fn()} />);
+    render(<ModalGitHubApp {...defaultProps} provider="gitlab" onNext={onNext} />);
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('github:app-installed', expect.any(Function)));
     const entry = mockListen.mock.calls.find(([ev]) => ev === 'github:app-installed');
     if (!entry) throw new Error('github:app-installed listener not registered');
-    act(() => (entry[1] as (e: { payload: { installation_id: number } }) => void)({ payload: { installation_id: 12345 } }));
+    act(() => (entry[1] as (e: { payload: { installation_id: number } }) => void)({ payload: { installation_id: 1 } }));
     expect(onNext).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Folder picker section
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — folder picker', () => {
+  it('calls connect_repo_from_desktop with the selected folder and workspaceId', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/projects/my-repo');
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('connect_repo_from_desktop', {
+      repoPath: '/Users/user/projects/my-repo',
+      projectId: 'ws-test',
+    }));
+  });
+
+  it('shows Next button after a folder is connected', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/projects/my-repo');
+    render(<ModalGitHubApp {...defaultProps} />);
+    expect(screen.queryByRole('button', { name: /^next/i })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next/i })).toBeDefined());
+  });
+
+  it('shows an inline error when connect_repo_from_desktop fails', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/not-a-repo');
+    mockInvoke.mockRejectedValue('Not a Git repository');
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeDefined());
+  });
+
+  it('does nothing when the folder dialog is cancelled', async () => {
+    mockOpenDialog.mockResolvedValue(null);
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLI section
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — CLI section', () => {
+  it('CLI command is hidden until Show command is clicked', () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    expect(screen.queryByText('npx @postlane/cli init')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /show command/i }));
+    expect(screen.getByText('npx @postlane/cli init')).toBeDefined();
+  });
+
+  it('Show command toggles to Hide command after clicking', () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /show command/i }));
+    expect(screen.getByRole('button', { name: /hide command/i })).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — navigation', () => {
+  it('onBack is called when Back is clicked', () => {
+    const onBack = vi.fn();
+    render(<ModalGitHubApp {...defaultProps} onBack={onBack} />);
+    fireEvent.click(screen.getByRole('button', { name: /back/i }));
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it('Skip calls onNext without connecting', () => {
+    const onNext = vi.fn();
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(onNext).toHaveBeenCalledOnce();
   });
 });
