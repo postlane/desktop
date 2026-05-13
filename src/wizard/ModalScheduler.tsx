@@ -12,11 +12,17 @@ type Provider = 'zernio' | 'upload_post';
 interface PickerProps {
   onSelect: (p: Provider) => void;
   connected: Provider[];
+  workspaceName: string;
 }
 
-function ProviderPicker({ onSelect, connected }: PickerProps) {
+function ProviderPicker({ onSelect, connected, workspaceName }: PickerProps) {
   return (
     <>
+      {workspaceName && (
+        <p className="is-size-6 has-text-grey mb-3">
+          Workspace: {workspaceName}
+        </p>
+      )}
       <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
         <button
           className="button"
@@ -42,13 +48,13 @@ function ProviderPicker({ onSelect, connected }: PickerProps) {
         </button>
       </div>
       <p className="is-size-7 has-text-grey">
-        You can add more schedulers from the dashboard.{' '}
+        Scheduler settings are configured per workspace.{' '}
         <a
           href="https://docs.postlane.dev/scheduling"
           className="has-text-link"
           onClick={(e) => { e.preventDefault(); openUrl('https://docs.postlane.dev/scheduling').catch(console.error); }}
         >
-          Scheduling docs
+          Scheduler setup docs →
         </a>
       </p>
     </>
@@ -57,13 +63,14 @@ function ProviderPicker({ onSelect, connected }: PickerProps) {
 
 interface Props {
   workspaceId: string;
+  workspaceName: string;
   onNext: () => void;
   onBack: () => void;
   setSchedulerLinked: (linked: boolean) => void;
   onSkipToApp?: () => void;
 }
 
-export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedulerLinked, onSkipToApp }: Props) {
+export default function ModalScheduler({ workspaceId, workspaceName, onNext, onBack, setSchedulerLinked, onSkipToApp }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [connectedProviders, setConnectedProviders] = useState<Provider[]>([]);
 
@@ -115,7 +122,7 @@ export default function ModalScheduler({ workspaceId, onNext, onBack, setSchedul
           onCancel={() => setSelectedProvider(null)}
         />
       ) : (
-        <ProviderPicker onSelect={setSelectedProvider} connected={connectedProviders} />
+        <ProviderPicker onSelect={setSelectedProvider} connected={connectedProviders} workspaceName={workspaceName} />
       )}
     </WizardShell>
   );

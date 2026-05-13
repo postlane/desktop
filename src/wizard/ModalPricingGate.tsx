@@ -8,7 +8,7 @@ import WizardShell from './WizardShell';
 interface Props {
   onPaid: () => void;
   onBack: () => void;
-  onSkip?: (projectId: string) => void;
+  onSkip?: (projectId: string, projectName: string) => void;
   pollIntervalMs?: number;
   maxAttempts?: number;
 }
@@ -62,9 +62,9 @@ export default function ModalPricingGate({
   async function handleSkip() {
     if (!onSkip) return;
     try {
-      const projects = await invoke<{ id: string }[]>('list_projects');
+      const projects = await invoke<{ id: string; name: string }[]>('list_projects');
       const first = projects[0];
-      if (first) onSkip(first.id);
+      if (first) onSkip(first.id, first.name);
     } catch { /* non-fatal: skip button disappears if list_projects fails */ }
   }
 
