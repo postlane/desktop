@@ -13,6 +13,7 @@ import ModalScheduler from './ModalScheduler';
 
 const defaultProps = {
   workspaceId: 'ws-1',
+  workspaceName: 'Test Workspace',
   onNext: vi.fn(),
   onBack: vi.fn(),
   setSchedulerLinked: vi.fn(),

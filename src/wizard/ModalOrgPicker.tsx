@@ -21,7 +21,7 @@ interface CreateProjectResult {
 }
 
 interface Props {
-  onNext: (workspaceId: string) => void;
+  onNext: (workspaceId: string, workspaceName: string) => void;
   onBack: () => void;
   onPricingGate: () => void;
   onSkipToApp?: () => void;
@@ -40,6 +40,7 @@ interface OrgListViewProps {
   name: string;
   createError: string | null;
   creating: boolean;
+  provider: string;
   onBack: () => void;
   onSkipToApp?: () => void;
   onNext: () => void;
@@ -111,7 +112,15 @@ function OrgLoadingView({ onBack, onNext }: { onBack: () => void; onNext: () => 
   );
 }
 
-function OrgListView({ orgs, selectedOrg, name, createError, creating, onBack, onSkipToApp, onNext, onSelectOrg, onNameChange }: OrgListViewProps) {
+function orgAccessUrl(provider: string): string {
+  return provider === 'gitlab'
+    ? 'https://gitlab.com/-/profile/applications'
+    : 'https://github.com/settings/connections/applications';
+}
+
+function OrgListView({ orgs, selectedOrg, name, createError, creating, provider, onBack, onSkipToApp, onNext, onSelectOrg, onNameChange }: OrgListViewProps) {
+  const providerLabel = provider === 'gitlab' ? 'GitLab' : 'GitHub';
+  const entityLabel = provider === 'gitlab' ? 'groups' : 'organisations';
   return (
     <WizardShell step={3} totalSteps={5}
       title="Choose your account or org"
@@ -125,6 +134,17 @@ function OrgListView({ orgs, selectedOrg, name, createError, creating, onBack, o
           <OrgRow key={org.login} org={org} selected={selectedOrg?.login === org.login} onSelect={() => onSelectOrg(org)} />
         ))}
       </div>
+      <p className="is-size-7 has-text-grey mb-3">
+        {`Don't see an org? You may need to grant Postlane access to more ${entityLabel} on ${providerLabel} first, then sign in again. `}
+        <button
+          type="button"
+          className="button is-ghost p-0 is-size-7 has-text-link"
+          style={{ height: 'auto', verticalAlign: 'baseline' }}
+          onClick={() => openUrl(orgAccessUrl(provider)).catch(console.error)}
+        >
+          {`Manage ${providerLabel} app permissions →`}
+        </button>
+      </p>
       {selectedOrg !== null && !selectedOrg.has_project && (
         <div className="field">
           <label className="label is-small">Workspace name</label>
@@ -185,7 +205,7 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
 
     // Existing workspace — route directly without creating
     if (selectedOrg.has_project) {
-      if (selectedOrg.project_id) onNext(selectedOrg.project_id);
+      if (selectedOrg.project_id) onNext(selectedOrg.project_id, selectedOrg.display_name);
       return;
     }
 
@@ -199,7 +219,7 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
         ...(selectedOrg.is_personal ? {} : { providerOrgLogin: selectedOrg.login }),
       };
       const result = await invoke<CreateProjectResult>('create_project', params);
-      onNext(result.project_id);
+      onNext(result.project_id, result.name);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('No free project slot')) {
@@ -218,6 +238,7 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
   return (
     <OrgListView
       orgs={orgs} selectedOrg={selectedOrg} name={name} createError={createError} creating={creating}
+      provider={provider}
       onBack={onBack} onSkipToApp={onSkipToApp} onNext={handleNext}
       onSelectOrg={handleSelectOrg} onNameChange={setName}
     />

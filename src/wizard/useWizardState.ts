@@ -11,6 +11,7 @@ interface State {
   token: string | null;
   provider: string | null;
   workspaceId: string | null;
+  workspaceName: string | null;
   schedulerLinked: boolean;
   complete: boolean;
 }
@@ -42,6 +43,7 @@ export function useWizardState(options: WizardOptions = {}) {
     token: null,
     provider: null,
     workspaceId: null,
+    workspaceName: null,
     schedulerLinked: false,
     complete: false,
   });
@@ -50,6 +52,7 @@ export function useWizardState(options: WizardOptions = {}) {
     step: state.step,
     provider: state.provider,
     workspaceId: state.workspaceId,
+    workspaceName: state.workspaceName,
     schedulerLinked: state.schedulerLinked,
     complete: state.complete,
     canGoBack: state.step > 1,
@@ -59,6 +62,7 @@ export function useWizardState(options: WizardOptions = {}) {
     setToken: (token: string) => setState((s) => ({ ...s, token })),
     setProvider: (p: string) => setState((s) => ({ ...s, provider: p })),
     setWorkspaceId: (id: string) => setState((s) => ({ ...s, workspaceId: id })),
+    setWorkspaceName: (name: string) => setState((s) => ({ ...s, workspaceName: name })),
     setSchedulerLinked: (v: boolean) => setState((s) => ({ ...s, schedulerLinked: v })),
   };
 }

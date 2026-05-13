@@ -8,7 +8,6 @@ import ModalAccount from './ModalAccount';
 import ModalOrgPicker from './ModalOrgPicker';
 import ModalScheduler from './ModalScheduler';
 import ModalGitHubApp from './ModalGitHubApp';
-import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
 
 interface Props {
@@ -22,7 +21,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
 
   const handleSkipToApp = async () => { try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ } onComplete(); };
   const closePricingGate = () => setShowPricingGate(false);
-  const handlePricingSkip = (id: string) => { wizard.setWorkspaceId(id); setShowPricingGate(false); wizard.next(); };
+  const handlePricingSkip = (id: string, name: string) => { wizard.setWorkspaceId(id); wizard.setWorkspaceName(name); setShowPricingGate(false); wizard.next(); };
 
   if (showPricingGate) return <ModalPricingGate onPaid={closePricingGate} onBack={closePricingGate} onSkip={handlePricingSkip} />;
 
@@ -42,7 +41,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
   if (wizard.step === 3) {
     return (
       <ModalOrgPicker
-        onNext={(workspaceId) => { wizard.setWorkspaceId(workspaceId); wizard.next(); }}
+        onNext={(workspaceId, workspaceName) => { wizard.setWorkspaceId(workspaceId); wizard.setWorkspaceName(workspaceName); wizard.next(); }}
         onBack={wizard.back}
         onPricingGate={() => setShowPricingGate(true)}
         onSkipToApp={handleSkipToApp}
@@ -55,6 +54,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
     return (
       <ModalScheduler
         workspaceId={wizard.workspaceId ?? ''}
+        workspaceName={wizard.workspaceName ?? ''}
         onNext={wizard.next}
         onBack={wizard.back}
         setSchedulerLinked={wizard.setSchedulerLinked}
@@ -63,20 +63,12 @@ export default function Wizard({ onComplete, startAt }: Props) {
     );
   }
 
-  if (wizard.step === 5) {
-    return (
-      <ModalGitHubApp
-        provider={wizard.provider ?? 'github'}
-        onNext={wizard.next}
-        onBack={wizard.back}
-      />
-    );
-  }
-
   return (
-    <ModalComplete
-      schedulerLinked={wizard.schedulerLinked}
-      onComplete={onComplete}
+    <ModalGitHubApp
+      provider={wizard.provider ?? 'github'}
+      workspaceId={wizard.workspaceId ?? ''}
+      workspaceName={wizard.workspaceName ?? ''}
+      onNext={handleSkipToApp}
       onBack={wizard.back}
     />
   );

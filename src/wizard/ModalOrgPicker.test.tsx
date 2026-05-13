@@ -114,7 +114,7 @@ describe('ModalOrgPicker — selection and creation', () => {
         providerOrgLogin: 'neworg',
         workspaceType: 'organization',
       }));
-      expect(onNext).toHaveBeenCalledWith('proj-123');
+      expect(onNext).toHaveBeenCalledWith('proj-123', expect.any(String));
     });
   });
 
@@ -149,7 +149,7 @@ describe('ModalOrgPicker — existing workspace (has_project: true)', () => {
     await waitFor(() => screen.getByText('postlane'));
     await userEvent.click(screen.getByRole('option', { name: /postlane/i }));
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await waitFor(() => expect(onNext).toHaveBeenCalledWith('existing-proj-456'));
+    await waitFor(() => expect(onNext).toHaveBeenCalledWith('existing-proj-456', expect.any(String)));
   });
 
   it('does not show workspace name input for an org with an existing project', async () => {

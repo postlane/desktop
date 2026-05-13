@@ -52,6 +52,11 @@ pub fn spawn_http_server(
     let listener = crate::http_server::bind_listener(47312)?;
     let port = listener.local_addr()?.port();
     crate::http_server::write_port_file(port)?;
+    if let Some(state) = app_handle.try_state::<crate::app_state::AppState>() {
+        if let Ok(mut guard) = state.http_port.lock() {
+            *guard = Some(port);
+        }
+    }
     log::info!("HTTP server bound to port {}", port);
 
     tauri::async_runtime::spawn(async move {

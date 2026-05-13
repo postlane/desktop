@@ -77,7 +77,7 @@ describe('ModalPricingGate', () => {
     });
     render(<ModalPricingGate onPaid={vi.fn()} onBack={vi.fn()} onSkip={onSkip} />);
     await userEvent.click(screen.getByRole('button', { name: /skip/i }));
-    await waitFor(() => expect(onSkip).toHaveBeenCalledWith('proj-existing'));
+    await waitFor(() => expect(onSkip).toHaveBeenCalledWith('proj-existing', 'Postlane'));
   });
 
   it('test_skip_not_shown_when_onSkip_not_provided', () => {

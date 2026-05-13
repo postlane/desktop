@@ -216,16 +216,83 @@ fn register_deep_link_handler(app_handle: tauri::AppHandle) {
     });
 }
 
-/// Reads the local HTTP server port from `~/.postlane/port`.
-/// Used by the frontend to build the desktop OAuth callback URL.
+/// Core logic for resolving the local HTTP server port.
+/// Tries the port file first; falls back to `in_memory` if the file is
+/// absent or unparseable (e.g. deleted during a hot-reload cycle).
+pub fn get_local_server_port_impl(port_path: &std::path::Path, in_memory: Option<u16>) -> Result<u16, String> {
+    if let Ok(content) = std::fs::read_to_string(port_path) {
+        if let Ok(port) = content.trim().parse::<u16>() {
+            return Ok(port);
+        }
+    }
+    in_memory.ok_or_else(|| "HTTP server port not available — server may not have started yet".to_string())
+}
+
+/// Reads the local HTTP server port, falling back to the in-memory copy
+/// stored in AppState if the port file is absent or corrupt.
 #[tauri::command]
-fn get_local_server_port() -> Result<u16, String> {
+fn get_local_server_port(state: tauri::State<crate::app_state::AppState>) -> Result<u16, String> {
     let port_path = init::postlane_dir()?.join("port");
-    std::fs::read_to_string(&port_path)
-        .map_err(|e| format!("Failed to read port file: {}", e))?
-        .trim()
-        .parse::<u16>()
-        .map_err(|e| format!("Invalid port in file: {}", e))
+    let in_memory = state.http_port.lock().ok().and_then(|g| *g);
+    get_local_server_port_impl(&port_path, in_memory)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_port_from_file_when_present() {
+        let dir = std::env::temp_dir().join("postlane_port_test_file");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("port");
+        std::fs::write(&path, "47312").unwrap();
+        assert_eq!(get_local_server_port_impl(&path, None).unwrap(), 47312);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_port_from_file_takes_priority_over_in_memory() {
+        let dir = std::env::temp_dir().join("postlane_port_test_priority");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("port");
+        std::fs::write(&path, "47312").unwrap();
+        let result = get_local_server_port_impl(&path, Some(9999));
+        assert_eq!(result.unwrap(), 47312, "file port must win over in-memory");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_port_falls_back_to_in_memory_when_file_missing() {
+        let dir = std::env::temp_dir().join("postlane_port_test_fallback");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("port"); // does not exist
+        let result = get_local_server_port_impl(&path, Some(47312));
+        assert_eq!(result.unwrap(), 47312);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_port_falls_back_to_in_memory_when_file_corrupt() {
+        let dir = std::env::temp_dir().join("postlane_port_test_corrupt");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("port");
+        std::fs::write(&path, "not_a_port_number").unwrap();
+        let result = get_local_server_port_impl(&path, Some(47312));
+        assert_eq!(result.unwrap(), 47312, "corrupt file must fall back to in-memory");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_port_returns_error_when_file_missing_and_no_in_memory() {
+        let dir = std::env::temp_dir().join("postlane_port_test_nofile_nomem");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("port"); // does not exist
+        let result = get_local_server_port_impl(&path, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not available"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 fn add_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {

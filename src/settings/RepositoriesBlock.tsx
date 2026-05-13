@@ -10,6 +10,7 @@ import AddRepoModal from '../wizard/AddRepoModal';
 
 interface Props {
   projectId: string;
+  projectName: string;
   isOwner: boolean;
 }
 
@@ -51,7 +52,7 @@ function RepoRow({ repo, isOwner, onRemoveStart }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function RepositoriesBlock({ projectId, isOwner }: Props) {
+export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
   const { repos, refresh } = useProjectRepos(projectId);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
@@ -94,7 +95,7 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
         </button>
       )}
       {showAddModal && (
-        <AddRepoModal projectId={projectId} onClose={() => { setShowAddModal(false); refresh(); }} />
+        <AddRepoModal projectId={projectId} projectName={projectName} onClose={() => { setShowAddModal(false); refresh(); }} />
       )}
     </div>
   );
