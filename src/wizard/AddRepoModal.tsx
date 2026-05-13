@@ -32,13 +32,13 @@ function ModalBody({ connectedName, error }: { connectedName: string | null; err
   );
 }
 
-function ModalFooter({ connectedName, loading, onClose, onBrowse }: {
-  connectedName: string | null; loading: boolean; onClose: () => void; onBrowse: () => void;
+function ModalFooter({ connectedName, loading, onDone, onCancel, onBrowse }: {
+  connectedName: string | null; loading: boolean; onDone: () => void; onCancel: () => void; onBrowse: () => void;
 }) {
-  if (connectedName) return <button className="button is-primary" onClick={onClose}>Done</button>;
+  if (connectedName) return <button className="button is-primary" onClick={onDone}>Done</button>;
   return (
     <>
-      <button className="button is-ghost" onClick={onClose}>Cancel</button>
+      <button className="button is-ghost" onClick={onCancel}>Cancel</button>
       <button className="button is-primary" onClick={onBrowse} disabled={loading}>
         {loading ? 'Adding…' : 'Browse for the folder'}
       </button>
@@ -57,13 +57,18 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
   const [error, setError] = useState<string | null>(null);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
-  // Ref (not state) so the guard is in place synchronously before the OS picker
-  // closes and fires a phantom click on the modal background.
   const pickerOpenRef = useRef(false);
+
+  // Single guarded close used by every dismissal path (background, X, Cancel,
+  // Escape) so phantom clicks from the OS folder picker can never slip through.
+  function guardedClose() {
+    if (pickerOpenRef.current || loading) return;
+    onClose();
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !loading && !connectedName) onClose();
+      if (e.key === 'Escape' && !pickerOpenRef.current && !loading && !connectedName) onClose();
     };
     document.addEventListener('keydown', onKey);
     ref.current?.focus();
@@ -87,23 +92,19 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
     }
   }
 
-  function handleBackgroundClick() {
-    if (!pickerOpenRef.current && !loading && !connectedName) onClose();
-  }
-
   return (
     <div className="modal is-active">
-      <div className="modal-background" onClick={handleBackgroundClick} />
+      <div className="modal-background" onClick={guardedClose} />
       <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
         <header className="modal-card-head">
           <p className="modal-card-title">Add a repo</p>
-          <button className="delete" onClick={onClose} aria-label="Close" />
+          <button className="delete" onClick={guardedClose} aria-label="Close" />
         </header>
         <section className="modal-card-body">
           <ModalBody connectedName={connectedName} error={error} />
         </section>
         <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
-          <ModalFooter connectedName={connectedName} loading={loading} onClose={onClose} onBrowse={handleBrowse} />
+          <ModalFooter connectedName={connectedName} loading={loading} onDone={onClose} onCancel={guardedClose} onBrowse={handleBrowse} />
         </footer>
       </div>
     </div>
