@@ -57,6 +57,9 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
   const [error, setError] = useState<string | null>(null);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // Ref (not state) so the guard is in place synchronously before the OS picker
+  // closes and fires a phantom click on the modal background.
+  const pickerOpenRef = useRef(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -69,7 +72,9 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
 
   async function handleBrowse() {
     setError(null);
+    pickerOpenRef.current = true;
     const selected = await openDialog({ directory: true });
+    setTimeout(() => { pickerOpenRef.current = false; }, 200);
     if (typeof selected !== 'string') return;
     setLoading(true);
     try {
@@ -82,9 +87,13 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
     }
   }
 
+  function handleBackgroundClick() {
+    if (!pickerOpenRef.current && !loading && !connectedName) onClose();
+  }
+
   return (
     <div className="modal is-active">
-      <div className="modal-background" onClick={loading || connectedName ? undefined : onClose} />
+      <div className="modal-background" onClick={handleBackgroundClick} />
       <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
         <header className="modal-card-head">
           <p className="modal-card-title">Add a repo</p>

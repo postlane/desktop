@@ -56,10 +56,13 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected }: Folder
   const [error, setError] = useState<string | null>(null);
 
   async function handleChoose() {
-    const result = await openDialog({ directory: true });
-    if (typeof result !== 'string') return;
     setConnecting(true);
     setError(null);
+    const result = await openDialog({ directory: true });
+    if (typeof result !== 'string') {
+      setConnecting(false);
+      return;
+    }
     try {
       await invoke('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
       onConnected();
