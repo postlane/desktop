@@ -76,18 +76,25 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
   }, [onClose, loading, connectedName]);
 
   async function handleBrowse() {
+    if (pickerOpenRef.current || loading) return;
     setError(null);
+    // Set loading + ref before opening the dialog so guardedClose is armed
+    // synchronously — no React re-render cycle needed.
     pickerOpenRef.current = true;
-    const selected = await openDialog({ directory: true });
-    setTimeout(() => { pickerOpenRef.current = false; }, 200);
-    if (typeof selected !== 'string') return;
     setLoading(true);
+    const selected = await openDialog({ directory: true });
+    if (typeof selected !== 'string') {
+      pickerOpenRef.current = false;
+      setLoading(false);
+      return;
+    }
     try {
       const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
       setConnectedName(repo.name);
     } catch (err) {
       setError(repoConnectError(err, projectName));
     } finally {
+      pickerOpenRef.current = false;
       setLoading(false);
     }
   }
