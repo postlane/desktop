@@ -10,6 +10,14 @@ import WizardShell from './WizardShell';
 const GITHUB_APP_INSTALL_URL = 'https://github.com/apps/postlane/installations/new';
 const CLI_COMMAND = 'npx @postlane/cli init';
 
+function repoConnectError(err: unknown): string {
+  const raw = typeof err === 'string' ? err : '';
+  if (raw.startsWith('NotAGitRepo:')) return 'Not a Git repository. Please select a folder that contains a .git directory.';
+  if (raw.startsWith('RepoAlreadyRegistered:')) return 'This repository is already connected to a workspace.';
+  if (raw.startsWith('PathNotAuthorised:')) return 'This folder is outside your home directory and cannot be connected.';
+  return 'Failed to connect repository';
+}
+
 interface Props {
   provider: string;
   workspaceId: string;
@@ -51,10 +59,7 @@ function FolderPickerSection({ workspaceId, onConnected }: FolderSectionProps) {
       await invoke('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
       onConnected();
     } catch (err) {
-      const raw = typeof err === 'string' ? err : '';
-      setError(raw.startsWith('NotAGitRepo:')
-        ? 'Not a Git repository. Please select a folder that contains a .git directory.'
-        : 'Failed to connect repository');
+      setError(repoConnectError(err));
     } finally {
       setConnecting(false);
     }

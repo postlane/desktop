@@ -147,7 +147,7 @@ describe('ModalConnectRepos — folder picker', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /^next/i })).toBeDefined());
   });
 
-  it('shows a clean error when connect_repo_from_desktop returns NotAGitRepo', async () => {
+  it('shows clean error for NotAGitRepo', async () => {
     mockOpenDialog.mockResolvedValue('/Users/user/not-a-repo');
     mockInvoke.mockRejectedValue("NotAGitRepo: '/Users/user/not-a-repo' is not a git repository");
     render(<ModalGitHubApp {...defaultProps} />);
@@ -156,6 +156,18 @@ describe('ModalConnectRepos — folder picker', () => {
       const alert = screen.getByRole('alert');
       expect(alert.textContent).toContain('Not a Git repository');
       expect(alert.textContent).not.toContain('NotAGitRepo:');
+    });
+  });
+
+  it('shows clean error for RepoAlreadyRegistered', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
+    mockInvoke.mockRejectedValue("RepoAlreadyRegistered: '/Users/user/my-repo' is already registered");
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('already connected');
+      expect(alert.textContent).not.toContain('RepoAlreadyRegistered:');
     });
   });
 
