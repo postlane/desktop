@@ -26,6 +26,7 @@ jobs:
   analyze-rust:
     name: Analyze Rust
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
