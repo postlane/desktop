@@ -56,7 +56,7 @@ describe('AddRepoModal', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('write_project_id_to_config', expect.anything());
   });
 
-  it('calls onClose on success', async () => {
+  it('shows repo name and Done button on success, does not auto-close', async () => {
     const onClose = vi.fn();
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue({ id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', active: true, added_at: '2026-01-01T00:00:00Z' });
@@ -64,18 +64,37 @@ describe('AddRepoModal', () => {
     render(<AddRepoModal onClose={onClose} projectId="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
 
-    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText('my-repo')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('shows backend error message and stays open when connect_repo_from_desktop rejects', async () => {
+  it('calls onClose when Done is clicked after success', async () => {
     const onClose = vi.fn();
     mockOpen.mockResolvedValue('/Users/test/my-repo');
-    mockInvoke.mockRejectedValue('NotAGitRepo: path is not a git repository');
+    mockInvoke.mockResolvedValue({ id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', active: true, added_at: '2026-01-01T00:00:00Z' });
+
+    render(<AddRepoModal onClose={onClose} projectId="" />);
+    fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
+    await waitFor(() => screen.getByRole('button', { name: /done/i }));
+    fireEvent.click(screen.getByRole('button', { name: /done/i }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('shows clean error for NotAGitRepo and stays open', async () => {
+    const onClose = vi.fn();
+    mockOpen.mockResolvedValue('/Users/test/not-a-repo');
+    mockInvoke.mockRejectedValue("NotAGitRepo: '/Users/test/not-a-repo' is not a git repository");
 
     render(<AddRepoModal onClose={onClose} projectId="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
 
-    expect(await screen.findByText(/not a git repository/i)).toBeInTheDocument();
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('Not a Git repository');
+      expect(alert.textContent).not.toContain('NotAGitRepo:');
+    });
     expect(onClose).not.toHaveBeenCalled();
   });
 });

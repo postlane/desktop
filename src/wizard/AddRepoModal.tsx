@@ -12,6 +12,7 @@ interface Props {
 export default function AddRepoModal({ onClose, projectId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectedName, setConnectedName] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,10 +29,13 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
 
     setLoading(true);
     try {
-      await invoke('connect_repo_from_desktop', { repoPath: selected, projectId });
-      onClose();
+      const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
+      setConnectedName(repo.name);
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Failed to connect repository');
+      const raw = typeof err === 'string' ? err : '';
+      setError(raw.startsWith('NotAGitRepo:')
+        ? 'Not a Git repository. Please select a folder that contains a .git directory.'
+        : 'Failed to connect repository');
     } finally {
       setLoading(false);
     }
@@ -46,16 +50,31 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
           <button className="delete" onClick={onClose} aria-label="Close" />
         </header>
         <section className="modal-card-body">
-          <p className="is-size-7 has-text-grey mb-3">
-            Select a git repository folder to connect to this project.
-          </p>
-          {error && <p className="is-size-7 has-text-danger">{error}</p>}
+          {connectedName ? (
+            <p className="is-size-7">
+              <span className="tag is-success is-light mr-2">&#10003;</span>
+              <strong>{connectedName}</strong> connected.
+            </p>
+          ) : (
+            <>
+              <p className="is-size-7 has-text-grey mb-3">
+                Select a git repository folder to connect to this project.
+              </p>
+              {error && <p role="alert" className="is-size-7 has-text-danger">{error}</p>}
+            </>
+          )}
         </section>
         <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
-          <button className="button is-ghost" onClick={onClose}>Cancel</button>
-          <button className="button is-primary" onClick={handleBrowse} disabled={loading}>
-            {loading ? 'Adding…' : 'Browse for the folder'}
-          </button>
+          {connectedName ? (
+            <button className="button is-primary" onClick={onClose}>Done</button>
+          ) : (
+            <>
+              <button className="button is-ghost" onClick={onClose}>Cancel</button>
+              <button className="button is-primary" onClick={handleBrowse} disabled={loading}>
+                {loading ? 'Adding…' : 'Browse for the folder'}
+              </button>
+            </>
+          )}
         </footer>
       </div>
     </div>
