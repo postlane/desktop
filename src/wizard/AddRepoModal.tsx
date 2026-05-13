@@ -4,10 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
-function repoConnectError(err: unknown): string {
+function repoConnectError(err: unknown, workspaceName?: string): string {
   const raw = typeof err === 'string' ? err : '';
   if (raw.startsWith('NotAGitRepo:')) return 'Not a Git repository. Please select a folder that contains a .git directory.';
-  if (raw.startsWith('RepoAlreadyRegistered:')) return 'This repository is already connected to a workspace.';
+  if (raw.startsWith('RepoAlreadyRegistered:')) {
+    const target = workspaceName ? `the ${workspaceName} workspace` : 'a workspace';
+    return `This repository is already connected to ${target}.`;
+  }
   if (raw.startsWith('PathNotAuthorised:')) return 'This folder is outside your home directory and cannot be connected.';
   return 'Failed to connect repository';
 }
@@ -46,9 +49,10 @@ function ModalFooter({ connectedName, loading, onClose, onBrowse }: {
 interface Props {
   onClose: () => void;
   projectId: string;
+  projectName: string;
 }
 
-export default function AddRepoModal({ onClose, projectId }: Props) {
+export default function AddRepoModal({ onClose, projectId, projectName }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectedName, setConnectedName] = useState<string | null>(null);
@@ -72,7 +76,7 @@ export default function AddRepoModal({ onClose, projectId }: Props) {
       const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
       setConnectedName(repo.name);
     } catch (err) {
-      setError(repoConnectError(err));
+      setError(repoConnectError(err, projectName));
     } finally {
       setLoading(false);
     }

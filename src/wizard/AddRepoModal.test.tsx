@@ -20,13 +20,13 @@ const successRepo = { id: 'r1', name: 'my-repo', path: '/Users/test/my-repo', ac
 
 describe('AddRepoModal — structure and navigation', () => {
   it('renders the modal with Browse button', () => {
-    render(<AddRepoModal onClose={vi.fn()} projectId="" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="" projectName="" />);
     expect(screen.getByRole('button', { name: /browse for the folder/i })).toBeInTheDocument();
   });
 
   it('calls onClose when Cancel is clicked', () => {
     const onClose = vi.fn();
-    render(<AddRepoModal onClose={onClose} projectId="" />);
+    render(<AddRepoModal onClose={onClose} projectId="" projectName="" />);
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -36,7 +36,7 @@ describe('AddRepoModal — folder connect', () => {
   it('calls connect_repo_from_desktop with repoPath and projectId', async () => {
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue(successRepo);
-    render(<AddRepoModal onClose={vi.fn()} projectId="proj-abc" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="proj-abc" projectName="postlane" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('connect_repo_from_desktop', {
@@ -49,7 +49,7 @@ describe('AddRepoModal — folder connect', () => {
   it('does not call legacy add_repo or write_project_id_to_config commands', async () => {
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue(successRepo);
-    render(<AddRepoModal onClose={vi.fn()} projectId="proj-abc" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="proj-abc" projectName="postlane" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
     expect(mockInvoke).not.toHaveBeenCalledWith('add_repo', expect.anything());
@@ -60,7 +60,7 @@ describe('AddRepoModal — folder connect', () => {
     const onClose = vi.fn();
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue(successRepo);
-    render(<AddRepoModal onClose={onClose} projectId="" />);
+    render(<AddRepoModal onClose={onClose} projectId="" projectName="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() => expect(screen.getByText('my-repo')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('AddRepoModal — folder connect', () => {
     const onClose = vi.fn();
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockResolvedValue(successRepo);
-    render(<AddRepoModal onClose={onClose} projectId="" />);
+    render(<AddRepoModal onClose={onClose} projectId="" projectName="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() => screen.getByRole('button', { name: /done/i }));
     fireEvent.click(screen.getByRole('button', { name: /done/i }));
@@ -83,7 +83,7 @@ describe('AddRepoModal — error messages', () => {
   it('shows clean error for NotAGitRepo', async () => {
     mockOpen.mockResolvedValue('/Users/test/not-a-repo');
     mockInvoke.mockRejectedValue("NotAGitRepo: '/Users/test/not-a-repo' is not a git repository");
-    render(<AddRepoModal onClose={vi.fn()} projectId="" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="" projectName="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() => {
       const alert = screen.getByRole('alert');
@@ -92,14 +92,14 @@ describe('AddRepoModal — error messages', () => {
     });
   });
 
-  it('shows clean error for RepoAlreadyRegistered', async () => {
+  it('shows clean error for RepoAlreadyRegistered including workspace name', async () => {
     mockOpen.mockResolvedValue('/Users/test/my-repo');
     mockInvoke.mockRejectedValue("RepoAlreadyRegistered: '/Users/test/my-repo' is already registered");
-    render(<AddRepoModal onClose={vi.fn()} projectId="" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="" projectName="my-org" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() => {
       const alert = screen.getByRole('alert');
-      expect(alert.textContent).toContain('already connected');
+      expect(alert.textContent).toContain('already connected to the my-org workspace');
       expect(alert.textContent).not.toContain('RepoAlreadyRegistered:');
     });
   });
@@ -107,7 +107,7 @@ describe('AddRepoModal — error messages', () => {
   it('shows clean error for PathNotAuthorised', async () => {
     mockOpen.mockResolvedValue('/etc/secrets');
     mockInvoke.mockRejectedValue("PathNotAuthorised: '/etc/secrets' is outside the home directory");
-    render(<AddRepoModal onClose={vi.fn()} projectId="" />);
+    render(<AddRepoModal onClose={vi.fn()} projectId="" projectName="" />);
     fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
     await waitFor(() => {
       const alert = screen.getByRole('alert');

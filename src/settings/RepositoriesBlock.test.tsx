@@ -7,8 +7,8 @@ import '@testing-library/jest-dom'
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
 vi.mock('../hooks/useRepoData', () => ({ useProjectRepos: vi.fn() }))
 vi.mock('../wizard/AddRepoModal', () => ({
-  default: ({ onClose, projectId }: { onClose: () => void; projectId: string }) => (
-    <div data-testid="add-repo-modal" data-project-id={projectId}>
+  default: ({ onClose, projectId, projectName }: { onClose: () => void; projectId: string; projectName: string }) => (
+    <div data-testid="add-repo-modal" data-project-id={projectId} data-project-name={projectName}>
       <button onClick={onClose}>Close modal</button>
     </div>
   ),
@@ -37,13 +37,13 @@ beforeEach(() => {
 describe('RepositoriesBlock — empty state', () => {
   it('shows empty-state message when no repos', () => {
     mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
   })
 
   it('shows add button in empty state for owner', () => {
     mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     expect(screen.getByRole('button', { name: /Add repository/i })).toBeInTheDocument()
   })
 })
@@ -52,12 +52,12 @@ describe('RepositoriesBlock — empty state', () => {
 
 describe('RepositoriesBlock — repo list', () => {
   it('renders repo name', () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     expect(screen.getByText('MyRepo')).toBeInTheDocument()
   })
 
   it('calls useProjectRepos with the given projectId', () => {
-    render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
     expect(mockUseProjectRepos).toHaveBeenCalledWith('proj-42')
   })
 })
@@ -66,14 +66,14 @@ describe('RepositoriesBlock — repo list', () => {
 
 describe('RepositoriesBlock — remove', () => {
   it('shows confirmation copy after first Remove click', () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
     expect(screen.getByText(/Existing drafts on disk are not deleted/i)).toBeInTheDocument()
   })
 
   it('calls unregister_repo on confirm click', async () => {
     mockInvoke.mockResolvedValue(undefined)
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Confirm remove$/i }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('unregister_repo', { repoId: 'repo-1' }))
@@ -81,14 +81,14 @@ describe('RepositoriesBlock — remove', () => {
 
   it('calls refresh after successful remove', async () => {
     mockInvoke.mockResolvedValue(undefined)
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Confirm remove$/i }))
     await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
   })
 
   it('cancels remove confirmation on Cancel click', () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
     expect(screen.queryByText(/Existing drafts on disk are not deleted/i)).not.toBeInTheDocument()
@@ -99,12 +99,12 @@ describe('RepositoriesBlock — remove', () => {
 
 describe('RepositoriesBlock — owner-only', () => {
   it('hides Remove button for non-owners', () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={false} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
     expect(screen.queryByRole('button', { name: /Remove/i })).not.toBeInTheDocument()
   })
 
   it('hides Add repository button for non-owners', () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={false} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
     expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
   })
 })
@@ -113,21 +113,27 @@ describe('RepositoriesBlock — owner-only', () => {
 
 describe('RepositoriesBlock — AddRepoModal', () => {
   it('opens AddRepoModal when Add repository is clicked', () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
     expect(screen.getByTestId('add-repo-modal')).toBeInTheDocument()
   })
 
   it('calls refresh when AddRepoModal closes', async () => {
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
     fireEvent.click(screen.getByRole('button', { name: /Close modal/i }))
     expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('passes the projectId to AddRepoModal (Security Rule 2: repo must be linked to the correct project)', () => {
-    render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
     fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
     expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-id', 'proj-42')
+  })
+
+  it('passes projectName to AddRepoModal so already-connected errors can name the workspace', () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="my-workspace" isOwner={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
+    expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-name', 'my-workspace')
   })
 })

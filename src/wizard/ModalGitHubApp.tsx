@@ -10,10 +10,13 @@ import WizardShell from './WizardShell';
 const GITHUB_APP_INSTALL_URL = 'https://github.com/apps/postlane/installations/new';
 const CLI_COMMAND = 'npx @postlane/cli init';
 
-function repoConnectError(err: unknown): string {
+function repoConnectError(err: unknown, workspaceName?: string): string {
   const raw = typeof err === 'string' ? err : '';
   if (raw.startsWith('NotAGitRepo:')) return 'Not a Git repository. Please select a folder that contains a .git directory.';
-  if (raw.startsWith('RepoAlreadyRegistered:')) return 'This repository is already connected to a workspace.';
+  if (raw.startsWith('RepoAlreadyRegistered:')) {
+    const target = workspaceName ? `the ${workspaceName} workspace` : 'a workspace';
+    return `This repository is already connected to ${target}.`;
+  }
   if (raw.startsWith('PathNotAuthorised:')) return 'This folder is outside your home directory and cannot be connected.';
   return 'Failed to connect repository';
 }
@@ -21,6 +24,7 @@ function repoConnectError(err: unknown): string {
 interface Props {
   provider: string;
   workspaceId: string;
+  workspaceName: string;
   onNext: () => void;
   onBack: () => void;
 }
@@ -43,10 +47,11 @@ function GitHubAppSection({ error }: { error: string | null }) {
 
 interface FolderSectionProps {
   workspaceId: string;
+  workspaceName: string;
   onConnected: () => void;
 }
 
-function FolderPickerSection({ workspaceId, onConnected }: FolderSectionProps) {
+function FolderPickerSection({ workspaceId, workspaceName, onConnected }: FolderSectionProps) {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +64,7 @@ function FolderPickerSection({ workspaceId, onConnected }: FolderSectionProps) {
       await invoke('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
       onConnected();
     } catch (err) {
-      setError(repoConnectError(err));
+      setError(repoConnectError(err, workspaceName));
     } finally {
       setConnecting(false);
     }
@@ -123,7 +128,7 @@ function CliSection() {
   );
 }
 
-export default function ModalGitHubApp({ provider, workspaceId, onNext, onBack }: Props) {
+export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
   const [folderConnected, setFolderConnected] = useState(false);
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const isGitHub = provider === 'github';
@@ -152,7 +157,7 @@ export default function ModalGitHubApp({ provider, workspaceId, onNext, onBack }
       onSkip={!folderConnected ? onNext : undefined}
     >
       {isGitHub && <GitHubAppSection error={appInstallError} />}
-      <FolderPickerSection workspaceId={workspaceId} onConnected={() => setFolderConnected(true)} />
+      <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName} onConnected={() => setFolderConnected(true)} />
       <CliSection />
     </WizardShell>
   );

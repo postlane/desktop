@@ -24,6 +24,7 @@ const mockInvoke = vi.mocked(invoke);
 const defaultProps = {
   provider: 'github',
   workspaceId: 'ws-test',
+  workspaceName: 'my-org',
   onNext: vi.fn(),
   onBack: vi.fn(),
 };
@@ -159,14 +160,14 @@ describe('ModalConnectRepos — folder picker', () => {
     });
   });
 
-  it('shows clean error for RepoAlreadyRegistered', async () => {
+  it('shows clean error for RepoAlreadyRegistered including workspace name', async () => {
     mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
     mockInvoke.mockRejectedValue("RepoAlreadyRegistered: '/Users/user/my-repo' is already registered");
     render(<ModalGitHubApp {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
     await waitFor(() => {
       const alert = screen.getByRole('alert');
-      expect(alert.textContent).toContain('already connected');
+      expect(alert.textContent).toContain('already connected to the my-org workspace');
       expect(alert.textContent).not.toContain('RepoAlreadyRegistered:');
     });
   });
