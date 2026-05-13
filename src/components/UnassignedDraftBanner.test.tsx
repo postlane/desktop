@@ -25,13 +25,13 @@ const ASSIGNED_DRAFT = { ...UNASSIGNED_DRAFT, project_id: 'proj-1' };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUseDraftPostsContext.mockReturnValue({ drafts: [], loading: false, error: null, refresh: vi.fn() });
+  mockUseDraftPostsContext.mockReturnValue({ drafts: [], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() });
 });
 
 describe('UnassignedDraftBanner', () => {
   it('renders nothing when all drafts are assigned', async () => {
     mockInvoke.mockResolvedValue({ dismissed_unassigned_draft_warning: false });
-    mockUseDraftPostsContext.mockReturnValue({ drafts: [ASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn() });
+    mockUseDraftPostsContext.mockReturnValue({ drafts: [ASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() });
     const { container } = render(<UnassignedDraftBanner />);
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
     expect(container.firstChild).toBeNull();
@@ -39,7 +39,7 @@ describe('UnassignedDraftBanner', () => {
 
   it('renders nothing when dismissed flag is true', async () => {
     mockInvoke.mockResolvedValue({ dismissed_unassigned_draft_warning: true });
-    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn() });
+    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() });
     const { container } = render(<UnassignedDraftBanner />);
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled());
     expect(container.firstChild).toBeNull();
@@ -47,21 +47,21 @@ describe('UnassignedDraftBanner', () => {
 
   it('shows banner when unassigned draft exists and not dismissed', async () => {
     mockInvoke.mockResolvedValue({ dismissed_unassigned_draft_warning: false });
-    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn() });
+    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() });
     render(<UnassignedDraftBanner />);
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
 
   it('shows banner when initial load fails (catch sets dismissed=false)', async () => {
     mockInvoke.mockRejectedValue(new Error('IPC error'));
-    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn() });
+    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() });
     render(<UnassignedDraftBanner />);
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
 
   it('hides banner after Dismiss is clicked', async () => {
     mockInvoke.mockResolvedValue({ dismissed_unassigned_draft_warning: false });
-    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn() });
+    mockUseDraftPostsContext.mockReturnValue({ drafts: [UNASSIGNED_DRAFT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() });
     render(<UnassignedDraftBanner />);
     await waitFor(() => screen.getByRole('button', { name: /dismiss/i }));
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
