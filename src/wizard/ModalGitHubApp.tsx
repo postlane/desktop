@@ -86,16 +86,15 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected }: Folder
       <p className="is-size-7 has-text-grey mb-3">
         Connect individual repos or folders from your machine.
       </p>
-      {connectedName ? (
-        <p className="is-size-7">
+      {connectedName && (
+        <p className="is-size-7 mb-2">
           <span className="tag is-success is-light mr-2">&#10003;</span>
-          <strong>{connectedName}</strong> connected. You can add more or click Next.
+          <strong>{connectedName}</strong> connected.
         </p>
-      ) : (
-        <button className="button is-light is-small" onClick={handleChoose} disabled={connecting}>
-          {connecting ? 'Connecting…' : 'Choose folder'}
-        </button>
       )}
+      <button className="button is-light is-small" onClick={handleChoose} disabled={connecting}>
+        {connecting ? 'Connecting…' : connectedName ? 'Add another folder' : 'Choose folder'}
+      </button>
       {error && <p role="alert" className="is-size-7 has-text-danger mt-2">{error}</p>}
     </div>
   );
