@@ -159,7 +159,9 @@ describe('ModalConnectRepos — folder picker', () => {
       expect(alert.textContent).not.toContain('NotAGitRepo:');
     });
   });
+});
 
+describe('ModalConnectRepos — folder picker errors', () => {
   it('shows clean error for RepoAlreadyRegistered including workspace name', async () => {
     mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
     mockInvoke.mockRejectedValue("RepoAlreadyRegistered: '/Users/user/my-repo' is already registered");
@@ -177,6 +179,28 @@ describe('ModalConnectRepos — folder picker', () => {
     render(<ModalGitHubApp {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
     expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('shows clean error for PathNotAuthorised', async () => {
+    mockOpenDialog.mockResolvedValue('/etc/secrets');
+    mockInvoke.mockRejectedValue("PathNotAuthorised: '/etc/secrets' is outside the home directory");
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('outside your home directory');
+    });
+  });
+
+  it('shows generic error for unknown error types', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/some-repo');
+    mockInvoke.mockRejectedValue('SomeWeirdError: unexpected');
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('Failed to connect repository');
+    });
   });
 });
 
@@ -196,6 +220,15 @@ describe('ModalConnectRepos — CLI section', () => {
     render(<ModalGitHubApp {...defaultProps} />);
     fireEvent.click(screen.getByRole('button', { name: /show command/i }));
     expect(screen.getByRole('button', { name: /hide command/i })).toBeDefined();
+  });
+
+  it('Copy button writes CLI command to clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<ModalGitHubApp {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /show command/i }));
+    await userEvent.click(screen.getByRole('button', { name: /copy/i }));
+    expect(writeText).toHaveBeenCalledWith('npx @postlane/cli init');
   });
 });
 

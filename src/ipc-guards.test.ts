@@ -20,6 +20,10 @@ describe('isDraftPost (§review-engineering-low)', () => {
     expect(isDraftPost({ post_folder: 'f', status: 'ready', platforms: [] })).toBe(false);
   });
 
+  it('returns false when post_folder is missing', () => {
+    expect(isDraftPost({ repo_id: 'r1', status: 'ready', platforms: [] })).toBe(false);
+  });
+
   it('returns false for a non-object', () => {
     expect(isDraftPost(null)).toBe(false);
     expect(isDraftPost('string')).toBe(false);
@@ -51,6 +55,10 @@ describe('isPublishedPost (§review-engineering-low)', () => {
 
   it('returns false when status is "ready" (not a published post)', () => {
     expect(isPublishedPost({ repo_id: 'r1', post_folder: 'f', status: 'ready', platforms: [] })).toBe(false);
+  });
+
+  it('returns false when repo_id is missing', () => {
+    expect(isPublishedPost({ post_folder: 'f', status: 'sent', platforms: [] })).toBe(false);
   });
 
   it('returns false when post_folder is missing', () => {

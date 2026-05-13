@@ -18,7 +18,7 @@ function repoConnectError(err: unknown, workspaceName?: string): string {
 function ModalBody({ connectedName, error }: { connectedName: string | null; error: string | null }) {
   if (connectedName) {
     return (
-      <p className="is-size-7">
+      <p className="is-size-6">
         <span className="tag is-success is-light mr-2">&#10003;</span>
         <strong>{connectedName}</strong> connected.
       </p>
@@ -26,8 +26,8 @@ function ModalBody({ connectedName, error }: { connectedName: string | null; err
   }
   return (
     <>
-      <p className="is-size-7 has-text-grey mb-3">Select a git repository folder to connect to this project.</p>
-      {error && <p role="alert" className="is-size-7 has-text-danger">{error}</p>}
+      <p className="is-size-6 has-text-grey mb-3">Select a git repository folder to connect to this project.</p>
+      {error && <p role="alert" className="is-size-6 has-text-danger">{error}</p>}
     </>
   );
 }
@@ -110,14 +110,14 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
     <div className="modal is-active">
       <div className="modal-background" onClick={guardedClose} />
       <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
-        <header className="modal-card-head">
+        <header className="modal-card-head" style={{ borderBottom: 'none', backgroundColor: 'white' }}>
           <p className="modal-card-title">Add a repo</p>
           <button className="delete" onClick={guardedClose} aria-label="Close" />
         </header>
         <section className="modal-card-body">
           <ModalBody connectedName={connectedName} error={error} />
         </section>
-        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
+        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem', borderTop: 'none', backgroundColor: 'white' }}>
           <ModalFooter
             connectedName={connectedName}
             loading={loading}

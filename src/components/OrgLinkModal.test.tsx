@@ -9,7 +9,9 @@ vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
-vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
+import { openUrl } from '@tauri-apps/plugin-opener';
+const mockOpenUrl = vi.mocked(openUrl);
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -44,6 +46,14 @@ describe('OrgLinkModal — org list', () => {
     mockInvoke.mockRejectedValue(new Error('scope_not_granted'));
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /sign in again/i })).toBeInTheDocument());
+  });
+
+  it('clicking Sign in again calls openUrl with provider login URL', async () => {
+    mockInvoke.mockRejectedValue(new Error('scope_not_granted'));
+    render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} provider="github" />);
+    await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in again/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&provider=github');
   });
 
   it('shows load error message when non-scope error is returned', async () => {

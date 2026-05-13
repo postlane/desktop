@@ -41,6 +41,16 @@ describe('useRepoData', () => {
       expect(result.current.loadError).toBe('Could not load repositories. Check logs.'),
     );
   });
+
+  it('sets loadError when initial load fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockWrapperInvoke.mockRejectedValueOnce(new Error('IPC error'));
+    const { result } = renderHook(() => useRepoData());
+    await waitFor(() =>
+      expect(result.current.loadError).toBe('Could not load repositories. Check logs.'),
+    );
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('useProjectRepos', () => {
@@ -54,5 +64,23 @@ describe('useProjectRepos', () => {
     await waitFor(() =>
       expect(result.current.loadError).toBe('Could not load repositories. Check logs.'),
     );
+  });
+
+  it('sets loadError when initial load fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockWrapperInvoke.mockRejectedValueOnce(new Error('IPC error'));
+    const { result } = renderHook(() => useProjectRepos('proj-1'));
+    await waitFor(() =>
+      expect(result.current.loadError).toBe('Could not load repositories. Check logs.'),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('populates repos on successful initial load', async () => {
+    const repo = { id: 'r1', name: 'MyRepo', path: '/p', active: true };
+    mockWrapperInvoke.mockResolvedValueOnce([repo]);
+    const { result } = renderHook(() => useProjectRepos('proj-1'));
+    await waitFor(() => expect(result.current.repos).toHaveLength(1));
+    expect(result.current.repos[0].id).toBe('r1');
   });
 });

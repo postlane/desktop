@@ -6,7 +6,6 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import Wizard from './wizard/Wizard';
 import ReSignInScreen from './wizard/ReSignInScreen';
-import AddWorkspaceModal from './wizard/AddWorkspaceModal';
 import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
 import LeftNav from './nav/LeftNav';
 import PostTable from './components/PostTable';
@@ -257,8 +256,8 @@ function useDirtyNavGuard(setCurrentView: (_sel: ViewSelection) => void) {
 function useAppState() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
   const [showWizard, setShowWizard] = useState(false);
+  const [wizardStartStep, setWizardStartStep] = useState(1);
   const [showReSignIn, setShowReSignIn] = useState(false);
-  const [showAddWorkspace, setShowAddWorkspace] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [timezone, setTimezone] = useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [repoVersion, setRepoVersion] = useState(0);
@@ -291,7 +290,8 @@ function useAppState() {
       .catch((e: unknown) => setInitError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  function handleWizardComplete() { setShowWizard(false); }
+  function handleWizardComplete() { setShowWizard(false); setWizardStartStep(1); }
+  function handleAddOrg() { setWizardStartStep(2); setShowWizard(true); }
   function handleSignedIn() { setShowReSignIn(false); }
 
   async function handleConsentChoice(consent: boolean) {
@@ -312,11 +312,10 @@ function useAppState() {
   }
 
   return {
-    currentView, setCurrentView, showWizard, showReSignIn,
-    showAddWorkspace, setShowAddWorkspace, showConsentModal,
-    timezone, setTimezone, repoVersion, setRepoVersion,
+    currentView, setCurrentView, showWizard, wizardStartStep, showReSignIn,
+    showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
     initError, wizardNudgePending,
-    handleWizardComplete, handleSignedIn, handleConsentChoice, handleWizardNudgeHandled, handleSignedOut,
+    handleWizardComplete, handleAddOrg, handleSignedIn, handleConsentChoice, handleWizardNudgeHandled, handleSignedOut,
   };
 }
 
@@ -333,17 +332,16 @@ function AppShell({
   showToast: (_msg: string) => void;
   toastMessage: string | null;
 }) {
-  const { currentView, showConsentModal, showAddWorkspace,
-    setShowAddWorkspace, setRepoVersion, wizardNudgePending,
+  const { currentView, showConsentModal, handleAddOrg,
+    setRepoVersion, wizardNudgePending,
     handleConsentChoice, handleWizardNudgeHandled, handleSignedOut, setTimezone } = appState;
   const { discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, editPostViewDirtyRef } = guard;
   return (
     <div className="is-flex" style={{ height: '100vh', overflow: 'hidden', background: 'white' }}>
       <LeftNav currentView={currentView} onNavigate={handleNavClick}
         onSettingsOpen={() => handleNavClick({ view: 'global_settings', section: 'account' })}
-        onAddWorkspace={() => setShowAddWorkspace(true)} />
+        onAddWorkspace={handleAddOrg} />
       {showConsentModal && <TelemetryConsentModal onAccept={() => handleConsentChoice(true)} onDecline={() => handleConsentChoice(false)} />}
-      {showAddWorkspace && <AddWorkspaceModal onClose={() => setShowAddWorkspace(false)} onCreated={() => { setShowAddWorkspace(false); setRepoVersion((v) => v + 1); }} />}
       {discardModalOpen && (
         <div className="modal is-active">
           <div className="modal-background" onClick={cancelDiscard} />
@@ -398,7 +396,7 @@ export default function App() {
     </div>
   );
 
-  if (appState.showWizard) return <Wizard onComplete={appState.handleWizardComplete} />;
+  if (appState.showWizard) return <Wizard startAt={appState.wizardStartStep} onComplete={appState.handleWizardComplete} />;
   if (appState.showReSignIn) return <ReSignInScreen onSignedIn={appState.handleSignedIn} />;
 
   return (

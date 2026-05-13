@@ -385,3 +385,60 @@ describe('EditPostView — Cmd+Enter', () => {
     await waitFor(() => expect(onApproved).toHaveBeenCalled())
   })
 })
+
+// ── Delete error ───────────────────────────────────────────────────────────────
+
+describe('EditPostView — Delete error', () => {
+  it('shows delete error message when delete_post fails', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'delete_post') throw new Error('permission denied');
+      return null;
+    })
+    renderEdit()
+    fireEvent.click(screen.getByRole('button', { name: /Delete/i }))
+    fireEvent.click(screen.getByTestId('confirm-delete'))
+    await waitFor(() => expect(screen.getByText(/permission denied/i)).toBeInTheDocument())
+  })
+})
+
+// ── Approve error ──────────────────────────────────────────────────────────────
+
+describe('EditPostView — Approve error', () => {
+  it('shows approve error alert when approve_post fails', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'approve_post') throw new Error('server error');
+      return null;
+    })
+    renderEdit()
+    fireEvent.click(screen.getByRole('button', { name: /Approve/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+  })
+})
+
+// ── Nav guard — clean navigation ───────────────────────────────────────────────
+
+describe('EditPostView — nav guard clean navigation', () => {
+  it('calls onNavigate immediately when pendingNavSel is set and content is clean', () => {
+    const onNavigate = vi.fn()
+    const { rerender } = renderEdit({ pendingNavSel: null, onNavigate })
+    rerender(
+      <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+        onNavigate={onNavigate} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
+    )
+    expect(onNavigate).toHaveBeenCalledWith(DEFAULT_NAV_SEL)
+  })
+})
+
+// ── Preview close ──────────────────────────────────────────────────────────────
+
+describe('EditPostView — Preview close', () => {
+  it('closes PreviewModal when the close button is clicked', async () => {
+    renderEdit()
+    fireEvent.click(screen.getByRole('button', { name: /Preview/i }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    const closeBtn = screen.getByRole('button', { name: /close preview/i })
+    fireEvent.click(closeBtn)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})

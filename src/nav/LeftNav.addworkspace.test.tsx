@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 
 vi.mock('../context/ProjectsProvider', () => ({ useProjectsContext: vi.fn() }));
@@ -31,8 +32,8 @@ beforeEach(() => {
   });
 });
 
-describe('LeftNav — Add org button (§17.3 migrated)', () => {
-  it('shows disabled Add org button with v1.2 tooltip when onAddWorkspace provided', () => {
+describe('LeftNav — Add org button', () => {
+  it('test_add_org_button_is_enabled', () => {
     render(
       <LeftNav
         currentView={DEFAULT_VIEW}
@@ -41,20 +42,20 @@ describe('LeftNav — Add org button (§17.3 migrated)', () => {
         onAddWorkspace={vi.fn()}
       />,
     );
-    const btn = screen.getByRole('button', { name: /add.*org/i });
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveAttribute('title', expect.stringMatching(/v1\.2/i));
+    expect(screen.getByRole('button', { name: /add.*org/i })).not.toBeDisabled();
   });
 
-  it('Add org button is disabled — v1.2 feature not yet active', () => {
+  it('test_add_org_button_calls_onAddWorkspace_when_clicked', async () => {
+    const onAddWorkspace = vi.fn();
     render(
       <LeftNav
         currentView={DEFAULT_VIEW}
         onNavigate={vi.fn()}
         onSettingsOpen={vi.fn()}
-        onAddWorkspace={vi.fn()}
+        onAddWorkspace={onAddWorkspace}
       />,
     );
-    expect(screen.getByRole('button', { name: /add.*org/i })).toBeDisabled();
+    await userEvent.setup().click(screen.getByRole('button', { name: /add.*org/i }));
+    expect(onAddWorkspace).toHaveBeenCalledOnce();
   });
 });

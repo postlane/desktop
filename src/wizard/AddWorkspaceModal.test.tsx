@@ -69,4 +69,12 @@ describe('AddWorkspaceModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(mockInvoke).not.toHaveBeenCalled();
   });
+
+  it('test_generic_api_error_shows_failed_to_create_workspace_message', async () => {
+    mockInvoke.mockRejectedValue(new Error('Network timeout'));
+    render(<AddWorkspaceModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: /workspace name/i }), { target: { value: 'My Workspace' } });
+    fireEvent.click(screen.getByRole('button', { name: /create workspace/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to create workspace: Network timeout');
+  });
 });

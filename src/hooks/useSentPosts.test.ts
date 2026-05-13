@@ -27,7 +27,7 @@ const PUBLISHED = makePublished()
 
 beforeEach(() => { vi.clearAllMocks() })
 
-describe('useSentPosts', () => {
+describe('useSentPosts — fetch', () => {
   it('starts in loading state', () => {
     mockInvoke.mockReturnValueOnce(new Promise(() => {}))
     const { result } = renderHook(() => useSentPosts('proj-1'))
@@ -58,7 +58,9 @@ describe('useSentPosts', () => {
     await waitFor(() => expect(mockInvoke).toHaveBeenCalled())
     expect(mockInvoke).toHaveBeenCalledWith('get_org_published', { projectId: 'proj-42' })
   })
+})
 
+describe('useSentPosts — refresh and reactivity', () => {
   it('projectId change triggers reload with new id', async () => {
     mockInvoke.mockResolvedValue([PUBLISHED])
     const { result, rerender } = renderHook((props: { projectId: string }) => useSentPosts(props.projectId), {
@@ -78,5 +80,34 @@ describe('useSentPosts', () => {
     await act(async () => { result.current.refresh() })
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(mockInvoke).toHaveBeenCalledTimes(2)
+  })
+
+  it('stale success response is discarded when a newer request supersedes it', async () => {
+    let resolveFirst!: (value: PublishedPost[]) => void
+    const firstPromise = new Promise<PublishedPost[]>((res) => { resolveFirst = res })
+    mockInvoke
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce([PUBLISHED])
+    const { result } = renderHook(() => useSentPosts('proj-1'))
+    await act(async () => { result.current.refresh() })
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { resolveFirst([]) })
+    expect(result.current.posts).toEqual([PUBLISHED])
+  })
+
+  it('stale error response is discarded when a newer request supersedes it', async () => {
+    let rejectFirst!: (reason: unknown) => void
+    const firstPromise = new Promise<PublishedPost[]>((_, rej) => { rejectFirst = rej })
+    mockInvoke
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce([PUBLISHED])
+    const { result } = renderHook(() => useSentPosts('proj-1'))
+    await act(async () => { result.current.refresh() })
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await act(async () => { rejectFirst(new Error('stale error')) })
+    expect(result.current.posts).toEqual([PUBLISHED])
+    expect(result.current.error).toBeNull()
   })
 })

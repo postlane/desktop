@@ -11,21 +11,71 @@ vi.mock('@tauri-apps/api/window', () => ({
     outerPosition: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
   }))
 }))
-vi.mock('./wizard/Wizard', () => ({ default: () => <div>Wizard</div> }))
-vi.mock('./wizard/ReSignInScreen', () => ({ default: () => <div>ReSignInScreen</div> }))
+vi.mock('./wizard/Wizard', () => ({
+  default: ({ startAt, onComplete }: { startAt?: number; onComplete?: () => void }) => (
+    <div data-testid="wizard" data-start={startAt ?? 1}>
+      Wizard
+      <button data-testid="wizard-complete" onClick={onComplete}>Complete</button>
+    </div>
+  ),
+}))
+vi.mock('./wizard/ReSignInScreen', () => ({
+  default: ({ onSignedIn }: { onSignedIn?: () => void }) => (
+    <div>ReSignInScreen<button data-testid="resign-in" onClick={onSignedIn}>Sign in</button></div>
+  ),
+}))
 vi.mock('./nav/LeftNav', () => ({
-  default: ({ onNavigate }: { onNavigate?: (_v: { view: string }) => void }) => (
+  default: ({ onNavigate, onAddWorkspace, onSettingsOpen }: {
+    onNavigate?: (_v: { view: string }) => void;
+    onAddWorkspace?: () => void;
+    onSettingsOpen?: () => void;
+  }) => (
     <>
       <div>LeftNav</div>
       <button data-testid="leftnav-nav" onClick={() => onNavigate?.({ view: 'no_orgs' })} />
+      <button data-testid="leftnav-add-org" onClick={() => onAddWorkspace?.()} />
+      <button data-testid="leftnav-settings" onClick={() => onSettingsOpen?.()} />
     </>
   ),
 }))
-vi.mock('./telemetry/TelemetryConsentModal', () => ({ default: () => null }))
-vi.mock('./drafts/AllReposDraftsView', () => ({ default: () => <div>AllReposDraftsView</div> }))
-vi.mock('./settings/SettingsPanel', () => ({ default: () => <div>SettingsPanel</div> }))
+vi.mock('./telemetry/TelemetryConsentModal', () => ({
+  default: ({ onAccept, onDecline }: { onAccept?: () => void; onDecline?: () => void }) => (
+    <>
+      <button data-testid="consent-accept" onClick={onAccept}>Accept</button>
+      <button data-testid="consent-decline" onClick={onDecline}>Decline</button>
+    </>
+  ),
+}))
 vi.mock('./settings/OrgSettingsView', () => ({ default: () => <div>OrgSettingsView</div> }))
+vi.mock('./settings/AccountSettingsView', () => ({
+  default: ({ onSignedOut }: { onSignedOut?: () => void }) => (
+    <div>AccountSettingsView<button data-testid="sign-out" onClick={onSignedOut}>Sign out</button></div>
+  ),
+}))
+vi.mock('./settings/PreferencesSettingsView', () => ({ default: () => <div>PreferencesSettingsView</div> }))
+vi.mock('./settings/SystemSettingsView', () => ({ default: () => <div>SystemSettingsView</div> }))
+vi.mock('./components/PostTable', () => ({
+  default: ({ onSelect }: { onSelect?: (_p: unknown) => void }) => (
+    <button data-testid="select-post" onClick={() => onSelect?.({
+      id: 'd1', project_id: 'p1', repo_id: 'r1', title: 'T', body: '', status: 'draft', created_at: '',
+    })}>Select Post</button>
+  ),
+}))
+vi.mock('./components/EditPostView', () => ({
+  default: ({ onDirtyChange, onToast }: {
+    onDirtyChange?: (_d: boolean) => void;
+    onToast?: (_msg: string) => void;
+  }) => (
+    <div data-testid="edit-post-view">
+      <button data-testid="set-dirty" onClick={() => onDirtyChange?.(true)}>Dirty</button>
+      <button data-testid="show-toast" onClick={() => onToast?.('Test toast')}>Toast</button>
+    </div>
+  ),
+}))
+vi.mock('./components/OrgUpgradeBanner', () => ({ default: () => null }))
+vi.mock('./components/OrgLinkModal', () => ({ default: () => null }))
 
+import userEvent from '@testing-library/user-event'
 import { invoke } from './ipc/invoke'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -169,6 +219,25 @@ describe('App startup — state initialisation', () => {
     if (!expiredEntry) throw new Error('license:expired listener not registered')
     act(() => (expiredEntry[1] as () => void)())
     await waitFor(() => expect(screen.getByText('ReSignInScreen')).toBeInTheDocument())
+  })
+})
+
+describe('App — Add org flow', () => {
+  it('test_add_org_click_shows_wizard_at_step_2', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'get_repos') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByTestId('leftnav-add-org'))
+    await waitFor(() => {
+      const wizard = screen.getByTestId('wizard')
+      expect(wizard).toBeInTheDocument()
+      expect(wizard).toHaveAttribute('data-start', '2')
+    })
   })
 })
 

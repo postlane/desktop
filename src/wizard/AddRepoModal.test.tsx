@@ -30,6 +30,13 @@ describe('AddRepoModal — structure and navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it('calls onClose when Escape key is pressed', () => {
+    const onClose = vi.fn();
+    render(<AddRepoModal onClose={onClose} projectId="" projectName="" />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });
 
 describe('AddRepoModal — folder connect', () => {
@@ -114,5 +121,29 @@ describe('AddRepoModal — error messages', () => {
       expect(alert.textContent).toContain('outside your home directory');
       expect(alert.textContent).not.toContain('PathNotAuthorised:');
     });
+  });
+
+  it('shows generic fallback error for unknown error types', async () => {
+    mockOpen.mockResolvedValue('/Users/test/some-folder');
+    mockInvoke.mockRejectedValue('SomeUnknownError: something went wrong');
+    render(<AddRepoModal onClose={vi.fn()} projectId="" projectName="" />);
+    fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
+    await waitFor(() => {
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('Failed to connect repository');
+    });
+  });
+});
+
+describe('AddRepoModal — cancelled dialog', () => {
+  it('test_cancelling_folder_picker_resets_loading_without_error', async () => {
+    mockOpen.mockResolvedValue(null);
+    render(<AddRepoModal onClose={vi.fn()} projectId="" projectName="" />);
+    fireEvent.click(screen.getByRole('button', { name: /browse for the folder/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /browse for the folder/i })).not.toBeDisabled(),
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(mockInvoke).not.toHaveBeenCalled();
   });
 });

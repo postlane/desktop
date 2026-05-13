@@ -95,7 +95,7 @@ describe('SchedulerBlock — remove', () => {
 
 // ── Connect ────────────────────────────────────────────────────────────────────
 
-describe('SchedulerBlock — connect', () => {
+describe('SchedulerBlock — connect — form', () => {
   beforeEach(() => {
     mockInvoke.mockImplementation(async (cmd) => {
       if (cmd === 'list_scheduler_profiles') return [makeProfile({ connected: false })]
@@ -144,10 +144,49 @@ describe('SchedulerBlock — connect', () => {
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }))
     expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument()
   })
+})
+
+describe('SchedulerBlock — connect — access and errors', () => {
+  beforeEach(() => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_scheduler_profiles') return [makeProfile({ connected: false })]
+      return null
+    })
+  })
 
   it('hides Connect button for non-owners', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={false} />)
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Connect$/i })).not.toBeInTheDocument())
     expect(screen.queryByLabelText(/API key/i)).not.toBeInTheDocument()
+  })
+
+  it('shows provider label using capitalized name for non-zernio providers', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_scheduler_profiles') return [makeProfile({ provider: 'publer', connected: false })]
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('Publer')).toBeInTheDocument())
+  })
+
+  it('shows error alert when add_scheduler_credential fails', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_scheduler_profiles') return [makeProfile({ connected: false })]
+      if (cmd === 'add_scheduler_credential') throw new Error('Bad API key')
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/i }))
+    const input = await screen.findByLabelText(/API key/i)
+    fireEvent.change(input, { target: { value: 'bad-key' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+  })
+
+  it('shows empty profiles when list_scheduler_profiles fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('IPC error'))
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText(/No scheduler connected/i)).toBeInTheDocument())
   })
 })

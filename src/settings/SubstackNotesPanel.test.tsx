@@ -88,6 +88,36 @@ describe('SubstackNotesPanel — save error', () => {
   });
 });
 
+describe('SubstackNotesPanel — cancel behaviour', () => {
+  it('cancel from adding with no credential returns to idle state', async () => {
+    mockInvoke.mockRejectedValue(new Error('not found'));
+    render(<SubstackNotesPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /add/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /add/i })).toBeInTheDocument());
+  });
+
+  it('Change button from configured state switches to adding form', async () => {
+    mockInvoke.mockResolvedValue('••••xyzw');
+    render(<SubstackNotesPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /change/i }));
+    fireEvent.click(screen.getByRole('button', { name: /change/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument());
+  });
+
+  it('cancel from adding with existing credential returns to configured state', async () => {
+    mockInvoke.mockResolvedValue('••••xyzw');
+    render(<SubstackNotesPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /change/i }));
+    fireEvent.click(screen.getByRole('button', { name: /change/i }));
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument());
+  });
+});
+
 describe('SubstackNotesPanel — configured state', () => {
   it('shows Test and Remove buttons when credential is present', async () => {
     mockInvoke.mockResolvedValue('••••xyzw');

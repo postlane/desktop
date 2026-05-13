@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
@@ -62,6 +62,32 @@ describe('ModalScheduler — picker', () => {
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByRole('button', { name: /zernio/i })).toBeDefined();
+  });
+
+  it('test_back_button_while_provider_selected_returns_to_picker', async () => {
+    render(<ModalScheduler {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
+    // In key-entry view, back button should clear selectedProvider and show picker
+    await userEvent.click(screen.getByRole('button', { name: /back/i }));
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByRole('button', { name: /zernio/i })).toBeDefined();
+  });
+
+  it('test_back_button_while_on_picker_calls_onBack', async () => {
+    const onBack = vi.fn();
+    render(<ModalScheduler {...defaultProps} onBack={onBack} />);
+    await userEvent.click(screen.getByRole('button', { name: /back/i }));
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it('test_docs_link_prevents_default_and_opens_url', async () => {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    const mockOpenUrl = vi.mocked(openUrl);
+    render(<ModalScheduler {...defaultProps} />);
+    const link = screen.getByRole('link', { name: /scheduler setup docs/i });
+    // fireEvent is needed because userEvent follows href navigation
+    fireEvent.click(link);
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://docs.postlane.dev/scheduling');
   });
 });
 
