@@ -51,7 +51,10 @@ function FolderPickerSection({ workspaceId, onConnected }: FolderSectionProps) {
       await invoke('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
       onConnected();
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Failed to connect repository');
+      const raw = typeof err === 'string' ? err : '';
+      setError(raw.startsWith('NotAGitRepo:')
+        ? 'Not a Git repository. Please select a folder that contains a .git directory.'
+        : 'Failed to connect repository');
     } finally {
       setConnecting(false);
     }
