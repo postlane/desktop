@@ -46,6 +46,39 @@ function ModalFooter({ connectedName, loading, onDone, onCancel, onBrowse }: {
   );
 }
 
+interface BrowseOpts {
+  pickerOpenRef: { current: boolean };
+  loading: boolean;
+  setLoading: (v: boolean) => void;
+  setError: (v: string | null) => void;
+  setConnectedName: (v: string) => void;
+  projectId: string;
+  projectName: string;
+}
+
+async function runBrowse(opts: BrowseOpts) {
+  const { pickerOpenRef, loading, setLoading, setError, setConnectedName, projectId, projectName } = opts;
+  if (pickerOpenRef.current || loading) return;
+  setError(null);
+  pickerOpenRef.current = true;
+  setLoading(true);
+  const selected = await openDialog({ directory: true });
+  if (typeof selected !== 'string') {
+    pickerOpenRef.current = false;
+    setLoading(false);
+    return;
+  }
+  try {
+    const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
+    setConnectedName(repo.name);
+  } catch (err) {
+    setError(repoConnectError(err, projectName));
+  } finally {
+    pickerOpenRef.current = false;
+    setLoading(false);
+  }
+}
+
 interface Props {
   onClose: () => void;
   projectId: string;
@@ -59,8 +92,6 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
   const ref = useRef<HTMLDivElement>(null);
   const pickerOpenRef = useRef(false);
 
-  // Single guarded close used by every dismissal path (background, X, Cancel,
-  // Escape) so phantom clicks from the OS folder picker can never slip through.
   function guardedClose() {
     if (pickerOpenRef.current || loading) return;
     onClose();
@@ -75,30 +106,6 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, loading, connectedName]);
 
-  async function handleBrowse() {
-    if (pickerOpenRef.current || loading) return;
-    setError(null);
-    // Set loading + ref before opening the dialog so guardedClose is armed
-    // synchronously — no React re-render cycle needed.
-    pickerOpenRef.current = true;
-    setLoading(true);
-    const selected = await openDialog({ directory: true });
-    if (typeof selected !== 'string') {
-      pickerOpenRef.current = false;
-      setLoading(false);
-      return;
-    }
-    try {
-      const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
-      setConnectedName(repo.name);
-    } catch (err) {
-      setError(repoConnectError(err, projectName));
-    } finally {
-      pickerOpenRef.current = false;
-      setLoading(false);
-    }
-  }
-
   return (
     <div className="modal is-active">
       <div className="modal-background" onClick={guardedClose} />
@@ -111,7 +118,13 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
           <ModalBody connectedName={connectedName} error={error} />
         </section>
         <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
-          <ModalFooter connectedName={connectedName} loading={loading} onDone={onClose} onCancel={guardedClose} onBrowse={handleBrowse} />
+          <ModalFooter
+            connectedName={connectedName}
+            loading={loading}
+            onDone={onClose}
+            onCancel={guardedClose}
+            onBrowse={() => runBrowse({ pickerOpenRef, loading, setLoading, setError, setConnectedName, projectId, projectName })}
+          />
         </footer>
       </div>
     </div>

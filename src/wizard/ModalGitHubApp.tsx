@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
@@ -53,22 +53,29 @@ interface FolderSectionProps {
 
 function FolderPickerSection({ workspaceId, workspaceName, onConnected }: FolderSectionProps) {
   const [connecting, setConnecting] = useState(false);
+  const [connectedName, setConnectedName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pickerOpenRef = useRef(false);
 
   async function handleChoose() {
+    if (pickerOpenRef.current || connecting) return;
+    pickerOpenRef.current = true;
     setConnecting(true);
     setError(null);
     const result = await openDialog({ directory: true });
     if (typeof result !== 'string') {
+      pickerOpenRef.current = false;
       setConnecting(false);
       return;
     }
     try {
-      await invoke('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
+      const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
+      setConnectedName(repo.name);
       onConnected();
     } catch (err) {
       setError(repoConnectError(err, workspaceName));
     } finally {
+      pickerOpenRef.current = false;
       setConnecting(false);
     }
   }
@@ -79,9 +86,16 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected }: Folder
       <p className="is-size-7 has-text-grey mb-3">
         Connect individual repos or folders from your machine.
       </p>
-      <button className="button is-light is-small" onClick={handleChoose} disabled={connecting}>
-        {connecting ? 'Connecting…' : 'Choose folder'}
-      </button>
+      {connectedName ? (
+        <p className="is-size-7">
+          <span className="tag is-success is-light mr-2">&#10003;</span>
+          <strong>{connectedName}</strong> connected. You can add more or click Next.
+        </p>
+      ) : (
+        <button className="button is-light is-small" onClick={handleChoose} disabled={connecting}>
+          {connecting ? 'Connecting…' : 'Choose folder'}
+        </button>
+      )}
       {error && <p role="alert" className="is-size-7 has-text-danger mt-2">{error}</p>}
     </div>
   );
