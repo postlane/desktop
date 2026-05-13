@@ -308,6 +308,65 @@ describe('RepoConfigureModal — friendly keychain errors (§15 review fix 8)', 
       expect(screen.getByText(/unlock.*try again/i)).toBeInTheDocument(),
     );
   });
+
+  it('maps an access denied error to an actionable message on remove', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
+      if (cmd === 'remove_repo_scheduler_key') throw new Error('permission denied');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/access denied/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+describe('RepoConfigureModal — form cancel and save error', () => {
+  it('Cancel button in form closes the form', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    await waitFor(() => screen.getByPlaceholderText(/api key/i));
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(screen.queryByPlaceholderText(/api key/i)).not.toBeInTheDocument();
+  });
+
+  it('shows save error when save_repo_scheduler_key fails', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      if (cmd === 'save_repo_scheduler_key') throw new Error('IPC failure');
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    const keyInput = await screen.findByPlaceholderText(/api key/i);
+    fireEvent.change(keyInput, { target: { value: 'bad-key' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/IPC failure/i)).toBeInTheDocument(),
+    );
+  });
+
+  it('changing provider in form resets test result', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_per_repo_scheduler_key') return null;
+      return null;
+    });
+    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
+    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
+    const select = await screen.findByRole('combobox', { name: /provider/i });
+    fireEvent.change(select, { target: { value: 'publer' } });
+    expect(select).toHaveValue('publer');
+  });
 });
 
 describe('RepoConfigureModal — isOwner gate (20.7.10)', () => {

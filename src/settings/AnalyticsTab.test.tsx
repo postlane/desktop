@@ -81,3 +81,20 @@ describe('AnalyticsTab — copy error', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('AnalyticsTab — copy success', () => {
+  it('shows_copied_label_after_successful_clipboard_write', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_site_token') return 'tok-abc123';
+      return null;
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...globalThis.navigator, clipboard: { writeText } });
+    render(<AnalyticsTab repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /copy/i }));
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /copied!/i })).toBeInTheDocument());
+    expect(screen.queryByText(/failed to copy/i)).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+});

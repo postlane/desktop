@@ -128,3 +128,56 @@ describe('useWizardState — step 6 completion (20.6.3)', () => {
     expect(result.current.complete).toBe(true);
   });
 });
+
+describe('useWizardState — back boundary', () => {
+  it('test_back_on_step_1_does_not_change_step', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.back());
+    expect(result.current.step).toBe(1);
+  });
+});
+
+describe('useWizardState — skip no-op on non-step-4', () => {
+  it('test_skip_on_step_1_does_nothing', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.skip());
+    expect(result.current.step).toBe(1);
+    expect(result.current.schedulerLinked).toBe(false);
+  });
+
+  it('test_skip_on_step_3_does_nothing', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.next()); // → 2
+    act(() => result.current.setToken('tok'));
+    act(() => result.current.next()); // → 3
+    act(() => result.current.skip());
+    expect(result.current.step).toBe(3);
+  });
+});
+
+describe('useWizardState — setter functions', () => {
+  it('test_set_provider_updates_provider', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.setProvider('github'));
+    expect(result.current.provider).toBe('github');
+  });
+
+  it('test_set_workspace_name_updates_workspace_name', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.setWorkspaceName('My Workspace'));
+    expect(result.current.workspaceName).toBe('My Workspace');
+  });
+
+  it('test_set_scheduler_linked_true_updates_scheduler_linked', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.setSchedulerLinked(true));
+    expect(result.current.schedulerLinked).toBe(true);
+  });
+
+  it('test_set_scheduler_linked_false_updates_scheduler_linked', () => {
+    const { result } = renderHook(() => useWizardState());
+    act(() => result.current.setSchedulerLinked(true));
+    act(() => result.current.setSchedulerLinked(false));
+    expect(result.current.schedulerLinked).toBe(false);
+  });
+});

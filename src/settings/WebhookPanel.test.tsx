@@ -146,6 +146,48 @@ describe('WebhookPanel — usage display (§13.1.3)', () => {
   });
 });
 
+describe('WebhookPanel — cancel behaviour', () => {
+  it('cancel from adding with no credential returns to idle state', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') throw new Error('not found');
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: null, month: 4, year: 2026 };
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /add/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /add/i })).toBeInTheDocument());
+  });
+
+  it('Change button from configured state switches to adding form', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') return 'https://hooks.zapier.com/hooks/catch/abc';
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: null, month: 4, year: 2026 };
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /change/i }));
+    fireEvent.click(screen.getByRole('button', { name: /change/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument());
+  });
+
+  it('cancel from adding with existing credential returns to configured state', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_scheduler_credential') return 'https://hooks.zapier.com/hooks/catch/abc';
+      if (cmd === 'get_scheduler_usage') return { provider: 'webhook', count: 0, limit: null, month: 4, year: 2026 };
+      return null;
+    });
+    render(<WebhookPanel />);
+    await waitFor(() => screen.getByRole('button', { name: /change/i }));
+    fireEvent.click(screen.getByRole('button', { name: /change/i }));
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument());
+  });
+});
+
 describe('WebhookPanel — configured state', () => {
   it('shows Test and Remove buttons when credential is configured', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {

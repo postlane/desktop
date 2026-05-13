@@ -18,7 +18,7 @@ function repoConnectError(err: unknown, workspaceName?: string): string {
 function ModalBody({ connectedName, error }: { connectedName: string | null; error: string | null }) {
   if (connectedName) {
     return (
-      <p className="is-size-7">
+      <p className="is-size-6">
         <span className="tag is-success is-light mr-2">&#10003;</span>
         <strong>{connectedName}</strong> connected.
       </p>
@@ -26,8 +26,8 @@ function ModalBody({ connectedName, error }: { connectedName: string | null; err
   }
   return (
     <>
-      <p className="is-size-7 has-text-grey mb-3">Select a git repository folder to connect to this project.</p>
-      {error && <p role="alert" className="is-size-7 has-text-danger">{error}</p>}
+      <p className="is-size-6 has-text-grey mb-3">Select a git repository folder to connect to this project.</p>
+      {error && <p role="alert" className="is-size-6 has-text-danger">{error}</p>}
     </>
   );
 }
@@ -46,6 +46,39 @@ function ModalFooter({ connectedName, loading, onDone, onCancel, onBrowse }: {
   );
 }
 
+interface BrowseOpts {
+  pickerOpenRef: { current: boolean };
+  loading: boolean;
+  setLoading: (v: boolean) => void;
+  setError: (v: string | null) => void;
+  setConnectedName: (v: string) => void;
+  projectId: string;
+  projectName: string;
+}
+
+async function runBrowse(opts: BrowseOpts) {
+  const { pickerOpenRef, loading, setLoading, setError, setConnectedName, projectId, projectName } = opts;
+  if (pickerOpenRef.current || loading) return;
+  setError(null);
+  pickerOpenRef.current = true;
+  setLoading(true);
+  const selected = await openDialog({ directory: true });
+  if (typeof selected !== 'string') {
+    pickerOpenRef.current = false;
+    setLoading(false);
+    return;
+  }
+  try {
+    const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
+    setConnectedName(repo.name);
+  } catch (err) {
+    setError(repoConnectError(err, projectName));
+  } finally {
+    pickerOpenRef.current = false;
+    setLoading(false);
+  }
+}
+
 interface Props {
   onClose: () => void;
   projectId: string;
@@ -59,8 +92,6 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
   const ref = useRef<HTMLDivElement>(null);
   const pickerOpenRef = useRef(false);
 
-  // Single guarded close used by every dismissal path (background, X, Cancel,
-  // Escape) so phantom clicks from the OS folder picker can never slip through.
   function guardedClose() {
     if (pickerOpenRef.current || loading) return;
     onClose();
@@ -75,36 +106,25 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, loading, connectedName]);
 
-  async function handleBrowse() {
-    setError(null);
-    pickerOpenRef.current = true;
-    const selected = await openDialog({ directory: true });
-    setTimeout(() => { pickerOpenRef.current = false; }, 200);
-    if (typeof selected !== 'string') return;
-    setLoading(true);
-    try {
-      const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
-      setConnectedName(repo.name);
-    } catch (err) {
-      setError(repoConnectError(err, projectName));
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
     <div className="modal is-active">
       <div className="modal-background" onClick={guardedClose} />
       <div className="modal-card" role="dialog" aria-modal="true" ref={ref} tabIndex={-1}>
-        <header className="modal-card-head">
+        <header className="modal-card-head" style={{ borderBottom: 'none', backgroundColor: 'white' }}>
           <p className="modal-card-title">Add a repo</p>
           <button className="delete" onClick={guardedClose} aria-label="Close" />
         </header>
         <section className="modal-card-body">
           <ModalBody connectedName={connectedName} error={error} />
         </section>
-        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
-          <ModalFooter connectedName={connectedName} loading={loading} onDone={onClose} onCancel={guardedClose} onBrowse={handleBrowse} />
+        <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem', borderTop: 'none', backgroundColor: 'white' }}>
+          <ModalFooter
+            connectedName={connectedName}
+            loading={loading}
+            onDone={onClose}
+            onCancel={guardedClose}
+            onBrowse={() => runBrowse({ pickerOpenRef, loading, setLoading, setError, setConnectedName, projectId, projectName })}
+          />
         </footer>
       </div>
     </div>

@@ -27,7 +27,29 @@ beforeEach(() => {
   mockListen.mockResolvedValue(() => {});
 });
 
-describe('ModalAccount', () => {
+describe('ModalAccount — mode prop', () => {
+  it('test_sign_in_mode_shows_sign_in_title', () => {
+    render(<ModalAccount onNext={vi.fn()} mode="sign_in" />);
+    expect(screen.getByRole('heading', { name: /sign in to postlane/i })).toBeInTheDocument();
+  });
+
+  it('test_add_org_mode_shows_add_org_title', () => {
+    render(<ModalAccount onNext={vi.fn()} mode="add_org" />);
+    expect(screen.getByRole('heading', { name: /add an organization/i })).toBeInTheDocument();
+  });
+
+  it('test_add_org_mode_shows_add_org_subtitle', () => {
+    render(<ModalAccount onNext={vi.fn()} mode="add_org" />);
+    expect(screen.getByText(/choose the provider where your org is hosted/i)).toBeInTheDocument();
+  });
+
+  it('test_default_mode_shows_sign_in_title', () => {
+    render(<ModalAccount onNext={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: /sign in to postlane/i })).toBeInTheDocument();
+  });
+});
+
+describe('ModalAccount — OAuth buttons', () => {
   it('test_github_button_calls_openUrl', async () => {
     render(<ModalAccount onNext={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /github/i }));
@@ -64,7 +86,9 @@ describe('ModalAccount', () => {
     act(() => (latest[1] as () => void)());
     expect(onNext).toHaveBeenCalledWith('github');
   });
+});
 
+describe('ModalAccount — events and links', () => {
   it('test_license_error_event_shows_message', async () => {
     render(<ModalAccount onNext={vi.fn()} />);
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('license:error', expect.any(Function)));
@@ -72,5 +96,35 @@ describe('ModalAccount', () => {
     if (!entry) throw new Error('license:error listener not registered');
     act(() => (entry[1] as (e: { payload: { message: string } }) => void)({ payload: { message: 'Token was rejected by the license server' } }));
     expect(screen.getByRole('alert')).toHaveTextContent('Token was rejected by the license server');
+  });
+
+  it('test_github_button_opens_url_without_port_when_invoke_fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('server not started'));
+    render(<ModalAccount onNext={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /github/i }));
+    await waitFor(() =>
+      expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&provider=github'),
+    );
+  });
+
+  it('test_gitlab_button_opens_url_without_port_when_invoke_fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('server not started'));
+    render(<ModalAccount onNext={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: /gitlab/i }));
+    await waitFor(() =>
+      expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&provider=gitlab'),
+    );
+  });
+
+  it('test_privacy_link_calls_openUrl', async () => {
+    render(<ModalAccount onNext={vi.fn()} />);
+    await userEvent.click(screen.getByRole('link', { name: /privacy page/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/privacy');
+  });
+
+  it('test_security_link_calls_openUrl', async () => {
+    render(<ModalAccount onNext={vi.fn()} />);
+    await userEvent.click(screen.getByRole('link', { name: /security docs/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://docs.postlane.dev/security');
   });
 });

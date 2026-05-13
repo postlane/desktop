@@ -168,7 +168,7 @@ describe('ModalOrgPicker — existing workspace (has_project: true)', () => {
   });
 });
 
-describe('ModalOrgPicker — errors and gates', () => {
+describe('ModalOrgPicker — errors', () => {
   it('shows error state with Retry when list_provider_orgs fails', async () => {
     mockInvoke.mockRejectedValue(new Error('network timeout'));
     render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
@@ -200,7 +200,9 @@ describe('ModalOrgPicker — errors and gates', () => {
     expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('postlane.dev/login'));
     expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('github'));
   });
+});
 
+describe('ModalOrgPicker — pricing gate and permissions', () => {
   it('calls onPricingGate when create_project returns No free project slot', async () => {
     const onPricingGate = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
@@ -212,5 +214,32 @@ describe('ModalOrgPicker — errors and gates', () => {
     await userEvent.click(screen.getByRole('option', { name: /neworg/i }));
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     await waitFor(() => expect(onPricingGate).toHaveBeenCalledOnce());
+  });
+
+  it('shows create error when create_project fails with a non-pricing error', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_provider_orgs') return MOCK_ORGS;
+      throw new Error('Internal server error');
+    });
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByText('neworg'));
+    await userEvent.click(screen.getByRole('option', { name: /neworg/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(screen.getByRole('alert').textContent).toContain('Failed to create workspace');
+  });
+
+  it('Manage permissions button opens GitHub permissions URL for github provider', async () => {
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} provider="github" />);
+    await waitFor(() => screen.getByText('hugoelliott'));
+    await userEvent.click(screen.getByRole('button', { name: /manage github app permissions/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('github.com'));
+  });
+
+  it('Manage permissions button opens GitLab permissions URL for gitlab provider', async () => {
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} provider="gitlab" />);
+    await waitFor(() => screen.getByText('hugoelliott'));
+    await userEvent.click(screen.getByRole('button', { name: /manage gitlab app permissions/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('gitlab.com'));
   });
 });

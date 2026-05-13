@@ -13,6 +13,7 @@ vi.mock('./LicenseSection', () => ({ LicenseSection: () => null }))
 
 import { invoke } from '../ipc/invoke'
 import AppTab from './AppTab'
+import userEvent from '@testing-library/user-event'
 
 const mockInvoke = vi.mocked(invoke)
 
@@ -39,6 +40,311 @@ beforeEach(() => {
     if (cmd === 'get_attribution') return Promise.resolve(true)
     if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
     return Promise.resolve(null)
+  })
+})
+
+describe('AppTab — initial load', () => {
+  it('test_displays_version_after_load', async () => {
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByText(/postlane 1\.0\.0/i)).toBeInTheDocument())
+  })
+
+  it('test_autostart_checkbox_reflects_backend_value', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(true)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /launch at login/i })).toBeChecked())
+  })
+
+  it('test_attribution_switch_reflects_backend_false', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(false)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: /post attribution/i })).toHaveAttribute('aria-checked', 'false')
+    )
+  })
+
+  it('test_telemetry_checkbox_reflects_backend_true', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(true)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /send anonymous usage data/i })).toBeChecked())
+  })
+
+  it('test_default_post_time_loaded_from_app_state', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ default_post_time: { hour: 14, minute: 30, timezone: 'UTC' } }))
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /default post time hour/i })).toHaveValue('14'))
+    expect(screen.getByRole('combobox', { name: /default post time minute/i })).toHaveValue('30')
+  })
+})
+
+describe('AppTab — attribution toggle', () => {
+  it('test_attribution_toggle_invokes_set_attribution_with_toggled_value', async () => {
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('switch', { name: /post attribution/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('switch', { name: /post attribution/i }))
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'set_attribution')
+      expect(calls.length).toBe(1)
+      expect((calls[0][1] as { enabled: boolean }).enabled).toBe(false)
+    })
+  })
+
+  it('test_attribution_toggle_ipc_error_shows_alert', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      if (cmd === 'set_attribution') return Promise.reject(new Error('Keyring unavailable'))
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('switch', { name: /post attribution/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('switch', { name: /post attribution/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/keyring unavailable/i))
+  })
+})
+
+describe('AppTab — telemetry toggle', () => {
+  it('test_telemetry_toggle_invokes_set_telemetry_consent', async () => {
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /send anonymous usage data/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('checkbox', { name: /send anonymous usage data/i }))
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'set_telemetry_consent')
+      expect(calls.length).toBe(1)
+      expect((calls[0][1] as { consent: boolean }).consent).toBe(true)
+    })
+  })
+
+  it('test_telemetry_toggle_ipc_error_shows_alert', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      if (cmd === 'set_telemetry_consent') return Promise.reject(new Error('IPC failed'))
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /send anonymous usage data/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('checkbox', { name: /send anonymous usage data/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/ipc failed/i))
+  })
+})
+
+describe('AppTab — autostart toggle', () => {
+  it('test_autostart_enable_calls_plugin_enable', async () => {
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /launch at login/i })).not.toBeChecked())
+    await userEvent.setup().click(screen.getByRole('checkbox', { name: /launch at login/i }))
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'plugin:autostart|enable')
+      expect(calls.length).toBe(1)
+    })
+  })
+
+  it('test_autostart_disable_calls_plugin_disable', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(true)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /launch at login/i })).toBeChecked())
+    await userEvent.setup().click(screen.getByRole('checkbox', { name: /launch at login/i }))
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'plugin:autostart|disable')
+      expect(calls.length).toBe(1)
+    })
+  })
+})
+
+describe('AppTab — timezone change', () => {
+  it('test_timezone_change_saves_to_app_state_and_calls_callback', async () => {
+    const onTimezoneChange = vi.fn()
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      if (cmd === 'save_app_state_command') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    render(<AppTab onTimezoneChange={onTimezoneChange} />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /display timezone/i })).toBeInTheDocument())
+    fireEvent.change(screen.getByRole('combobox', { name: /display timezone/i }), { target: { value: 'America/New_York' } })
+    await waitFor(() => {
+      const saves = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'save_app_state_command')
+      expect(saves.length).toBeGreaterThan(0)
+      const [, arg] = saves[saves.length - 1]
+      expect((arg as { state: { timezone: string } }).state.timezone).toBe('America/New_York')
+    })
+    expect(onTimezoneChange).toHaveBeenCalledWith('America/New_York')
+  })
+})
+
+describe('AppTab — open logs', () => {
+  it('test_open_logs_calls_opener_plugin', async () => {
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /open log folder/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('button', { name: /open log folder/i }))
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'plugin:opener|open_path')
+      expect(calls.length).toBe(1)
+    })
+  })
+})
+
+describe('AppTab — check for updates', () => {
+  it('test_check_updates_shows_up_to_date_when_no_update', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      if (cmd === 'plugin:updater|check') return Promise.resolve(null)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /check for updates/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('button', { name: /check for updates/i }))
+    await waitFor(() => expect(screen.getByText(/you are up to date/i)).toBeInTheDocument())
+  })
+
+  it('test_check_updates_shows_available_version', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      if (cmd === 'plugin:updater|check') return Promise.resolve('1.1.0')
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /check for updates/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('button', { name: /check for updates/i }))
+    await waitFor(() => expect(screen.getByText(/update available: 1\.1\.0/i)).toBeInTheDocument())
+  })
+
+  it('test_check_updates_shows_error_on_failure', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      if (cmd === 'plugin:updater|check') return Promise.reject(new Error('network error'))
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /check for updates/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('button', { name: /check for updates/i }))
+    await waitFor(() => expect(screen.getByText(/could not check for updates/i)).toBeInTheDocument())
+  })
+})
+
+describe('AppTab — default post time — hour and minute', () => {
+  it('test_hour_change_saves_with_existing_minute', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ default_post_time: { hour: 9, minute: 30, timezone: 'UTC' } }))
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /default post time hour/i })).toHaveValue('9'))
+    fireEvent.change(screen.getByRole('combobox', { name: /default post time hour/i }), { target: { value: '14' } })
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'set_default_post_time')
+      expect(calls.length).toBeGreaterThan(0)
+      const [, arg] = calls[calls.length - 1]
+      const dpt = (arg as { dpt: { hour: number; minute: number } }).dpt
+      expect(dpt.hour).toBe(14)
+      expect(dpt.minute).toBe(30)
+    })
+  })
+
+  it('test_minute_change_saves_with_existing_hour', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ default_post_time: { hour: 9, minute: 30, timezone: 'UTC' } }))
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /default post time minute/i })).toHaveValue('30'))
+    fireEvent.change(screen.getByRole('combobox', { name: /default post time minute/i }), { target: { value: '45' } })
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'set_default_post_time')
+      expect(calls.length).toBeGreaterThan(0)
+      const [, arg] = calls[calls.length - 1]
+      const dpt = (arg as { dpt: { hour: number; minute: number } }).dpt
+      expect(dpt.hour).toBe(9)
+      expect(dpt.minute).toBe(45)
+    })
+  })
+})
+
+describe('AppTab — default post time — clear', () => {
+  it('test_clear_button_saves_null', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ default_post_time: { hour: 9, minute: 30, timezone: 'UTC' } }))
+      if (cmd === 'get_app_version') return Promise.resolve('1.0.0')
+      if (cmd === 'get_autostart_enabled') return Promise.resolve(false)
+      if (cmd === 'get_attribution') return Promise.resolve(true)
+      if (cmd === 'get_telemetry_consent') return Promise.resolve(false)
+      return Promise.resolve(null)
+    })
+    render(<AppTab />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /clear default post time/i })).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByRole('button', { name: /clear default post time/i }))
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'set_default_post_time')
+      expect(calls.length).toBeGreaterThan(0)
+      const [, arg] = calls[calls.length - 1]
+      expect((arg as { dpt: null }).dpt).toBeNull()
+    })
   })
 })
 

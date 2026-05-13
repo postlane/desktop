@@ -10,7 +10,13 @@ import WizardShell from './WizardShell';
 interface Props {
   onNext: (provider: string) => void;
   onBack?: () => void;
+  mode?: 'sign_in' | 'add_org';
 }
+
+const COPY = {
+  sign_in: { title: 'Sign in to Postlane', subtitle: 'Sign in to activate your Postlane account.' },
+  add_org: { title: 'Add an organization', subtitle: 'Choose the provider where your org is hosted.' },
+};
 
 function GitHubLogo() {
   return (
@@ -41,7 +47,7 @@ function useActivation(onNext: (provider: string) => void, onError: (msg: string
   }, [onNext, onError, activeProvider]);
 }
 
-export default function ModalAccount({ onNext, onBack }: Props) {
+export default function ModalAccount({ onNext, onBack, mode = 'sign_in' }: Props) {
   const [activationError, setActivationError] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
@@ -65,9 +71,10 @@ export default function ModalAccount({ onNext, onBack }: Props) {
     openUrl(url).catch(console.error);
   }
 
+  const { title, subtitle } = COPY[mode];
   return (
-    <WizardShell step={2} totalSteps={5} title="Sign in to Postlane"
-      subtitle="Sign in to activate your Postlane account." onNext={() => {}} onBack={onBack} nextHidden>
+    <WizardShell step={2} totalSteps={5} title={title}
+      subtitle={subtitle} onNext={() => {}} onBack={onBack} nextHidden>
       <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
         <button className="button is-flex-grow-1"
           style={{ background: '#24292f', color: 'white', border: 'none' }}

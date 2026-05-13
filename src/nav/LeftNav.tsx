@@ -36,8 +36,7 @@ function countOrgDrafts(drafts: DraftPost[], projectId: string): number {
 
 function AddOrgButton({ onClick }: { onClick?: () => void }) {
   return (
-    <button className="button is-small is-light" aria-label="Add org (available in v1.2)"
-      title="Available in v1.2" onClick={onClick} disabled>+ Add org</button>
+    <button className="button is-small is-light" onClick={onClick}>+ Add org</button>
   );
 }
 

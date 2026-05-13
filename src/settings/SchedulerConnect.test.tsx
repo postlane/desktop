@@ -5,8 +5,12 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
+
 import { invoke } from '../ipc/invoke';
+import { openUrl } from '@tauri-apps/plugin-opener';
 const mockInvoke = vi.mocked(invoke);
+const mockOpenUrl = vi.mocked(openUrl);
 
 import SchedulerConnect from './SchedulerConnect';
 
@@ -63,5 +67,11 @@ describe('SchedulerConnect — key entry', () => {
     render(<SchedulerConnect {...defaultProps} onCancel={onCancel} />);
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('test_hint_link_calls_openUrl_for_provider_with_hint', async () => {
+    render(<SchedulerConnect {...defaultProps} provider="zernio" />);
+    await userEvent.click(screen.getByRole('link', { name: /zernio setup docs/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://docs.postlane.dev/scheduling/zernio');
   });
 });

@@ -23,6 +23,10 @@ export default function Wizard({ onComplete, startAt }: Props) {
   const closePricingGate = () => setShowPricingGate(false);
   const handlePricingSkip = (id: string, name: string) => { wizard.setWorkspaceId(id); wizard.setWorkspaceName(name); setShowPricingGate(false); wizard.next(); };
 
+  const provider = wizard.provider ?? 'github';
+  const workspaceId = wizard.workspaceId ?? '';
+  const workspaceName = wizard.workspaceName ?? '';
+
   if (showPricingGate) return <ModalPricingGate onPaid={closePricingGate} onBack={closePricingGate} onSkip={handlePricingSkip} />;
 
   if (wizard.step === 1) {
@@ -32,7 +36,8 @@ export default function Wizard({ onComplete, startAt }: Props) {
   if (wizard.step === 2) {
     return (
       <ModalAccount
-        onNext={(provider) => { wizard.setToken('detected'); wizard.setProvider(provider); wizard.next(); }}
+        mode={startAt === 2 ? 'add_org' : 'sign_in'}
+        onNext={(p) => { wizard.setToken('detected'); wizard.setProvider(p); wizard.next(); }}
         onBack={wizard.back}
       />
     );
@@ -41,11 +46,11 @@ export default function Wizard({ onComplete, startAt }: Props) {
   if (wizard.step === 3) {
     return (
       <ModalOrgPicker
-        onNext={(workspaceId, workspaceName) => { wizard.setWorkspaceId(workspaceId); wizard.setWorkspaceName(workspaceName); wizard.next(); }}
+        onNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }}
         onBack={wizard.back}
         onPricingGate={() => setShowPricingGate(true)}
         onSkipToApp={handleSkipToApp}
-        provider={wizard.provider ?? 'github'}
+        provider={provider}
       />
     );
   }
@@ -53,8 +58,8 @@ export default function Wizard({ onComplete, startAt }: Props) {
   if (wizard.step === 4) {
     return (
       <ModalScheduler
-        workspaceId={wizard.workspaceId ?? ''}
-        workspaceName={wizard.workspaceName ?? ''}
+        workspaceId={workspaceId}
+        workspaceName={workspaceName}
         onNext={wizard.next}
         onBack={wizard.back}
         setSchedulerLinked={wizard.setSchedulerLinked}
@@ -65,9 +70,9 @@ export default function Wizard({ onComplete, startAt }: Props) {
 
   return (
     <ModalGitHubApp
-      provider={wizard.provider ?? 'github'}
-      workspaceId={wizard.workspaceId ?? ''}
-      workspaceName={wizard.workspaceName ?? ''}
+      provider={provider}
+      workspaceId={workspaceId}
+      workspaceName={workspaceName}
       onNext={handleSkipToApp}
       onBack={wizard.back}
     />

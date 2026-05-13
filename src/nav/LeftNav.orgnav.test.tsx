@@ -263,6 +263,27 @@ describe('LeftNav — settings footer', () => {
     fireEvent.keyDown(document, { key: ',', metaKey: true })
     expect(onSettingsOpen).toHaveBeenCalledOnce()
   })
+
+  it('clicking Account button calls onNavigate with global_settings account', () => {
+    const onNavigate = vi.fn()
+    renderNav({ onNavigate })
+    fireEvent.click(screen.getByRole('button', { name: /account settings/i }))
+    expect(onNavigate).toHaveBeenCalledWith({ view: 'global_settings', section: 'account' })
+  })
+
+  it('clicking Preferences button calls onNavigate with global_settings preferences', () => {
+    const onNavigate = vi.fn()
+    renderNav({ onNavigate })
+    fireEvent.click(screen.getByRole('button', { name: /preferences settings/i }))
+    expect(onNavigate).toHaveBeenCalledWith({ view: 'global_settings', section: 'preferences' })
+  })
+
+  it('clicking System button calls onNavigate with global_settings system', () => {
+    const onNavigate = vi.fn()
+    renderNav({ onNavigate })
+    fireEvent.click(screen.getByRole('button', { name: /system settings/i }))
+    expect(onNavigate).toHaveBeenCalledWith({ view: 'global_settings', section: 'system' })
+  })
 })
 
 // ── Empty and error states ────────────────────────────────────────────────────
@@ -273,15 +294,14 @@ describe('LeftNav — empty and error states', () => {
     expect(screen.getByText(/no workspaces/i)).toBeInTheDocument()
   })
 
-  it('shows Add org button (v1.2) in empty state', () => {
+  it('shows Add org button in empty state', () => {
     renderNav()
     expect(screen.getByRole('button', { name: /add.*org/i })).toBeInTheDocument()
   })
 
-  it('Add org button has v1.2 tooltip', () => {
+  it('Add org button is enabled', () => {
     renderNav()
-    const btn = screen.getByRole('button', { name: /add.*org/i })
-    expect(btn).toHaveAttribute('title', expect.stringMatching(/v1\.2/i))
+    expect(screen.getByRole('button', { name: /add.*org/i })).not.toBeDisabled()
   })
 
   it('shows load error when projects.error is set', () => {
