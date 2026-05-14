@@ -8,11 +8,34 @@ import ModalAccount from './ModalAccount';
 import ModalOrgPicker from './ModalOrgPicker';
 import ModalScheduler from './ModalScheduler';
 import ModalGitHubApp from './ModalGitHubApp';
+import ModalProjectContext from './ModalProjectContext';
+import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
 
 interface Props {
   onComplete: () => void;
   startAt?: number;
+}
+
+interface LateStepProps {
+  step: number;
+  provider: string;
+  workspaceId: string;
+  workspaceName: string;
+  schedulerLinked: boolean;
+  onNext: () => void;
+  onBack: () => void;
+  onComplete: () => void;
+}
+
+function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, onNext, onBack, onComplete }: LateStepProps) {
+  if (step === 5) {
+    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
+  }
+  if (step === 6) {
+    return <ModalProjectContext workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
+  }
+  return <ModalComplete schedulerLinked={schedulerLinked} onComplete={onComplete} onBack={onBack} />;
 }
 
 export default function Wizard({ onComplete, startAt }: Props) {
@@ -28,53 +51,15 @@ export default function Wizard({ onComplete, startAt }: Props) {
   const workspaceName = wizard.workspaceName ?? '';
 
   if (showPricingGate) return <ModalPricingGate onPaid={closePricingGate} onBack={closePricingGate} onSkip={handlePricingSkip} />;
-
-  if (wizard.step === 1) {
-    return <ModalWelcome onNext={wizard.next} />;
-  }
-
+  if (wizard.step === 1) return <ModalWelcome onNext={wizard.next} />;
   if (wizard.step === 2) {
-    return (
-      <ModalAccount
-        mode={startAt === 2 ? 'add_org' : 'sign_in'}
-        onNext={(p) => { wizard.setToken('detected'); wizard.setProvider(p); wizard.next(); }}
-        onBack={wizard.back}
-      />
-    );
+    return <ModalAccount mode={startAt === 2 ? 'add_org' : 'sign_in'} onNext={(p) => { wizard.setToken('detected'); wizard.setProvider(p); wizard.next(); }} onBack={wizard.back} />;
   }
-
   if (wizard.step === 3) {
-    return (
-      <ModalOrgPicker
-        onNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }}
-        onBack={wizard.back}
-        onPricingGate={() => setShowPricingGate(true)}
-        onSkipToApp={handleSkipToApp}
-        provider={provider}
-      />
-    );
+    return <ModalOrgPicker onNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }} onBack={wizard.back} onPricingGate={() => setShowPricingGate(true)} onSkipToApp={handleSkipToApp} provider={provider} />;
   }
-
   if (wizard.step === 4) {
-    return (
-      <ModalScheduler
-        workspaceId={workspaceId}
-        workspaceName={workspaceName}
-        onNext={wizard.next}
-        onBack={wizard.back}
-        setSchedulerLinked={wizard.setSchedulerLinked}
-        onSkipToApp={handleSkipToApp}
-      />
-    );
+    return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={handleSkipToApp} />;
   }
-
-  return (
-    <ModalGitHubApp
-      provider={provider}
-      workspaceId={workspaceId}
-      workspaceName={workspaceName}
-      onNext={handleSkipToApp}
-      onBack={wizard.back}
-    />
-  );
+  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
 }

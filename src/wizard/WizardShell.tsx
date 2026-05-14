@@ -8,7 +8,8 @@ const STEP_NAMES: Record<number, string> = {
   3: 'WORKSPACE',
   4: 'SCHEDULER',
   5: 'INSTALL',
-  6: 'COMPLETE',
+  6: 'VOICE',
+  7: 'COMPLETE',
 };
 
 interface Props {

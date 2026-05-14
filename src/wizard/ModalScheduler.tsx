@@ -106,7 +106,7 @@ export default function ModalScheduler({ workspaceId, workspaceName, onNext, onB
   return (
     <WizardShell
       step={4}
-      totalSteps={5}
+      totalSteps={7}
       title="Connect a scheduler"
       subtitle="Your scheduler publishes to your social accounts. You bring the key."
       onNext={onNext}

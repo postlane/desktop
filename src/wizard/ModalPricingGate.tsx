@@ -71,7 +71,7 @@ export default function ModalPricingGate({
   return (
     <WizardShell
       step={3}
-      totalSteps={5}
+      totalSteps={7}
       title="Add a new workspace"
       subtitle="You've used your free workspace. Each additional workspace is $5/month."
       onNext={() => { /* advance handled by polling */ }}

@@ -41,9 +41,9 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ModalConnectRepos — structure', () => {
-  it('renders step 5 of 5 in WizardShell', () => {
+  it('renders step 5 of 7 in WizardShell', () => {
     render(<ModalGitHubApp {...defaultProps} />);
-    expect(screen.getByText(/5\s*\/\s*5/)).toBeDefined();
+    expect(screen.getByText(/5\s*\/\s*7/)).toBeDefined();
   });
 
   it('renders the Connect your repos heading', () => {

@@ -17,7 +17,7 @@ export default function ModalWelcome({ onNext }: Props) {
   return (
     <WizardShell
       step={1}
-      totalSteps={5}
+      totalSteps={7}
       title="Welcome to Postlane"
       subtitle="Ship code. Tell the world."
       onNext={onNext}

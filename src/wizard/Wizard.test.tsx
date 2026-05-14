@@ -99,6 +99,45 @@ vi.mock('./ModalGitHubApp', () => ({
   ),
 }));
 
+vi.mock('./ModalProjectContext', () => ({
+  default: ({
+    onNext,
+    onBack,
+    workspaceId,
+    workspaceName,
+  }: {
+    onNext: () => void;
+    onBack: () => void;
+    workspaceId: string;
+    workspaceName: string;
+  }) => (
+    <div>
+      <span data-testid="project-context-workspace-id">{workspaceId}</span>
+      <span data-testid="project-context-workspace-name">{workspaceName}</span>
+      <button onClick={onNext}>next-project-context</button>
+      <button onClick={onBack}>back-project-context</button>
+    </div>
+  ),
+}));
+
+vi.mock('./ModalComplete', () => ({
+  default: ({
+    onComplete,
+    onBack,
+    schedulerLinked,
+  }: {
+    onComplete: () => void;
+    onBack: () => void;
+    schedulerLinked: boolean;
+  }) => (
+    <div>
+      <span data-testid="complete-scheduler-linked">{String(schedulerLinked)}</span>
+      <button onClick={onComplete}>next-complete</button>
+      <button onClick={onBack}>back-complete</button>
+    </div>
+  ),
+}));
+
 vi.mock('./ModalPricingGate', () => ({
   default: ({
     onPaid,
@@ -239,12 +278,28 @@ describe('Wizard — step 5 and completion', () => {
     expect(screen.getByText('next-github-app')).toBeDefined();
   });
 
-  it('test_step_5_next_calls_set_wizard_completed_and_on_complete', async () => {
-    const onComplete = vi.fn();
-    render(<Wizard onComplete={onComplete} startAt={5} />);
+  it('test_step_5_next_advances_to_step_6_voice_guide', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={5} />);
     fireEvent.click(screen.getByText('next-github-app'));
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
-    expect(onComplete).toHaveBeenCalled();
+    expect(screen.getByText('next-project-context')).toBeDefined();
+  });
+
+  it('test_step_6_next_advances_to_step_7_complete', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={6} />);
+    fireEvent.click(screen.getByText('next-project-context'));
+    expect(screen.getByText('next-complete')).toBeDefined();
+  });
+
+  it('test_step_7_complete_calls_on_complete', async () => {
+    const onComplete = vi.fn();
+    render(<Wizard onComplete={onComplete} startAt={7} />);
+    fireEvent.click(screen.getByText('next-complete'));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+  });
+
+  it('test_step_6_workspace_id_passed_to_project_context', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={6} />);
+    expect(screen.getByTestId('project-context-workspace-id').textContent).toBe('');
   });
 
   it('test_step_3_skip_to_app_calls_set_wizard_completed_and_on_complete', async () => {
@@ -309,7 +364,8 @@ describe('Wizard — back navigation and full flow', () => {
     fireEvent.click(screen.getByText('next-org'));
     fireEvent.click(screen.getByText('next-scheduler'));
     fireEvent.click(screen.getByText('next-github-app'));
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
-    expect(onComplete).toHaveBeenCalled();
+    fireEvent.click(screen.getByText('next-project-context'));
+    fireEvent.click(screen.getByText('next-complete'));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
   });
 });

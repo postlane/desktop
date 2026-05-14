@@ -200,7 +200,7 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
   return (
     <WizardShell
       step={5}
-      totalSteps={5}
+      totalSteps={7}
       title="Connect your repos"
       subtitle="Choose how Postlane monitors your projects. All methods are read-only."
       onNext={onNext}
