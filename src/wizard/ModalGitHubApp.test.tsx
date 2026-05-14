@@ -233,6 +233,67 @@ describe('ModalConnectRepos — CLI section', () => {
 });
 
 // ---------------------------------------------------------------------------
+// GitHub App installation polling
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — GitHub App installation polling', () => {
+  it('calls onNext immediately when the app is already installed at the moment the button is clicked', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'repo' };
+    });
+
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
+
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+  });
+
+  it('calls onNext once when the deep link fires and polling also finds the app installed', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'repo' };
+    });
+
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+
+    // Trigger the deep link event and the button click at the same time
+    await waitFor(() => expect(mockListen).toHaveBeenCalledWith('github:app-installed', expect.any(Function)));
+    const entry = mockListen.mock.calls.find(([ev]) => ev === 'github:app-installed');
+    if (!entry) throw new Error('github:app-installed listener not registered');
+
+    fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
+    act(() => (entry[1] as (e: { payload: { installation_id: number } }) => void)({ payload: { installation_id: 1 } }));
+
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    // Should not be called more than once despite two triggers
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls check_github_app_installed with the workspaceId when polling', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'repo' };
+    });
+
+    render(<ModalGitHubApp {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
+
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', { projectId: 'ws-test' }),
+    );
+  });
+
+  it('does not poll for non-GitHub provider', async () => {
+    render(<ModalGitHubApp {...defaultProps} provider="gitlab" />);
+    // No Install GitHub App button exists for gitlab
+    expect(mockInvoke).not.toHaveBeenCalledWith('check_github_app_installed', expect.anything());
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Navigation
 // ---------------------------------------------------------------------------
 
