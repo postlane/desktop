@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, type ChangeEvent } from 'react';
+import { useState, useEffect, type ChangeEvent } from 'react';
 import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
 
@@ -87,13 +87,34 @@ export default function ModalProjectContext({ workspaceId, workspaceName, onNext
   const [saveError, setSaveError] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    invoke('get_voice_guide_fields', { projectId: workspaceId })
+      .then((data) => {
+        if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+          const incoming = data as Partial<VoiceGuideFields>;
+          setFields((prev) => ({
+            description: incoming.description ?? prev.description,
+            audience: incoming.audience ?? prev.audience,
+            tone: incoming.tone ?? prev.tone,
+            avoid: incoming.avoid ?? prev.avoid,
+            examples: incoming.examples ?? prev.examples,
+          }));
+        }
+      })
+      .catch(() => undefined);
+  }, [workspaceId]);
+
   const handleChange: OnChange = (key, value) => setFields((prev) => ({ ...prev, [key]: value }));
 
   async function handleNext() {
     setSaving(true);
     setSaveError(false);
     try {
-      await invoke('save_project_voice_guide', { projectId: workspaceId, voiceGuide: buildVoiceGuide(fields, workspaceName) });
+      await invoke('save_project_voice_guide', {
+        projectId: workspaceId,
+        voiceGuide: buildVoiceGuide(fields, workspaceName),
+        voiceGuideFields: fields,
+      });
     } catch {
       setSaveError(true);
     } finally {

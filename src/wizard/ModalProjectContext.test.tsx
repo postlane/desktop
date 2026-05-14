@@ -170,6 +170,74 @@ describe('ModalProjectContext — avoid and examples fields', () => {
   });
 });
 
+// ── load on mount ─────────────────────────────────────────────────────────────
+
+describe('ModalProjectContext — load on mount', () => {
+  it('test_fetches_voice_guide_fields_on_mount', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', { projectId: 'ws-abc' });
+    });
+  });
+
+  it('test_pre_populates_form_when_fields_exist', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') {
+        return Promise.resolve({ description: 'My startup', tone: 'Casual', audience: 'Founders', avoid: '', examples: '' });
+      }
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect((screen.getByLabelText(/identity/i) as HTMLInputElement).value).toBe('My startup');
+    });
+    expect((screen.getByLabelText(/tone/i) as HTMLTextAreaElement).value).toBe('Casual');
+  });
+
+  it('test_does_not_fail_when_fields_fetch_returns_null', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') return Promise.resolve(null);
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', expect.anything());
+    });
+    expect(screen.getByLabelText(/identity/i)).toBeDefined();
+  });
+
+  it('test_does_not_fail_when_fields_fetch_throws', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') return Promise.reject(new Error('network'));
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', expect.anything());
+    });
+    expect(screen.getByLabelText(/identity/i)).toBeDefined();
+  });
+});
+
+// ── save includes fields ───────────────────────────────────────────────────────
+
+describe('ModalProjectContext — save includes voice_guide_fields', () => {
+  it('test_save_sends_voice_guide_fields_with_save', async () => {
+    mockInvoke.mockResolvedValue(null);
+    render(<ModalProjectContext {...defaultProps} />);
+    await userEvent.type(screen.getByLabelText(/identity/i), 'Postlane');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => {
+      const call = mockInvoke.mock.calls.find(c => c[0] === 'save_project_voice_guide');
+      expect(call).toBeDefined();
+      const args = call?.[1] as Record<string, unknown>;
+      expect(args?.voiceGuideFields).toBeDefined();
+      expect((args?.voiceGuideFields as Record<string, string>)?.description).toBe('Postlane');
+    });
+  });
+});
+
 // ── error handling ────────────────────────────────────────────────────────────
 
 describe('ModalProjectContext — save error handling', () => {

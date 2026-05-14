@@ -7,6 +7,8 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct ProjectVoiceGuideResponse {
     voice_guide: Option<String>,
+    #[serde(default)]
+    voice_guide_fields: Option<serde_json::Value>,
 }
 
 type VoiceGuideEntry = (std::time::Instant, String);
@@ -86,9 +88,37 @@ pub async fn get_project_voice_guide_with_client(
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
-pub async fn save_project_voice_guide_with_client(
+pub async fn get_voice_guide_fields_with_client(
+    project_id: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    validate_project_id(project_id)?;
+    let url = format!("{}/v1/projects/{}", base_url, project_id);
+    let resp = client
+        .get(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("Backend error: {}", e))?;
+    let status = resp.status();
+    if status.as_u16() == 401 {
+        return Err(SESSION_EXPIRED_ERROR.to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("Backend returned {}", status));
+    }
+    resp.json::<ProjectVoiceGuideResponse>()
+        .await
+        .map(|r| r.voice_guide_fields)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+pub async fn save_project_voice_guide_and_fields_with_client(
     project_id: &str,
     voice_guide: &str,
+    voice_guide_fields: Option<&serde_json::Value>,
     client: &reqwest::Client,
     base_url: &str,
     token: &str,
@@ -101,10 +131,14 @@ pub async fn save_project_voice_guide_with_client(
     }
     validate_project_id(project_id)?;
     let url = format!("{}/v1/projects/{}", base_url, project_id);
+    let mut body = serde_json::json!({ "voice_guide": voice_guide });
+    if let Some(fields) = voice_guide_fields {
+        body["voice_guide_fields"] = fields.clone();
+    }
     let resp = client
         .patch(&url)
         .bearer_auth(token)
-        .json(&serde_json::json!({ "voice_guide": voice_guide }))
+        .json(&body)
         .send()
         .await
         .map_err(|e| format!("Backend error: {}", e))?;
@@ -117,6 +151,16 @@ pub async fn save_project_voice_guide_with_client(
     }
     vg_cache_invalidate(project_id);
     Ok(())
+}
+
+pub async fn save_project_voice_guide_with_client(
+    project_id: &str,
+    voice_guide: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<(), String> {
+    save_project_voice_guide_and_fields_with_client(project_id, voice_guide, None, client, base_url, token).await
 }
 
 #[cfg(test)]
@@ -460,5 +504,142 @@ mod tests {
         .await
         .unwrap();
         mock.assert_hits(2);
+    }
+
+    // ── get_voice_guide_fields ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_voice_guide_fields_returns_none_when_null() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(200)
+                .json_body(serde_json::json!({ "voice_guide": "", "voice_guide_fields": null }));
+        });
+        let result = get_voice_guide_fields_with_client(
+            "proj-abc",
+            &build_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert_eq!(result, Ok(None));
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_fields_returns_some_when_set() {
+        let fields = serde_json::json!({ "description": "Builder", "tone": "Direct" });
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(200).json_body(
+                serde_json::json!({ "voice_guide": "", "voice_guide_fields": fields.clone() }),
+            );
+        });
+        let result = get_voice_guide_fields_with_client(
+            "proj-abc",
+            &build_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert_eq!(result, Ok(Some(fields)));
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_fields_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/projects/proj-abc");
+            then.status(401);
+        });
+        let result = get_voice_guide_fields_with_client(
+            "proj-abc",
+            &build_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_get_voice_guide_fields_returns_err_on_network_failure() {
+        let result = get_voice_guide_fields_with_client(
+            "proj-abc",
+            &build_client(),
+            "http://127.0.0.1:1",
+            "tok",
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    // ── save_project_voice_guide_and_fields ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_save_voice_guide_and_fields_sends_fields_in_body() {
+        let server = MockServer::start();
+        let fields = serde_json::json!({ "description": "Builder" });
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH)
+                .path("/v1/projects/proj-abc")
+                .json_body(serde_json::json!({
+                    "voice_guide": "Direct.",
+                    "voice_guide_fields": { "description": "Builder" }
+                }));
+            then.status(200).json_body(serde_json::json!({ "id": "proj-abc" }));
+        });
+        save_project_voice_guide_and_fields_with_client(
+            "proj-abc",
+            "Direct.",
+            Some(&fields),
+            &build_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await
+        .expect("should succeed");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_save_voice_guide_and_fields_without_fields_succeeds() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-abc");
+            then.status(200).json_body(serde_json::json!({ "id": "proj-abc" }));
+        });
+        save_project_voice_guide_and_fields_with_client(
+            "proj-abc",
+            "Direct.",
+            None,
+            &build_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await
+        .expect("None fields must be accepted");
+    }
+
+    #[tokio::test]
+    async fn test_save_voice_guide_and_fields_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::PATCH).path("/v1/projects/proj-abc");
+            then.status(401);
+        });
+        let result = save_project_voice_guide_and_fields_with_client(
+            "proj-abc",
+            "Direct.",
+            None,
+            &build_client(),
+            &server.base_url(),
+            "tok",
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR);
     }
 }
