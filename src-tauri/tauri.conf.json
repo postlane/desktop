@@ -45,7 +45,9 @@
       "endpoints": ["https://github.com/postlane/desktop/releases/latest/download/latest.json"]
     },
     "deep-link": {
-      "schemes": ["postlane"]
+      "desktop": {
+        "schemes": ["postlane"]
+      }
     }
   }
 }
