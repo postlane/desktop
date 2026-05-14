@@ -7,7 +7,7 @@ import WizardShell from './WizardShell';
 const DEFAULT_TONE = 'Direct and professional. Technically precise. No marketing language.';
 const DEFAULT_AUDIENCE = 'developers and technical users.';
 
-const STANDARD_SEVEN = [
+const AVOID_DEFAULT = [
   '"excited to share" / "thrilled to announce"',
   '"game-changing" / "revolutionary" / "groundbreaking"',
   '"dive into" / "delve into"',
@@ -15,7 +15,7 @@ const STANDARD_SEVEN = [
   '"seamlessly"',
   '"the future of [category]"',
   'any sentence starting with "I\'m proud to"',
-];
+].join('\n');
 
 export interface VoiceGuideFields {
   description: string;
@@ -30,12 +30,12 @@ export function buildVoiceGuide(fields: VoiceGuideFields, workspaceName: string)
   const audience = fields.audience.trim() || DEFAULT_AUDIENCE;
   const lines: string[] = [`# Voice guide — ${workspaceName}`, ''];
   if (fields.description.trim()) lines.push('## Identity', fields.description.trim(), '');
-  lines.push('## Audience', audience, '', '## Tone', tone, '', '## Never use');
-  STANDARD_SEVEN.forEach((p) => lines.push(`- ${p}`));
+  lines.push('## Audience', audience, '', '## Tone', tone, '');
   if (fields.avoid.trim()) {
+    lines.push('## Never use');
     fields.avoid.split('\n').map((l) => l.trim()).filter(Boolean).forEach((l) => lines.push(`- ${l}`));
+    lines.push('');
   }
-  lines.push('');
   if (fields.examples.trim()) lines.push('## Example posts', fields.examples.trim(), '');
   return lines.join('\n');
 }
@@ -69,7 +69,7 @@ function VoiceGuideForm({ fields, onChange, saveError }: FormProps) {
       {field('vpc-identity', 'Identity', 'description', 'e.g. Hugo, indie developer building dev tools in public')}
       {field('vpc-audience', 'Audience', 'audience', 'e.g. Developers who ship their own products')}
       {field('vpc-tone', 'Tone', 'tone', 'e.g. Direct and technical. Short sentences. No hedging.', 2)}
-      {field('vpc-avoid', 'Avoid', 'avoid', 'e.g. Em dashes, corporate buzzwords, passive voice', 2)}
+      {field('vpc-avoid', 'Avoid', 'avoid', 'e.g. Em dashes, corporate buzzwords, passive voice', 7)}
       {field('vpc-examples', 'Example posts', 'examples', 'Paste 1–3 posts you\'ve already written. Nothing beats showing the LLM real examples.', 4)}
     </>
   );
@@ -83,7 +83,7 @@ interface Props {
 }
 
 export default function ModalProjectContext({ workspaceId, workspaceName, onNext, onBack }: Props) {
-  const [fields, setFields] = useState<VoiceGuideFields>({ description: '', audience: '', tone: '', avoid: '', examples: '' });
+  const [fields, setFields] = useState<VoiceGuideFields>({ description: '', audience: '', tone: '', avoid: AVOID_DEFAULT, examples: '' });
   const [saveError, setSaveError] = useState(false);
   const [saving, setSaving] = useState(false);
 
