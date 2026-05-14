@@ -34,7 +34,7 @@ function GitHubAppSection({ error }: { error: string | null }) {
     <div className="box mb-3">
       <p className="has-text-weight-semibold mb-1">GitHub App</p>
       <p className="is-size-7 has-text-grey mb-3">
-        Watches your whole org automatically. No per-repo setup.
+        Monitors selected repos via GitHub webhooks. Works for the whole team, even when this app is closed.
       </p>
       <button className="button is-primary is-small"
         onClick={() => openUrl(GITHUB_APP_INSTALL_URL).catch(console.error)}>
