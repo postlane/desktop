@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
@@ -9,6 +9,7 @@ import WizardShell from './WizardShell';
 
 const GITHUB_APP_INSTALL_URL = 'https://github.com/apps/postlane/installations/new';
 const CLI_COMMAND = 'npx @postlane/cli init';
+const POLL_INTERVAL_MS = 3000;
 
 function repoConnectError(err: unknown, workspaceName?: string): string {
   const raw = typeof err === 'string' ? err : '';
@@ -29,15 +30,19 @@ interface Props {
   onBack: () => void;
 }
 
-function GitHubAppSection({ error }: { error: string | null }) {
+interface GitHubAppSectionProps {
+  error: string | null;
+  onInstall: () => void;
+}
+
+function GitHubAppSection({ error, onInstall }: GitHubAppSectionProps) {
   return (
     <div className="box mb-3">
       <p className="has-text-weight-semibold mb-1">GitHub App</p>
       <p className="is-size-7 has-text-grey mb-3">
         Monitors selected repos via GitHub webhooks. Works for the whole team, even when this app is closed.
       </p>
-      <button className="button is-primary is-small"
-        onClick={() => openUrl(GITHUB_APP_INSTALL_URL).catch(console.error)}>
+      <button className="button is-primary is-small" onClick={onInstall}>
         Install GitHub App
       </button>
       {error && <p role="alert" className="is-size-7 has-text-danger mt-2">{error}</p>}
@@ -148,18 +153,49 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
   const [folderConnected, setFolderConnected] = useState(false);
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const isGitHub = provider === 'github';
+  const advancedRef = useRef(false);
+  const pollingActiveRef = useRef(false);
+  const cancelPollRef = useRef(false);
+
+  useEffect(() => {
+    return () => { cancelPollRef.current = true; };
+  }, []);
+
+  const advance = useCallback(() => {
+    if (advancedRef.current) return;
+    advancedRef.current = true;
+    onNext();
+  }, [onNext]);
 
   useEffect(() => {
     const unlisten = Promise.all([
       listen<{ installation_id: number }>('github:app-installed', () => {
-        if (isGitHub) onNext();
+        if (isGitHub) advance();
       }),
       listen<{ message: string }>('github:install-error', (e) => {
         if (isGitHub) setAppInstallError(e.payload.message);
       }),
     ]);
     return () => { void unlisten.then(([u1, u2]) => { u1(); u2(); }); };
-  }, [isGitHub, onNext]);
+  }, [isGitHub, advance]);
+
+  async function handleInstall() {
+    openUrl(GITHUB_APP_INSTALL_URL).catch(console.error);
+    if (!isGitHub || pollingActiveRef.current) return;
+    pollingActiveRef.current = true;
+
+    const poll = async () => {
+      if (cancelPollRef.current) return;
+      try {
+        const installed = await invoke<boolean>('check_github_app_installed', { projectId: workspaceId });
+        if (installed) { advance(); return; }
+      } catch {
+        // ignore transient errors and keep polling
+      }
+      if (!cancelPollRef.current) setTimeout(poll, POLL_INTERVAL_MS);
+    };
+    await poll();
+  }
 
   return (
     <WizardShell
@@ -172,7 +208,7 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       nextHidden={!folderConnected}
       onSkip={!folderConnected ? onNext : undefined}
     >
-      {isGitHub && <GitHubAppSection error={appInstallError} />}
+      {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} />}
       <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName} onConnected={() => setFolderConnected(true)} />
       <CliSection />
     </WizardShell>

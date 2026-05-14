@@ -10,6 +10,7 @@ pub mod analytics;
 pub mod app_state;
 pub mod commands;
 pub mod deep_link_routing;
+pub mod github_app;
 pub mod draft_edits;
 pub mod draft_output;
 pub mod draft_queries;
@@ -341,6 +342,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,
         provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs,
+        github_app::check_github_app_installed,
         post_schedule::update_post_schedule,
         mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
         mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
