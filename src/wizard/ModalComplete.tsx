@@ -17,8 +17,8 @@ export default function ModalComplete({ schedulerLinked, onComplete, onBack }: P
 
   return (
     <WizardShell
-      step={6}
-      totalSteps={6}
+      step={7}
+      totalSteps={7}
       title="You're all set"
       subtitle="Your workspace is ready. Add repos from the dashboard to start drafting."
       onNext={handleContinue}

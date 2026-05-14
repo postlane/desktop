@@ -23,7 +23,7 @@ function canAdvance(s: State): boolean {
 
 function applyNext(s: State): State {
   if (!canAdvance(s)) return s;
-  if (s.step === 6) return { ...s, complete: true };
+  if (s.step === 7) return { ...s, complete: true };
   return { ...s, step: s.step + 1 };
 }
 

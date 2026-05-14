@@ -359,7 +359,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         project_registry::create_project, project_registry::update_project_org_login,
         project_registry::write_project_id_to_config,
         project_registry::register_repo_with_project, project_registry::save_project_voice_guide,
-        project_registry::get_project_voice_guide,
+        project_registry::get_project_voice_guide, project_registry::get_voice_guide_fields,
         project_registry::get_repo_remote_name, project_registry::read_project_id_from_path,
         project_registry::list_projects, project_registry::delete_project,
         connect_repo::connect_repo_from_desktop,
