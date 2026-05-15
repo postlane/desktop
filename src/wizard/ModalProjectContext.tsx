@@ -126,7 +126,7 @@ export default function ModalProjectContext({ workspaceId, workspaceName, onNext
 
   return (
     <WizardShell step={6} totalSteps={7} title="Your voice"
-      subtitle="Help Postlane write posts that sound like you. Skip any field to use professional defaults."
+      subtitle="Help Postlane write posts that sound like you. This voice guide is applied to every post drafted for this project. All fields are optional — you can edit it anytime in Project Settings."
       onNext={handleNext} nextLabel={saving ? 'Saving…' : 'Next'} nextDisabled={saving} onBack={onBack}>
       <VoiceGuideForm fields={fields} onChange={handleChange} saveError={saveError} />
     </WizardShell>
