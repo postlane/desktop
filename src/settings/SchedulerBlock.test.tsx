@@ -5,11 +5,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }))
 
 import { invoke } from '../ipc/invoke'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import SchedulerBlock from './SchedulerBlock'
 
 const mockInvoke = vi.mocked(invoke)
+const mockOpenUrl = vi.mocked(openUrl)
 
 // Default: zernio connected, nothing else
 beforeEach(() => {
@@ -227,5 +230,36 @@ describe('SchedulerBlock — change key', () => {
       const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'list_connected_providers')
       expect(calls.length).toBeGreaterThanOrEqual(2)
     })
+  })
+})
+
+// ── Provider website links ────────────────────────────────────────────────────
+
+describe('SchedulerBlock — provider links', () => {
+  it('shows link icon for connected Zernio row', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Open Zernio website/i })).toBeInTheDocument()
+    )
+  })
+
+  it('clicking Zernio link icon opens zernio.io', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /Open Zernio website/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Open Zernio website/i }))
+    expect(mockOpenUrl).toHaveBeenCalledWith('https://zernio.io')
+  })
+
+  it('shows link icon for available Upload Post row', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Open Upload Post website/i })).toBeInTheDocument()
+    )
+  })
+
+  it('does not show link icon for Webhook row (no URL)', async () => {
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByText('Webhook'))
+    expect(screen.queryByRole('button', { name: /Open Webhook website/i })).not.toBeInTheDocument()
   })
 })

@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '../ipc/invoke';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 
 // ── Types & constants ─────────────────────────────────────────────────────────
 
@@ -23,6 +26,34 @@ function providerLabel(provider: string): string {
     webhook: 'Webhook',
   };
   return labels[provider] ?? (provider.charAt(0).toUpperCase() + provider.slice(1));
+}
+
+function providerUrl(provider: string): string | null {
+  const urls: Partial<Record<string, string>> = {
+    zernio: 'https://zernio.io',
+    upload_post: 'https://upload-post.com',
+    buffer: 'https://buffer.com',
+    publer: 'https://publer.io',
+    outstand: 'https://outstand.io',
+  };
+  return urls[provider] ?? null;
+}
+
+// ── ProviderLink ──────────────────────────────────────────────────────────────
+
+function ProviderLink({ provider }: { provider: string }) {
+  const url = providerUrl(provider);
+  if (!url) return null;
+  return (
+    <button
+      className="button is-small is-ghost"
+      style={{ padding: '0 0.25rem', color: 'var(--bulma-grey)' }}
+      onClick={() => openUrl(url)}
+      aria-label={`Open ${providerLabel(provider)} website`}
+    >
+      <FontAwesomeIcon icon={faArrowUpRightFromSquare} size="xs" />
+    </button>
+  );
 }
 
 // ── ConnectForm ───────────────────────────────────────────────────────────────
@@ -90,6 +121,7 @@ function ConnectedRow({ provider, isOwner, expanded, onExpand, onRekeyed, onCanc
       <div className="is-flex is-align-items-center py-2"
         style={{ gap: '0.75rem', borderBottom: expanded ? 'none' : '1px solid var(--bulma-border-weak)' }}>
         <span className="is-size-7" style={{ flex: 1 }}>{providerLabel(provider)}</span>
+        <ProviderLink provider={provider} />
         {isOwner && !expanded && (
           <>
             <button className="button is-small is-ghost" onClick={onExpand}>Change key</button>
@@ -120,8 +152,9 @@ function AvailableRow({ provider, expanded, onExpand, onConnected, onCancel }: {
       <div className="is-flex is-align-items-center py-2"
         style={{ gap: '0.75rem', borderBottom: expanded ? 'none' : '1px solid var(--bulma-border-weak)' }}>
         <span className="is-size-7 has-text-grey" style={{ flex: 1 }}>{providerLabel(provider)}</span>
+        <ProviderLink provider={provider} />
         {!expanded && (
-          <button className="button is-small is-outlined" onClick={onExpand}>Connect</button>
+          <button className="button is-small is-light" onClick={onExpand}>Connect</button>
         )}
       </div>
       {expanded && (
