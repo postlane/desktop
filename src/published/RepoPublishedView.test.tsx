@@ -245,6 +245,18 @@ describe('RepoPublishedView — cancel error paths', () => {
       expect(screen.getByText(/connection refused/i)).toBeInTheDocument(),
     );
   });
+
+  it('shows string error when cancel rejects with a non-Error value', async () => {
+    mockInvoke
+      .mockResolvedValueOnce([makeQueued({ post_folder: 'q1', scheduler_ids: { x: 'id-99' } })])
+      .mockRejectedValueOnce('raw cancel string error');
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/raw cancel string error/i)).toBeInTheDocument(),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -392,5 +404,95 @@ describe('RepoPublishedView — IPC guard', () => {
     render(<RepoPublishedView repoId="r1" />);
     await waitFor(() => screen.getByText('valid-post'));
     expect(screen.queryByText('bad-post')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Non-Error thrown branch in load
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — non-Error fetch failure', () => {
+  it('shows "Failed to load posts" when get_repo_published rejects with a non-Error', async () => {
+    mockInvoke.mockRejectedValue('string rejection');
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByText(/failed to load posts: failed to load posts/i)).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ScheduledRow — empty platforms / missing scheduler_ids branch
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — ScheduledRow fallback branches', () => {
+  it('renders Cancel button when platforms array is empty (falls back to "x")', async () => {
+    const post = makeQueued({ post_folder: 'empty-plat', platforms: [] });
+    mockInvoke.mockResolvedValueOnce([post]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument(),
+    );
+  });
+
+  it('renders Cancel button when scheduler_ids is null (postId falls back to empty string)', async () => {
+    const post = makeQueued({ post_folder: 'no-ids', scheduler_ids: null });
+    mockInvoke.mockResolvedValueOnce([post]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SentRow — no platform_results branch (falls back to post.platforms)
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — SentRow platform_results null branch', () => {
+  it('uses post.platforms for sentPlatforms when platform_results is null', async () => {
+    const post = makeSent({
+      platforms: ['bluesky'],
+      platform_results: null,
+      platform_urls: { bluesky: 'https://bsky.app/profile/me/post/abc' },
+    });
+    mockInvoke.mockResolvedValue([post]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /view bluesky post/i })).toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SentRow — no llm_model branch (shows em dash)
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — SentRow llm_model null branch', () => {
+  it('shows em dash when llm_model is null', async () => {
+    const post = makeSent({ llm_model: null });
+    mockInvoke.mockResolvedValue([post]);
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByText('post-001'));
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Link open error — non-Error thrown
+// ---------------------------------------------------------------------------
+
+describe('RepoPublishedView — link open non-Error fallback', () => {
+  it('shows "Failed to open link" when opener rejects with a non-Error', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_repo_published')
+        return [makeSent({ platform_results: { x: 'sent' }, platform_urls: { x: 'https://x.com/status/1' } })];
+      if (cmd === 'plugin:opener|open_url') throw 'opener string error';
+      return null;
+    });
+    render(<RepoPublishedView repoId="r1" />);
+    await waitFor(() => screen.getByRole('button', { name: /view x post/i }));
+    fireEvent.click(screen.getByRole('button', { name: /view x post/i }));
+    await waitFor(() => expect(screen.getByText(/failed to open link/i)).toBeInTheDocument());
   });
 });

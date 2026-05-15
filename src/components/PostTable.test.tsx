@@ -152,4 +152,52 @@ describe('PostTable — history mode', () => {
     fireEvent.click(screen.getByTestId('post-row'))
     expect(onSelect).toHaveBeenCalledWith(post)
   })
+
+  it('calls onSelect when Enter is pressed on a history row', () => {
+    const onSelect = vi.fn()
+    const post = makePublished()
+    render(<PostTable posts={[post]} isHistory={true} onSelect={onSelect} timezone="UTC" />)
+    fireEvent.keyDown(screen.getByTestId('post-row'), { key: 'Enter' })
+    expect(onSelect).toHaveBeenCalledWith(post)
+  })
+
+  it('does not call onSelect when a non-Enter key is pressed on a history row', () => {
+    const onSelect = vi.fn()
+    const post = makePublished()
+    render(<PostTable posts={[post]} isHistory={true} onSelect={onSelect} timezone="UTC" />)
+    fireEvent.keyDown(screen.getByTestId('post-row'), { key: 'Space' })
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('shows formatted scheduled time when sent_at is null', () => {
+    const post = makePublished({ sent_at: null, schedule: '2024-06-10T15:00:00Z' })
+    render(<PostTable posts={[post]} isHistory={true} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('post-row')).toBeInTheDocument()
+  })
+
+  it('uses unknown platform label when platform is not in PLATFORM_CFG', () => {
+    const post = makePublished({ platform: 'unknown-platform-xyz' })
+    render(<PostTable posts={[post]} isHistory={true} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('post-row')).toBeInTheDocument()
+  })
+
+  it('renders when platform is null', () => {
+    const post = makePublished({ platform: null })
+    render(<PostTable posts={[post]} isHistory={true} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('post-row')).toBeInTheDocument()
+  })
+
+  it('renders without error when sent_at is null', () => {
+    const post = makePublished({ sent_at: null })
+    render(<PostTable posts={[post]} isHistory={true} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('post-row')).toBeInTheDocument()
+  })
+})
+
+describe('PostTable — queue mode — unknown platform', () => {
+  it('falls back to platform string for badge label when platform is not in PLATFORM_CFG', () => {
+    const draft = makeDraft({ platform: 'unknown-platform-xyz' })
+    render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByRole('button', { name: /edit unknown-platform-xyz post/i })).toBeInTheDocument()
+  })
 })

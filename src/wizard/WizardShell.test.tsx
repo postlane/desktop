@@ -74,4 +74,15 @@ describe('WizardShell', () => {
     shell({ nextHidden: true });
     expect(screen.queryByRole('button', { name: /next/i })).toBeNull();
   });
+
+  it('shows empty string for unknown step number in step name label', () => {
+    shell({ step: 99, totalSteps: 100 });
+    // STEP_NAMES[99] is undefined — the ?? '' branch returns empty string
+    const stepLabel = document.querySelector('.is-size-7.has-text-grey-light');
+    expect(stepLabel).not.toBeNull();
+    if (stepLabel) {
+      expect(stepLabel.textContent).toContain('Step 99');
+      expect(stepLabel.textContent).toContain('/ 100');
+    }
+  });
 });

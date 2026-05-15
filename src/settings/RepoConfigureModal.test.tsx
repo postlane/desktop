@@ -6,6 +6,7 @@ import '@testing-library/jest-dom';
 import RepoConfigureModal from './RepoConfigureModal';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ confirm: vi.fn() }));
 import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
@@ -415,3 +416,4 @@ describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () 
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+

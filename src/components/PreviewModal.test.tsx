@@ -143,4 +143,86 @@ describe('CharCount', () => {
   it('CHAR_LIMITS exports linkedin', () => {
     expect(CHAR_LIMITS['linkedin']).toBeGreaterThan(0)
   })
+
+  it('shows count for mastodon (500 limit)', () => {
+    render(<CharCount platform="mastodon" text={'a'.repeat(10)} />)
+    expect(screen.getByText('10 / 500')).toBeInTheDocument()
+  })
+
+  it('shows count for linkedin (3000 limit)', () => {
+    render(<CharCount platform="linkedin" text={'a'.repeat(50)} />)
+    expect(screen.getByText('50 / 3000')).toBeInTheDocument()
+  })
+
+  it('shows count for substack_notes (280 limit)', () => {
+    render(<CharCount platform="substack_notes" text={'a'.repeat(100)} />)
+    expect(screen.getByText('100 / 280')).toBeInTheDocument()
+  })
+
+  it('renders nothing for a platform with no char limit', () => {
+    const { container } = render(<CharCount platform="substack" text={'a'.repeat(100)} />)
+    expect(container.firstChild).toBeNull()
+  })
+
+  it('shows count in grey colour when within limit', () => {
+    const { container } = render(<CharCount platform="x" text={'a'.repeat(100)} />)
+    expect(container.firstChild).toHaveClass('has-text-grey')
+  })
+})
+
+describe('PreviewModal — platform width and unknown platform', () => {
+  it('uses fallback width for unknown platform', () => {
+    render(
+      <PreviewModal
+        platform="unknown_platform"
+        text="Hello"
+        imageState={{ status: 'none' }}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('shows raw platform name when not in PLATFORM_CFG', () => {
+    render(
+      <PreviewModal
+        platform="unknown_platform"
+        text="Hello"
+        imageState={{ status: 'none' }}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('unknown_platform')).toBeInTheDocument()
+  })
+
+  it('renders for mastodon platform', () => {
+    render(
+      <PreviewModal
+        platform="mastodon"
+        text="Hello"
+        imageState={{ status: 'none' }}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('renders for bluesky platform', () => {
+    render(
+      <PreviewModal
+        platform="bluesky"
+        text="Hello"
+        imageState={{ status: 'none' }}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+describe('CharCount — fallback for platform with limit but no specific counter', () => {
+  it('shows char count using fallback Unicode count for product_hunt', () => {
+    render(<CharCount platform="product_hunt" text={'a'.repeat(10)} />)
+    expect(screen.getByText('10 / 260')).toBeInTheDocument()
+  })
 })
