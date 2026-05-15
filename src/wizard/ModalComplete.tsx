@@ -33,8 +33,7 @@ export default function ModalComplete({ schedulerLinked, onComplete, onBack }: P
           </p>
         )}
         <p className="is-size-7 has-text-grey">
-          Add a repo from the dashboard, then open it in Claude Code and run
-          the <code>/draft-post</code> slash command to draft your first post.
+          Add a repo from the dashboard, then run <code>/draft-post</code> in your repo to draft your first post.
         </p>
       </div>
     </WizardShell>
