@@ -555,3 +555,65 @@ describe('ModalConnectRepos — poll cancel at line 195', () => {
     vi.useRealTimers();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Polling — slow notice and timeout
+// ---------------------------------------------------------------------------
+
+import { MAX_POLL_ATTEMPTS, POLL_SLOW_THRESHOLD } from './ModalGitHubApp';
+
+describe('ModalConnectRepos — polling slow notice', () => {
+  it('shows slow notice after POLL_SLOW_THRESHOLD failed polls', async () => {
+    vi.useFakeTimers();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      return { name: 'repo' };
+    });
+
+    render(<ModalGitHubApp {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
+
+    // First poll runs immediately; then advance one timer per poll
+    for (let i = 0; i < POLL_SLOW_THRESHOLD; i++) {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(3000);
+    }
+    await Promise.resolve();
+
+    expect(screen.getByText(/Still waiting for GitHub/i)).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+});
+
+describe('ModalConnectRepos — polling timeout', () => {
+  it('stops polling and shows timeout message after MAX_POLL_ATTEMPTS', async () => {
+    vi.useFakeTimers();
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      return { name: 'repo' };
+    });
+
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
+
+    // Advance past MAX_POLL_ATTEMPTS polls
+    for (let i = 0; i <= MAX_POLL_ATTEMPTS; i++) {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(3000);
+    }
+    await Promise.resolve();
+
+    expect(screen.getByText(/not detected after 6 minutes/i)).toBeInTheDocument();
+    expect(onNext).not.toHaveBeenCalled();
+
+    // Verify polling has stopped — no more IPC calls after timeout
+    const callsBefore = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
+    await vi.advanceTimersByTimeAsync(3000 * 5);
+    await Promise.resolve();
+    const callsAfter = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
+    expect(callsAfter).toBe(callsBefore);
+
+    vi.useRealTimers();
+  });
+});

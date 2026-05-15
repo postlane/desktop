@@ -8,6 +8,8 @@ pub mod instance_guard;
 pub mod connect_repo;
 pub mod analytics;
 pub mod app_state;
+pub mod app_state_ops;
+pub mod app_state_types;
 pub mod commands;
 pub mod deep_link_routing;
 pub mod github_app;
@@ -33,9 +35,16 @@ pub mod post_io;
 pub mod post_mutations;
 pub mod post_schedule;
 pub mod post_export;
-pub mod post_ops;
+pub mod post_dismiss;
+pub mod post_queries;
+pub mod post_redraft;
+pub mod post_retry;
+pub mod project_billing;
 pub mod project_cache;
+pub mod project_config_ops;
+pub mod project_lifecycle;
 pub mod project_registry;
+pub mod project_voice_guide;
 pub mod provider_orgs;
 pub mod project_validation;
 pub mod providers;
@@ -320,11 +329,11 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         account_config::get_account_ids,
         nav_commands::read_app_state_command, nav_commands::save_app_state_command,
         nav_commands::get_app_state,
-        app_state::set_wizard_completed,
-        app_state::set_default_post_time,
-        post_ops::get_drafts, post_approval::approve_post,
-        post_ops::get_post_content, post_ops::dismiss_post, post_ops::delete_post,
-        post_ops::retry_post, post_ops::queue_redraft, post_ops::cancel_redraft,
+        app_state_ops::set_wizard_completed,
+        app_state_ops::set_default_post_time,
+        post_queries::get_drafts, post_approval::approve_post,
+        post_queries::get_post_content, post_dismiss::dismiss_post, post_dismiss::delete_post,
+        post_retry::retry_post, post_redraft::queue_redraft, post_redraft::cancel_redraft,
         repo_mgmt::add_repo, repo_mgmt::remove_repo, repo_mgmt::set_repo_active,
         repo_project_filter::list_repos_for_project, repo_project_filter::unregister_repo,
         repo_mgmt::check_repo_health, repo_mgmt::update_repo_path,
@@ -355,13 +364,13 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
         license::get_license_display_name,
         nav_commands::get_watcher_status,
         get_local_server_port,
-        project_registry::check_project_status, project_registry::check_billing_gate,
-        project_registry::create_project, project_registry::update_project_org_login,
-        project_registry::write_project_id_to_config,
-        project_registry::register_repo_with_project, project_registry::save_project_voice_guide,
-        project_registry::get_project_voice_guide, project_registry::get_voice_guide_fields,
-        project_registry::get_repo_remote_name, project_registry::read_project_id_from_path,
-        project_registry::list_projects, project_registry::delete_project,
+        project_billing::check_project_status, project_billing::check_billing_gate,
+        project_lifecycle::create_project, project_lifecycle::update_project_org_login,
+        project_config_ops::write_project_id_to_config,
+        project_lifecycle::register_repo_with_project, project_voice_guide::save_project_voice_guide,
+        project_voice_guide::get_project_voice_guide, project_voice_guide::get_voice_guide_fields,
+        project_config_ops::get_repo_remote_name, project_config_ops::read_project_id_from_path,
+        project_lifecycle::list_projects, project_lifecycle::delete_project,
         connect_repo::connect_repo_from_desktop,
         draft_edits::save_post_draft,
     ])

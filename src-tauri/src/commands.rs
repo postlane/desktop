@@ -2,10 +2,9 @@
 
 pub use crate::post_approval::{approve_post, approve_post_impl};
 pub use crate::post_export::{export_history_csv, export_history_csv_impl};
-pub use crate::post_ops::{
-    delete_post, delete_post_impl, dismiss_post, dismiss_post_impl, get_drafts, get_drafts_impl,
-    get_post_content, get_post_content_impl, retry_post, retry_post_impl,
-};
+pub use crate::post_dismiss::{delete_post, delete_post_impl, dismiss_post, dismiss_post_impl};
+pub use crate::post_queries::{get_drafts, get_drafts_impl, get_post_content, get_post_content_impl};
+pub use crate::post_retry::{retry_post, retry_post_impl};
 pub use crate::repo_mgmt::{
     add_repo, add_repo_impl, check_repo_health, check_repo_health_impl, remove_repo,
     remove_repo_impl, set_repo_active, set_repo_active_impl, update_repo_path,

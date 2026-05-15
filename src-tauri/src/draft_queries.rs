@@ -2,7 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::post_meta::{PostMeta, PostStatus};
-use crate::project_registry::read_project_id_from_path_impl;
+use crate::project_config_ops::read_project_id_from_path_impl;
 use crate::storage::{Repo, ReposConfig};
 use crate::types::Post;
 use std::path::{Path, PathBuf};
