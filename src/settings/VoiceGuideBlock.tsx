@@ -6,8 +6,9 @@ import { invoke } from '../ipc/invoke';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CHAR_LIMIT = 5000;
+const CHAR_WARN = 2500;
 
-const TEMPLATES: { label: string; text: string }[] = [
+export const TEMPLATES: { label: string; text: string }[] = [
   {
     label: 'Professional & direct',
     text: 'Write posts that are clear, confident, and informative. Lead with the key point. No filler phrases, no hedging. Suitable for a professional audience that values directness over warmth.',
@@ -40,6 +41,20 @@ function TemplateConfirm({ onReplace, onCancel }: { onReplace: () => void; onCan
         <button className="button is-small" onClick={onCancel}>Cancel</button>
       </div>
     </div>
+  );
+}
+
+function CharCountRow({ charCount, isOverLimit, isOverWarn }: { charCount: number; isOverLimit: boolean; isOverWarn: boolean }) {
+  const colour = isOverLimit ? 'has-text-danger' : 'has-text-grey';
+  return (
+    <>
+      <span data-testid="char-count" className={`is-size-7 ${colour}`}>{charCount} / {CHAR_LIMIT}</span>
+      {isOverWarn && (
+        <p className="is-size-7 has-text-warning-dark mt-1">
+          Voice guides over {CHAR_WARN} characters can reduce generation quality. Consider trimming.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -86,6 +101,7 @@ export default function VoiceGuideBlock({ projectId, isOwner }: Props) {
   const [pendingTemplate, setPendingTemplate] = useState<string | null>(null);
   const charCount = text.length;
   const isOverLimit = charCount > CHAR_LIMIT;
+  const isOverWarn = charCount > CHAR_WARN && !isOverLimit;
   const isDirty = text !== loadedValue;
   const saveDisabled = !isDirty || isOverLimit || saveLoading || loadError;
   const saveTitle = isOverLimit ? `Voice guide cannot exceed ${CHAR_LIMIT} characters` : undefined;
@@ -108,7 +124,7 @@ export default function VoiceGuideBlock({ projectId, isOwner }: Props) {
         ? <textarea className="textarea is-size-7" value={text} onChange={(e) => setText(e.target.value)} disabled={loadError} rows={6} />
         : <pre className="is-size-7" style={{ whiteSpace: 'pre-wrap' }}>{text}</pre>}
       <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
-        <span data-testid="char-count" className={`is-size-7 ${isOverLimit ? 'has-text-danger' : 'has-text-grey'}`}>{charCount} / {CHAR_LIMIT}</span>
+        <CharCountRow charCount={charCount} isOverLimit={isOverLimit} isOverWarn={isOverWarn} />
         {isOwner && (
           <>
             <div style={{ position: 'relative' }}>

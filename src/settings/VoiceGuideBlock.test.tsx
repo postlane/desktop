@@ -192,3 +192,58 @@ describe('VoiceGuideBlock — templates', () => {
     expect(screen.getByTestId('char-count')).toHaveTextContent('11 / 5000')
   })
 })
+
+// ── Over-warn threshold ────────────────────────────────────────────────────────
+
+describe('VoiceGuideBlock — over-warn threshold', () => {
+  it('shows warning text when char count exceeds 2500', async () => {
+    render(<VoiceGuideBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('textbox'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'a'.repeat(2501) } })
+    expect(screen.getByText(/reduce generation quality/i)).toBeInTheDocument()
+  })
+
+  it('warning is absent below 2500 chars', async () => {
+    render(<VoiceGuideBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('textbox'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'a'.repeat(100) } })
+    expect(screen.queryByText(/reduce generation quality/i)).not.toBeInTheDocument()
+  })
+
+  it('warning is absent when over the hard limit (danger state takes over)', async () => {
+    render(<VoiceGuideBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('textbox'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'a'.repeat(5001) } })
+    expect(screen.queryByText(/reduce generation quality/i)).not.toBeInTheDocument()
+  })
+})
+
+// ── Template content validation (AI-M6) ───────────────────────────────────────
+
+import { TEMPLATES } from './VoiceGuideBlock'
+
+const FORBIDDEN_PHRASES = [
+  'excited to share',
+  'thrilled to announce',
+  'game-changing',
+  'revolutionary',
+  'groundbreaking',
+  'dive into',
+  'delve into',
+  'leverage',
+  'seamlessly',
+  'the future of',
+  "i'm proud to",
+  "i'm humbled to",
+]
+
+describe('VoiceGuideBlock — TEMPLATES must not contain forbidden phrases (AI-M6)', () => {
+  for (const template of TEMPLATES) {
+    it(`template "${template.label}" contains no forbidden phrases`, () => {
+      const lower = template.text.toLowerCase()
+      for (const phrase of FORBIDDEN_PHRASES) {
+        expect(lower, `"${template.label}" contains "${phrase}"`).not.toContain(phrase)
+      }
+    })
+  }
+})
