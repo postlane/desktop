@@ -77,7 +77,9 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
       <p className="is-size-6 has-text-weight-medium mb-3">Repositories</p>
       {repos.length === 0 && (
         <p className="is-size-7 has-text-grey mb-3">
-          No repositories connected. Add one to start detecting drafts.
+          {isOwner
+            ? 'No repositories connected. Add one to start detecting drafts.'
+            : 'No repositories connected. Ask a workspace owner to add a repository.'}
         </p>
       )}
       {repos.map((repo) => (
