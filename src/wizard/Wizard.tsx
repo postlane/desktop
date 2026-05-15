@@ -25,19 +25,21 @@ interface LateStepProps {
   workspaceId: string;
   workspaceName: string;
   schedulerLinked: boolean;
+  repoConnected: boolean;
+  setRepoConnected: (_v: boolean) => void;
   onNext: () => void;
   onBack: () => void;
   onComplete: () => void;
 }
 
-function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, onNext, onBack, onComplete }: LateStepProps) {
+function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, repoConnected, setRepoConnected, onNext, onBack, onComplete }: LateStepProps) {
   if (step === 5) {
-    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
+    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} setRepoConnected={setRepoConnected} />;
   }
   if (step === 6) {
     return <ModalProjectContext workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
   }
-  return <ModalComplete schedulerLinked={schedulerLinked} onComplete={onComplete} onBack={onBack} />;
+  return <ModalComplete schedulerLinked={schedulerLinked} repoConnected={repoConnected} onComplete={onComplete} onBack={onBack} />;
 }
 
 export default function Wizard({ onComplete, startAt, initialWorkspaceId, initialWorkspaceName }: Props) {
@@ -47,6 +49,7 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
     initialWorkspaceName: initialWorkspaceName ?? undefined,
   });
   const [showPricingGate, setShowPricingGate] = useState(false);
+  const [repoConnected, setRepoConnected] = useState(false);
 
   useEffect(() => {
     if (wizard.step > 1) {
@@ -81,5 +84,5 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
   if (wizard.step === 4) {
     return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={handleSkipToApp} />;
   }
-  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
+  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} repoConnected={repoConnected} setRepoConnected={setRepoConnected} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
 }

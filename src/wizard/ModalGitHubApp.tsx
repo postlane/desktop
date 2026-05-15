@@ -30,6 +30,7 @@ interface Props {
   workspaceName: string;
   onNext: () => void;
   onBack: () => void;
+  setRepoConnected: (_v: boolean) => void;
 }
 
 interface GitHubAppSectionProps {
@@ -173,7 +174,7 @@ interface InstallHookResult {
   handleInstall: () => Promise<void>;
 }
 
-function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void): InstallHookResult {
+function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void, onRepoConnected: () => void): InstallHookResult {
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const [pollSlowNotice, setPollSlowNotice] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
@@ -189,8 +190,9 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   const advance = useCallback(() => {
     if (advancedRef.current) return;
     advancedRef.current = true;
+    onRepoConnected();
     onNext();
-  }, [onNext]);
+  }, [onNext, onRepoConnected]);
 
   useEffect(() => {
     const unlisten = Promise.all([
@@ -237,11 +239,11 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   return { appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
 }
 
-export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
+export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack, setRepoConnected }: Props) {
   const [folderConnected, setFolderConnected] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(false);
   const isGitHub = provider === 'github';
-  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext);
+  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext, () => setRepoConnected(true));
 
   return (
     <WizardShell
@@ -257,8 +259,8 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
     >
       {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
       <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName}
-        onConnected={() => setFolderConnected(true)}
-        onAlreadyConnected={() => setAlreadyConnected(true)}
+        onConnected={() => { setFolderConnected(true); setRepoConnected(true); }}
+        onAlreadyConnected={() => { setAlreadyConnected(true); setRepoConnected(true); }}
       />
       <CliSection />
     </WizardShell>

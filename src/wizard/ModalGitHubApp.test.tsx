@@ -27,6 +27,7 @@ const defaultProps = {
   workspaceName: 'my-org',
   onNext: vi.fn(),
   onBack: vi.fn(),
+  setRepoConnected: vi.fn(),
 };
 
 beforeEach(() => {
@@ -318,6 +319,26 @@ describe('ModalConnectRepos — already connected Next button', () => {
     await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
     await waitFor(() => screen.getByRole('alert'));
     expect(screen.queryByRole('button', { name: /^Next/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('ModalConnectRepos — setRepoConnected callback', () => {
+  it('calls setRepoConnected when folder is freshly connected', async () => {
+    const setRepoConnected = vi.fn();
+    mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
+    mockInvoke.mockResolvedValue({ name: 'my-repo' });
+    render(<ModalGitHubApp {...defaultProps} setRepoConnected={setRepoConnected} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(setRepoConnected).toHaveBeenCalledWith(true));
+  });
+
+  it('calls setRepoConnected when repo is already connected', async () => {
+    const setRepoConnected = vi.fn();
+    mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
+    mockInvoke.mockRejectedValue('RepoAlreadyRegistered: already connected');
+    render(<ModalGitHubApp {...defaultProps} setRepoConnected={setRepoConnected} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => expect(setRepoConnected).toHaveBeenCalledWith(true));
   });
 });
 
