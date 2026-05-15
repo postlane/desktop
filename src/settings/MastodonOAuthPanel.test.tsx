@@ -241,3 +241,66 @@ describe('MastodonOAuthPanel — instance validation (§review-product-medium)',
     expect(screen.getByRole('button', { name: /connect/i })).toBeDisabled();
   });
 });
+
+describe('MastodonOAuthPanel — Connect error non-Error branch', () => {
+  it('shows a string error when register_mastodon_app rejects with a non-Error', async () => {
+    mockInvoke.mockResolvedValueOnce(500); // test-instance
+    mockInvoke.mockRejectedValueOnce('raw connect error');
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => screen.getByRole('button', { name: /connect/i, hidden: false }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+    await waitFor(() => expect(screen.getByText('raw connect error')).toBeInTheDocument());
+  });
+});
+
+describe('MastodonOAuthPanel — Save error non-Error branch', () => {
+  async function reachCodeEntry() {
+    mockInvoke.mockResolvedValueOnce(500);
+    mockInvoke.mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc');
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => screen.getByRole('button', { name: /connect/i, hidden: false }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+    await waitFor(() => screen.getByPlaceholderText(/paste the code/i));
+    fireEvent.change(screen.getByPlaceholderText(/paste the code/i), { target: { value: 'token123' } });
+  }
+
+  it('shows a string error when exchange_mastodon_code rejects with a non-Error', async () => {
+    await reachCodeEntry();
+    mockInvoke.mockRejectedValueOnce('raw string error');
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(screen.getByText('raw string error')).toBeInTheDocument());
+  });
+});
+
+describe('MastodonOAuthPanel — Disconnect error non-Error branch', () => {
+  async function reachConnectedState() {
+    mockInvoke
+      .mockResolvedValueOnce(500)
+      .mockResolvedValueOnce('https://mastodon.social/oauth/authorize?client_id=abc')
+      .mockResolvedValueOnce('bob');
+    render(<MastodonOAuthPanel />);
+    fireEvent.change(screen.getByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } });
+    fireEvent.click(screen.getByRole('button', { name: /test instance/i }));
+    await waitFor(() => screen.getByRole('button', { name: /connect/i, hidden: false }));
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }));
+    await waitFor(() => screen.getByPlaceholderText(/paste the code/i));
+    fireEvent.change(screen.getByPlaceholderText(/paste the code/i), { target: { value: 'code99' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => screen.getByRole('button', { name: /disconnect/i }));
+  }
+
+  it('stays connected when disconnect_mastodon rejects with a non-Error string', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    await reachConnectedState();
+    mockInvoke.mockRejectedValueOnce('disconnect failed string');
+    fireEvent.click(screen.getByRole('button', { name: /disconnect/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /disconnect/i })).not.toBeDisabled(),
+    );
+    expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
+  });
+});
