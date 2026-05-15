@@ -76,8 +76,8 @@ export default function WizardShell({
   onBack, onSkip, skipLabel = 'Skip',
 }: Props) {
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, overflow: 'hidden' }} className="has-background-white">
-      <div className="px-5 pt-5 pb-4">
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', flexDirection: 'column' }} className="has-background-white">
+      <div className="px-5 pt-5 pb-4" style={{ flex: 1, overflowY: 'auto' }}>
         <p className="is-size-7 has-text-grey-light mb-1" style={{ textTransform: 'uppercase', letterSpacing: '0.1em' }}>
           Step {String(step).padStart(2, '0')} / {String(totalSteps).padStart(2, '0')} — {STEP_NAMES[step] ?? ''}
         </p>

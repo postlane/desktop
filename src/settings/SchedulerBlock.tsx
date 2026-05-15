@@ -70,6 +70,40 @@ function ConnectForm({ provider, projectId, onConnected, onCancel }: {
   );
 }
 
+// ── ConnectedRow ──────────────────────────────────────────────────────────────
+
+function ConnectedRow({ provider, projectId, isOwner, expanded, onExpand, onRekeyed, onCancel, onDisconnect, disconnecting }: {
+  provider: string;
+  projectId: string;
+  isOwner: boolean;
+  expanded: boolean;
+  onExpand: () => void;
+  onRekeyed: () => void;
+  onCancel: () => void;
+  onDisconnect: () => void;
+  disconnecting: boolean;
+}) {
+  return (
+    <div>
+      <div className="is-flex is-align-items-center py-2"
+        style={{ gap: '0.75rem', borderBottom: expanded ? 'none' : '1px solid var(--bulma-border-weak)' }}>
+        <span className="is-size-7" style={{ flex: 1 }}>{providerLabel(provider)}</span>
+        {isOwner && !expanded && (
+          <>
+            <button className="button is-small is-ghost" onClick={onExpand}>Change key</button>
+            <button className="button is-small is-ghost has-text-danger" onClick={onDisconnect} disabled={disconnecting}>
+              Disconnect
+            </button>
+          </>
+        )}
+      </div>
+      {expanded && (
+        <ConnectForm provider={provider} projectId={projectId} onConnected={onRekeyed} onCancel={onCancel} />
+      )}
+    </div>
+  );
+}
+
 // ── AvailableRow ──────────────────────────────────────────────────────────────
 
 function AvailableRow({ provider, projectId, expanded, onExpand, onConnected, onCancel }: {
@@ -129,16 +163,14 @@ export default function SchedulerBlock({ projectId, isOwner }: Props) {
       <p className="is-size-6 has-text-weight-medium mb-3">Scheduler</p>
       {profiles.length === 0 && <p className="is-size-7 has-text-grey">No scheduler connected.</p>}
       {connected.map((p) => (
-        <div key={p.provider} className="is-flex is-align-items-center py-2"
-          style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
-          <span className="is-size-7" style={{ flex: 1 }}>{providerLabel(p.provider)}</span>
-          {isOwner && (
-            <button className="button is-small is-ghost has-text-danger"
-              onClick={() => handleDisconnect(p.provider)} disabled={loading}>
-              Disconnect
-            </button>
-          )}
-        </div>
+        <ConnectedRow key={p.provider} provider={p.provider} projectId={projectId} isOwner={isOwner}
+          expanded={expandedProvider === p.provider}
+          onExpand={() => setExpandedProvider(p.provider)}
+          onRekeyed={() => { setExpandedProvider(null); loadProfiles(); }}
+          onCancel={() => setExpandedProvider(null)}
+          onDisconnect={() => handleDisconnect(p.provider)}
+          disconnecting={loading}
+        />
       ))}
       {isOwner && available.map((p) => (
         <AvailableRow key={p.provider} provider={p.provider} projectId={projectId}

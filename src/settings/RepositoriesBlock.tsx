@@ -58,10 +58,9 @@ function RepoRow({ repo, isOwner, onRemoveStart, onConfigureStart }: {
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── State hook ────────────────────────────────────────────────────────────────
 
-export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
-  const { repos, refresh } = useProjectRepos(projectId);
+function useRepoActions(projectId: string, refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -89,7 +88,27 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
     }
   }
 
+  return {
+    pendingRemoveId, setPendingRemoveId, removeLoading,
+    showAddModal, setShowAddModal,
+    configureRepoId, setConfigureRepoId,
+    globalProvider, handleConfirmRemove,
+  };
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
+  const { repos, refresh } = useProjectRepos(projectId);
+  const {
+    pendingRemoveId, setPendingRemoveId, removeLoading,
+    showAddModal, setShowAddModal,
+    configureRepoId, setConfigureRepoId,
+    globalProvider, handleConfirmRemove,
+  } = useRepoActions(projectId, refresh);
+
   const pendingRepo = repos.find((r) => r.id === pendingRemoveId) ?? null;
+  const configureRepo = repos.find((r) => r.id === configureRepoId) ?? null;
 
   return (
     <div>
@@ -110,19 +129,11 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
           )}
         </div>
       ))}
-      {configureRepoId && (() => {
-        const repo = repos.find((r) => r.id === configureRepoId);
-        return repo ? (
-          <RepoConfigureModal
-            repoId={repo.id}
-            repoName={repo.name}
-            projectId={projectId}
-            currentProvider={globalProvider}
-            isOwner={isOwner}
-            onClose={() => setConfigureRepoId(null)}
-          />
-        ) : null;
-      })()}
+      {configureRepo && (
+        <RepoConfigureModal repoId={configureRepo.id} repoName={configureRepo.name}
+          projectId={projectId} currentProvider={globalProvider} isOwner={isOwner}
+          onClose={() => setConfigureRepoId(null)} />
+      )}
       {isOwner && (
         <button className="button is-small is-light mt-3" onClick={() => setShowAddModal(true)}>
           Add repository
