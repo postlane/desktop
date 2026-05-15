@@ -63,6 +63,7 @@ pub mod tray;
 pub mod types;
 pub mod voice_guide_versions;
 pub mod watcher;
+pub mod wizard_state;
 pub mod poll_routing;
 pub mod webhook_poller;
 pub mod workspace;
@@ -316,65 +317,56 @@ fn add_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
         .setup(|app| setup_app(app))
 }
 
-fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
-    add_plugins(tauri::Builder::default()).invoke_handler(tauri::generate_handler![
-        repo_queries::get_repos,
-        draft_queries::get_all_drafts,
-        draft_queries::get_all_drafts_count,
-        published_queries::get_repo_published, published_queries::get_all_published,
-        org_published::get_org_published,
-        model_stats::get_model_stats,
-        nav_commands::get_app_version, nav_commands::get_autostart_enabled,
-        nav_commands::get_attribution, nav_commands::set_attribution,
-        account_config::list_profiles_for_repo, account_config::save_account_id,
-        account_config::get_account_ids,
-        nav_commands::read_app_state_command, nav_commands::save_app_state_command,
-        nav_commands::get_app_state,
-        app_state_ops::set_wizard_completed,
-        app_state_ops::set_default_post_time,
-        post_queries::get_drafts, post_approval::approve_post,
-        post_queries::get_post_content, post_dismiss::dismiss_post, post_dismiss::delete_post,
-        post_retry::retry_post, post_redraft::queue_redraft, post_redraft::cancel_redraft,
+fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        repo_queries::get_repos, draft_queries::get_all_drafts, draft_queries::get_all_drafts_count,
+        published_queries::get_repo_published, published_queries::get_all_published, org_published::get_org_published,
+        model_stats::get_model_stats, nav_commands::get_app_version, nav_commands::get_autostart_enabled,
+        nav_commands::get_attribution, nav_commands::set_attribution, nav_commands::get_watcher_status,
+        account_config::list_profiles_for_repo, account_config::save_account_id, account_config::get_account_ids,
+        nav_commands::read_app_state_command, nav_commands::save_app_state_command, nav_commands::get_app_state,
+        app_state_ops::set_wizard_completed, app_state_ops::set_default_post_time,
+        post_queries::get_drafts, post_approval::approve_post, post_queries::get_post_content,
+        post_dismiss::dismiss_post, post_dismiss::delete_post, post_retry::retry_post,
+        post_redraft::queue_redraft, post_redraft::cancel_redraft,
         repo_mgmt::add_repo, repo_mgmt::remove_repo, repo_mgmt::set_repo_active,
+        repo_mgmt::check_repo_health, repo_mgmt::update_repo_path, repo_mgmt::update_scheduler_config,
         repo_project_filter::list_repos_for_project, repo_project_filter::unregister_repo,
-        repo_mgmt::check_repo_health, repo_mgmt::update_repo_path,
-        repo_mgmt::update_scheduler_config,
         scheduler_credentials::get_libsecret_status, scheduler_credentials::has_scheduler_configured,
         scheduler_credentials::has_provider_credential, scheduler_credentials::list_connected_providers,
-        scheduler_credentials::save_scheduler_credential,
-        scheduler_credentials::get_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
+        scheduler_credentials::save_scheduler_credential, scheduler_credentials::get_scheduler_credential,
+        scheduler_credentials::delete_scheduler_credential, scheduler_credentials::save_repo_scheduler_key,
+        scheduler_credentials::remove_repo_scheduler_key, scheduler_credentials::get_per_repo_scheduler_key,
         scheduler_profiles::remove_scheduler_credential, scheduler_profiles::list_scheduler_profiles,
         scheduler_profiles::add_scheduler_credential,
-        scheduler_credentials::save_repo_scheduler_key, scheduler_credentials::remove_repo_scheduler_key,
-        scheduler_credentials::get_per_repo_scheduler_key,
         commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,
-        post_export::export_history_csv,
-        post_editor::update_post_content, post_editor::update_post_image,
+        post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,
         provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs,
-        github_app::check_github_app_installed,
-        post_schedule::update_post_schedule,
+        github_app::check_github_app_installed, post_schedule::update_post_schedule,
         mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
         mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
         mastodon_oauth::disconnect_mastodon,
         analytics::client::get_site_token, analytics::client::get_post_analytics,
         telemetry_commands::get_telemetry_consent, telemetry_commands::set_telemetry_consent,
         scheduling_commands::get_scheduler_usage,
-        license::get_license_signed_in,
-        license::sign_out,
-        license::get_license_display_name,
-        nav_commands::get_watcher_status,
+        license::get_license_signed_in, license::sign_out, license::get_license_display_name,
         get_local_server_port,
         project_billing::check_project_status, project_billing::check_billing_gate,
         project_lifecycle::create_project, project_lifecycle::update_project_org_login,
-        project_config_ops::write_project_id_to_config,
-        project_lifecycle::register_repo_with_project, project_voice_guide::save_project_voice_guide,
-        project_voice_guide::get_project_voice_guide, project_voice_guide::get_voice_guide_fields,
-        project_config_ops::get_repo_remote_name, project_config_ops::read_project_id_from_path,
-        project_lifecycle::list_projects, project_lifecycle::delete_project,
-        connect_repo::connect_repo_from_desktop,
-        draft_edits::save_post_draft,
+        project_lifecycle::register_repo_with_project, project_lifecycle::list_projects,
+        project_lifecycle::delete_project,
+        project_config_ops::write_project_id_to_config, project_config_ops::get_repo_remote_name,
+        project_config_ops::read_project_id_from_path,
+        project_voice_guide::save_project_voice_guide, project_voice_guide::get_project_voice_guide,
+        project_voice_guide::get_voice_guide_fields,
+        connect_repo::connect_repo_from_desktop, draft_edits::save_post_draft,
+        wizard_state::read_wizard_state, wizard_state::write_wizard_state, wizard_state::clear_wizard_state,
     ])
+}
+
+fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
+    register_commands(add_plugins(tauri::Builder::default()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

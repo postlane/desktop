@@ -11,6 +11,7 @@ interface Props {
 
 export default function ModalComplete({ schedulerLinked, onComplete, onBack }: Props) {
   async function handleContinue() {
+    invoke('clear_wizard_state').catch(console.warn);
     try { await invoke('set_wizard_completed'); } catch (e) { console.warn('[wizard] set_wizard_completed failed:', e); }
     onComplete();
   }
