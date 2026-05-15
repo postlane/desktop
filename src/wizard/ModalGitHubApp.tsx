@@ -69,9 +69,10 @@ interface FolderSectionProps {
   workspaceId: string;
   workspaceName: string;
   onConnected: () => void;
+  onAlreadyConnected: () => void;
 }
 
-function FolderPickerSection({ workspaceId, workspaceName, onConnected }: FolderSectionProps) {
+function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlreadyConnected }: FolderSectionProps) {
   const [connecting, setConnecting] = useState(false);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +94,7 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected }: Folder
       setConnectedName(repo.name);
       onConnected();
     } catch (err) {
+      if (typeof err === 'string' && err.startsWith('RepoAlreadyRegistered:')) onAlreadyConnected();
       setError(repoConnectError(err, workspaceName));
     } finally {
       pickerOpenRef.current = false;
@@ -237,6 +239,7 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
 
 export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
   const [folderConnected, setFolderConnected] = useState(false);
+  const [alreadyConnected, setAlreadyConnected] = useState(false);
   const isGitHub = provider === 'github';
   const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext);
 
@@ -248,12 +251,15 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       subtitle="Choose how Postlane monitors your projects. All methods are read-only."
       onNext={onNext}
       onBack={onBack}
-      nextHidden={!folderConnected}
+      nextHidden={!folderConnected && !alreadyConnected}
       onSkip={!folderConnected ? onNext : undefined}
       skipLabel="I'll connect repos later"
     >
       {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
-      <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName} onConnected={() => setFolderConnected(true)} />
+      <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName}
+        onConnected={() => setFolderConnected(true)}
+        onAlreadyConnected={() => setAlreadyConnected(true)}
+      />
       <CliSection />
     </WizardShell>
   );

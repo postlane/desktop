@@ -284,6 +284,43 @@ describe('ModalConnectRepos — repoConnectError edge cases', () => {
 // GitHub App install error for non-GitHub provider
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Already-connected → Next button appears
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — already connected Next button', () => {
+  it('shows Next button alongside Skip when RepoAlreadyRegistered', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
+    mockInvoke.mockRejectedValue("RepoAlreadyRegistered: already connected");
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^Next/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /connect repos later/i })).toBeInTheDocument();
+    });
+  });
+
+  it('clicking Next after RepoAlreadyRegistered calls onNext', async () => {
+    const onNext = vi.fn();
+    mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
+    mockInvoke.mockRejectedValue("RepoAlreadyRegistered: already connected");
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => screen.getByRole('button', { name: /^Next/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Next/i }));
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it('other errors do not show Next button', async () => {
+    mockOpenDialog.mockResolvedValue('/Users/user/not-a-repo');
+    mockInvoke.mockRejectedValue("NotAGitRepo: not a repo");
+    render(<ModalGitHubApp {...defaultProps} />);
+    await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
+    await waitFor(() => screen.getByRole('alert'));
+    expect(screen.queryByRole('button', { name: /^Next/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('ModalConnectRepos — install-error event for non-GitHub provider', () => {
   it('does not set error when github:install-error fires for non-GitHub provider', async () => {
     render(<ModalGitHubApp {...defaultProps} provider="gitlab" />);
