@@ -5,7 +5,8 @@ import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
 import { VoiceGuideForm, VoiceGuideFields, EMPTY_FIELDS, buildVoiceGuide } from '../settings/VoiceGuideForm';
 
-export { buildVoiceGuide, VoiceGuideFields };
+export { buildVoiceGuide };
+export type { VoiceGuideFields };
 
 interface Props {
   workspaceId: string;
