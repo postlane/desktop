@@ -174,7 +174,6 @@ pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
     use crate::test_fixtures::{make_state, make_repo, write_config, write_meta};
     use std::fs;
     use std::path::Path;

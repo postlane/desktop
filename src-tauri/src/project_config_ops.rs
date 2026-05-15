@@ -149,7 +149,6 @@ pub fn get_repo_remote_name(
 mod tests {
     use super::*;
     use crate::storage::{Repo, ReposConfig};
-    use crate::providers::scheduling::build_client;
 
     fn make_repos(paths: &[&str]) -> ReposConfig {
         ReposConfig {

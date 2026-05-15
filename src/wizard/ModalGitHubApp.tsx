@@ -237,6 +237,7 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       onBack={onBack}
       nextHidden={!folderConnected}
       onSkip={!folderConnected ? onNext : undefined}
+      skipLabel="I'll connect repos later"
     >
       {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
       <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName} onConnected={() => setFolderConnected(true)} />

@@ -163,9 +163,10 @@ describe('ModalProjectContext — avoid and examples fields', () => {
     await waitFor(() => {
       const call = mockInvoke.mock.calls.find(c => c[0] === 'save_project_voice_guide');
       const guide = (call?.[1] as Record<string, string>)?.voiceGuide ?? '';
-      expect(guide).toContain('excited to share');
-      expect(guide).toContain('game-changing');
-      expect(guide).toContain('seamlessly');
+      expect(guide).toContain('Excited to share');
+      expect(guide).toContain('Game-changing');
+      expect(guide).toContain('Seamlessly');
+      expect(guide).toContain('humbled to');
     });
   });
 });

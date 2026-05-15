@@ -135,7 +135,6 @@ pub fn get_all_published(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::Repo;
     use crate::test_fixtures::make_state;
     use std::fs;
 

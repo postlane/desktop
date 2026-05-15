@@ -308,7 +308,7 @@ describe('ModalConnectRepos — navigation', () => {
   it('Skip calls onNext without connecting', () => {
     const onNext = vi.fn();
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
-    fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+    fireEvent.click(screen.getByRole('button', { name: /connect repos later/i }));
     expect(onNext).toHaveBeenCalledOnce();
   });
 });

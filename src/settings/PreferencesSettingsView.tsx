@@ -7,9 +7,7 @@ import type { AppStateFile } from '../types';
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
-const TIMEZONES: string[] = typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl
-  ? (Intl as unknown as { supportedValuesOf: (_k: string) => string[] }).supportedValuesOf('timeZone')
-  : [];
+const TIMEZONES: string[] = Intl.supportedValuesOf?.('timeZone') ?? [];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

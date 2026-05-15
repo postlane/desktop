@@ -64,7 +64,7 @@ pub fn set_wizard_completed() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::{app_state_path, AppStateFile, DefaultPostTime, WindowState, NavState};
+    use crate::app_state::{app_state_path, AppStateFile, DefaultPostTime};
     use std::sync::{Mutex, OnceLock};
 
     static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();

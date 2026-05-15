@@ -6,6 +6,39 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 
+/// Scans a single repo's `.postlane/posts` directory and appends matching drafts.
+fn collect_repo_drafts(repo_path: &str, out: &mut Vec<PostMeta>) {
+    let posts_dir = PathBuf::from(repo_path).join(".postlane/posts");
+    if !posts_dir.exists() {
+        return;
+    }
+    let entries = match fs::read_dir(&posts_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Failed to read posts dir {}: {}", posts_dir.display(), e);
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let post_folder = entry.path();
+        if !post_folder.is_dir() {
+            continue;
+        }
+        let meta_path = post_folder.join("meta.json");
+        if !meta_path.exists() {
+            continue;
+        }
+        match fs::read_to_string(&meta_path) {
+            Ok(content) => match serde_json::from_str::<PostMeta>(&content) {
+                Ok(meta) if meta.status == "ready" || meta.status == "failed" => out.push(meta),
+                Ok(_) => {}
+                Err(e) => log::warn!("Skipping malformed meta.json at {}: {}", meta_path.display(), e),
+            },
+            Err(e) => log::warn!("Failed to read {}: {}", meta_path.display(), e),
+        }
+    }
+}
+
 /// Returns all drafts with status `"ready"` or `"failed"` across all active repos.
 /// Results are sorted: `"failed"` before `"ready"`, then by `created_at` descending.
 pub fn get_drafts_impl(state: &AppState) -> Result<Vec<PostMeta>, String> {
@@ -15,44 +48,9 @@ pub fn get_drafts_impl(state: &AppState) -> Result<Vec<PostMeta>, String> {
         .map_err(|e| format!("Failed to lock repos: {}", e))?;
 
     let mut all_drafts = Vec::new();
-
     for repo in &repos.repos {
-        if !repo.active {
-            continue;
-        }
-
-        let posts_dir = PathBuf::from(&repo.path).join(".postlane/posts");
-        if !posts_dir.exists() {
-            continue;
-        }
-
-        let entries = match fs::read_dir(&posts_dir) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            let post_folder = entry.path();
-            if !post_folder.is_dir() {
-                continue;
-            }
-
-            let meta_path = post_folder.join("meta.json");
-            if !meta_path.exists() {
-                continue;
-            }
-
-            match fs::read_to_string(&meta_path) {
-                Ok(content) => match serde_json::from_str::<PostMeta>(&content) {
-                    Ok(meta) => {
-                        if meta.status == "ready" || meta.status == "failed" {
-                            all_drafts.push(meta);
-                        }
-                    }
-                    Err(_) => continue,
-                },
-                Err(_) => continue,
-            }
+        if repo.active {
+            collect_repo_drafts(&repo.path, &mut all_drafts);
         }
     }
 
