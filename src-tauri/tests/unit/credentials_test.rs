@@ -33,12 +33,12 @@ mod credential_tests {
     }
 
     #[test]
-    fn test_mask_credential_shows_last_four() {
-        // Test: Credential masking shows ••••••••{last4}
+    fn test_mask_credential_returns_fixed_mask() {
+        // Test: Credential masking always returns fixed mask regardless of length
         let credential = "sk_test_1234567890abcdef";
         let masked = mask_credential(credential);
 
-        assert_eq!(masked, "••••••••cdef");
+        assert_eq!(masked, "••••••••");
     }
 
     #[test]
@@ -52,11 +52,11 @@ mod credential_tests {
 
     #[test]
     fn test_mask_credential_exactly_four_chars() {
-        // Test: Exactly 4 chars shows last 4
+        // Test: Even exactly 4 chars returns fixed mask without exposing suffix
         let credential = "1234";
         let masked = mask_credential(credential);
 
-        assert_eq!(masked, "••••••••1234");
+        assert_eq!(masked, "••••••••");
     }
 
     #[test]
