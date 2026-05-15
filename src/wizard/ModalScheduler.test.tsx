@@ -123,13 +123,13 @@ describe('ModalScheduler — after connecting first provider', () => {
 
   it('test_next_button_is_visible', async () => {
     await connectZernio();
-    expect(screen.getByRole('button', { name: /next/i })).toBeDefined();
+    expect(screen.getByRole('button', { name: /continue to repos/i })).toBeDefined();
   });
 
   it('test_next_button_calls_onNext', async () => {
     const onNext = vi.fn();
     await connectZernio({ onNext });
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await userEvent.click(screen.getByRole('button', { name: /continue to repos/i }));
     expect(onNext).toHaveBeenCalledOnce();
   });
 
@@ -183,7 +183,7 @@ describe('ModalScheduler — pre-connected providers', () => {
   it('Next is visible immediately when a provider is pre-connected', async () => {
     setupPreConnected(['zernio']);
     render(<ModalScheduler {...defaultProps} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /next/i })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole('button', { name: /continue to repos/i })).toBeDefined());
     expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
   });
 
