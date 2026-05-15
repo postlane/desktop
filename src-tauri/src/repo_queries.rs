@@ -84,11 +84,17 @@ pub fn scan_post_statuses(repo_path: &str) -> (u32, u32, Option<String>) {
         }
         let content = match fs::read_to_string(&meta_path) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                log::warn!("cannot read {}: {e}", meta_path.display());
+                continue;
+            }
         };
         let meta: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(e) => {
+                log::warn!("cannot parse {}: {e}", meta_path.display());
+                continue;
+            }
         };
 
         match meta.get("status").and_then(|s| s.as_str()) {
