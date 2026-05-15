@@ -33,7 +33,7 @@ export default function ModalComplete({ schedulerLinked, onComplete, onBack }: P
           </p>
         )}
         <p className="is-size-7 has-text-grey">
-          Run <code>npx @postlane/cli init</code> inside any repo to connect it, then use
+          Add a repo from the dashboard, then open it in Claude Code and run
           the <code>/draft-post</code> slash command to draft your first post.
         </p>
       </div>
