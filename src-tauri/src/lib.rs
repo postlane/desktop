@@ -53,7 +53,6 @@ pub mod repo_mgmt;
 pub mod repo_project_filter;
 pub mod repo_queries;
 pub mod scheduler_credentials;
-pub mod scheduler_profiles;
 pub mod security;
 pub mod scheduling;
 pub mod storage;
@@ -337,8 +336,6 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         scheduler_credentials::save_scheduler_credential, scheduler_credentials::get_scheduler_credential,
         scheduler_credentials::delete_scheduler_credential, scheduler_credentials::save_repo_scheduler_key,
         scheduler_credentials::remove_repo_scheduler_key, scheduler_credentials::get_per_repo_scheduler_key,
-        scheduler_profiles::remove_scheduler_credential, scheduler_profiles::list_scheduler_profiles,
-        scheduler_profiles::add_scheduler_credential,
         commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,

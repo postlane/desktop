@@ -3,14 +3,9 @@
 use dashmap::DashMap;
 use std::sync::{Arc, LazyLock};
 
-/// Scheduler provider names supported in v1.
-/// All scheduler credential commands validate against this list.
-/// Divergence between commands is a compile error, not a silent runtime mismatch.
-pub const KNOWN_SCHEDULER_PROVIDERS: &[&str] = &["zernio"];
-
 /// Social platform identifiers accepted by approve_post and get_org_published.
-/// Distinct namespace from KNOWN_SCHEDULER_PROVIDERS — social platforms and scheduler
-/// providers are not interchangeable (one Zernio account publishes to all platforms).
+/// Social platforms and scheduler providers are distinct namespaces:
+/// one scheduler account publishes to all platforms.
 pub const KNOWN_SOCIAL_PLATFORMS: &[&str] = &["x", "linkedin", "bluesky"];
 
 /// Denominator unit for ModelStatsResponse — each sent platform counts as one post.
