@@ -21,6 +21,7 @@ import { useSentPosts } from './hooks/useSentPosts';
 import OrgUpgradeBanner from './components/OrgUpgradeBanner';
 import OrgLinkModal from './components/OrgLinkModal';
 import type { AppStateFile, ViewSelection, DraftPost } from './types';
+import { LoadingView, QueueLoadError } from './AppLoadingStates';
 
 const DEFAULT_VIEW: ViewSelection = { view: 'no_orgs' };
 
@@ -49,22 +50,6 @@ export interface MainContentProps {
   onWizardNudgeHandled?: () => void;
 }
 
-function LoadingView() {
-  return (
-    <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%' }}>
-      <p className="is-size-7 has-text-grey">Loading…</p>
-    </div>
-  );
-}
-
-function QueueLoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
-  return (
-    <div className="p-5">
-      <p className="is-size-7 has-text-danger mb-3">{error}</p>
-      <button className="button is-small" onClick={onRetry}>Retry</button>
-    </div>
-  );
-}
 
 function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNavSel, onNavCancelled }: OrgQueueViewProps) {
   const [selectedPost, setSelectedPost] = useState<DraftPost | null>(null);

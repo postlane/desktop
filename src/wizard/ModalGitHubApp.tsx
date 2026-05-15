@@ -10,6 +10,8 @@ import WizardShell from './WizardShell';
 const GITHUB_APP_INSTALL_URL = 'https://github.com/apps/postlane/installations/new';
 const CLI_COMMAND = 'npx @postlane/cli init';
 const POLL_INTERVAL_MS = 3000;
+export const MAX_POLL_ATTEMPTS = 120; // 6 minutes
+export const POLL_SLOW_THRESHOLD = 10; // 30 seconds — show "still checking" notice
 
 function repoConnectError(err: unknown, workspaceName?: string): string {
   const raw = typeof err === 'string' ? err : '';
@@ -33,9 +35,11 @@ interface Props {
 interface GitHubAppSectionProps {
   error: string | null;
   onInstall: () => void;
+  pollSlowNotice: boolean;
+  pollTimedOut: boolean;
 }
 
-function GitHubAppSection({ error, onInstall }: GitHubAppSectionProps) {
+function GitHubAppSection({ error, onInstall, pollSlowNotice, pollTimedOut }: GitHubAppSectionProps) {
   return (
     <div className="box mb-3">
       <p className="has-text-weight-semibold mb-1">GitHub App</p>
@@ -46,6 +50,17 @@ function GitHubAppSection({ error, onInstall }: GitHubAppSectionProps) {
         Install GitHub App
       </button>
       {error && <p role="alert" className="is-size-7 has-text-danger mt-2">{error}</p>}
+      {pollSlowNotice && !pollTimedOut && (
+        <p className="is-size-7 has-text-grey mt-2">
+          Still waiting for GitHub — this can take a minute after installing.
+        </p>
+      )}
+      {pollTimedOut && (
+        <p role="alert" className="is-size-7 has-text-danger mt-2">
+          GitHub App install not detected after 6 minutes. If you completed the install, use
+          &ldquo;Skip&rdquo; below to continue and connect repos via the folder picker or CLI instead.
+        </p>
+      )}
     </div>
   );
 }
@@ -149,13 +164,21 @@ function CliSection() {
   );
 }
 
-export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
-  const [folderConnected, setFolderConnected] = useState(false);
+interface InstallHookResult {
+  appInstallError: string | null;
+  pollSlowNotice: boolean;
+  pollTimedOut: boolean;
+  handleInstall: () => Promise<void>;
+}
+
+function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void): InstallHookResult {
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
-  const isGitHub = provider === 'github';
+  const [pollSlowNotice, setPollSlowNotice] = useState(false);
+  const [pollTimedOut, setPollTimedOut] = useState(false);
   const advancedRef = useRef(false);
   const pollingActiveRef = useRef(false);
   const cancelPollRef = useRef(false);
+  const pollAttemptRef = useRef(0);
 
   useEffect(() => {
     return () => { cancelPollRef.current = true; };
@@ -183,9 +206,21 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
     openUrl(GITHUB_APP_INSTALL_URL).catch(console.error);
     if (!isGitHub || pollingActiveRef.current) return;
     pollingActiveRef.current = true;
+    pollAttemptRef.current = 0;
+    setPollSlowNotice(false);
+    setPollTimedOut(false);
 
     const poll = async () => {
       if (cancelPollRef.current) return;
+      pollAttemptRef.current += 1;
+      if (pollAttemptRef.current > MAX_POLL_ATTEMPTS) {
+        pollingActiveRef.current = false;
+        if (!cancelPollRef.current) setPollTimedOut(true);
+        return;
+      }
+      if (pollAttemptRef.current === POLL_SLOW_THRESHOLD && !cancelPollRef.current) {
+        setPollSlowNotice(true);
+      }
       try {
         const installed = await invoke<boolean>('check_github_app_installed', { projectId: workspaceId });
         if (installed) { advance(); return; }
@@ -197,6 +232,14 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
     await poll();
   }
 
+  return { appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
+}
+
+export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
+  const [folderConnected, setFolderConnected] = useState(false);
+  const isGitHub = provider === 'github';
+  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext);
+
   return (
     <WizardShell
       step={5}
@@ -207,8 +250,9 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       onBack={onBack}
       nextHidden={!folderConnected}
       onSkip={!folderConnected ? onNext : undefined}
+      skipLabel="I'll connect repos later"
     >
-      {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} />}
+      {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
       <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName} onConnected={() => setFolderConnected(true)} />
       <CliSection />
     </WizardShell>

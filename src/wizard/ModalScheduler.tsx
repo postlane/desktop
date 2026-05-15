@@ -9,6 +9,11 @@ import { ZernioLogo, UploadPostLogo } from '../assets/logos';
 
 type Provider = 'zernio' | 'upload_post';
 
+const VALID_PROVIDERS: readonly Provider[] = ['zernio', 'upload_post'];
+function isProvider(p: string): p is Provider {
+  return (VALID_PROVIDERS as readonly string[]).includes(p);
+}
+
 interface PickerProps {
   onSelect: (p: Provider) => void;
   connected: Provider[];
@@ -77,13 +82,14 @@ export default function ModalScheduler({ workspaceId, workspaceName, onNext, onB
   useEffect(() => {
     invoke<string[]>('list_connected_providers', { repoId: null })
       .then((providers) => {
-        if (Array.isArray(providers)) setConnectedProviders(providers as Provider[]);
+        if (Array.isArray(providers)) setConnectedProviders(providers.filter(isProvider));
       })
       .catch(() => {});
   }, []);
 
   function handleSuccess(provider: string) {
-    setConnectedProviders((prev) => [...prev, provider as Provider]);
+    if (!isProvider(provider)) return;
+    setConnectedProviders((prev) => [...prev, provider]);
     setSchedulerLinked(true);
     setSelectedProvider(null);
   }

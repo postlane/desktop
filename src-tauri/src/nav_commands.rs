@@ -66,7 +66,7 @@ pub fn read_app_state_command() -> AppStateFile {
 #[tauri::command]
 pub fn save_app_state_command(state: AppStateFile) -> Result<(), String> {
     if let Some(ref dpt) = state.default_post_time {
-        crate::app_state::validate_default_post_time(dpt)?;
+        crate::app_state_ops::validate_default_post_time(dpt)?;
     }
     write_app_state(&state)
 }

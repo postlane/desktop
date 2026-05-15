@@ -2,7 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::post_meta::{PostMeta, PostStatus};
-use crate::project_registry::read_project_id_from_path_impl;
+use crate::project_config_ops::read_project_id_from_path_impl;
 use crate::storage::{Repo, ReposConfig};
 use crate::types::Post;
 use std::path::{Path, PathBuf};
@@ -174,7 +174,6 @@ pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::AppState;
     use crate::test_fixtures::{make_state, make_repo, write_config, write_meta};
     use std::fs;
     use std::path::Path;

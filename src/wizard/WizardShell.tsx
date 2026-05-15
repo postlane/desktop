@@ -24,6 +24,7 @@ interface Props {
   nextHidden?: boolean;
   onBack?: () => void;
   onSkip?: () => void;
+  skipLabel?: string;
 }
 
 interface FooterProps {
@@ -31,13 +32,14 @@ interface FooterProps {
   totalSteps: number;
   onBack?: () => void;
   onSkip?: () => void;
+  skipLabel: string;
   onNext: () => void;
   nextLabel: string;
   nextDisabled: boolean;
   nextHidden: boolean;
 }
 
-function WizardFooter({ step, totalSteps, onBack, onSkip, onNext, nextLabel, nextDisabled, nextHidden }: FooterProps) {
+function WizardFooter({ step, totalSteps, onBack, onSkip, skipLabel, onNext, nextLabel, nextDisabled, nextHidden }: FooterProps) {
   return (
     <div className="px-5 py-3 is-flex is-align-items-center" style={{ borderTop: '1px solid #eee' }}>
       <div style={{ flex: 1 }}>
@@ -51,7 +53,7 @@ function WizardFooter({ step, totalSteps, onBack, onSkip, onNext, nextLabel, nex
       <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
         {onSkip && (
           <button className="button is-light is-small has-background-warning-light" onClick={onSkip}>
-            Skip
+            {skipLabel}
           </button>
         )}
         {!nextHidden && (
@@ -71,7 +73,7 @@ function WizardFooter({ step, totalSteps, onBack, onSkip, onNext, nextLabel, nex
 export default function WizardShell({
   step, totalSteps, title, subtitle, children, onNext,
   nextLabel = 'Next', nextDisabled = false, nextHidden = false,
-  onBack, onSkip,
+  onBack, onSkip, skipLabel = 'Skip',
 }: Props) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, overflow: 'hidden' }} className="has-background-white">
@@ -83,7 +85,7 @@ export default function WizardShell({
         <p className="subtitle has-text-grey mb-4">{subtitle}</p>
         {children}
       </div>
-      <WizardFooter step={step} totalSteps={totalSteps} onBack={onBack} onSkip={onSkip}
+      <WizardFooter step={step} totalSteps={totalSteps} onBack={onBack} onSkip={onSkip} skipLabel={skipLabel}
         onNext={onNext} nextLabel={nextLabel} nextDisabled={nextDisabled} nextHidden={nextHidden} />
     </div>
   );

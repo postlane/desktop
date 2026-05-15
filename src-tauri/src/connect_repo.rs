@@ -86,6 +86,7 @@ pub fn connect_repo_from_desktop_impl(
         .map_err(|e| format!("Failed to write config.json: {}", e))?;
 
     let local_config_path = canonical_path.join(".postlane").join("config.local.json");
+    reject_if_symlink(&local_config_path)?;
     let local_config_bytes = serde_json::to_vec_pretty(&build_config_local_json())
         .map_err(|e| format!("Failed to serialise config.local.json: {}", e))?;
     atomic_write(&local_config_path, &local_config_bytes)
@@ -226,6 +227,32 @@ mod tests {
         // Repo must NOT be registered
         let repos = state.repos.lock().expect("lock");
         assert!(repos.repos.is_empty(), "no repo should be registered on write failure");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_rejects_symlink_on_config_local_json() {
+        use std::os::unix::fs::symlink;
+        let dir = home_tmp("connect_repo_symlink_local");
+        let _ = fs::remove_dir_all(&dir);
+        make_git_repo(&dir);
+        let postlane_dir = dir.join(".postlane");
+        fs::create_dir_all(&postlane_dir).expect("create .postlane");
+        // Plant a symlink where config.local.json would be written
+        let target = postlane_dir.join("symlink_target.txt");
+        fs::write(&target, b"").expect("create target");
+        symlink(&target, postlane_dir.join("config.local.json")).expect("create symlink");
+        let state = make_state(vec![]);
+
+        let result = connect_repo_from_desktop_impl(
+            dir.to_str().unwrap(),
+            "proj-abc",
+            &state,
+            dirs::home_dir().as_deref(),
+        );
+        assert!(result.is_err(), "should reject symlink on config.local.json");
+        assert!(result.unwrap_err().contains("symlink"), "error must mention symlink");
         let _ = fs::remove_dir_all(&dir);
     }
 

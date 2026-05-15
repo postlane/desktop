@@ -7,14 +7,15 @@ import WizardShell from './WizardShell';
 const DEFAULT_TONE = 'Direct and professional. Technically precise. No marketing language.';
 const DEFAULT_AUDIENCE = 'developers and technical users.';
 
+// Keep in sync with FORBIDDEN_PHRASES in prompts/runner/validation.ts
 const AVOID_DEFAULT = [
-  '"excited to share" / "thrilled to announce"',
-  '"game-changing" / "revolutionary" / "groundbreaking"',
-  '"dive into" / "delve into"',
-  '"leverage" as a verb',
-  '"seamlessly"',
-  '"the future of [category]"',
-  'any sentence starting with "I\'m proud to"',
+  '"Excited to share" / "Thrilled to announce"',
+  '"Game-changing" / "Revolutionary" / "Groundbreaking"',
+  '"Dive into" / "Delve into"',
+  '"Leverage" as a verb',
+  '"Seamlessly"',
+  '"The future of [category]"',
+  'Any sentence starting with "I\'m proud to" or "I\'m humbled to"',
 ].join('\n');
 
 export interface VoiceGuideFields {

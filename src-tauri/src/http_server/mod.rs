@@ -106,10 +106,20 @@ pub fn bind_listener(preferred_port: u16) -> Result<std::net::TcpListener, std::
 
 /// Starts serving on a pre-bound listener.
 /// Converts the `std::net` listener to tokio and spawns the axum server.
+/// Starts serving on a pre-bound listener.
+/// Converts the `std::net` listener to tokio and spawns the axum server.
+/// Returns an error if the listener is not bound to the loopback interface.
 pub async fn serve_on_listener(
     state: ServerState,
     listener: std::net::TcpListener,
 ) -> Result<(), std::io::Error> {
+    let local_addr = listener.local_addr()?;
+    if !local_addr.ip().is_loopback() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("HTTP server must bind to loopback only, got {}", local_addr.ip()),
+        ));
+    }
     let tokio_listener = tokio::net::TcpListener::from_std(listener)?;
     let app = create_router(state);
     tokio::spawn(async move {
