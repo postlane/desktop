@@ -294,3 +294,153 @@ describe('AllReposDraftsView — fetch error', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// ApproveAllDialog — result icons
+// ---------------------------------------------------------------------------
+
+function makePausedApprove(failFirst = false) {
+  const resolver = { resolve: (_v: { success: boolean }) => {} };
+  const secondPromise = new Promise<{ success: boolean }>((res) => {
+    resolver.resolve = res;
+  });
+  const drafts = [
+    makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+    makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+  ];
+  let approveCallCount = 0;
+  const handler = async (cmd: unknown) => {
+    if (cmd === 'get_all_drafts') return drafts;
+    if (cmd === 'approve_post') {
+      approveCallCount++;
+      if (approveCallCount === 1) {
+        if (failFirst) throw new Error('fail');
+        return { success: true };
+      }
+      return secondPromise;
+    }
+    return null;
+  };
+  return { resolver, handler, drafts };
+}
+
+describe('AllReposDraftsView — approve all dialog result icons', () => {
+  it('shows success icon while second approval is pending', async () => {
+    const { resolver, handler } = makePausedApprove(false);
+    mockInvoke.mockImplementation(handler);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await waitFor(() => expect(screen.getByText('✓')).toBeInTheDocument());
+    resolver.resolve({ success: true });
+  });
+
+  it('shows error icon while second approval is pending after first fails', async () => {
+    const { resolver, handler } = makePausedApprove(true);
+    mockInvoke.mockImplementation(handler);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await waitFor(() => expect(screen.getByText('✗')).toBeInTheDocument());
+    resolver.resolve({ success: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ApproveAllDialog — running state and dismiss
+// ---------------------------------------------------------------------------
+
+function makeStalledApprove() {
+  const resolver = { resolve: (_v: { success: boolean }) => {} };
+  const approvePromise = new Promise<{ success: boolean }>((res) => {
+    resolver.resolve = res;
+  });
+  const drafts = [
+    makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+    makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+  ];
+  const handler = async (cmd: unknown) => {
+    if (cmd === 'get_all_drafts') return drafts;
+    if (cmd === 'approve_post') return approvePromise;
+    return null;
+  };
+  return { resolver, handler };
+}
+
+describe('AllReposDraftsView — approve all dialog dismiss and running', () => {
+  it('shows plural "posts" in dialog body when readyCount is 2', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+    ]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    expect(screen.getByText(/send 2 posts to your scheduler/i)).toBeInTheDocument();
+  });
+
+  it('shows Sending… label while approve is running', async () => {
+    const { resolver, handler } = makeStalledApprove();
+    mockInvoke.mockImplementation(handler);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await waitFor(() => expect(screen.getByText(/sending/i)).toBeInTheDocument());
+    resolver.resolve({ success: true });
+  });
+
+  it('closes dialog when the × button is clicked', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+    ]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('closes dialog when modal background is clicked', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+    ]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    const bg = document.querySelector('.modal-background');
+    if (bg) fireEvent.click(bg);
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ctrl+Enter shortcut (non-Mac)
+// ---------------------------------------------------------------------------
+
+describe('AllReposDraftsView — Ctrl+Enter shortcut', () => {
+  it('Ctrl+Enter opens approve-all dialog when 2+ ready posts', async () => {
+    mockInvoke.mockResolvedValue([
+      makePost({ post_folder: 'p1', trigger: 'Post 1' }),
+      makePost({ post_folder: 'p2', trigger: 'Post 2' }),
+    ]);
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  });
+});
