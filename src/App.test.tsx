@@ -99,11 +99,10 @@ function makeAppState(overrides = {}) {
 
 beforeEach(() => { vi.clearAllMocks() })
 
-describe('useWindowSizePersistence error logging', () => {
+describe('useWindowSizePersistence — resize save error (Error object)', () => {
   it('logs error message string (not raw Error object) when resize save fails', async () => {
     let capturedResizeHandler: ((event: { payload: { width: number; height: number } }) => void) | undefined
     const outerPositionMock = vi.fn().mockRejectedValue(new Error('IPC error'))
-
     vi.mocked(getCurrentWindow).mockReturnValue({
       onResized: vi.fn().mockImplementation((handler: (event: { payload: { width: number; height: number } }) => void) => {
         capturedResizeHandler = handler
@@ -111,21 +110,17 @@ describe('useWindowSizePersistence error logging', () => {
       }),
       outerPosition: outerPositionMock,
     } as unknown as ReturnType<typeof getCurrentWindow>)
-
     mockInvoke.mockImplementation((cmd: unknown) => {
       if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
       if (cmd === 'get_license_signed_in') return Promise.resolve(true)
       if (cmd === 'get_repos') return Promise.resolve([])
       return Promise.resolve(null)
     })
-
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     render(<App />)
     await waitFor(() => { expect(capturedResizeHandler).toBeDefined() })
-
     if (capturedResizeHandler) capturedResizeHandler({ payload: { width: 800, height: 600 } })
     await new Promise((resolve) => setTimeout(resolve, 600))
-
     const resizeErrorCall = errorSpy.mock.calls.find((args) =>
       String(args[0]).includes('window') || String(args[1])?.includes('window')
     )
@@ -134,7 +129,125 @@ describe('useWindowSizePersistence error logging', () => {
       expect(typeof errorArg).toBe('string')
       expect(String(errorArg)).not.toMatch(/\n\s+at\s/)
     }
+    errorSpy.mockRestore()
+  })
+})
 
+describe('useWindowSizePersistence — debounce timer replacement', () => {
+  it('clears existing timer when a second resize fires before the first expires', async () => {
+    let capturedResizeHandler: ((event: { payload: { width: number; height: number } }) => void) | undefined
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      onResized: vi.fn().mockImplementation((handler: (event: { payload: { width: number; height: number } }) => void) => {
+        capturedResizeHandler = handler
+        return Promise.resolve(() => {})
+      }),
+      outerPosition: vi.fn().mockResolvedValue({ x: 10, y: 20 }),
+    } as unknown as ReturnType<typeof getCurrentWindow>)
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true, consent_asked: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => { expect(capturedResizeHandler).toBeDefined() })
+    // Fire two resize events within the debounce window (< 500 ms apart)
+    // so the clearTimeout branch is exercised on the second call
+    if (capturedResizeHandler) capturedResizeHandler({ payload: { width: 900, height: 650 } })
+    if (capturedResizeHandler) capturedResizeHandler({ payload: { width: 950, height: 670 } })
+    // Wait past the debounce delay so the final callback runs
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const saveCalls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'save_app_state_command')
+    const windowSaves = saveCalls.filter(([, arg]) => {
+      const a = arg as Record<string, unknown>
+      const s = a.state as Record<string, unknown> | undefined
+      return s && typeof s.window === 'object'
+    })
+    // At least one save should occur; the key thing being tested is that the
+    // clearTimeout branch (line 183) was executed without error
+    expect(windowSaves.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('useWindowSizePersistence — resize save error (string rejection)', () => {
+  it('logs a string (not Error object) when the non-Error is thrown inside the resize callback', async () => {
+    let capturedResizeHandler: ((event: { payload: { width: number; height: number } }) => void) | undefined
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      onResized: vi.fn().mockImplementation((handler: (event: { payload: { width: number; height: number } }) => void) => {
+        capturedResizeHandler = handler
+        return Promise.resolve(() => {})
+      }),
+      outerPosition: vi.fn().mockRejectedValue('string rejection from outer position'),
+    } as unknown as ReturnType<typeof getCurrentWindow>)
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      return Promise.resolve(null)
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+    await waitFor(() => { expect(capturedResizeHandler).toBeDefined() })
+    if (capturedResizeHandler) capturedResizeHandler({ payload: { width: 800, height: 600 } })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const resizeErrors = errorSpy.mock.calls.filter((args) =>
+      String(args[0]).includes('persist window size')
+    )
+    expect(resizeErrors.length).toBeGreaterThan(0)
+    const errorArg = resizeErrors[0][resizeErrors[0].length - 1]
+    expect(typeof errorArg).toBe('string')
+    errorSpy.mockRestore()
+  })
+})
+
+describe('useWindowSizePersistence — onResized setup failure', () => {
+  it('logs error when onResized promise itself rejects with an Error', async () => {
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      onResized: vi.fn().mockRejectedValue(new Error('listener setup failed')),
+      outerPosition: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
+    } as unknown as ReturnType<typeof getCurrentWindow>)
+
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      return Promise.resolve(null)
+    })
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+    await waitFor(() => {
+      const setupErrors = errorSpy.mock.calls.filter((args) =>
+        String(args[0]).includes('resize listener')
+      )
+      expect(setupErrors.length).toBeGreaterThan(0)
+      const errorArg = setupErrors[0][setupErrors[0].length - 1]
+      expect(typeof errorArg).toBe('string')
+    })
+    errorSpy.mockRestore()
+  })
+
+  it('logs string when onResized rejects with a non-Error value', async () => {
+    vi.mocked(getCurrentWindow).mockReturnValue({
+      onResized: vi.fn().mockRejectedValue('raw string rejection'),
+      outerPosition: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
+    } as unknown as ReturnType<typeof getCurrentWindow>)
+
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState())
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      return Promise.resolve(null)
+    })
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+    await waitFor(() => {
+      const setupErrors = errorSpy.mock.calls.filter((args) =>
+        String(args[0]).includes('resize listener')
+      )
+      expect(setupErrors.length).toBeGreaterThan(0)
+      const errorArg = setupErrors[0][setupErrors[0].length - 1]
+      expect(typeof errorArg).toBe('string')
+    })
     errorSpy.mockRestore()
   })
 })
@@ -278,5 +391,26 @@ describe('App startup — post-wizard nudge', () => {
     render(<App />)
     await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
     expect(screen.queryByText('OrgSettingsView')).not.toBeInTheDocument()
+  })
+})
+
+describe('App startup — timezone already set', () => {
+  it('does not call save_app_state_command for timezone when timezone is already set', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true, timezone: 'America/New_York' }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+    const tzSaveCalls = mockInvoke.mock.calls.filter(([cmd, arg]) => {
+      if (cmd !== 'save_app_state_command') return false
+      const a = arg as Record<string, unknown>
+      const s = a.state as Record<string, unknown> | undefined
+      return s && typeof s.window !== 'object' && typeof s.timezone === 'string'
+    })
+    expect(tzSaveCalls).toHaveLength(0)
   })
 })

@@ -249,6 +249,17 @@ describe('MainContent — global_settings', () => {
   })
 })
 
+// ── org_queue: project not found ─────────────────────────────────────────────
+
+describe('MainContent — org_queue project not in list', () => {
+  it('renders PostTable even when the project is not in the list', () => {
+    // projects list is empty so find returns undefined (the ?? null branch)
+    mockUseProjectsContext.mockReturnValue({ projects: [], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_queue', projectId: 'unknown' })} />)
+    expect(screen.getByTestId('post-table')).toBeInTheDocument()
+  })
+})
+
 // ── no_orgs auto-navigation ───────────────────────────────────────────────────
 
 describe('MainContent — no_orgs', () => {

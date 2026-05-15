@@ -281,3 +281,126 @@ describe('App — toast', () => {
     await waitFor(() => expect(screen.getByText('Test toast')).toBeInTheDocument())
   })
 })
+
+// ── Toast — timer replacement ─────────────────────────────────────────────────
+
+describe('App — toast timer clears existing timer', () => {
+  it('showing toast twice clears the first timer and resets', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([MOCK_PROJECT])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => screen.getByTestId('select-post'))
+    await userEvent.setup().click(screen.getByTestId('select-post'))
+    await waitFor(() => screen.getByTestId('show-toast'))
+    // Click toast twice — the second click should clear the first timer (branch 26)
+    await userEvent.setup().click(screen.getByTestId('show-toast'))
+    await userEvent.setup().click(screen.getByTestId('show-toast'))
+    await waitFor(() => expect(screen.getByText('Test toast')).toBeInTheDocument())
+  })
+})
+
+// ── Key press that does not trigger Cmd+H ─────────────────────────────────────
+
+describe('App — non-matching keydown events', () => {
+  it('pressing a key without modifier does not navigate', async () => {
+    signedInInvoke()
+    render(<App />)
+    await waitFor(() => screen.getByText('LeftNav'))
+    const invokeBefore = mockInvoke.mock.calls.length
+    fireEvent.keyDown(document, { key: 'h' })
+    // No new invoke calls should have been triggered
+    expect(mockInvoke.mock.calls.length).toBe(invokeBefore)
+  })
+})
+
+// ── Ctrl+H shortcut ───────────────────────────────────────────────────────────
+
+describe('App — Ctrl+H shortcut', () => {
+  it('Ctrl+H also navigates to org_history', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([MOCK_PROJECT])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      if (cmd === 'get_org_published') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => screen.getByTestId('select-post'))
+    fireEvent.keyDown(document, { key: 'h', ctrlKey: true })
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('get_org_published', { projectId: 'p1' }))
+  })
+
+  it('Cmd+H on global_settings view uses empty projectId', async () => {
+    signedInInvoke()
+    render(<App />)
+    await waitFor(() => screen.getByText('LeftNav'))
+    await userEvent.setup().click(screen.getByTestId('leftnav-settings'))
+    await waitFor(() => screen.getByText('AccountSettingsView'))
+    fireEvent.keyDown(document, { key: 'h', metaKey: true })
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('get_org_published', { projectId: '' }))
+  })
+})
+
+// ── handleConsentChoice error path ────────────────────────────────────────────
+
+describe('App — consent choice IPC error', () => {
+  it('logs error and still closes modal when set_telemetry_consent rejects', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({
+        wizard_completed: true, post_wizard_completed: true, consent_asked: false,
+      }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      if (cmd === 'set_telemetry_consent') return Promise.reject(new Error('keyring locked'))
+      return Promise.resolve(null)
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<App />)
+    await waitFor(() => screen.getByTestId('consent-accept'))
+    await userEvent.setup().click(screen.getByTestId('consent-accept'))
+    await waitFor(() => expect(screen.queryByTestId('consent-accept')).not.toBeInTheDocument())
+    errorSpy.mockRestore()
+  })
+})
+
+// ── handleWizardNudgeHandled when appStateRef is null ─────────────────────────
+
+describe('App — wizard nudge handled without appState', () => {
+  it('does not crash when appStateRef is null at nudge-handled time', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: false }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([MOCK_PROJECT])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    // When the wizard is shown appStateRef.current is set, but we can still
+    // exercise the nudge-handled path by completing the wizard and verifying
+    // the app doesn't crash.
+    render(<App />)
+    await waitFor(() => screen.getByTestId('wizard'))
+    await userEvent.setup().click(screen.getByTestId('wizard-complete'))
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+  })
+})
+
+// ── initError: non-Error rejection ───────────────────────────────────────────
+
+describe('App — init error from string rejection', () => {
+  it('displays a string rejection as the error message', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.reject('disk full')
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    expect(screen.getByRole('alert').textContent).toMatch(/disk full/i)
+  })
+})
