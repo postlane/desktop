@@ -33,7 +33,7 @@ async fn check_ssrf(url: &str) -> Result<(), String> {
         return check_ip_safe(ip);
     }
     let target = format!("{}:443", host);
-    let addrs = tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(&target))
+    let addrs = tokio::time::timeout(Duration::from_secs(2), tokio::net::lookup_host(&target))
         .await
         .map_err(|_| format!("DNS timeout resolving '{}'", host))?
         .map_err(|e| format!("DNS resolution failed for '{}': {}", host, e))?;
@@ -85,13 +85,15 @@ async fn fetch_og_via_client(
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_owned);
             let Some(next) = location else { return Ok(None) };
-            let resolved = Url::parse(&url).and_then(|b| b.join(&next))
-                .map(|u| u.to_string())
+            let base = Url::parse(&url).map_err(|e| format!("Invalid URL: {}", e))?;
+            let resolved = base.join(&next)
                 .map_err(|e| format!("Invalid redirect URL: {}", e))?;
-            match check_ssrf(&resolved).await {
-                Ok(()) => { url = resolved; }
-                Err(_) => return Ok(None),
+            // Reject cross-host redirects — DNS rebinding can make a hostname resolve
+            // to a private IP on the second lookup even if it was public on the first.
+            if resolved.host_str() != base.host_str() {
+                return Ok(None);
             }
+            url = resolved.to_string();
             continue;
         }
         if !resp.status().is_success() { return Ok(None); }
@@ -105,7 +107,6 @@ async fn fetch_og_via_client(
 
 #[tauri::command]
 pub async fn validate_url_safe(url: String) -> Result<(), String> {
-    // v1: redirect SSRF not checked — hostname resolved only. Track for v2.
     check_ssrf(&url).await
 }
 
@@ -210,6 +211,23 @@ mod tests {
         let client = short_client();
         let r = fetch_og_via_client(&server.url("/"), &client).await;
         assert_eq!(r, Ok(None), "redirect to private IP must yield Ok(None)");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_og_via_client_rejects_cross_host_redirect() {
+        let server = MockServer::start();
+        // Redirect to a different hostname — cross-host redirect must be blocked
+        // to prevent DNS rebinding: the original host resolves at validation time,
+        // but a different host could resolve to a private IP on the next lookup.
+        server.mock(|when, then| {
+            when.method(GET).path("/");
+            then.status(301).header("Location", "http://other.example.internal/");
+        });
+        let client = short_client();
+        // server.url("/") is http://127.0.0.1:PORT/ — host "127.0.0.1"
+        // redirect host is "other.example.internal" — different, must be rejected
+        let r = fetch_og_via_client(&server.url("/"), &client).await;
+        assert_eq!(r, Ok(None), "cross-host redirect must yield Ok(None)");
     }
 
     // ── fetch_og_image — OG parsing (tests 10–14) ───────────────────────────
