@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useWizardState } from './useWizardState';
 import ModalWelcome from './ModalWelcome';
@@ -42,7 +42,17 @@ export default function Wizard({ onComplete, startAt }: Props) {
   const wizard = useWizardState({ startAt });
   const [showPricingGate, setShowPricingGate] = useState(false);
 
-  const handleSkipToApp = async () => { try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ } onComplete(); };
+  useEffect(() => {
+    if (wizard.step > 1) {
+      invoke('write_wizard_state', { step: wizard.step }).catch(console.warn);
+    }
+  }, [wizard.step]);
+
+  const handleSkipToApp = async () => {
+    invoke('clear_wizard_state').catch(console.warn);
+    try { await invoke('set_wizard_completed'); } catch (e) { console.warn('[wizard] set_wizard_completed failed:', e); }
+    onComplete();
+  };
   const closePricingGate = () => setShowPricingGate(false);
   const handlePricingSkip = (id: string, name: string) => { wizard.setWorkspaceId(id); wizard.setWorkspaceName(name); setShowPricingGate(false); wizard.next(); };
 

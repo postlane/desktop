@@ -149,6 +149,16 @@ fn drafts_from_repo(repo: &Repo, repos: &ReposConfig) -> Vec<Post> {
     drafts_from_repo_path(repo, std::path::Path::new(&repo.path), project_id)
 }
 
+/// Maximum number of draft posts returned by a single `get_all_drafts` call.
+/// Prevents UI-thread blocking on repos with large numbers of accumulated drafts.
+pub const MAX_DRAFT_PAGE: usize = 50;
+
+/// Returns up to [`MAX_DRAFT_PAGE`] draft posts across all active repos.
+///
+/// Sorted deterministically: `repo_path` → `post_folder` → `platform`.
+/// When the total exceeds the page size the oldest (alphabetically last) entries
+/// are silently dropped; callers that need the full count should call
+/// `get_all_drafts_count` separately.
 pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
     let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
     let mut drafts: Vec<Post> = repos
@@ -163,12 +173,28 @@ pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
             .then(a.post_folder.cmp(&b.post_folder))
             .then(a.platform.cmp(&b.platform))
     });
+    drafts.truncate(MAX_DRAFT_PAGE);
     Ok(drafts)
 }
 
+/// Tauri command — returns up to 50 draft posts across all active repos.
 #[tauri::command]
 pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
     get_all_drafts_impl(&state)
+}
+
+/// Tauri command — returns the total count of draft posts across all active repos.
+/// Use alongside `get_all_drafts` to show "Showing N of M" when M > 50.
+#[tauri::command]
+pub fn get_all_drafts_count(state: State<'_, AppState>) -> Result<usize, String> {
+    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let total = repos
+        .repos
+        .iter()
+        .filter(|r| r.active)
+        .flat_map(|repo| drafts_from_repo(repo, &repos))
+        .count();
+    Ok(total)
 }
 
 #[cfg(test)]
@@ -427,5 +453,18 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir_a);
         let _ = fs::remove_dir_all(&dir_b);
+    }
+
+    #[test]
+    fn test_get_all_drafts_capped_at_max_page() {
+        let dir = std::env::temp_dir().join("postlane_test_gad_cap");
+        for i in 0..MAX_DRAFT_PAGE + 5 {
+            write_md(&dir, &format!("folder-{:03}", i), "x", "content");
+        }
+        let path = dir.to_str().unwrap().to_string();
+        let state = make_state(vec![make_repo("r1", &path)]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), MAX_DRAFT_PAGE, "result must be capped at MAX_DRAFT_PAGE");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -79,7 +79,7 @@ function ScopeError({ provider, onBack }: { provider: string; onBack: () => void
       subtitle="Postlane needs permission to read your organisation list."
       onNext={() => {}} onBack={onBack} nextHidden
     >
-      <p className="mb-4 is-size-7">Sign in again to grant the <code>read:org</code> scope.</p>
+      <p className="mb-4 is-size-7">Postlane needs permission to see your GitHub organisations. Sign in again and approve the request when prompted.</p>
       <button className="button is-primary is-small" onClick={handleReauth}>Sign in again</button>
     </WizardShell>
   );

@@ -11,7 +11,8 @@ interface Props {
 
 export default function ModalComplete({ schedulerLinked, onComplete, onBack }: Props) {
   async function handleContinue() {
-    try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ }
+    invoke('clear_wizard_state').catch(console.warn);
+    try { await invoke('set_wizard_completed'); } catch (e) { console.warn('[wizard] set_wizard_completed failed:', e); }
     onComplete();
   }
 
@@ -33,7 +34,7 @@ export default function ModalComplete({ schedulerLinked, onComplete, onBack }: P
           </p>
         )}
         <p className="is-size-7 has-text-grey">
-          Add a repo from the dashboard, then run <code>/draft-post</code> in your repo to draft your first post.
+          Add a repo, then run <code>npx @postlane/cli draft-post</code> in a terminal inside that repo to draft your first post.
         </p>
       </div>
     </WizardShell>

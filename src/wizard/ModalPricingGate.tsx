@@ -16,6 +16,7 @@ interface Props {
 function useBillingPoller(onPaid: () => void, pollIntervalMs: number, maxAttempts: number) {
   const [polling, setPolling] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
+  const [attempts, setAttempts] = useState(0);
   const attemptsRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -26,9 +27,11 @@ function useBillingPoller(onPaid: () => void, pollIntervalMs: number, maxAttempt
   function begin() {
     setTimedOut(false);
     setPolling(true);
+    setAttempts(0);
     attemptsRef.current = 0;
     intervalRef.current = setInterval(async () => {
       attemptsRef.current++;
+      setAttempts(attemptsRef.current);
       try {
         const gate = await invoke<string>('check_billing_gate');
         if (gate === 'free' || gate === 'paid') {
@@ -46,13 +49,35 @@ function useBillingPoller(onPaid: () => void, pollIntervalMs: number, maxAttempt
     }, pollIntervalMs);
   }
 
-  return { polling, timedOut, begin, stopPolling };
+  return { polling, timedOut, attempts, begin, stopPolling };
+}
+
+const STILL_CHECKING_AFTER_MS = 120_000
+
+function PollingStatus({ polling, timedOut, attempts, pollIntervalMs, onCheckAgain }: {
+  polling: boolean; timedOut: boolean; attempts: number; pollIntervalMs: number; onCheckAgain: () => void;
+}) {
+  const longThreshold = Math.floor(STILL_CHECKING_AFTER_MS / pollIntervalMs)
+  if (timedOut) {
+    return (
+      <>
+        <p className="is-size-7 has-text-grey">
+          Not detected within 10 minutes — did payment complete? Check your email or click Check again.
+        </p>
+        <button className="button is-light is-small" onClick={onCheckAgain}>Check again</button>
+      </>
+    )
+  }
+  if (polling && attempts >= longThreshold) {
+    return <p className="is-size-7 has-text-grey">Still checking...</p>
+  }
+  return null
 }
 
 export default function ModalPricingGate({
   onPaid, onBack, onSkip, pollIntervalMs = 5000, maxAttempts = 120,
 }: Props) {
-  const { polling, timedOut, begin, stopPolling } = useBillingPoller(onPaid, pollIntervalMs, maxAttempts);
+  const { polling, timedOut, attempts, begin, stopPolling } = useBillingPoller(onPaid, pollIntervalMs, maxAttempts);
 
   async function handleSubscribe() {
     try { await openUrl('https://postlane.dev/billing'); } catch { /* ignore */ }
@@ -65,7 +90,7 @@ export default function ModalPricingGate({
       const projects = await invoke<{ id: string; name: string }[]>('list_projects');
       const first = projects[0];
       if (first) onSkip(first.id, first.name);
-    } catch { /* non-fatal: skip button disappears if list_projects fails */ }
+    } catch (e) { console.warn('[wizard] list_projects failed, skip aborted:', e); }
   }
 
   return (
@@ -94,11 +119,7 @@ export default function ModalPricingGate({
             Skip — use existing workspace
           </button>
         )}
-        {timedOut && (
-          <button className="button is-light is-small" onClick={begin}>
-            Check again
-          </button>
-        )}
+        <PollingStatus polling={polling} timedOut={timedOut} attempts={attempts} pollIntervalMs={pollIntervalMs} onCheckAgain={begin} />
       </div>
     </WizardShell>
   );

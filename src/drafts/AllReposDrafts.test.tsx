@@ -194,7 +194,7 @@ describe('AllReposDraftsView — WizardNudge', () => {
     mockInvoke.mockResolvedValue([]);
     render(<AllReposDraftsView postWizardNudge={true} onNudgeDismissed={vi.fn()} />);
     expect(screen.getByText(/you're set up/i)).toBeInTheDocument();
-    expect(screen.getByText('/draft-post')).toBeInTheDocument();
+    expect(screen.getByText('npx @postlane/cli draft-post')).toBeInTheDocument();
   });
 
   it('Dismiss button calls onNudgeDismissed', () => {
@@ -210,7 +210,7 @@ describe('AllReposDraftsView — WizardNudge', () => {
     mockInvoke.mockResolvedValue([]);
     render(<AllReposDraftsView postWizardNudge={true} onNudgeDismissed={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /copy/i }));
-    expect(mockWriteText).toHaveBeenCalledWith('/draft-post');
+    expect(mockWriteText).toHaveBeenCalledWith('npx @postlane/cli draft-post');
     await waitFor(() => expect(screen.getByText(/copied/i)).toBeInTheDocument());
   });
 

@@ -114,9 +114,10 @@ export default function ModalScheduler({ workspaceId, workspaceName, onNext, onB
       step={4}
       totalSteps={7}
       title="Connect a scheduler"
-      subtitle="Your scheduler publishes to your social accounts. You bring the key."
+      subtitle="Optional — you can skip this and add a scheduler later in Settings."
       onNext={onNext}
       onBack={handleBack}
+      nextLabel="Continue to repos"
       nextHidden={!hasConnected || selectedProvider !== null}
       onSkip={!hasConnected && !selectedProvider ? (onSkipToApp ?? handleSkip) : undefined}
     >
