@@ -8,7 +8,8 @@ vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
-import ModalProjectContext, { buildVoiceGuide } from './ModalProjectContext';
+import ModalProjectContext from './ModalProjectContext';
+import { buildVoiceGuide } from '../settings/VoiceGuideForm';
 
 const defaultProps = {
   workspaceId: 'ws-abc',

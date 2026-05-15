@@ -19,7 +19,7 @@ export default function OrgSettingsView({ org }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
         <RepositoriesBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <SchedulerBlock projectId={org.id} isOwner={isOwner} />
-        <VoiceGuideBlock projectId={org.id} isOwner={isOwner} />
+        <VoiceGuideBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <MembersBlock />
         <BillingBlock project={org} isOwner={isOwner} />
       </div>
