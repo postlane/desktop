@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from './ipc/invoke';
-import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useAppInit } from './useAppInit';
 import Wizard from './wizard/Wizard';
 import WizardResumePrompt from './wizard/WizardResumePrompt';
 import ReSignInScreen from './wizard/ReSignInScreen';
@@ -241,69 +241,43 @@ function useDirtyNavGuard(setCurrentView: (_sel: ViewSelection) => void) {
 
 function useAppState() {
   const [currentView, setCurrentView] = useState<ViewSelection>(DEFAULT_VIEW);
-  const [showWizard, setShowWizard] = useState(false);
-  const [wizardStartStep, setWizardStartStep] = useState(1);
-  const [resumeStep, setResumeStep] = useState<number | null>(null);
-  const [showReSignIn, setShowReSignIn] = useState(false);
-  const [showConsentModal, setShowConsentModal] = useState(false);
-  const [timezone, setTimezone] = useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [repoVersion, setRepoVersion] = useState(0);
-  const [initError, setInitError] = useState<string | null>(null);
-  const [wizardNudgePending, setWizardNudgePending] = useState(false);
-  const appStateRef = useRef<AppStateFile | null>(null);
+  const init = useAppInit();
 
-  useEffect(() => {
-    const unlisten = listen('license:expired', () => setShowReSignIn(true));
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
-
-  useEffect(() => {
-    Promise.all([
-      invoke<AppStateFile>('read_app_state_command'),
-      invoke<boolean>('get_license_signed_in'),
-    ])
-      .then(async ([appState, hasToken]) => {
-        appStateRef.current = appState;
-        const tz = appState.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-        setTimezone(tz);
-        if (!appState.timezone) {
-          invoke('save_app_state_command', { state: { ...appState, timezone: tz } }).catch(console.error);
-        }
-        if (!appState.consent_asked) setShowConsentModal(true);
-        if (!appState.wizard_completed) {
-          const saved = await invoke<{ step: number } | null>('read_wizard_state').catch(() => null);
-          if (saved && saved.step > 1) { setWizardStartStep(saved.step); setResumeStep(saved.step); }
-          setShowWizard(true);
-          return;
-        }
-        if (!hasToken) { setShowReSignIn(true); return; }
-        if (!appState.post_wizard_completed) setWizardNudgePending(true);
-      })
-      .catch((e: unknown) => setInitError(e instanceof Error ? e.message : String(e)));
-  }, []);
-
-  function handleWizardComplete() { setShowWizard(false); setWizardStartStep(1); setResumeStep(null); }
-  function handleResumeDecline() { setWizardStartStep(1); setResumeStep(null); invoke('clear_wizard_state').catch(console.warn); }
-  function handleAddOrg() { setWizardStartStep(2); setShowWizard(true); }
-  function handleSignedIn() { setShowReSignIn(false); }
+  function handleWizardComplete() {
+    init.setShowWizard(false); init.setWizardStartStep(1); init.setResumeStep(null);
+  }
+  function handleResumeDecline() {
+    init.setWizardStartStep(1); init.setResumeStep(null);
+    invoke('clear_wizard_state').catch(console.warn);
+  }
+  function handleAddOrg() { init.setWizardStartStep(2); init.setShowWizard(true); }
+  function handleSignedIn() { init.setShowReSignIn(false); }
+  function handleSignedOut() { init.setShowReSignIn(true); }
 
   async function handleConsentChoice(consent: boolean) {
     await invoke('set_telemetry_consent', { consent }).catch((e: unknown) => console.error('set_telemetry_consent failed:', e));
-    setShowConsentModal(false);
+    init.setShowConsentModal(false);
   }
 
-  function handleSignedOut() { setShowReSignIn(true); }
-
   function handleWizardNudgeHandled() {
-    setWizardNudgePending(false);
-    if (appStateRef.current) invoke('save_app_state_command', { state: { ...appStateRef.current, post_wizard_completed: true } }).catch(console.error);
+    init.setWizardNudgePending(false);
+    if (init.appStateRef.current) {
+      invoke('save_app_state_command', { state: { ...init.appStateRef.current, post_wizard_completed: true } }).catch(console.error);
+    }
   }
 
   return {
-    currentView, setCurrentView, showWizard, wizardStartStep, resumeStep, setResumeStep, showReSignIn,
-    showConsentModal, timezone, setTimezone, repoVersion, setRepoVersion,
-    initError, wizardNudgePending,
-    handleWizardComplete, handleResumeDecline, handleAddOrg, handleSignedIn, handleConsentChoice, handleWizardNudgeHandled, handleSignedOut,
+    currentView, setCurrentView,
+    showWizard: init.showWizard, wizardStartStep: init.wizardStartStep,
+    resumeStep: init.resumeStep, setResumeStep: init.setResumeStep,
+    wizardWorkspaceId: init.wizardWorkspaceId, wizardWorkspaceName: init.wizardWorkspaceName,
+    showReSignIn: init.showReSignIn, showConsentModal: init.showConsentModal,
+    timezone: init.timezone, setTimezone: init.setTimezone,
+    repoVersion, setRepoVersion, initError: init.initError,
+    wizardNudgePending: init.wizardNudgePending,
+    handleWizardComplete, handleResumeDecline, handleAddOrg,
+    handleSignedIn, handleConsentChoice, handleWizardNudgeHandled, handleSignedOut,
   };
 }
 
@@ -387,7 +361,7 @@ export default function App() {
   if (appState.showWizard && appState.resumeStep) {
     return <WizardResumePrompt step={appState.resumeStep} onResume={() => appState.setResumeStep(null)} onStartOver={appState.handleResumeDecline} />;
   }
-  if (appState.showWizard) return <Wizard startAt={appState.wizardStartStep} onComplete={appState.handleWizardComplete} />;
+  if (appState.showWizard) return <Wizard startAt={appState.wizardStartStep} initialWorkspaceId={appState.wizardWorkspaceId} initialWorkspaceName={appState.wizardWorkspaceName} onComplete={appState.handleWizardComplete} />;
   if (appState.showReSignIn) return <ReSignInScreen onSignedIn={appState.handleSignedIn} />;
 
   return (

@@ -15,6 +15,8 @@ import ModalPricingGate from './ModalPricingGate';
 interface Props {
   onComplete: () => void;
   startAt?: number;
+  initialWorkspaceId?: string | null;
+  initialWorkspaceName?: string | null;
 }
 
 interface LateStepProps {
@@ -38,15 +40,23 @@ function WizardLateSteps({ step, provider, workspaceId, workspaceName, scheduler
   return <ModalComplete schedulerLinked={schedulerLinked} onComplete={onComplete} onBack={onBack} />;
 }
 
-export default function Wizard({ onComplete, startAt }: Props) {
-  const wizard = useWizardState({ startAt });
+export default function Wizard({ onComplete, startAt, initialWorkspaceId, initialWorkspaceName }: Props) {
+  const wizard = useWizardState({
+    startAt,
+    initialWorkspaceId: initialWorkspaceId ?? undefined,
+    initialWorkspaceName: initialWorkspaceName ?? undefined,
+  });
   const [showPricingGate, setShowPricingGate] = useState(false);
 
   useEffect(() => {
     if (wizard.step > 1) {
-      invoke('write_wizard_state', { step: wizard.step }).catch(console.warn);
+      invoke('write_wizard_state', {
+        step: wizard.step,
+        workspaceId: wizard.workspaceId,
+        workspaceName: wizard.workspaceName,
+      }).catch(console.warn);
     }
-  }, [wizard.step]);
+  }, [wizard.step, wizard.workspaceId, wizard.workspaceName]);
 
   const handleSkipToApp = async () => {
     invoke('clear_wizard_state').catch(console.warn);

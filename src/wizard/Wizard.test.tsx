@@ -331,6 +331,32 @@ describe('Wizard — step 5 and completion', () => {
   });
 });
 
+describe('Wizard — wizard state persistence', () => {
+  it('write_wizard_state includes workspaceId and workspaceName after step 3 next', async () => {
+    render(<Wizard onComplete={vi.fn()} startAt={3} />);
+    fireEvent.click(screen.getByText('next-org'));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('write_wizard_state', {
+        step: 4,
+        workspaceId: 'ws-id-1',
+        workspaceName: 'My Org',
+      })
+    );
+  });
+
+  it('initialWorkspaceId seeds workspaceId in step 6 project context', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={6} initialWorkspaceId="ws-saved" initialWorkspaceName="Saved Org" />);
+    expect(screen.getByTestId('project-context-workspace-id').textContent).toBe('ws-saved');
+    expect(screen.getByTestId('project-context-workspace-name').textContent).toBe('Saved Org');
+  });
+
+  it('initialWorkspaceId seeds workspaceId in step 4 scheduler', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={4} initialWorkspaceId="ws-saved" initialWorkspaceName="Saved Org" />);
+    expect(screen.getByTestId('scheduler-workspace-id').textContent).toBe('ws-saved');
+    expect(screen.getByTestId('scheduler-workspace-name').textContent).toBe('Saved Org');
+  });
+});
+
 describe('Wizard — back navigation and full flow', () => {
   it('test_back_navigation_from_step_2_returns_to_step_1', () => {
     render(<Wizard onComplete={vi.fn()} startAt={2} />);
