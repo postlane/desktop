@@ -320,6 +320,7 @@ fn build_tauri_app() -> tauri::Builder<tauri::Wry> {
     add_plugins(tauri::Builder::default()).invoke_handler(tauri::generate_handler![
         repo_queries::get_repos,
         draft_queries::get_all_drafts,
+        draft_queries::get_all_drafts_count,
         published_queries::get_repo_published, published_queries::get_all_published,
         org_published::get_org_published,
         model_stats::get_model_stats,
