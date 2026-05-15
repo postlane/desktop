@@ -42,7 +42,7 @@ export default function Wizard({ onComplete, startAt }: Props) {
   const wizard = useWizardState({ startAt });
   const [showPricingGate, setShowPricingGate] = useState(false);
 
-  const handleSkipToApp = async () => { try { await invoke('set_wizard_completed'); } catch { /* non-fatal */ } onComplete(); };
+  const handleSkipToApp = async () => { try { await invoke('set_wizard_completed'); } catch (e) { console.warn('[wizard] set_wizard_completed failed:', e); } onComplete(); };
   const closePricingGate = () => setShowPricingGate(false);
   const handlePricingSkip = (id: string, name: string) => { wizard.setWorkspaceId(id); wizard.setWorkspaceName(name); setShowPricingGate(false); wizard.next(); };
 

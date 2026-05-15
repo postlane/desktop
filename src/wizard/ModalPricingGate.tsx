@@ -65,7 +65,7 @@ export default function ModalPricingGate({
       const projects = await invoke<{ id: string; name: string }[]>('list_projects');
       const first = projects[0];
       if (first) onSkip(first.id, first.name);
-    } catch { /* non-fatal: skip button disappears if list_projects fails */ }
+    } catch (e) { console.warn('[wizard] list_projects failed, skip aborted:', e); }
   }
 
   return (

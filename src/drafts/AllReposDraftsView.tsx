@@ -41,7 +41,7 @@ function WizardNudge({ onDismiss }: { onDismiss: () => void }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'fallback'>('idle');
 
   async function handleCopy() {
-    try { await writeText('/draft-post'); setCopyState('copied'); setTimeout(() => setCopyState('idle'), 2000); }
+    try { await writeText('npx @postlane/cli draft-post'); setCopyState('copied'); setTimeout(() => setCopyState('idle'), 2000); }
     catch { setCopyState('fallback'); }
   }
 
@@ -49,10 +49,10 @@ function WizardNudge({ onDismiss }: { onDismiss: () => void }) {
     <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
       <div className="has-text-centered" style={{ maxWidth: '24rem' }}>
         <p className="has-text-weight-medium mb-4">You're set up.</p>
-        <p className="is-size-7 has-text-grey mb-5">Open your IDE in a registered repo and run:</p>
+        <p className="is-size-7 has-text-grey mb-5">Open a terminal in a registered repo and run:</p>
         <div className="is-flex is-align-items-center is-justify-content-center has-background-grey-lighter mb-4" style={{ borderRadius: '0.5rem', padding: '0.75rem 1rem', gap: '0.75rem' }}>
-          <code className="is-size-7">/draft-post</code>
-          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy /draft-post command">{copyState === 'copied' ? '✓ Copied' : '📋 Copy'}</button>
+          <code className="is-size-7">npx @postlane/cli draft-post</code>
+          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy draft-post command">{copyState === 'copied' ? '✓ Copied' : '📋 Copy'}</button>
         </div>
         {copyState === 'fallback' && <p className="is-size-7 has-text-grey mb-4">Press Ctrl+C to copy</p>}
         <p className="is-size-7 has-text-grey">Your first draft will appear here when it's ready.</p>
@@ -143,17 +143,17 @@ function DraftsError({ message }: { message: string }) {
 function EmptyDraftsState() {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   async function handleCopy() {
-    try { await writeText('/draft-post'); setCopyState('copied'); setTimeout(() => setCopyState('idle'), 2000); }
+    try { await writeText('npx @postlane/cli draft-post'); setCopyState('copied'); setTimeout(() => setCopyState('idle'), 2000); }
     catch { setCopyState('error'); setTimeout(() => setCopyState('idle'), 2000); }
   }
   return (
     <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%', padding: '2rem' }}>
       <div className="has-text-centered">
         <p className="is-size-7 has-text-grey mb-3">No drafts waiting.</p>
-        <p className="is-size-7 has-text-grey mb-4">Run this command in your IDE to create one:</p>
+        <p className="is-size-7 has-text-grey mb-4">Run this command in a terminal inside your repo:</p>
         <div className="is-flex is-align-items-center is-justify-content-center has-background-grey-lighter" style={{ borderRadius: '0.5rem', padding: '0.75rem 1rem', gap: '0.75rem' }}>
-          <code className="is-size-7">/draft-post</code>
-          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy /draft-post command">
+          <code className="is-size-7">npx @postlane/cli draft-post</code>
+          <button className="button is-ghost is-small" onClick={handleCopy} aria-label="Copy draft-post command">
             {copyState === 'copied' ? '✓ Copied' : copyState === 'error' ? 'Failed to copy' : '📋 Copy'}
           </button>
         </div>
