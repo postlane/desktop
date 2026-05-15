@@ -164,12 +164,17 @@ function CliSection() {
   );
 }
 
-export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
-  const [folderConnected, setFolderConnected] = useState(false);
+interface InstallHookResult {
+  appInstallError: string | null;
+  pollSlowNotice: boolean;
+  pollTimedOut: boolean;
+  handleInstall: () => Promise<void>;
+}
+
+function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void): InstallHookResult {
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const [pollSlowNotice, setPollSlowNotice] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
-  const isGitHub = provider === 'github';
   const advancedRef = useRef(false);
   const pollingActiveRef = useRef(false);
   const cancelPollRef = useRef(false);
@@ -226,6 +231,14 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
     };
     await poll();
   }
+
+  return { appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
+}
+
+export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
+  const [folderConnected, setFolderConnected] = useState(false);
+  const isGitHub = provider === 'github';
+  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext);
 
   return (
     <WizardShell
