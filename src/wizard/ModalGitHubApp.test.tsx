@@ -403,7 +403,7 @@ describe('ModalConnectRepos — install button guard', () => {
     fireEvent.click(btn);
     // Only one check_github_app_installed call should be in-flight
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', expect.anything()));
-    expect(mockInvoke.mock.calls.filter(([c]: [string]) => c === 'check_github_app_installed')).toHaveLength(1);
+    expect(mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed')).toHaveLength(1);
   });
 });
 
@@ -451,11 +451,11 @@ describe('ModalConnectRepos — polling continues when app not installed', () =>
     // Unmount to trigger cancelPollRef = true
     unmount();
     // Record IPC calls before advancing time
-    const invokeCountBefore = mockInvoke.mock.calls.filter(([c]: [string]) => c === 'check_github_app_installed').length;
+    const invokeCountBefore = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
     // Advance timer — the scheduled poll should detect cancellation and not invoke IPC
     await vi.advanceTimersByTimeAsync(3000);
     await Promise.resolve();
-    const invokeCountAfter = mockInvoke.mock.calls.filter(([c]: [string]) => c === 'check_github_app_installed').length;
+    const invokeCountAfter = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
     // No additional IPC calls after unmount
     expect(invokeCountAfter).toBe(invokeCountBefore);
     vi.useRealTimers();
@@ -549,7 +549,7 @@ describe('ModalConnectRepos — poll cancel at line 195', () => {
     await vi.advanceTimersByTimeAsync(3000 * 2);
     await Promise.resolve();
 
-    const checkCalls = mockInvoke.mock.calls.filter(([c]: [string]) => c === 'check_github_app_installed').length;
+    const checkCalls = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
     expect(checkCalls).toBe(1);
     expect(onNext).not.toHaveBeenCalled();
     vi.useRealTimers();
