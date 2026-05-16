@@ -6,7 +6,7 @@ use tauri_plugin_keyring::KeyringExt;
 
 pub fn get_credential_keyring_key(provider: &str, repo_id: Option<&str>) -> Vec<String> {
     match repo_id {
-        Some(id) => vec![format!("{}/{}", provider, id), provider.to_string()],
+        Some(id) => vec![format!("{}/{}", provider, id)],
         None => vec![provider.to_string()],
     }
 }
@@ -598,10 +598,9 @@ mod tests {
         let per_repo = get_credential_keyring_key("zernio", Some("repo-id-123"));
         let global = get_credential_keyring_key("zernio", None);
         assert_eq!(per_repo[0], "zernio/repo-id-123", "per-repo key must use provider/repo_id format");
-        assert_eq!(per_repo[1], "zernio", "per-repo fallback must be the global key");
         assert_eq!(global[0], "zernio", "global key must be just the provider name");
         assert_ne!(per_repo[0], global[0], "per-repo and global keys must not collide");
-        assert_eq!(per_repo.len(), 2, "per-repo lookup must have two candidates (per-repo then global)");
+        assert_eq!(per_repo.len(), 1, "per-repo lookup must check only the scoped key — no global fallback");
         assert_eq!(global.len(), 1, "global lookup must have exactly one candidate");
     }
 
@@ -625,6 +624,27 @@ mod tests {
     #[test]
     fn credential_found_returns_false_silently_on_not_found_error() {
         assert!(!credential_found("postlane/zernio/r1", Err("no entry found".to_string())));
+    }
+
+    // --- list_connected_providers — workspace scope isolation ---
+
+    #[test]
+    fn test_credential_keyring_workspace_id_does_not_fall_back_to_global() {
+        // Changing the lookup to exact-match only: Some("ws-123") must NOT include the bare "zernio" key.
+        let keys = get_credential_keyring_key("zernio", Some("ws-123"));
+        assert!(!keys.contains(&"zernio".to_string()), "workspace-scoped lookup must not include the global fallback key");
+        assert_eq!(keys, vec!["zernio/ws-123"], "workspace-scoped lookup must only check the scoped key");
+    }
+
+    #[test]
+    fn test_list_connected_providers_with_id_does_not_find_global_only_credentials() {
+        // Simulates: keyring has "zernio" (global) but not "zernio/ws-123" (workspace-scoped)
+        let result = list_connected_providers_impl(Some("ws-123"), |provider, rid| {
+            let existing = ["zernio"];
+            let keys = get_credential_keyring_key(provider, rid);
+            keys.iter().any(|k| existing.contains(&k.as_str()))
+        });
+        assert!(result.is_empty(), "global credential must not leak into a workspace-scoped provider check");
     }
 
     // --- list_connected_providers ---

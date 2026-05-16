@@ -145,6 +145,16 @@ describe('ModalScheduler — after connecting first provider', () => {
   });
 });
 
+describe('ModalScheduler — invoke scoping', () => {
+  it('test_queries_list_connected_providers_with_workspace_id_not_null', async () => {
+    render(<ModalScheduler {...defaultProps} workspaceId="ws-42" />)
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('list_connected_providers', { repoId: 'ws-42' })
+    })
+    expect(mockInvoke).not.toHaveBeenCalledWith('list_connected_providers', { repoId: null })
+  })
+})
+
 describe('ModalScheduler — pre-connected providers', () => {
   function setupPreConnected(providers: string[]) {
     mockInvoke.mockImplementation(async (cmd: string) => {
