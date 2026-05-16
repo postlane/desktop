@@ -80,12 +80,12 @@ export default function ModalScheduler({ workspaceId, workspaceName, onNext, onB
   const [connectedProviders, setConnectedProviders] = useState<Provider[]>([]);
 
   useEffect(() => {
-    invoke<string[]>('list_connected_providers', { repoId: null })
+    invoke<string[]>('list_connected_providers', { repoId: workspaceId })
       .then((providers) => {
         if (Array.isArray(providers)) setConnectedProviders(providers.filter(isProvider));
       })
       .catch(() => {});
-  }, []);
+  }, [workspaceId]);
 
   function handleSuccess(provider: string) {
     if (!isProvider(provider)) return;
