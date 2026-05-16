@@ -30,6 +30,7 @@ interface Props {
   workspaceName: string;
   onNext: () => void;
   onBack: () => void;
+  setRepoConnected: (_v: boolean) => void;
 }
 
 interface GitHubAppSectionProps {
@@ -69,9 +70,10 @@ interface FolderSectionProps {
   workspaceId: string;
   workspaceName: string;
   onConnected: () => void;
+  onAlreadyConnected: () => void;
 }
 
-function FolderPickerSection({ workspaceId, workspaceName, onConnected }: FolderSectionProps) {
+function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlreadyConnected }: FolderSectionProps) {
   const [connecting, setConnecting] = useState(false);
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +95,7 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected }: Folder
       setConnectedName(repo.name);
       onConnected();
     } catch (err) {
+      if (typeof err === 'string' && err.startsWith('RepoAlreadyRegistered:')) onAlreadyConnected();
       setError(repoConnectError(err, workspaceName));
     } finally {
       pickerOpenRef.current = false;
@@ -171,7 +174,7 @@ interface InstallHookResult {
   handleInstall: () => Promise<void>;
 }
 
-function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void): InstallHookResult {
+function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void, onRepoConnected: () => void): InstallHookResult {
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const [pollSlowNotice, setPollSlowNotice] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
@@ -187,8 +190,9 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   const advance = useCallback(() => {
     if (advancedRef.current) return;
     advancedRef.current = true;
+    onRepoConnected();
     onNext();
-  }, [onNext]);
+  }, [onNext, onRepoConnected]);
 
   useEffect(() => {
     const unlisten = Promise.all([
@@ -235,10 +239,11 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   return { appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
 }
 
-export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack }: Props) {
+export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack, setRepoConnected }: Props) {
   const [folderConnected, setFolderConnected] = useState(false);
+  const [alreadyConnected, setAlreadyConnected] = useState(false);
   const isGitHub = provider === 'github';
-  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext);
+  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext, () => setRepoConnected(true));
 
   return (
     <WizardShell
@@ -248,12 +253,15 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       subtitle="Choose how Postlane monitors your projects. All methods are read-only."
       onNext={onNext}
       onBack={onBack}
-      nextHidden={!folderConnected}
+      nextHidden={!folderConnected && !alreadyConnected}
       onSkip={!folderConnected ? onNext : undefined}
       skipLabel="I'll connect repos later"
     >
       {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
-      <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName} onConnected={() => setFolderConnected(true)} />
+      <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName}
+        onConnected={() => { setFolderConnected(true); setRepoConnected(true); }}
+        onAlreadyConnected={() => { setAlreadyConnected(true); setRepoConnected(true); }}
+      />
       <CliSection />
     </WizardShell>
   );

@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: BUSL-1.1
+
+import { useState, useEffect, useRef, type MutableRefObject } from 'react';
+import { invoke } from './ipc/invoke';
+import { listen } from '@tauri-apps/api/event';
+import type { AppStateFile } from './types';
+
+export interface AppInitState {
+  timezone: string;
+  setTimezone: (_tz: string) => void;
+  showConsentModal: boolean;
+  setShowConsentModal: (_v: boolean) => void;
+  showWizard: boolean;
+  setShowWizard: (_v: boolean) => void;
+  wizardStartStep: number;
+  setWizardStartStep: (_step: number) => void;
+  resumeStep: number | null;
+  setResumeStep: (_step: number | null) => void;
+  wizardWorkspaceId: string | null;
+  wizardWorkspaceName: string | null;
+  showReSignIn: boolean;
+  setShowReSignIn: (_v: boolean) => void;
+  wizardNudgePending: boolean;
+  setWizardNudgePending: (_v: boolean) => void;
+  initError: string | null;
+  appStateRef: MutableRefObject<AppStateFile | null>;
+}
+
+export function useAppInit(): AppInitState {
+  const [timezone, setTimezone] = useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardStartStep, setWizardStartStep] = useState(1);
+  const [resumeStep, setResumeStep] = useState<number | null>(null);
+  const [wizardWorkspaceId, setWizardWorkspaceId] = useState<string | null>(null);
+  const [wizardWorkspaceName, setWizardWorkspaceName] = useState<string | null>(null);
+  const [showReSignIn, setShowReSignIn] = useState(false);
+  const [wizardNudgePending, setWizardNudgePending] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+  const appStateRef = useRef<AppStateFile | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen('license:expired', () => setShowReSignIn(true));
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  useEffect(() => {
+    Promise.all([
+      invoke<AppStateFile>('read_app_state_command'),
+      invoke<boolean>('get_license_signed_in'),
+    ])
+      .then(async ([appState, hasToken]) => {
+        appStateRef.current = appState;
+        const tz = appState.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+        setTimezone(tz);
+        if (!appState.timezone) {
+          invoke('save_app_state_command', { state: { ...appState, timezone: tz } }).catch(console.error);
+        }
+        if (!appState.consent_asked) setShowConsentModal(true);
+        if (!appState.wizard_completed) {
+          const saved = await invoke<{ step: number; workspaceId?: string; workspaceName?: string } | null>(
+            'read_wizard_state'
+          ).catch(() => null);
+          if (saved && saved.step > 1) {
+            setWizardStartStep(saved.step);
+            setResumeStep(saved.step);
+            if (saved.workspaceId) setWizardWorkspaceId(saved.workspaceId);
+            if (saved.workspaceName) setWizardWorkspaceName(saved.workspaceName);
+          }
+          setShowWizard(true);
+          return;
+        }
+        if (!hasToken) { setShowReSignIn(true); return; }
+        if (!appState.post_wizard_completed) setWizardNudgePending(true);
+      })
+      .catch((e: unknown) => setInitError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  return {
+    timezone, setTimezone, showConsentModal, setShowConsentModal,
+    showWizard, setShowWizard, wizardStartStep, setWizardStartStep,
+    resumeStep, setResumeStep, wizardWorkspaceId, wizardWorkspaceName,
+    showReSignIn, setShowReSignIn, wizardNudgePending, setWizardNudgePending,
+    initError, appStateRef,
+  };
+}

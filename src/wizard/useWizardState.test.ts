@@ -145,6 +145,29 @@ describe('useWizardState — step 7 completion', () => {
   });
 });
 
+describe('useWizardState — resume with initial workspace', () => {
+  it('initialWorkspaceId seeds workspaceId state', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 4, initialWorkspaceId: 'ws-saved' }));
+    expect(result.current.workspaceId).toBe('ws-saved');
+  });
+
+  it('initialWorkspaceName seeds workspaceName state', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 4, initialWorkspaceName: 'Saved Org' }));
+    expect(result.current.workspaceName).toBe('Saved Org');
+  });
+
+  it('workspaceId is null when no initialWorkspaceId provided', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 4 }));
+    expect(result.current.workspaceId).toBeNull();
+  });
+
+  it('setWorkspaceId still overrides the initial value', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 4, initialWorkspaceId: 'ws-saved' }));
+    act(() => result.current.setWorkspaceId('ws-new'));
+    expect(result.current.workspaceId).toBe('ws-new');
+  });
+});
+
 describe('useWizardState — back boundary', () => {
   it('test_back_on_step_1_does_not_change_step', () => {
     const { result } = renderHook(() => useWizardState());

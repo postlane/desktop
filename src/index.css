@@ -1,5 +1,10 @@
 @import "bulma/css/bulma.min.css";
 
+html, body {
+  overflow: hidden;
+  height: 100%;
+}
+
 :root {
   font-family: Inter, system-ui, sans-serif;
   font-size: 16px;

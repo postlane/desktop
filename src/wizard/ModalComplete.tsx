@@ -1,27 +1,35 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { invoke } from '../ipc/invoke';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
+
+const DOCS_URL = 'https://docs.postlane.dev';
 
 interface Props {
   schedulerLinked: boolean;
+  repoConnected: boolean;
   onComplete: () => void;
   onBack: () => void;
 }
 
-export default function ModalComplete({ schedulerLinked, onComplete, onBack }: Props) {
+export default function ModalComplete({ schedulerLinked, repoConnected, onComplete, onBack }: Props) {
   async function handleContinue() {
     invoke('clear_wizard_state').catch(console.warn);
     try { await invoke('set_wizard_completed'); } catch (e) { console.warn('[wizard] set_wizard_completed failed:', e); }
     onComplete();
   }
 
+  const subtitle = repoConnected
+    ? 'Your workspace is ready to start drafting.'
+    : 'Your workspace is ready. Add repos from the dashboard to start drafting.';
+
   return (
     <WizardShell
       step={7}
       totalSteps={7}
       title="You're all set"
-      subtitle="Your workspace is ready. Add repos from the dashboard to start drafting."
+      subtitle={subtitle}
       onNext={handleContinue}
       nextLabel="Continue"
       onBack={onBack}
@@ -33,9 +41,18 @@ export default function ModalComplete({ schedulerLinked, onComplete, onBack }: P
             Scheduler connected
           </p>
         )}
-        <p className="is-size-7 has-text-grey">
-          Add a repo, then run <code>npx @postlane/cli draft-post</code> in a terminal inside that repo to draft your first post.
-        </p>
+        {repoConnected ? (
+          <p className="is-size-7 has-text-grey">
+            Run <code>/draft-post</code> in a terminal inside that repo to draft your first post.{' '}
+            <a href="#" onClick={(e) => { e.preventDefault(); openUrl(DOCS_URL).catch(console.warn); }}>
+              Documentation
+            </a>
+          </p>
+        ) : (
+          <p className="is-size-7 has-text-grey">
+            Add a repo, then run <code>/draft-post</code> in a terminal inside that repo to draft your first post.
+          </p>
+        )}
       </div>
     </WizardShell>
   );

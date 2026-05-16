@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '../ipc/invoke';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types & constants ─────────────────────────────────────────────────────────
 
-interface SchedulerProviderStatus {
-  provider: string;
-  connected: boolean;
-}
+const ALL_PROVIDERS = ['zernio', 'upload_post', 'buffer', 'publer', 'outstand', 'webhook'] as const;
+type Provider = typeof ALL_PROVIDERS[number];
 
 interface Props {
   projectId: string;
@@ -16,15 +17,49 @@ interface Props {
 }
 
 function providerLabel(provider: string): string {
-  if (provider === 'zernio') return 'Zernio';
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
+  const labels: Partial<Record<string, string>> = {
+    zernio: 'Zernio',
+    upload_post: 'Upload Post',
+    buffer: 'Buffer',
+    publer: 'Publer',
+    outstand: 'Outstand',
+    webhook: 'Webhook',
+  };
+  return labels[provider] ?? (provider.charAt(0).toUpperCase() + provider.slice(1));
+}
+
+function providerUrl(provider: string): string | null {
+  const urls: Partial<Record<string, string>> = {
+    zernio: 'https://zernio.io',
+    upload_post: 'https://upload-post.com',
+    buffer: 'https://buffer.com',
+    publer: 'https://publer.io',
+    outstand: 'https://outstand.io',
+  };
+  return urls[provider] ?? null;
+}
+
+// ── ProviderLink ──────────────────────────────────────────────────────────────
+
+function ProviderLink({ provider }: { provider: string }) {
+  const url = providerUrl(provider);
+  if (!url) return null;
+  return (
+    <button
+      className="button is-small is-ghost"
+      style={{ padding: '0 0.25rem', color: 'var(--bulma-grey)' }}
+      onClick={() => openUrl(url)}
+      aria-label={`Open ${providerLabel(provider)} website`}
+    >
+      <FontAwesomeIcon icon={faArrowUpRightFromSquare} size="xs" />
+    </button>
+  );
 }
 
 // ── ConnectForm ───────────────────────────────────────────────────────────────
 
-function ConnectForm({ provider, projectId, onConnected, onCancel }: {
+function ConnectForm({ provider, onConnected, onCancel }: {
   provider: string;
-  projectId: string;
   onConnected: () => void;
   onCancel: () => void;
 }) {
@@ -37,8 +72,7 @@ function ConnectForm({ provider, projectId, onConnected, onCancel }: {
     setLoading(true);
     setError(null);
     try {
-      await invoke('add_scheduler_credential', { provider, apiKey, projectId });
-      setApiKey('');
+      await invoke('save_scheduler_credential', { provider, apiKey, repoId: null });
       onConnected();
     } catch (e: unknown) {
       setError(String(e));
@@ -70,11 +104,44 @@ function ConnectForm({ provider, projectId, onConnected, onCancel }: {
   );
 }
 
+// ── ConnectedRow ──────────────────────────────────────────────────────────────
+
+function ConnectedRow({ provider, isOwner, expanded, onExpand, onRekeyed, onCancel, onDisconnect, disconnecting }: {
+  provider: string;
+  isOwner: boolean;
+  expanded: boolean;
+  onExpand: () => void;
+  onRekeyed: () => void;
+  onCancel: () => void;
+  onDisconnect: () => void;
+  disconnecting: boolean;
+}) {
+  return (
+    <div>
+      <div className="is-flex is-align-items-center py-2"
+        style={{ gap: '0.75rem', borderBottom: expanded ? 'none' : '1px solid var(--bulma-border-weak)' }}>
+        <span className="is-size-7" style={{ flex: 1 }}>{providerLabel(provider)}</span>
+        <ProviderLink provider={provider} />
+        {isOwner && !expanded && (
+          <>
+            <button className="button is-small is-ghost" onClick={onExpand}>Change key</button>
+            <button className="button is-small is-ghost has-text-danger" onClick={onDisconnect} disabled={disconnecting}>
+              Disconnect
+            </button>
+          </>
+        )}
+      </div>
+      {expanded && (
+        <ConnectForm provider={provider} onConnected={onRekeyed} onCancel={onCancel} />
+      )}
+    </div>
+  );
+}
+
 // ── AvailableRow ──────────────────────────────────────────────────────────────
 
-function AvailableRow({ provider, projectId, expanded, onExpand, onConnected, onCancel }: {
+function AvailableRow({ provider, expanded, onExpand, onConnected, onCancel }: {
   provider: string;
-  projectId: string;
   expanded: boolean;
   onExpand: () => void;
   onConnected: () => void;
@@ -85,12 +152,13 @@ function AvailableRow({ provider, projectId, expanded, onExpand, onConnected, on
       <div className="is-flex is-align-items-center py-2"
         style={{ gap: '0.75rem', borderBottom: expanded ? 'none' : '1px solid var(--bulma-border-weak)' }}>
         <span className="is-size-7 has-text-grey" style={{ flex: 1 }}>{providerLabel(provider)}</span>
+        <ProviderLink provider={provider} />
         {!expanded && (
-          <button className="button is-small is-outlined" onClick={onExpand}>Connect</button>
+          <button className="button is-small is-light" onClick={onExpand}>Connect</button>
         )}
       </div>
       {expanded && (
-        <ConnectForm provider={provider} projectId={projectId} onConnected={onConnected} onCancel={onCancel} />
+        <ConnectForm provider={provider} onConnected={onConnected} onCancel={onCancel} />
       )}
     </div>
   );
@@ -98,52 +166,51 @@ function AvailableRow({ provider, projectId, expanded, onExpand, onConnected, on
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function SchedulerBlock({ projectId, isOwner }: Props) {
-  const [profiles, setProfiles] = useState<SchedulerProviderStatus[]>([]);
+export default function SchedulerBlock({ projectId: _projectId, isOwner }: Props) {
+  const [connected, setConnected] = useState<string[]>([]);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadProfiles = useCallback(() => {
-    invoke<SchedulerProviderStatus[]>('list_scheduler_profiles', { projectId })
-      .then(setProfiles)
-      .catch(() => setProfiles([]));
-  }, [projectId]);
+    invoke<string[]>('list_connected_providers', { repoId: null })
+      .then(setConnected)
+      .catch(() => setConnected([]));
+  }, []);
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
   async function handleDisconnect(provider: string) {
     setLoading(true);
     try {
-      await invoke('remove_scheduler_credential', { provider, projectId });
+      await invoke('delete_scheduler_credential', { provider, repoId: null });
       loadProfiles();
     } finally {
       setLoading(false);
     }
   }
 
-  const connected = profiles.filter((p) => p.connected);
-  const available = profiles.filter((p) => !p.connected);
+  const available = ALL_PROVIDERS.filter((p: Provider) => !connected.includes(p));
 
   return (
     <div>
       <p className="is-size-6 has-text-weight-medium mb-3">Scheduler</p>
-      {profiles.length === 0 && <p className="is-size-7 has-text-grey">No scheduler connected.</p>}
+      {connected.length === 0 && (
+        <p className="is-size-7 has-text-grey mb-2">No scheduler connected.</p>
+      )}
       {connected.map((p) => (
-        <div key={p.provider} className="is-flex is-align-items-center py-2"
-          style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
-          <span className="is-size-7" style={{ flex: 1 }}>{providerLabel(p.provider)}</span>
-          {isOwner && (
-            <button className="button is-small is-ghost has-text-danger"
-              onClick={() => handleDisconnect(p.provider)} disabled={loading}>
-              Disconnect
-            </button>
-          )}
-        </div>
+        <ConnectedRow key={p} provider={p} isOwner={isOwner}
+          expanded={expandedProvider === p}
+          onExpand={() => setExpandedProvider(p)}
+          onRekeyed={() => { setExpandedProvider(null); loadProfiles(); }}
+          onCancel={() => setExpandedProvider(null)}
+          onDisconnect={() => handleDisconnect(p)}
+          disconnecting={loading}
+        />
       ))}
       {isOwner && available.map((p) => (
-        <AvailableRow key={p.provider} provider={p.provider} projectId={projectId}
-          expanded={expandedProvider === p.provider}
-          onExpand={() => setExpandedProvider(p.provider)}
+        <AvailableRow key={p} provider={p}
+          expanded={expandedProvider === p}
+          onExpand={() => setExpandedProvider(p)}
           onConnected={() => { setExpandedProvider(null); loadProfiles(); }}
           onCancel={() => setExpandedProvider(null)}
         />

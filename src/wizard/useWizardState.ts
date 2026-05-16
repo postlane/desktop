@@ -4,6 +4,8 @@ import { useState } from 'react';
 
 interface WizardOptions {
   startAt?: number;
+  initialWorkspaceId?: string;
+  initialWorkspaceName?: string;
 }
 
 interface State {
@@ -42,8 +44,8 @@ export function useWizardState(options: WizardOptions = {}) {
     step: options.startAt ?? 1,
     token: null,
     provider: null,
-    workspaceId: null,
-    workspaceName: null,
+    workspaceId: options.initialWorkspaceId ?? null,
+    workspaceName: options.initialWorkspaceName ?? null,
     schedulerLinked: false,
     complete: false,
   });

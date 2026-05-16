@@ -25,6 +25,7 @@ const defaultProps = {
   workspaceName: 'my-org',
   onNext: vi.fn(),
   onBack: vi.fn(),
+  setRepoConnected: vi.fn(),
 };
 
 beforeEach(() => {

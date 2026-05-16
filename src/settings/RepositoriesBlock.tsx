@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useProjectRepos } from '../hooks/useRepoData';
 import type { RepoSummary } from '../hooks/useRepoData';
 import AddRepoModal from '../wizard/AddRepoModal';
+import RepoConfigureModal from './RepoConfigureModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,29 +35,46 @@ function RemoveConfirm({ repo, onConfirm, onCancel, loading }: {
   );
 }
 
-function RepoRow({ repo, isOwner, onRemoveStart }: {
-  repo: RepoSummary; isOwner: boolean; onRemoveStart: (_id: string) => void;
+function RepoRow({ repo, isOwner, onRemoveStart, onConfigureStart }: {
+  repo: RepoSummary; isOwner: boolean;
+  onRemoveStart: (_id: string) => void;
+  onConfigureStart: (_id: string) => void;
 }) {
   return (
     <div className="is-flex is-align-items-center py-2" style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
       <span className="is-size-7" style={{ flex: 1 }}>{repo.name}</span>
       <span className="is-size-7 has-text-grey">{repo.path}</span>
       {isOwner && (
-        <button className="button is-small is-ghost has-text-danger" onClick={() => onRemoveStart(repo.id)}>
-          Remove
-        </button>
+        <>
+          <button className="button is-small is-ghost" onClick={() => onConfigureStart(repo.id)}>
+            Configure
+          </button>
+          <button className="button is-small is-ghost has-text-danger" onClick={() => onRemoveStart(repo.id)}>
+            Remove
+          </button>
+        </>
       )}
     </div>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── State hook ────────────────────────────────────────────────────────────────
 
-export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
-  const { repos, refresh } = useProjectRepos(projectId);
+function useRepoActions(projectId: string, refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [configureRepoId, setConfigureRepoId] = useState<string | null>(null);
+  const [globalProvider, setGlobalProvider] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<{ provider: string; connected: boolean }[]>('list_scheduler_profiles', { projectId })
+      .then((profiles) => {
+        const connected = profiles.find((p) => p.connected);
+        setGlobalProvider(connected?.provider ?? null);
+      })
+      .catch(() => { /* non-critical — modal will show NoProviderView */ });
+  }, [projectId]);
 
   async function handleConfirmRemove() {
     if (!pendingRemoveId) return;
@@ -70,7 +88,27 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
     }
   }
 
+  return {
+    pendingRemoveId, setPendingRemoveId, removeLoading,
+    showAddModal, setShowAddModal,
+    configureRepoId, setConfigureRepoId,
+    globalProvider, handleConfirmRemove,
+  };
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
+  const { repos, refresh } = useProjectRepos(projectId);
+  const {
+    pendingRemoveId, setPendingRemoveId, removeLoading,
+    showAddModal, setShowAddModal,
+    configureRepoId, setConfigureRepoId,
+    globalProvider, handleConfirmRemove,
+  } = useRepoActions(projectId, refresh);
+
   const pendingRepo = repos.find((r) => r.id === pendingRemoveId) ?? null;
+  const configureRepo = repos.find((r) => r.id === configureRepoId) ?? null;
 
   return (
     <div>
@@ -84,13 +122,18 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
       )}
       {repos.map((repo) => (
         <div key={repo.id}>
-          <RepoRow repo={repo} isOwner={isOwner} onRemoveStart={setPendingRemoveId} />
+          <RepoRow repo={repo} isOwner={isOwner} onRemoveStart={setPendingRemoveId} onConfigureStart={setConfigureRepoId} />
           {pendingRemoveId === repo.id && pendingRepo && (
             <RemoveConfirm repo={pendingRepo} onConfirm={handleConfirmRemove}
               onCancel={() => setPendingRemoveId(null)} loading={removeLoading} />
           )}
         </div>
       ))}
+      {configureRepo && (
+        <RepoConfigureModal repoId={configureRepo.id} repoName={configureRepo.name}
+          projectId={projectId} currentProvider={globalProvider} isOwner={isOwner}
+          onClose={() => setConfigureRepoId(null)} />
+      )}
       {isOwner && (
         <button className="button is-small is-light mt-3" onClick={() => setShowAddModal(true)}>
           Add repository

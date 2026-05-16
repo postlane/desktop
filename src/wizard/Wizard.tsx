@@ -15,6 +15,8 @@ import ModalPricingGate from './ModalPricingGate';
 interface Props {
   onComplete: () => void;
   startAt?: number;
+  initialWorkspaceId?: string | null;
+  initialWorkspaceName?: string | null;
 }
 
 interface LateStepProps {
@@ -23,30 +25,41 @@ interface LateStepProps {
   workspaceId: string;
   workspaceName: string;
   schedulerLinked: boolean;
+  repoConnected: boolean;
+  setRepoConnected: (_v: boolean) => void;
   onNext: () => void;
   onBack: () => void;
   onComplete: () => void;
 }
 
-function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, onNext, onBack, onComplete }: LateStepProps) {
+function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, repoConnected, setRepoConnected, onNext, onBack, onComplete }: LateStepProps) {
   if (step === 5) {
-    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
+    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} setRepoConnected={setRepoConnected} />;
   }
   if (step === 6) {
     return <ModalProjectContext workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
   }
-  return <ModalComplete schedulerLinked={schedulerLinked} onComplete={onComplete} onBack={onBack} />;
+  return <ModalComplete schedulerLinked={schedulerLinked} repoConnected={repoConnected} onComplete={onComplete} onBack={onBack} />;
 }
 
-export default function Wizard({ onComplete, startAt }: Props) {
-  const wizard = useWizardState({ startAt });
+export default function Wizard({ onComplete, startAt, initialWorkspaceId, initialWorkspaceName }: Props) {
+  const wizard = useWizardState({
+    startAt,
+    initialWorkspaceId: initialWorkspaceId ?? undefined,
+    initialWorkspaceName: initialWorkspaceName ?? undefined,
+  });
   const [showPricingGate, setShowPricingGate] = useState(false);
+  const [repoConnected, setRepoConnected] = useState(false);
 
   useEffect(() => {
     if (wizard.step > 1) {
-      invoke('write_wizard_state', { step: wizard.step }).catch(console.warn);
+      invoke('write_wizard_state', {
+        step: wizard.step,
+        workspaceId: wizard.workspaceId,
+        workspaceName: wizard.workspaceName,
+      }).catch(console.warn);
     }
-  }, [wizard.step]);
+  }, [wizard.step, wizard.workspaceId, wizard.workspaceName]);
 
   const handleSkipToApp = async () => {
     invoke('clear_wizard_state').catch(console.warn);
@@ -71,5 +84,5 @@ export default function Wizard({ onComplete, startAt }: Props) {
   if (wizard.step === 4) {
     return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={handleSkipToApp} />;
   }
-  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
+  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} repoConnected={repoConnected} setRepoConnected={setRepoConnected} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
 }
