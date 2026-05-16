@@ -150,11 +150,10 @@ mod credential_tests {
         // Test: Per-repo override key should be checked first
         // Format: postlane/{provider}/{repo_id} then postlane/{provider}
 
-        // Case 1: With repo_id - should return per-repo key first
+        // Case 1: With repo_id - exact scoped key only, no global fallback
         let keys = get_credential_keyring_key("zernio", Some("repo-123"));
-        assert_eq!(keys.len(), 2);
+        assert_eq!(keys.len(), 1);
         assert_eq!(keys[0], "zernio/repo-123");
-        assert_eq!(keys[1], "zernio");
 
         // Case 2: Without repo_id - should only return global key
         let keys = get_credential_keyring_key("buffer", None);
