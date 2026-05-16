@@ -134,7 +134,7 @@ describe('RepoConfigureModal — voice guide — save (§17.1)', () => {
   it('saving empty voice guide asks for confirmation', async () => {
     mockConfirm.mockResolvedValue(false);
     setupMocks(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" projectId="proj-abc" onClose={vi.fn()} />);
+    render(<RepoConfigureModal repoName="my-repo" projectId="proj-abc" onClose={vi.fn()} />);
     await screen.findByRole('textbox', { name: /voice guide/i });
     fireEvent.click(screen.getByRole('button', { name: /save voice guide/i }));
     await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
@@ -144,7 +144,7 @@ describe('RepoConfigureModal — voice guide — save (§17.1)', () => {
   it('saving empty voice guide proceeds when confirmed', async () => {
     mockConfirm.mockResolvedValue(true);
     setupMocks(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" projectId="proj-abc" onClose={vi.fn()} />);
+    render(<RepoConfigureModal repoName="my-repo" projectId="proj-abc" onClose={vi.fn()} />);
     await screen.findByRole('textbox', { name: /voice guide/i });
     fireEvent.click(screen.getByRole('button', { name: /save voice guide/i }));
     await waitFor(() =>
