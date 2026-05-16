@@ -243,3 +243,19 @@ describe('ModalOrgPicker — pricing gate and permissions', () => {
     expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('gitlab.com'));
   });
 });
+
+describe('ModalOrgPicker — provider badges on org rows', () => {
+  it('test_org_rows_render_github_logo_svg_when_provider_is_github', async () => {
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} provider="github" />);
+    await waitFor(() => screen.getByText('hugoelliott'));
+    const svgs = document.querySelectorAll('svg[aria-label="GitHub"]');
+    expect(svgs.length).toBeGreaterThan(0);
+  });
+
+  it('test_org_rows_render_gitlab_logo_svg_when_provider_is_gitlab', async () => {
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} provider="gitlab" />);
+    await waitFor(() => screen.getByText('hugoelliott'));
+    const svgs = document.querySelectorAll('svg[aria-label="GitLab"]');
+    expect(svgs.length).toBeGreaterThan(0);
+  });
+});

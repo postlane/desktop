@@ -339,7 +339,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         commands::test_scheduler, commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,
-        provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs,
+        provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
         github_app::check_github_app_installed, post_schedule::update_post_schedule,
         mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
         mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,

@@ -138,6 +138,8 @@ vi.mock('./ModalComplete', () => ({
   ),
 }));
 
+vi.mock('./ModalProviderLinked', () => ({ default: () => null }));
+
 vi.mock('./ModalPricingGate', () => ({
   default: ({
     onPaid,
