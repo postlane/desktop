@@ -83,8 +83,22 @@ describe('ModalAccount — OAuth buttons', () => {
     });
     const entries = mockListen.mock.calls.filter(([ev]) => ev === 'license:activated');
     const latest = entries[entries.length - 1];
-    act(() => (latest[1] as () => void)());
-    expect(onNext).toHaveBeenCalledWith('github');
+    act(() => (latest[1] as (e: { payload: { new_link?: boolean } }) => void)({ payload: {} }));
+    expect(onNext).toHaveBeenCalledWith('github', false);
+  });
+
+  it('passes new_link=true to onNext when license:activated event has new_link true', async () => {
+    const onNext = vi.fn();
+    render(<ModalAccount onNext={onNext} />);
+    await userEvent.click(screen.getByRole('button', { name: /github/i }));
+    await waitFor(() => {
+      const entries = mockListen.mock.calls.filter(([ev]) => ev === 'license:activated');
+      expect(entries.length).toBeGreaterThanOrEqual(2);
+    });
+    const entries = mockListen.mock.calls.filter(([ev]) => ev === 'license:activated');
+    const latest = entries[entries.length - 1];
+    act(() => (latest[1] as (e: { payload: { new_link?: boolean } }) => void)({ payload: { new_link: true } }));
+    expect(onNext).toHaveBeenCalledWith('github', true);
   });
 });
 

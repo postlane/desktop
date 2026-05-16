@@ -33,9 +33,9 @@ pub struct ServerState {
     pub repos: Arc<tokio::sync::Mutex<crate::storage::ReposConfig>>,
     /// Path to repos.json. Injected so tests can use a temp path instead of ~/.postlane/repos.json.
     pub repos_path: std::path::PathBuf,
-    /// Sends a validated JWT token string to the activation receiver task.
+    /// Sends (token, new_link) to the activation receiver task.
     /// `None` in tests and before the server is fully initialised.
-    pub activation_tx: Option<tokio::sync::mpsc::Sender<String>>,
+    pub activation_tx: Option<tokio::sync::mpsc::Sender<(String, bool)>>,
     /// Cached project list used by `/github-project-config`. Updated on sign-in.
     pub projects: Arc<tokio::sync::RwLock<Vec<ProjectSummary>>>,
 }

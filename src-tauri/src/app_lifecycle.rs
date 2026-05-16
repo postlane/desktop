@@ -38,7 +38,7 @@ pub fn spawn_http_server(
     let repos_path = crate::init::postlane_dir()?.join("repos.json");
     let token = crate::http_server::generate_and_write_token()?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
-    let (activation_tx, activation_rx) = tokio::sync::mpsc::channel::<String>(4);
+    let (activation_tx, activation_rx) = tokio::sync::mpsc::channel::<(String, bool)>(4);
     let server_state = crate::http_server::ServerState {
         token,
         repos: repos_arc,
@@ -69,11 +69,11 @@ pub fn spawn_http_server(
 }
 
 fn spawn_activation_listener(
-    mut rx: tokio::sync::mpsc::Receiver<String>,
+    mut rx: tokio::sync::mpsc::Receiver<(String, bool)>,
     app_handle: tauri::AppHandle,
 ) {
     tauri::async_runtime::spawn(async move {
-        while let Some(tok) = rx.recv().await {
+        while let Some((tok, new_link)) = rx.recv().await {
             log::info!("[activate] validating token from local server (length={})", tok.len());
             let handle = app_handle.clone();
             let keyring_handle = handle.clone();
@@ -96,7 +96,7 @@ fn spawn_activation_listener(
                     log::info!("License activated via local callback for {}", display_name);
                     let _ = handle.emit(
                         "license:activated",
-                        serde_json::json!({ "display_name": display_name }),
+                        serde_json::json!({ "display_name": display_name, "new_link": new_link }),
                     );
                 }
                 Err(e) => {
