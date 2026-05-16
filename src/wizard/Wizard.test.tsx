@@ -14,11 +14,11 @@ vi.mock('./ModalWelcome', () => ({
 }));
 
 vi.mock('./ModalAccount', () => ({
-  default: ({ onNext, onBack, mode }: { onNext: (provider: string) => void; onBack?: () => void; mode?: string }) => (
+  default: ({ onNext, onBack, mode }: { onNext: (provider: string, newLink: boolean) => void; onBack?: () => void; mode?: string }) => (
     <div>
       <span data-testid="mode">{mode}</span>
-      <button onClick={() => onNext('github')}>next-account-github</button>
-      <button onClick={() => onNext('gitlab')}>next-account-gitlab</button>
+      <button onClick={() => onNext('github', false)}>next-account-github</button>
+      <button onClick={() => onNext('gitlab', false)}>next-account-gitlab</button>
       {onBack && <button onClick={onBack}>back-account</button>}
     </div>
   ),

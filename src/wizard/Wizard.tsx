@@ -72,10 +72,12 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
   const [showProviderLinked, setShowProviderLinked] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
   const providerCheckDone = useRef(false);
+  const isNewLinkRef = useRef(false);
 
   useEffect(() => {
     if (wizard.step !== 3 || providerCheckDone.current) return;
     providerCheckDone.current = true;
+    if (!isNewLinkRef.current) return;
     invoke<string[]>('list_linked_providers')
       .then((providers) => {
         if (Array.isArray(providers) && providers.length > 1) {
@@ -111,7 +113,7 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
   if (showPricingGate) return <ModalPricingGate onPaid={closePricingGate} onBack={closePricingGate} onSkip={handlePricingSkip} />;
   if (wizard.step === 1) return <ModalWelcome onNext={wizard.next} />;
   if (wizard.step === 2) {
-    return <ModalAccount mode={startAt === 2 ? 'add_org' : 'sign_in'} onNext={(p) => { wizard.setToken('detected'); wizard.setProvider(p); wizard.next(); }} onBack={wizard.back} />;
+    return <ModalAccount mode={startAt === 2 ? 'add_org' : 'sign_in'} onNext={(p, newLink) => { wizard.setToken('detected'); wizard.setProvider(p); isNewLinkRef.current = newLink; wizard.next(); }} onBack={wizard.back} />;
   }
   if (wizard.step === 3) {
     return <WizardStep3 provider={provider} showProviderLinked={showProviderLinked} linkedProviders={linkedProviders} onContinue={() => setShowProviderLinked(false)} onOrgNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }} onBack={wizard.back} onPricingGate={() => setShowPricingGate(true)} onSkipToApp={handleSkipToApp} />;

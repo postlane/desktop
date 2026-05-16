@@ -8,7 +8,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 
 interface Props {
-  onNext: (provider: string) => void;
+  onNext: (provider: string, newLink: boolean) => void;
   onBack?: () => void;
   mode?: 'sign_in' | 'add_org';
 }
@@ -37,10 +37,12 @@ function GitLabLogo() {
   );
 }
 
-function useActivation(onNext: (provider: string) => void, onError: (msg: string) => void, activeProvider: string | null) {
+function useActivation(onNext: (provider: string, newLink: boolean) => void, onError: (msg: string) => void, activeProvider: string | null) {
   useEffect(() => {
     const unsubs = [
-      listen('license:activated', () => { if (activeProvider) onNext(activeProvider); }),
+      listen<{ display_name: string; new_link?: boolean }>('license:activated', (e) => {
+        if (activeProvider) onNext(activeProvider, e.payload.new_link ?? false);
+      }),
       listen<{ message: string }>('license:error', (e) => onError(e.payload.message)),
     ];
     return () => { unsubs.forEach((p) => p.then((fn) => fn())); };

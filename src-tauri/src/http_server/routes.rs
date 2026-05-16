@@ -13,6 +13,7 @@ use super::{ErrorResponse, RegisterRequest, RegisterResponse, SendRequest, SendR
 #[derive(Deserialize)]
 pub struct ActivateParams {
     pub token: String,
+    pub new_link: Option<String>,
 }
 
 /// Receives the license token forwarded from the browser after OAuth completes.
@@ -30,8 +31,9 @@ pub(super) async fn activate_handler(
 
     log::info!("[activate] token received (length={})", params.token.len());
 
+    let new_link = params.new_link.as_deref() == Some("1");
     if let Some(tx) = &state.activation_tx {
-        match tx.try_send(params.token) {
+        match tx.try_send((params.token, new_link)) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 log::warn!("[activate] activation channel full");
@@ -393,7 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_returns_200_and_sends_token_to_channel() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
@@ -410,8 +412,52 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let received = rx.try_recv().expect("token should have been sent");
-        assert_eq!(received, "header.payload.sig");
+        let (received_token, _) = rx.try_recv().expect("token should have been sent");
+        assert_eq!(received_token, "header.payload.sig");
+    }
+
+    #[tokio::test]
+    async fn test_activate_passes_new_link_true_when_flag_set() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let state = ServerState {
+            token: "tok".to_string(),
+            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
+            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            activation_tx: Some(tx),
+            projects: empty_projects(),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c&new_link=1")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let (token, new_link) = rx.try_recv().expect("should have received");
+        assert_eq!(token, "a.b.c");
+        assert!(new_link, "new_link should be true when flag is set");
+    }
+
+    #[tokio::test]
+    async fn test_activate_passes_new_link_false_when_flag_absent() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let state = ServerState {
+            token: "tok".to_string(),
+            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
+            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            activation_tx: Some(tx),
+            projects: empty_projects(),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let (token, new_link) = rx.try_recv().expect("should have received");
+        assert_eq!(token, "a.b.c");
+        assert!(!new_link, "new_link should be false when flag is absent");
     }
 
     #[tokio::test]
@@ -449,9 +495,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_returns_503_when_channel_is_full() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<String>(1);
+        let (tx, _rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
         // Fill the channel
-        tx.try_send("filler.filler.filler".to_string()).unwrap();
+        tx.try_send(("filler.filler.filler".to_string(), false)).unwrap();
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),

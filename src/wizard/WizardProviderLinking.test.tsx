@@ -14,10 +14,10 @@ vi.mock('./ModalWelcome', () => ({
 }));
 
 vi.mock('./ModalAccount', () => ({
-  default: ({ onNext }: { onNext: (provider: string) => void }) => (
+  default: ({ onNext }: { onNext: (provider: string, newLink: boolean) => void }) => (
     <div>
-      <button onClick={() => onNext('github')}>next-account-github</button>
-      <button onClick={() => onNext('gitlab')}>next-account-gitlab</button>
+      <button onClick={() => onNext('github', false)}>next-account-github</button>
+      <button onClick={() => onNext('gitlab', true)}>next-account-gitlab</button>
     </div>
   ),
 }));
@@ -109,6 +109,17 @@ describe('Wizard — provider linking confirmation', () => {
     });
     render(<Wizard onComplete={vi.fn()} startAt={2} />);
     fireEvent.click(screen.getByText('next-account-github'));
+    await waitFor(() => expect(screen.getByTestId('org-provider')).toBeDefined());
+    expect(screen.queryByTestId('provider-linked-current')).toBeNull();
+  });
+
+  it('test_does_not_show_provider_linked_screen_when_sign_in_is_returning_user', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_linked_providers') return ['github', 'gitlab'];
+      return undefined;
+    });
+    render(<Wizard onComplete={vi.fn()} startAt={2} />);
+    fireEvent.click(screen.getByText('next-account-github')); // newLink=false
     await waitFor(() => expect(screen.getByTestId('org-provider')).toBeDefined());
     expect(screen.queryByTestId('provider-linked-current')).toBeNull();
   });

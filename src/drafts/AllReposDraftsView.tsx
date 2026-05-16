@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
 import { listen } from '@tauri-apps/api/event';
 import PostCard from './PostCard';
@@ -167,14 +167,16 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
   const [approveAllOpen, setApproveAllOpen] = useState(false);
   const [approveAllResults, setApproveAllResults] = useState<Map<string, 'ok' | 'error'>>(new Map());
   const [approveAllRunning, setApproveAllRunning] = useState(false);
+  const postsRef = useRef(posts);
+  postsRef.current = posts;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && posts.filter((p) => p.status === 'ready').length >= 2) { e.preventDefault(); setApproveAllOpen(true); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && postsRef.current.filter((p) => p.status === 'ready').length >= 2) { e.preventDefault(); setApproveAllOpen(true); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [posts]);
+  }, []);
 
   async function handleApproveAll() {
     setApproveAllRunning(true);

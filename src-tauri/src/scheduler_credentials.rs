@@ -159,36 +159,6 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
-pub fn get_per_repo_scheduler_key_impl(
-    repo_id: &str,
-    provider: &str,
-    state: &AppState,
-) -> Result<(), String> {
-    validate_repo_registered(repo_id, state)?;
-    if !VALID_PROVIDERS.contains(&provider) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
-    Ok(())
-}
-
-/// Returns the masked per-repo scheduler key for a specific provider, or None.
-/// Unlike `get_scheduler_credential`, this does NOT fall back to the global key.
-#[tauri::command]
-pub fn get_per_repo_scheduler_key(
-    repo_id: String,
-    provider: String,
-    app: tauri::AppHandle,
-    state: State<AppState>,
-) -> Result<Option<String>, String> {
-    get_per_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
-    let keyring_key = format!("{}/{}", provider, repo_id);
-    match app.keyring().get_password("postlane", &keyring_key) {
-        Ok(Some(credential)) => Ok(Some(mask_credential(&credential))),
-        Ok(None) => Ok(None),
-        Err(e) => Err(format!("Failed to retrieve per-repo credential: {}", e)),
-    }
-}
-
 pub fn validate_repo_registered(repo_id: &str, state: &AppState) -> Result<(), String> {
     let repos = state
         .repos
@@ -200,48 +170,6 @@ pub fn validate_repo_registered(repo_id: &str, state: &AppState) -> Result<(), S
         .find(|r| r.id == repo_id)
         .ok_or_else(|| format!("Repo {} not found in repos.json", repo_id))?;
     Ok(())
-}
-
-pub fn save_repo_scheduler_key_impl(
-    repo_id: &str,
-    provider: &str,
-    state: &AppState,
-    consent: bool,
-) -> Result<(), String> {
-    validate_repo_registered(repo_id, state)?;
-    if !VALID_PROVIDERS.contains(&provider) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
-    record_provider_configured(state, consent, provider, Some(repo_id));
-    Ok(())
-}
-
-pub fn remove_repo_scheduler_key_impl(
-    repo_id: &str,
-    provider: &str,
-    state: &AppState,
-) -> Result<(), String> {
-    validate_repo_registered(repo_id, state)?;
-    if !VALID_PROVIDERS.contains(&provider) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn save_repo_scheduler_key(
-    repo_id: String,
-    provider: String,
-    key: String,
-    app: tauri::AppHandle,
-    state: State<AppState>,
-) -> Result<(), String> {
-    let consent = crate::app_state::read_app_state().telemetry_consent;
-    save_repo_scheduler_key_impl(&repo_id, &provider, &state, consent)?;
-    let keyring_key = format!("{}/{}", provider, repo_id);
-    app.keyring()
-        .set_password("postlane", &keyring_key, &key)
-        .map_err(|e| format!("Failed to store per-repo credential: {}", e))
 }
 
 /// Validates provider is known and, when a repo_id is provided, that it is registered.
@@ -262,22 +190,6 @@ pub fn is_keyring_not_found(error_msg: &str) -> bool {
         || lower.contains("no such entry")
         || lower.contains("not found")
         || lower.contains("could not be found")
-}
-
-#[tauri::command]
-pub fn remove_repo_scheduler_key(
-    repo_id: String,
-    provider: String,
-    app: tauri::AppHandle,
-    state: State<AppState>,
-) -> Result<(), String> {
-    remove_repo_scheduler_key_impl(&repo_id, &provider, &state)?;
-    let keyring_key = format!("{}/{}", provider, repo_id);
-    match app.keyring().delete_password("postlane", &keyring_key) {
-        Ok(_) => Ok(()),
-        Err(e) if is_keyring_not_found(&e.to_string()) => Ok(()),
-        Err(e) => Err(format!("Failed to remove per-repo credential: {}", e)),
-    }
 }
 
 fn credential_found(key: &str, result: Result<Option<String>, String>) -> bool {
@@ -445,54 +357,7 @@ mod tests {
         assert!(!is_keyring_not_found("Access denied"), "access denied is not a not-found");
     }
 
-    #[test]
-    fn test_get_per_repo_scheduler_key_rejects_unregistered_repo() {
-        let state = make_state_with_repo("r1");
-        let result = get_per_repo_scheduler_key_impl("attacker-id", "zernio", &state);
-        assert!(result.is_err(), "must reject repo_id not in repos.json (Security Rule 2)");
-        let ok_result = get_per_repo_scheduler_key_impl("r1", "zernio", &state);
-        assert!(ok_result.is_ok(), "registered repo_id must pass validation");
-    }
-
-    #[test]
-    fn test_save_repo_scheduler_key_rejects_unregistered_repo() {
-        let state = make_state_with_repo("r1");
-        let result = save_repo_scheduler_key_impl("unregistered-id", "zernio", &state, false);
-        assert!(result.is_err(), "must reject repo_id not in repos.json");
-        assert!(result.unwrap_err().contains("not found"), "error must name the repo");
-    }
-
-    #[test]
-    fn test_save_repo_scheduler_key_validates_path_against_repos_json() {
-        let state = make_state_with_repo("r1");
-        let err_result = save_repo_scheduler_key_impl("attacker-id", "zernio", &state, false);
-        assert!(err_result.is_err(), "repo_id not in repos.json must be rejected (Security Rule 2)");
-        let ok_result = save_repo_scheduler_key_impl("r1", "zernio", &state, false);
-        assert!(ok_result.is_ok(), "registered repo_id must be accepted");
-    }
-
-    #[test]
-    fn test_remove_repo_scheduler_key_is_idempotent() {
-        let state = make_state_with_repo("r1");
-        let result = remove_repo_scheduler_key_impl("r1", "zernio", &state);
-        assert!(result.is_ok(), "remove must succeed even when no key is present");
-    }
-
     // --- 11.11.5 telemetry ---
-
-    #[test]
-    fn test_save_repo_scheduler_key_records_telemetry_with_consent() {
-        let state = make_state_with_repo("r1");
-        save_repo_scheduler_key_impl("r1", "zernio", &state, true).unwrap();
-        assert_eq!(state.telemetry.queue_len(), 1, "one telemetry event must be queued after save");
-    }
-
-    #[test]
-    fn test_save_repo_scheduler_key_no_telemetry_without_consent() {
-        let state = make_state_with_repo("r1");
-        save_repo_scheduler_key_impl("r1", "zernio", &state, false).unwrap();
-        assert_eq!(state.telemetry.queue_len(), 0, "no telemetry event without consent");
-    }
 
     #[test]
     fn test_record_provider_configured_queues_when_consent_given() {
@@ -513,16 +378,6 @@ mod tests {
     }
 
     // --- telemetry payload ---
-
-    #[test]
-    fn test_save_repo_scheduler_key_telemetry_includes_repo_id_and_scope() {
-        let state = make_state_with_repo("r1");
-        save_repo_scheduler_key_impl("r1", "zernio", &state, true).unwrap();
-        let events = state.telemetry.peek_queue();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].properties["repo_id"], "r1", "per-repo event must include repo_id");
-        assert_eq!(events[0].properties["scope"], "repo", "per-repo event must have scope=repo");
-    }
 
     #[test]
     fn test_record_provider_configured_global_has_scope_global_and_no_repo_id() {

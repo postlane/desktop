@@ -250,7 +250,7 @@ describe('handleSave — credential save result', () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('save_scheduler_credential', expect.anything());
     });
-    expect(screen.getByText(/Default scheduler/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^Scheduler$/i })).toBeInTheDocument();
   });
 });
 

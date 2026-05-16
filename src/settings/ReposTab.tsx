@@ -13,10 +13,9 @@ function platformLabel(platform: string): string {
 
 interface ProfileSelectorProps {
   repoId: string;
-  credentialVersion: number;
 }
 
-function ProfileSelector({ repoId, credentialVersion }: ProfileSelectorProps) {
+function ProfileSelector({ repoId }: ProfileSelectorProps) {
   const [accounts, setAccounts] = useState<SchedulerProfile[]>([]);
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +31,7 @@ function ProfileSelector({ repoId, credentialVersion }: ProfileSelectorProps) {
     invoke<SchedulerProfile[]>('list_profiles_for_repo', { repoId })
       .then(setAccounts)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [repoId, credentialVersion]);
+  }, [repoId]);
 
   async function handleChange(platform: string, accountId: string) {
     setSelected((prev) => ({ ...prev, [platform]: accountId }));
@@ -89,7 +88,6 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
   onUpdatePath: (id: string) => void;
   onRemoveConfirm: (id: string) => void;
 }) {
-  const [credentialVersion, setCredentialVersion] = useState(0);
   const [configureOpen, setConfigureOpen] = useState(false);
   const isNotFound = !repo.path_exists;
   return (
@@ -125,10 +123,8 @@ function RepoCard({ repo, togglingIds, onToggleActive, onUpdatePath, onRemoveCon
           )}
         </div>
       </div>
-      {!isNotFound && <ProfileSelector repoId={repo.id} credentialVersion={credentialVersion} />}
-      {configureOpen && <RepoConfigureModal repoId={repo.id} repoName={repo.name}
-        currentProvider={repo.provider} onClose={() => setConfigureOpen(false)}
-        onCredentialChange={() => setCredentialVersion((v) => v + 1)} />}
+      {!isNotFound && <ProfileSelector repoId={repo.id} />}
+      {configureOpen && <RepoConfigureModal repoName={repo.name} onClose={() => setConfigureOpen(false)} />}
     </div>
   );
 }

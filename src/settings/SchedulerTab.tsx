@@ -230,9 +230,9 @@ export default function SchedulerTab() {
     <>
       <div aria-hidden={removeProvider !== null ? 'true' : undefined}
         style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <h2 className="has-text-weight-semibold is-size-7">Default scheduler</h2>
+        <h2 className="has-text-weight-semibold is-size-7">Scheduler</h2>
         <p className="is-size-7 has-text-grey">
-          These are your default credentials. Individual repos can use different accounts — configure per-repo in Settings → Repos → Configure.
+          Scheduler credentials are configured per organisation. Each organisation uses its own set of API keys.
         </p>
         <div className="notification is-info is-light is-size-7">
           <strong>macOS Keychain:</strong> API keys are stored securely in Keychain. You will be prompted once per key — click <strong>Always Allow</strong>.
