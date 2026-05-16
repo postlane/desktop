@@ -15,16 +15,19 @@ beforeEach(() => {
   mockInvoke.mockResolvedValue(null);
 });
 
-describe('SchedulerTab — default credentials note (§15.1.2)', () => {
-  it('shows the per-repo configure note below the heading', () => {
+describe('SchedulerTab — scheduler heading and description', () => {
+  it('shows "Scheduler" as the section heading', () => {
     render(<SchedulerTab />);
-    expect(
-      screen.getByText(/configure per-repo in settings.*repos.*configure/i),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^Scheduler$/i })).toBeInTheDocument();
   });
 
-  it('does not show the old "v1.1" placeholder text', () => {
+  it('does not show a "Default scheduler" heading', () => {
     render(<SchedulerTab />);
-    expect(screen.queryByText(/configurable in v1\.1/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/default scheduler/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show per-repo override instructions', () => {
+    render(<SchedulerTab />);
+    expect(screen.queryByText(/configure per-repo/i)).not.toBeInTheDocument();
   });
 });

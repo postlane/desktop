@@ -1,419 +1,77 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RepoConfigureModal from './RepoConfigureModal';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
-vi.mock('@tauri-apps/plugin-dialog', () => ({ confirm: vi.fn() }));
+vi.mock('./VoiceGuideSection', () => ({ VoiceGuideSection: () => <div>Voice Guide</div> }));
+
 import { invoke } from '../ipc/invoke';
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('RepoConfigureModal — loading state (§15 review fix 6)', () => {
-  it('shows a loading indicator before the credential fetch resolves', async () => {
-    let resolve: (v: string | null) => void = () => {};
-    const pending = new Promise<string | null>((res) => { resolve = res; });
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return pending;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    expect(screen.getByRole('status')).toBeInTheDocument();
-    resolve(null);
-    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+describe('RepoConfigureModal — modal shell', () => {
+  it('renders with repo name in title', () => {
+    render(<RepoConfigureModal repoName="my-repo" onClose={vi.fn()} />);
+    expect(screen.getByText('Configure my-repo')).toBeInTheDocument();
   });
 
-  it('does not show "Use default" text while loading', async () => {
-    let resolve: (v: string | null) => void = () => {};
-    const pending = new Promise<string | null>((res) => { resolve = res; });
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return pending;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    expect(screen.queryByText(/using default credentials/i)).not.toBeInTheDocument();
-    resolve(null);
-    await waitFor(() => expect(screen.getByText(/using default credentials/i)).toBeInTheDocument());
-  });
-});
-
-describe('RepoConfigureModal — provider dropdown (§15 review fix 1)', () => {
-  it('shows Substack Notes as a provider option in the form', async () => {
-    mockInvoke.mockResolvedValue(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const select = await screen.findByRole('combobox', { name: /provider/i });
-    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
-    expect(options).toContain('Substack Notes');
-  });
-
-  it('does not show Webhook as a provider option', async () => {
-    mockInvoke.mockResolvedValue(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const select = await screen.findByRole('combobox', { name: /provider/i });
-    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
-    expect(options).not.toContain('Webhook');
-  });
-});
-
-describe('RepoConfigureModal — default state', () => {
-  it('shows "Use default" when no per-repo credential exists', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() =>
-      expect(screen.getByText(/using default credentials/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('shows a provider selector and key input when "Use a different account" is clicked', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /provider/i })).toBeInTheDocument(),
-    );
-    expect(screen.getByPlaceholderText(/api key/i)).toBeInTheDocument();
-  });
-});
-
-describe('RepoConfigureModal — configured state (§15.3.3)', () => {
-  it('shows "Using separate account" with masked key when per-repo credential exists', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() =>
-      expect(screen.getByText(/using separate account/i)).toBeInTheDocument(),
-    );
-    expect(screen.getByText(/5678/)).toBeInTheDocument();
-  });
-
-  it('shows Remove button when per-repo credential exists', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /remove/i })).toBeInTheDocument());
-  });
-});
-
-describe('RepoConfigureModal — remove error surface (§15 review fix 8)', () => {
-  it('shows an error message when remove_repo_scheduler_key throws', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain locked');
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/keychain locked/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('does not reset to "Use default" when remove fails', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain locked');
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() => screen.getByText(/keychain locked/i));
-    expect(screen.getByText(/using separate account/i)).toBeInTheDocument();
-  });
-});
-
-describe('RepoConfigureModal — remove flow (§15.3.4)', () => {
-  it('clicking Remove calls remove_repo_scheduler_key with repoId and provider', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith(
-        'remove_repo_scheduler_key',
-        expect.objectContaining({ repoId: 'r1', provider: 'zernio' }),
-      ),
-    );
-  });
-
-  it('switches back to "Use default" state after Remove', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/using default credentials/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-describe('RepoConfigureModal — onCredentialChange callback (§15 review fix 4)', () => {
-  it('calls onCredentialChange after a successful save', async () => {
-    const onCredentialChange = vi.fn();
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'save_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} onCredentialChange={onCredentialChange} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const keyInput = await screen.findByPlaceholderText(/api key/i);
-    fireEvent.change(keyInput, { target: { value: 'sk-test-abc123' } });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() => expect(onCredentialChange).toHaveBeenCalledOnce());
-  });
-
-  it('calls onCredentialChange after a successful remove', async () => {
-    const onCredentialChange = vi.fn();
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} onCredentialChange={onCredentialChange} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() => expect(onCredentialChange).toHaveBeenCalledOnce());
-  });
-});
-
-describe('RepoConfigureModal — test connection (§15.2.2 fix 11)', () => {
-  it('shows a Test connection button in the form', async () => {
-    mockInvoke.mockResolvedValue(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    expect(await screen.findByRole('button', { name: /test connection/i })).toBeInTheDocument();
-  });
-
-  it('Test connection button calls test_scheduler with the selected provider and repoId', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'test_scheduler') return true;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('test_scheduler', { provider: 'zernio', repoId: 'r1' }),
-    );
-  });
-
-  it('shows success indicator after a passing connection test', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'test_scheduler') return true;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
-    await waitFor(() => expect(screen.getByText(/provider recognized/i)).toBeInTheDocument());
-  });
-
-  it('shows error message when test_scheduler throws', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'test_scheduler') throw new Error('Repo not registered');
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /test connection/i }));
-    await waitFor(() => expect(screen.getByText(/repo not registered/i)).toBeInTheDocument());
-  });
-});
-
-describe('RepoConfigureModal — save flow', () => {
-  it('Save calls save_repo_scheduler_key with repoId, provider, and key', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'save_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const keyInput = await screen.findByPlaceholderText(/api key/i);
-    fireEvent.change(keyInput, { target: { value: 'sk-test-abc123' } });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith(
-        'save_repo_scheduler_key',
-        expect.objectContaining({ repoId: 'r1', key: 'sk-test-abc123' }),
-      ),
-    );
-  });
-
-  it('shows the masked key after successful Save', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'save_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const keyInput = await screen.findByPlaceholderText(/api key/i);
-    fireEvent.change(keyInput, { target: { value: 'sk-test-abc123' } });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/using separate account/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-describe('RepoConfigureModal — friendly keychain errors (§15 review fix 8)', () => {
-  it('maps a raw keychain lock error to an actionable message on remove', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') throw new Error('Keychain is locked');
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/unlock.*try again/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('maps an access denied error to an actionable message on remove', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return '••••••••5678';
-      if (cmd === 'remove_repo_scheduler_key') throw new Error('permission denied');
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /remove/i }));
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/access denied/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-describe('RepoConfigureModal — form cancel and save error', () => {
-  it('Cancel button in form closes the form', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    await waitFor(() => screen.getByPlaceholderText(/api key/i));
-    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
-    expect(screen.queryByPlaceholderText(/api key/i)).not.toBeInTheDocument();
-  });
-
-  it('shows save error when save_repo_scheduler_key fails', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      if (cmd === 'save_repo_scheduler_key') throw new Error('IPC failure');
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const keyInput = await screen.findByPlaceholderText(/api key/i);
-    fireEvent.change(keyInput, { target: { value: 'bad-key' } });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/IPC failure/i)).toBeInTheDocument(),
-    );
-  });
-
-  it('changing provider in form resets test result', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => screen.getByRole('button', { name: /use a different account/i }));
-    fireEvent.click(screen.getByRole('button', { name: /use a different account/i }));
-    const select = await screen.findByRole('combobox', { name: /provider/i });
-    fireEvent.change(select, { target: { value: 'publer' } });
-    expect(select).toHaveValue('publer');
-  });
-});
-
-describe('RepoConfigureModal — isOwner gate (20.7.10)', () => {
-  it('hides "Use a different account" button when isOwner is false', async () => {
-    mockInvoke.mockResolvedValue(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} isOwner={false} />);
-    await waitFor(() => expect(screen.getByText(/using default credentials/i)).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /use a different account/i })).not.toBeInTheDocument();
-  });
-
-  it('shows "Use a different account" button when isOwner is true', async () => {
-    mockInvoke.mockResolvedValue(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} isOwner={true} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /use a different account/i })).toBeInTheDocument());
-  });
-
-  it('shows "Use a different account" button when isOwner is not specified (default)', async () => {
-    mockInvoke.mockResolvedValue(null);
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /use a different account/i })).toBeInTheDocument());
-  });
-});
-
-describe('RepoConfigureModal — no provider guidance (§15 review fix 13)', () => {
-  it('shows a "no scheduler configured" message when currentProvider is null', () => {
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
-    expect(screen.getByText(/no scheduler configured/i)).toBeInTheDocument();
-  });
-
-  it('does not show loading indicator when currentProvider is null', () => {
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  });
-
-  it('shows instructions pointing to the Default scheduler tab when currentProvider is null', () => {
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={vi.fn()} />);
-    expect(screen.getByText(/default scheduler tab/i)).toBeInTheDocument();
-  });
-
-  it('shows a button to close the modal and go set up the default scheduler', () => {
+  it('calls onClose when Escape is pressed', () => {
     const onClose = vi.fn();
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider={null} onClose={onClose} />);
-    const btn = screen.getByRole('button', { name: /close and open default scheduler/i });
-    expect(btn).toBeInTheDocument();
-    fireEvent.click(btn);
+    render(<RepoConfigureModal repoName="my-repo" onClose={onClose} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('does not call onClose for non-Escape keys', () => {
+    const onClose = vi.fn();
+    render(<RepoConfigureModal repoName="my-repo" onClose={onClose} />);
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('calls onClose when the footer Close button is clicked', () => {
+    const onClose = vi.fn();
+    render(<RepoConfigureModal repoName="my-repo" onClose={onClose} />);
+    // getByText targets text content — distinguishes footer "Close" from header × (no text content)
+    fireEvent.click(screen.getByText('Close'));
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
+describe('RepoConfigureModal — no per-repo scheduler', () => {
+  it('does not call any scheduler IPC commands on mount', () => {
+    render(<RepoConfigureModal repoName="my-repo" onClose={vi.fn()} />);
+    expect(mockInvoke).not.toHaveBeenCalledWith('get_per_repo_scheduler_key', expect.anything());
+    expect(mockInvoke).not.toHaveBeenCalledWith('save_repo_scheduler_key', expect.anything());
+    expect(mockInvoke).not.toHaveBeenCalledWith('remove_repo_scheduler_key', expect.anything());
+  });
+
+  it('does not render scheduler status text', () => {
+    render(<RepoConfigureModal repoName="my-repo" onClose={vi.fn()} />);
+    expect(screen.queryByText(/using default credentials/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/using separate account/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no scheduler configured/i)).not.toBeInTheDocument();
+  });
+
+  it('does not render per-repo scheduler action buttons', () => {
+    render(<RepoConfigureModal repoName="my-repo" onClose={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /use a different account/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /close and open default scheduler/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('RepoConfigureModal — voice guide section', () => {
+  it('renders VoiceGuideSection when projectId is provided', () => {
+    render(<RepoConfigureModal repoName="my-repo" projectId="proj-123" onClose={vi.fn()} />);
+    expect(screen.getByText('Voice Guide')).toBeInTheDocument();
+  });
+
+  it('does not render VoiceGuideSection when projectId is absent', () => {
+    render(<RepoConfigureModal repoName="my-repo" onClose={vi.fn()} />);
+    expect(screen.queryByText('Voice Guide')).not.toBeInTheDocument();
+  });
+});

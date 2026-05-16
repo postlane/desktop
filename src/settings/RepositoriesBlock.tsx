@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useProjectRepos } from '../hooks/useRepoData';
 import type { RepoSummary } from '../hooks/useRepoData';
@@ -60,21 +60,11 @@ function RepoRow({ repo, isOwner, onRemoveStart, onConfigureStart }: {
 
 // ── State hook ────────────────────────────────────────────────────────────────
 
-function useRepoActions(projectId: string, refresh: () => void) {
+function useRepoActions(refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [configureRepoId, setConfigureRepoId] = useState<string | null>(null);
-  const [globalProvider, setGlobalProvider] = useState<string | null>(null);
-
-  useEffect(() => {
-    invoke<{ provider: string; connected: boolean }[]>('list_scheduler_profiles', { projectId })
-      .then((profiles) => {
-        const connected = profiles.find((p) => p.connected);
-        setGlobalProvider(connected?.provider ?? null);
-      })
-      .catch(() => { /* non-critical — modal will show NoProviderView */ });
-  }, [projectId]);
 
   async function handleConfirmRemove() {
     if (!pendingRemoveId) return;
@@ -92,7 +82,7 @@ function useRepoActions(projectId: string, refresh: () => void) {
     pendingRemoveId, setPendingRemoveId, removeLoading,
     showAddModal, setShowAddModal,
     configureRepoId, setConfigureRepoId,
-    globalProvider, handleConfirmRemove,
+    handleConfirmRemove,
   };
 }
 
@@ -104,8 +94,8 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
     pendingRemoveId, setPendingRemoveId, removeLoading,
     showAddModal, setShowAddModal,
     configureRepoId, setConfigureRepoId,
-    globalProvider, handleConfirmRemove,
-  } = useRepoActions(projectId, refresh);
+    handleConfirmRemove,
+  } = useRepoActions(refresh);
 
   const pendingRepo = repos.find((r) => r.id === pendingRemoveId) ?? null;
   const configureRepo = repos.find((r) => r.id === configureRepoId) ?? null;
@@ -130,8 +120,8 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
         </div>
       ))}
       {configureRepo && (
-        <RepoConfigureModal repoId={configureRepo.id} repoName={configureRepo.name}
-          projectId={projectId} currentProvider={globalProvider} isOwner={isOwner}
+        <RepoConfigureModal repoName={configureRepo.name}
+          projectId={projectId}
           onClose={() => setConfigureRepoId(null)} />
       )}
       {isOwner && (

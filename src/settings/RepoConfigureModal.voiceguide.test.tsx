@@ -16,7 +16,6 @@ beforeEach(() => vi.clearAllMocks());
 
 function setupMocks(voiceGuide: string | null = null) {
   mockInvoke.mockImplementation(async (cmd: unknown) => {
-    if (cmd === 'get_per_repo_scheduler_key') return null;
     if (cmd === 'get_project_voice_guide') return voiceGuide;
     if (cmd === 'save_project_voice_guide') return null;
     return null;
@@ -25,7 +24,7 @@ function setupMocks(voiceGuide: string | null = null) {
 
 function renderWithProject(voiceGuide: string | null = null) {
   setupMocks(voiceGuide);
-  render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" projectId="proj-abc" onClose={vi.fn()} />);
+  render(<RepoConfigureModal repoName="my-repo" projectId="proj-abc" onClose={vi.fn()} />);
 }
 
 describe('RepoConfigureModal — voice guide — display (§17.1)', () => {
@@ -50,11 +49,10 @@ describe('RepoConfigureModal — voice guide — display (§17.1)', () => {
     let resolve: (v: string | null) => void = () => {};
     const pending = new Promise<string | null>((res) => { resolve = res; });
     mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'get_project_voice_guide') return pending;
       return null;
     });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" projectId="proj-abc" onClose={vi.fn()} />);
+    render(<RepoConfigureModal repoName="my-repo" projectId="proj-abc" onClose={vi.fn()} />);
     expect(screen.getByRole('textbox', { name: /voice guide/i })).toBeDisabled();
     resolve(null);
   });
@@ -65,13 +63,8 @@ describe('RepoConfigureModal — voice guide — display (§17.1)', () => {
     expect(screen.getByText(/voice-guide\.md/i)).toBeInTheDocument();
   });
 
-  it('does not render voice guide section when projectId is absent', async () => {
-    mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
-      return null;
-    });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" onClose={vi.fn()} />);
-    await screen.findByText(/using default credentials/i);
+  it('does not render voice guide section when projectId is absent', () => {
+    render(<RepoConfigureModal repoName="my-repo" onClose={vi.fn()} />);
     expect(screen.queryByRole('textbox', { name: /voice guide/i })).not.toBeInTheDocument();
   });
 });
@@ -79,11 +72,10 @@ describe('RepoConfigureModal — voice guide — display (§17.1)', () => {
 describe('RepoConfigureModal — voice guide — load failure (§fix-8)', () => {
   it('shows an error message when get_project_voice_guide fails', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'get_project_voice_guide') throw new Error('Network unreachable');
       return null;
     });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" projectId="proj-abc" onClose={vi.fn()} />);
+    render(<RepoConfigureModal repoName="my-repo" projectId="proj-abc" onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/network unreachable/i)).toBeInTheDocument());
   });
 });
@@ -128,12 +120,11 @@ describe('RepoConfigureModal — voice guide — save (§17.1)', () => {
 
   it('shows error inline when save fails; Save button remains', async () => {
     mockInvoke.mockImplementation(async (cmd: unknown) => {
-      if (cmd === 'get_per_repo_scheduler_key') return null;
       if (cmd === 'get_project_voice_guide') return 'some text';
       if (cmd === 'save_project_voice_guide') throw new Error('API error');
       return null;
     });
-    render(<RepoConfigureModal repoId="r1" repoName="my-repo" currentProvider="zernio" projectId="proj-abc" onClose={vi.fn()} />);
+    render(<RepoConfigureModal repoName="my-repo" projectId="proj-abc" onClose={vi.fn()} />);
     await screen.findByRole('textbox', { name: /voice guide/i });
     fireEvent.click(screen.getByRole('button', { name: /save voice guide/i }));
     await waitFor(() => expect(screen.getByText(/api error/i)).toBeInTheDocument());
