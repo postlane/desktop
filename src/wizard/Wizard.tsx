@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useWizardState } from './useWizardState';
 import ModalWelcome from './ModalWelcome';
@@ -11,6 +11,7 @@ import ModalGitHubApp from './ModalGitHubApp';
 import ModalProjectContext from './ModalProjectContext';
 import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
+import ModalProviderLinked from './ModalProviderLinked';
 
 interface Props {
   onComplete: () => void;
@@ -32,6 +33,24 @@ interface LateStepProps {
   onComplete: () => void;
 }
 
+interface Step3Props {
+  provider: string;
+  showProviderLinked: boolean;
+  linkedProviders: string[];
+  onContinue: () => void;
+  onOrgNext: (wid: string, wname: string) => void;
+  onBack: () => void;
+  onPricingGate: () => void;
+  onSkipToApp: () => void;
+}
+
+function WizardStep3({ provider, showProviderLinked, linkedProviders, onContinue, onOrgNext, onBack, onPricingGate, onSkipToApp }: Step3Props) {
+  if (showProviderLinked) {
+    return <ModalProviderLinked currentProvider={provider} linkedProviders={linkedProviders} onContinue={onContinue} />;
+  }
+  return <ModalOrgPicker onNext={onOrgNext} onBack={onBack} onPricingGate={onPricingGate} onSkipToApp={onSkipToApp} provider={provider} />;
+}
+
 function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, repoConnected, setRepoConnected, onNext, onBack, onComplete }: LateStepProps) {
   if (step === 5) {
     return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} setRepoConnected={setRepoConnected} />;
@@ -50,6 +69,22 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
   });
   const [showPricingGate, setShowPricingGate] = useState(false);
   const [repoConnected, setRepoConnected] = useState(false);
+  const [showProviderLinked, setShowProviderLinked] = useState(false);
+  const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
+  const providerCheckDone = useRef(false);
+
+  useEffect(() => {
+    if (wizard.step !== 3 || providerCheckDone.current) return;
+    providerCheckDone.current = true;
+    invoke<string[]>('list_linked_providers')
+      .then((providers) => {
+        if (Array.isArray(providers) && providers.length > 1) {
+          setLinkedProviders(providers);
+          setShowProviderLinked(true);
+        }
+      })
+      .catch(console.warn);
+  }, [wizard.step]);
 
   useEffect(() => {
     if (wizard.step > 1) {
@@ -79,7 +114,7 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
     return <ModalAccount mode={startAt === 2 ? 'add_org' : 'sign_in'} onNext={(p) => { wizard.setToken('detected'); wizard.setProvider(p); wizard.next(); }} onBack={wizard.back} />;
   }
   if (wizard.step === 3) {
-    return <ModalOrgPicker onNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }} onBack={wizard.back} onPricingGate={() => setShowPricingGate(true)} onSkipToApp={handleSkipToApp} provider={provider} />;
+    return <WizardStep3 provider={provider} showProviderLinked={showProviderLinked} linkedProviders={linkedProviders} onContinue={() => setShowProviderLinked(false)} onOrgNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }} onBack={wizard.back} onPricingGate={() => setShowPricingGate(true)} onSkipToApp={handleSkipToApp} />;
   }
   if (wizard.step === 4) {
     return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={handleSkipToApp} />;

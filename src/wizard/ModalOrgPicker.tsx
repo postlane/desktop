@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
+import { GitHubLogo, GitLabLogo } from '../assets/logos';
 
 interface OrgSummary {
   login: string;
@@ -31,6 +32,7 @@ interface Props {
 interface OrgRowProps {
   org: OrgSummary;
   selected: boolean;
+  provider: string;
   onSelect: () => void;
 }
 
@@ -48,7 +50,9 @@ interface OrgListViewProps {
   onNameChange: (name: string) => void;
 }
 
-function OrgRow({ org, selected, onSelect }: OrgRowProps) {
+function OrgRow({ org, selected, provider, onSelect }: OrgRowProps) {
+  const ProviderLogo = provider === 'gitlab' ? GitLabLogo : GitHubLogo;
+  const providerLabel = provider === 'gitlab' ? 'GitLab' : 'GitHub';
   return (
     <button
       type="button"
@@ -64,7 +68,8 @@ function OrgRow({ org, selected, onSelect }: OrgRowProps) {
         <strong>{org.login}</strong>
         {org.is_personal && <span className="tag is-small ml-2">Personal</span>}
       </span>
-      {org.has_project && <span className="tag is-light is-small">Existing</span>}
+      <ProviderLogo size={14} ariaLabel={providerLabel} />
+      {org.has_project && <span className="tag is-light is-small ml-1">Existing</span>}
     </button>
   );
 }
@@ -131,7 +136,7 @@ function OrgListView({ orgs, selectedOrg, name, createError, creating, provider,
     >
       <div role="listbox" aria-label="Organisations" className="mb-4">
         {orgs.map((org) => (
-          <OrgRow key={org.login} org={org} selected={selectedOrg?.login === org.login} onSelect={() => onSelectOrg(org)} />
+          <OrgRow key={org.login} org={org} provider={provider} selected={selectedOrg?.login === org.login} onSelect={() => onSelectOrg(org)} />
         ))}
       </div>
       <p className="is-size-7 has-text-grey mb-3">

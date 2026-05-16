@@ -134,6 +134,53 @@ pub async fn list_provider_orgs(
     list_provider_orgs_with_client(&provider, &client, POSTLANE_API_BASE, &token).await
 }
 
+// ── list_linked_providers ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct LinkedProvidersResponse {
+    providers: Vec<String>,
+}
+
+/// Calls `GET {base_url}/v1/account/providers` and returns the list of SSO
+/// providers linked to the current user's account.
+pub async fn list_linked_providers_with_client(
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<Vec<String>, String> {
+    let url = format!("{}/v1/account/providers", base_url);
+    let resp = client
+        .get(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("Network error fetching linked providers: {}", e))?;
+
+    match resp.status().as_u16() {
+        200 => {
+            let body: LinkedProvidersResponse = resp
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse linked providers response: {}", e))?;
+            Ok(body.providers)
+        }
+        401 => Err(SESSION_EXPIRED_ERROR.to_string()),
+        _ => Err(format!("Unexpected status {} fetching linked providers", resp.status())),
+    }
+}
+
+#[tauri::command]
+pub async fn list_linked_providers(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let token = app
+        .keyring()
+        .get_password("postlane", "license")
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No license token — sign in at postlane.dev/login".to_string())?;
+
+    let client = build_client();
+    list_linked_providers_with_client(&client, POSTLANE_API_BASE, &token).await
+}
+
 // ── tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -301,5 +348,54 @@ mod tests {
             "github", &build_test_client(), "http://127.0.0.1:19993", "tok",
         ).await;
         assert!(result.is_err());
+    }
+
+    // ── list_linked_providers ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_list_linked_providers_returns_all_linked_providers() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/account/providers");
+            then.status(200).json_body(serde_json::json!({
+                "providers": ["github", "gitlab"]
+            }));
+        });
+
+        let result = list_linked_providers_with_client(
+            &build_test_client(), &server.base_url(), "token",
+        ).await;
+        let providers = result.expect("should succeed");
+        assert_eq!(providers.len(), 2);
+        assert!(providers.contains(&"github".to_string()));
+        assert!(providers.contains(&"gitlab".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_list_linked_providers_returns_session_expired_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/account/providers");
+            then.status(401);
+        });
+
+        let result = list_linked_providers_with_client(
+            &build_test_client(), &server.base_url(), "expired",
+        ).await;
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_list_linked_providers_returns_empty_when_none_linked() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/account/providers");
+            then.status(200).json_body(serde_json::json!({ "providers": [] }));
+        });
+
+        let result = list_linked_providers_with_client(
+            &build_test_client(), &server.base_url(), "token",
+        ).await;
+        assert!(result.expect("should succeed").is_empty());
     }
 }
