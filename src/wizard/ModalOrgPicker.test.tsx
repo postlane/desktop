@@ -221,7 +221,7 @@ describe('ModalOrgPicker — scope error and re-auth', () => {
   it('retries org fetch automatically after license:activated when scope error is showing', async () => {
     let fireActivated: (() => void) | undefined;
     mockListen.mockImplementation(async (event, handler) => {
-      if (event === 'license:activated') fireActivated = () => handler({ event: 'license:activated', payload: {}, id: 0, windowLabel: '' });
+      if (event === 'license:activated') fireActivated = () => handler({ event: 'license:activated', payload: {}, id: 0 });
       return () => {};
     });
 
