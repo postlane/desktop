@@ -6,12 +6,16 @@ import '@testing-library/jest-dom';
 import OrgLinkModal from './OrgLinkModal';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
-import { invoke } from '../ipc/invoke';
-const mockInvoke = vi.mocked(invoke);
-
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+
+import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { listen } from '@tauri-apps/api/event';
+
+const mockInvoke = vi.mocked(invoke);
 const mockOpenUrl = vi.mocked(openUrl);
+const mockListen = vi.mocked(listen);
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -42,6 +46,14 @@ describe('OrgLinkModal — org list', () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
+  it('shows load error message when non-scope error is returned', async () => {
+    mockInvoke.mockRejectedValue(new Error('network failure'));
+    render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/network failure/i)).toBeInTheDocument());
+  });
+});
+
+describe('OrgLinkModal — scope error and re-auth', () => {
   it('shows scope error when scope_not_granted is returned', async () => {
     mockInvoke.mockRejectedValue(new Error('scope_not_granted'));
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
@@ -69,10 +81,28 @@ describe('OrgLinkModal — org list', () => {
     await waitFor(() => expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('port=47312')));
   });
 
-  it('shows load error message when non-scope error is returned', async () => {
-    mockInvoke.mockRejectedValue(new Error('network failure'));
+  it('retries org list automatically after license:activated when scope error is showing', async () => {
+    let fireActivated: (() => void) | undefined;
+    mockListen.mockImplementation(async (event, handler) => {
+      if (event === 'license:activated') fireActivated = () => handler({ event: 'license:activated', payload: {}, id: 0 });
+      return () => {};
+    });
+
+    let callCount = 0;
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'list_provider_orgs') {
+        callCount += 1;
+        if (callCount === 1) throw new Error('scope_not_granted');
+        return ORG_LIST;
+      }
+      if (cmd === 'get_local_server_port') return 47312;
+      return null;
+    });
+
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText(/network failure/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /sign in again/i })).toBeInTheDocument());
+    fireActivated?.();
+    await waitFor(() => expect(screen.getByText('acme')).toBeInTheDocument());
   });
 });
 
