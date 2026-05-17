@@ -53,7 +53,20 @@ describe('OrgLinkModal — org list', () => {
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} provider="github" />);
     await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
     fireEvent.click(screen.getByRole('button', { name: /sign in again/i }));
-    expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/login?desktop=1&provider=github');
+    await waitFor(() => expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('postlane.dev/login?desktop=1')));
+    expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('provider=github'));
+  });
+
+  it('clicking Sign in again includes port when get_local_server_port succeeds', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'list_provider_orgs') throw new Error('scope_not_granted');
+      if (cmd === 'get_local_server_port') return 47312;
+      return null;
+    });
+    render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} provider="github" />);
+    await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sign in again/i }));
+    await waitFor(() => expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('port=47312')));
   });
 
   it('shows load error message when non-scope error is returned', async () => {

@@ -200,6 +200,18 @@ describe('ModalOrgPicker — errors', () => {
     expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('postlane.dev/login'));
     expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('github'));
   });
+
+  it('re-auth button includes port when get_local_server_port succeeds', async () => {
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'list_provider_orgs') throw new Error('scope_not_granted');
+      if (cmd === 'get_local_server_port') return 47312;
+      return null;
+    });
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} provider="github" />);
+    await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
+    await userEvent.click(screen.getByRole('button', { name: /sign in again/i }));
+    expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('port=47312'));
+  });
 });
 
 describe('ModalOrgPicker — pricing gate and permissions', () => {

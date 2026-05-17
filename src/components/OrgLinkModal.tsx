@@ -20,8 +20,13 @@ interface Props {
 }
 
 function ScopeErrorView({ provider, onClose }: { provider: string; onClose: () => void }) {
-  function handleReauth() {
-    openUrl(`https://postlane.dev/login?desktop=1&provider=${provider}`).catch(console.error);
+  async function handleReauth() {
+    try {
+      const port = await invoke<number>('get_local_server_port');
+      openUrl(`https://postlane.dev/login?desktop=1&port=${port}&provider=${provider}`).catch(console.error);
+    } catch {
+      openUrl(`https://postlane.dev/login?desktop=1&provider=${provider}`).catch(console.error);
+    }
   }
   return (
     <div>
