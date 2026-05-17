@@ -46,6 +46,14 @@ describe('OrgLinkModal — org list', () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
+  it('shows load error message when non-scope error is returned', async () => {
+    mockInvoke.mockRejectedValue(new Error('network failure'));
+    render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/network failure/i)).toBeInTheDocument());
+  });
+});
+
+describe('OrgLinkModal — scope error and re-auth', () => {
   it('shows scope error when scope_not_granted is returned', async () => {
     mockInvoke.mockRejectedValue(new Error('scope_not_granted'));
     render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
@@ -95,12 +103,6 @@ describe('OrgLinkModal — org list', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /sign in again/i })).toBeInTheDocument());
     fireActivated?.();
     await waitFor(() => expect(screen.getByText('acme')).toBeInTheDocument());
-  });
-
-  it('shows load error message when non-scope error is returned', async () => {
-    mockInvoke.mockRejectedValue(new Error('network failure'));
-    render(<OrgLinkModal projectId="proj-1" onDone={() => {}} onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText(/network failure/i)).toBeInTheDocument());
   });
 });
 

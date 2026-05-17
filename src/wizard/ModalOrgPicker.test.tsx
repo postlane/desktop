@@ -171,7 +171,7 @@ describe('ModalOrgPicker — existing workspace (has_project: true)', () => {
   });
 });
 
-describe('ModalOrgPicker — errors', () => {
+describe('ModalOrgPicker — load errors', () => {
   it('shows error state with Retry when list_provider_orgs fails', async () => {
     mockInvoke.mockRejectedValue(new Error('network timeout'));
     render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
@@ -188,7 +188,9 @@ describe('ModalOrgPicker — errors', () => {
     await userEvent.click(screen.getByRole('button', { name: /retry/i }));
     await waitFor(() => expect(screen.getByText('hugoelliott')).toBeDefined());
   });
+});
 
+describe('ModalOrgPicker — scope error and re-auth', () => {
   it('shows re-auth prompt on scope_not_granted error', async () => {
     mockInvoke.mockRejectedValue(new Error('scope_not_granted'));
     render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
