@@ -7,13 +7,16 @@ import userEvent from '@testing-library/user-event';
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 
 import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { listen } from '@tauri-apps/api/event';
 import ModalOrgPicker from './ModalOrgPicker';
 
 const mockInvoke = vi.mocked(invoke);
 const mockOpenUrl = vi.mocked(openUrl);
+const mockListen = vi.mocked(listen);
 
 interface OrgSummary {
   login: string;
@@ -211,6 +214,30 @@ describe('ModalOrgPicker — errors', () => {
     await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
     await userEvent.click(screen.getByRole('button', { name: /sign in again/i }));
     expect(mockOpenUrl).toHaveBeenCalledWith(expect.stringContaining('port=47312'));
+  });
+
+  it('retries org fetch automatically after license:activated when scope error is showing', async () => {
+    let fireActivated: (() => void) | undefined;
+    mockListen.mockImplementation(async (event, handler) => {
+      if (event === 'license:activated') fireActivated = () => handler({ event: 'license:activated', payload: {}, id: 0, windowLabel: '' });
+      return () => {};
+    });
+
+    let callCount = 0;
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'list_provider_orgs') {
+        callCount += 1;
+        if (callCount === 1) throw new Error('scope_not_granted');
+        return MOCK_ORGS;
+      }
+      if (cmd === 'get_local_server_port') return 47312;
+      return null;
+    });
+
+    render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
+    fireActivated?.();
+    await waitFor(() => expect(screen.getByText('hugoelliott')).toBeDefined());
   });
 });
 

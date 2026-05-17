@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
+import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import WizardShell from './WizardShell';
 import { GitHubLogo, GitLabLogo } from '../assets/logos';
@@ -193,6 +194,16 @@ function useOrgList(provider: string) {
         if (msg.includes('scope_not_granted')) { setScopeError(true); } else { setLoadError(msg); }
       });
   }, [provider, retryCount]);
+
+  useEffect(() => {
+    if (!scopeError) return;
+    let unlisten: (() => void) | undefined;
+    let mounted = true;
+    listen('license:activated', () => { if (mounted) setRetryCount((c) => c + 1); })
+      .then((fn) => { if (mounted) { unlisten = fn; } else { fn(); } })
+      .catch(console.error);
+    return () => { mounted = false; unlisten?.(); };
+  }, [scopeError]);
 
   return { orgs, loadError, scopeError, retry: () => setRetryCount((c) => c + 1) };
 }
