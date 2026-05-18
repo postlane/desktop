@@ -36,6 +36,7 @@ beforeEach(() => {
   mockOpenDialog.mockResolvedValue(null);
   mockInvoke.mockImplementation(async (cmd: string) => {
     if (cmd === 'check_github_app_installed') return false;
+    if (cmd === 'list_repos_for_project') return [];
     return { name: 'my-repo' };
   });
 });
@@ -329,7 +330,11 @@ describe('ModalConnectRepos — setRepoConnected callback', () => {
   it('calls setRepoConnected when folder is freshly connected', async () => {
     const setRepoConnected = vi.fn();
     mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
-    mockInvoke.mockResolvedValue({ name: 'my-repo' });
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
+      return { name: 'my-repo' };
+    });
     render(<ModalGitHubApp {...defaultProps} setRepoConnected={setRepoConnected} />);
     await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
     await waitFor(() => expect(setRepoConnected).toHaveBeenCalledWith(true));
@@ -351,6 +356,7 @@ describe('ModalConnectRepos — setRepoConnected via manual Next after mount-che
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'my-repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} setRepoConnected={setRepoConnected} />);
@@ -368,6 +374,41 @@ describe('ModalConnectRepos — setRepoConnected via manual Next after mount-che
     // Skip button is the only way to advance with nothing connected
     fireEvent.click(screen.getByRole('button', { name: /connect repos later/i }));
     expect(setRepoConnected).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Desktop folder — existing repos shown on load
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — existing repos shown on load', () => {
+  it('lists already-connected repos in the Desktop folder section', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [
+        { id: 'r1', name: 'my-existing-repo', path: '/Users/user/my-existing-repo', active: true },
+      ];
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.getByText('my-existing-repo')).toBeInTheDocument());
+  });
+
+  it('shows Add another folder button when repos are already connected', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [
+        { id: 'r1', name: 'existing-repo', path: '/path', active: true },
+      ];
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /add another folder/i })).toBeInTheDocument());
+  });
+
+  it('shows Choose folder when no repos are connected', async () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /choose folder/i })).toBeInTheDocument());
   });
 });
 
@@ -391,6 +432,7 @@ describe('ModalConnectRepos — mount-time already-installed', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'my-repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
@@ -402,6 +444,7 @@ describe('ModalConnectRepos — mount-time already-installed', () => {
   it('shows a "GitHub App connected" badge when mount check finds app already installed', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'my-repo' };
     });
     render(<ModalGitHubApp {...defaultProps} />);
@@ -411,6 +454,7 @@ describe('ModalConnectRepos — mount-time already-installed', () => {
   it('shows Next button when mount check finds app already installed', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'my-repo' };
     });
     render(<ModalGitHubApp {...defaultProps} />);
@@ -421,6 +465,7 @@ describe('ModalConnectRepos — mount-time already-installed', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'my-repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);

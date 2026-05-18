@@ -34,25 +34,23 @@ function parseVoiceGuideFields(data: unknown): Partial<VoiceGuideFields> | null 
 
 export default function ModalProjectContext({ workspaceId, workspaceName, onNext, onBack }: Props) {
   const [fields, setFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
+  const [loadError, setLoadError] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
+  function loadFields() {
+    setLoadError(false);
     invoke('get_voice_guide_fields', { projectId: workspaceId })
       .then((data) => {
         const incoming = parseVoiceGuideFields(data);
         if (incoming !== null) {
-          setFields((prev) => ({
-            description: incoming.description ?? prev.description,
-            audience: incoming.audience ?? prev.audience,
-            tone: incoming.tone ?? prev.tone,
-            avoid: incoming.avoid ?? prev.avoid,
-            examples: incoming.examples ?? prev.examples,
-          }));
+          setFields({ ...EMPTY_FIELDS, ...incoming });
         }
       })
-      .catch(() => undefined);
-  }, [workspaceId]);
+      .catch(() => setLoadError(true));
+  }
+
+  useEffect(() => { loadFields(); }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChange = (key: keyof VoiceGuideFields, value: string) => setFields((prev) => ({ ...prev, [key]: value }));
 
@@ -65,19 +63,31 @@ export default function ModalProjectContext({ workspaceId, workspaceName, onNext
         voiceGuide: buildVoiceGuide(fields, workspaceName),
         voiceGuideFields: fields,
       });
+      onNext();
     } catch {
       setSaveError(true);
     } finally {
       setSaving(false);
-      onNext();
     }
   }
 
   return (
     <WizardShell step={6} totalSteps={7} title="Your voice"
       subtitle={`Help Postlane write posts that sound like you. This voice guide is applied to every post drafted for ${workspaceName || 'this project'}. All fields are optional — you can edit it anytime in Project Settings.`}
-      onNext={handleNext} nextLabel={saving ? 'Saving…' : 'Next'} nextDisabled={saving} onBack={onBack}>
-      <VoiceGuideForm fields={fields} onChange={handleChange} onApplyTemplate={setFields} saveError={saveError} />
+      onNext={handleNext} nextLabel={saving ? 'Saving…' : 'Next'} nextDisabled={saving} onBack={onBack}
+      onSkip={saveError ? onNext : undefined} skipLabel="Skip for now">
+      {loadError && (
+        <div className="notification is-warning is-light py-2 px-3 mb-3">
+          <p className="is-size-7">Could not load your saved voice guide.</p>
+          <button className="button is-small mt-2" onClick={loadFields}>Retry</button>
+        </div>
+      )}
+      {saveError && (
+        <div className="notification is-danger is-light py-2 px-3 mb-3">
+          <p className="is-size-7">Failed to save voice guide. Check your connection and try again, or skip to save it later in Settings.</p>
+        </div>
+      )}
+      <VoiceGuideForm fields={fields} onChange={handleChange} onApplyTemplate={setFields} />
     </WizardShell>
   );
 }

@@ -73,6 +73,12 @@ function GitHubAppSection({ appInstalled, error, onInstall, pollSlowNotice, poll
   );
 }
 
+interface RepoSummary {
+  id: string;
+  name: string;
+  path: string;
+}
+
 interface FolderSectionProps {
   workspaceId: string;
   workspaceName: string;
@@ -82,9 +88,16 @@ interface FolderSectionProps {
 
 function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlreadyConnected }: FolderSectionProps) {
   const [connecting, setConnecting] = useState(false);
-  const [connectedName, setConnectedName] = useState<string | null>(null);
+  const [existingRepos, setExistingRepos] = useState<RepoSummary[]>([]);
+  const [newlyConnected, setNewlyConnected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const pickerOpenRef = useRef(false);
+
+  useEffect(() => {
+    invoke<RepoSummary[]>('list_repos_for_project', { projectId: workspaceId })
+      .then((repos) => setExistingRepos(repos))
+      .catch(() => {});
+  }, [workspaceId]);
 
   async function handleChoose() {
     if (pickerOpenRef.current || connecting) return;
@@ -99,7 +112,7 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlread
     }
     try {
       const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
-      setConnectedName(repo.name);
+      setNewlyConnected((prev) => [...prev, repo.name]);
       onConnected();
     } catch (err) {
       if (typeof err === 'string' && err.startsWith('RepoAlreadyRegistered:')) onAlreadyConnected();
@@ -110,20 +123,23 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlread
     }
   }
 
+  const allConnected = [...existingRepos.map((r) => r.name), ...newlyConnected];
+  const hasAny = allConnected.length > 0;
+
   return (
     <div className="box mb-3">
       <p className="has-text-weight-semibold mb-1">Desktop folder</p>
       <p className="is-size-7 has-text-grey mb-3">
         Connect individual repos or folders from your machine.
       </p>
-      {connectedName && (
-        <p className="is-size-7 mb-2">
+      {allConnected.map((name) => (
+        <p key={name} className="is-size-7 mb-2">
           <span className="tag is-success is-light mr-2">&#10003;</span>
-          <strong>{connectedName}</strong> connected.
+          <strong>{name}</strong>
         </p>
-      )}
+      ))}
       <button className="button is-light is-small" onClick={handleChoose} disabled={connecting}>
-        {connecting ? 'Connecting…' : connectedName ? 'Add another folder' : 'Choose folder'}
+        {connecting ? 'Connecting…' : hasAny ? 'Add another folder' : 'Choose folder'}
       </button>
       {error && <p role="alert" className="is-size-7 has-text-danger mt-2">{error}</p>}
     </div>

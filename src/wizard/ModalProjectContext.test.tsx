@@ -263,20 +263,51 @@ describe('ModalProjectContext — save includes voice_guide_fields', () => {
 
 describe('ModalProjectContext — save error handling', () => {
   it('test_shows_error_message_when_save_fails', async () => {
-    mockInvoke.mockRejectedValue(new Error('network error'));
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'save_project_voice_guide') return Promise.reject(new Error('network error'));
+      return Promise.resolve(undefined);
+    });
     render(<ModalProjectContext {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     await waitFor(() => {
-      expect(screen.getByText(/could not save/i)).toBeDefined();
+      expect(screen.getByText(/failed to save/i)).toBeDefined();
     });
   });
 
-  it('test_still_calls_onNext_after_save_failure', async () => {
-    mockInvoke.mockRejectedValue(new Error('network error'));
+  it('test_does_not_call_onNext_after_save_failure', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'save_project_voice_guide') return Promise.reject(new Error('network error'));
+      return Promise.resolve(undefined);
+    });
     const onNext = vi.fn();
     render(<ModalProjectContext {...defaultProps} onNext={onNext} />);
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText(/failed to save/i)).toBeDefined());
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it('test_skip_button_calls_onNext_after_save_failure', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'save_project_voice_guide') return Promise.reject(new Error('network error'));
+      return Promise.resolve(undefined);
+    });
+    const onNext = vi.fn();
+    render(<ModalProjectContext {...defaultProps} onNext={onNext} />);
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(screen.getByText(/failed to save/i)).toBeDefined());
+    await userEvent.click(screen.getByRole('button', { name: /skip for now/i }));
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it('test_shows_load_error_when_get_voice_guide_fields_fails', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') return Promise.reject(new Error('network error'));
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect(screen.getByText(/could not load/i)).toBeDefined();
+    });
   });
 });
 
