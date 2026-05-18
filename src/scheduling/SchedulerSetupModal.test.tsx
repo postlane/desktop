@@ -16,12 +16,12 @@ beforeEach(() => {
 
 describe('SchedulerSetupModal — rendering', () => {
   it('shows the repo name in the title', () => {
-    render(<SchedulerSetupModal repoName="my-blog" onSetupLater={vi.fn()} />);
+    render(<SchedulerSetupModal repoName="my-blog" repoId="repo-1" onSetupLater={vi.fn()} />);
     expect(screen.getByText(/set up posting for my-blog/i)).toBeInTheDocument();
   });
 
   it('lists all eight scheduler providers', () => {
-    render(<SchedulerSetupModal repoName="my-blog" onSetupLater={vi.fn()} />);
+    render(<SchedulerSetupModal repoName="my-blog" repoId="repo-1" onSetupLater={vi.fn()} />);
     expect(screen.getByText(/zernio/i)).toBeInTheDocument();
     expect(screen.getByText(/upload post/i)).toBeInTheDocument();
     expect(screen.getByText(/buffer/i)).toBeInTheDocument();
@@ -33,19 +33,19 @@ describe('SchedulerSetupModal — rendering', () => {
   });
 
   it('shows free tier notes', () => {
-    render(<SchedulerSetupModal repoName="my-blog" onSetupLater={vi.fn()} />);
+    render(<SchedulerSetupModal repoName="my-blog" repoId="repo-1" onSetupLater={vi.fn()} />);
     expect(screen.getByText(/10 uploads\/month free/i)).toBeInTheDocument();
     expect(screen.getByText(/api requires a paid plan/i)).toBeInTheDocument();
     expect(screen.getByText(/1,000/i)).toBeInTheDocument();
   });
 
   it('shows a "Set up later" button', () => {
-    render(<SchedulerSetupModal repoName="my-blog" onSetupLater={vi.fn()} />);
+    render(<SchedulerSetupModal repoName="my-blog" repoId="repo-1" onSetupLater={vi.fn()} />);
     expect(screen.getByRole('button', { name: /set up later/i })).toBeInTheDocument();
   });
 
   it('does not show Done button before any provider is configured', () => {
-    render(<SchedulerSetupModal repoName="my-blog" onSetupLater={vi.fn()} onOpenSchedulerSettings={vi.fn()} />);
+    render(<SchedulerSetupModal repoName="my-blog" repoId="repo-1" onSetupLater={vi.fn()} onOpenSchedulerSettings={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /^done$/i })).not.toBeInTheDocument();
   });
 });
@@ -53,7 +53,7 @@ describe('SchedulerSetupModal — rendering', () => {
 describe('SchedulerSetupModal — Set up later', () => {
   it('calls onSetupLater when the button is clicked', () => {
     const onSetupLater = vi.fn();
-    render(<SchedulerSetupModal repoName="my-blog" onSetupLater={onSetupLater} />);
+    render(<SchedulerSetupModal repoName="my-blog" repoId="repo-1" onSetupLater={onSetupLater} />);
     fireEvent.click(screen.getByRole('button', { name: /set up later/i }));
     expect(onSetupLater).toHaveBeenCalledOnce();
   });

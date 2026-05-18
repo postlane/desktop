@@ -37,7 +37,7 @@ describe('SchedulerConnect — key entry', () => {
     await userEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('save_scheduler_credential', {
-        provider: 'zernio', apiKey: 'my-api-key', repoId: null,
+        provider: 'zernio', apiKey: 'my-api-key', repoId: 'ws-1',
       });
     });
   });
