@@ -16,6 +16,12 @@ interface CreateProjectResult {
 
 type WorkspaceType = 'personal' | 'organization' | 'client';
 
+const WORKSPACE_TYPES: readonly WorkspaceType[] = ['personal', 'organization', 'client'];
+
+function isWorkspaceType(v: string): v is WorkspaceType {
+  return (WORKSPACE_TYPES as readonly string[]).includes(v);
+}
+
 function apiErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes('No free project slot')) {
@@ -91,7 +97,10 @@ export default function AddWorkspaceModal({ onClose, onCreated }: Props) {
               <div className="control">
                 <div className="select is-small">
                   <select id="ws-type" aria-label="Workspace type" value={workspaceType}
-                    onChange={(e) => setWorkspaceType(e.target.value as WorkspaceType)}>
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (isWorkspaceType(v)) setWorkspaceType(v);
+                    }}>
                     <option value="personal">Personal</option>
                     <option value="organization">Organization</option>
                     <option value="client">Client project</option>

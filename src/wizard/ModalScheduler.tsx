@@ -7,11 +7,13 @@ import WizardShell from './WizardShell';
 import SchedulerConnect from '../settings/SchedulerConnect';
 import { ZernioLogo, UploadPostLogo } from '../assets/logos';
 
-type Provider = 'zernio' | 'upload_post';
+const VALID_PROVIDERS = ['zernio', 'upload_post'] as const;
+type Provider = typeof VALID_PROVIDERS[number];
 
-const VALID_PROVIDERS: readonly Provider[] = ['zernio', 'upload_post'];
+// Widened view of the same constant for the string-accepts `.includes()` check.
+const VALID_PROVIDER_STRINGS: readonly string[] = VALID_PROVIDERS;
 function isProvider(p: string): p is Provider {
-  return (VALID_PROVIDERS as readonly string[]).includes(p);
+  return VALID_PROVIDER_STRINGS.includes(p);
 }
 
 interface PickerProps {

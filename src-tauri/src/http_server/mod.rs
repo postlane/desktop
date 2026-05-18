@@ -2,6 +2,9 @@
 
 pub mod github_project_config;
 pub mod routes;
+mod activate_route;
+mod register_route;
+mod send_route;
 
 use axum::{
     http::{HeaderName, HeaderValue, Response},
@@ -67,10 +70,15 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+pub(crate) fn error_response(status: axum::http::StatusCode, message: String) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (status, axum::response::Json(ErrorResponse { error: message })).into_response()
+}
+
 pub fn create_router(state: ServerState) -> Router {
     let protected_routes = Router::new()
-        .route("/send", post(routes::send_handler))
-        .route("/register", post(routes::register_handler))
+        .route("/send", post(send_route::send_handler))
+        .route("/register", post(register_route::register_handler))
         .route("/github-project-config", get(github_project_config::github_project_config_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -78,7 +86,7 @@ pub fn create_router(state: ServerState) -> Router {
         ));
 
     let activation_routes = Router::new()
-        .route("/activate", get(routes::activate_handler));
+        .route("/activate", get(activate_route::activate_handler));
 
     // Restrict cross-origin requests to the null origin only.
     // This blocks browser extensions from calling the local API while still

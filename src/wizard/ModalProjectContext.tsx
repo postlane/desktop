@@ -15,6 +15,23 @@ interface Props {
   onBack: () => void;
 }
 
+function extractStringField(obj: Record<string, unknown>, key: string): string | undefined {
+  const v = obj[key];
+  return typeof v === 'string' ? v : undefined;
+}
+
+function parseVoiceGuideFields(data: unknown): Partial<VoiceGuideFields> | null {
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return null;
+  const obj = data as Record<string, unknown>;
+  return {
+    description: extractStringField(obj, 'description'),
+    audience: extractStringField(obj, 'audience'),
+    tone: extractStringField(obj, 'tone'),
+    avoid: extractStringField(obj, 'avoid'),
+    examples: extractStringField(obj, 'examples'),
+  };
+}
+
 export default function ModalProjectContext({ workspaceId, workspaceName, onNext, onBack }: Props) {
   const [fields, setFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [saveError, setSaveError] = useState(false);
@@ -23,8 +40,8 @@ export default function ModalProjectContext({ workspaceId, workspaceName, onNext
   useEffect(() => {
     invoke('get_voice_guide_fields', { projectId: workspaceId })
       .then((data) => {
-        if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
-          const incoming = data as Partial<VoiceGuideFields>;
+        const incoming = parseVoiceGuideFields(data);
+        if (incoming !== null) {
           setFields((prev) => ({
             description: incoming.description ?? prev.description,
             audience: incoming.audience ?? prev.audience,
