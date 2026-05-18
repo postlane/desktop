@@ -249,21 +249,24 @@ mod tests {
     }
 
     fn make_state(token: &str) -> ServerState {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
         ServerState {
             token: token.to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
                 version: 1,
                 repos: vec![],
             })),
-            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            repos_path,
             activation_tx: None,
             projects: empty_projects(),
         }
     }
 
     fn make_state_with_tmp_repo() -> (ServerState, String) {
-        let tmp = std::env::temp_dir();
-        let canonical = std::fs::canonicalize(&tmp).expect("temp_dir exists");
+        let repo_dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(repo_dir.path()).expect("temp dir exists");
         let path_str = canonical.to_str().expect("valid utf8").to_string();
         let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
             version: 1,
@@ -275,10 +278,14 @@ mod tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         }));
+        let repos_dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = repos_dir.path().join("repos.json");
+        std::mem::forget(repos_dir);
+        std::mem::forget(repo_dir);
         (ServerState {
             token: "tok".to_string(),
             repos,
-            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            repos_path,
             activation_tx: None,
             projects: empty_projects(),
         }, path_str)
@@ -396,12 +403,15 @@ mod tests {
     #[tokio::test]
     async fn test_activate_returns_200_and_sends_token_to_channel() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
                 version: 1, repos: vec![],
             })),
-            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            repos_path,
             activation_tx: Some(tx),
             projects: empty_projects(),
         };
@@ -419,10 +429,13 @@ mod tests {
     #[tokio::test]
     async fn test_activate_passes_new_link_true_when_flag_set() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
-            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            repos_path,
             activation_tx: Some(tx),
             projects: empty_projects(),
         };
@@ -441,10 +454,13 @@ mod tests {
     #[tokio::test]
     async fn test_activate_passes_new_link_false_when_flag_absent() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
-            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            repos_path,
             activation_tx: Some(tx),
             projects: empty_projects(),
         };
@@ -498,10 +514,13 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
         // Fill the channel
         tx.try_send(("filler.filler.filler".to_string(), false)).unwrap();
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
-            repos_path: std::env::temp_dir().join("postlane_test_repos.json"),
+            repos_path,
             activation_tx: Some(tx),
             projects: empty_projects(),
         };

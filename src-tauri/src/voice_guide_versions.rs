@@ -53,22 +53,22 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn test_path(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("postlane_test_vgv_{}", name));
-        fs::create_dir_all(&dir).unwrap();
-        dir.join("versions.json")
+    fn test_path(_name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("versions.json");
+        (dir, path)
     }
 
     #[test]
     fn test_lookup_at_returns_none_when_file_absent() {
-        let path = std::env::temp_dir().join("postlane_test_vgv_absent_dir/versions.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("nonexistent/versions.json");
         assert!(lookup_version_at("proj-1", &path).is_none());
     }
 
     #[test]
     fn test_record_at_writes_project_id() {
-        let path = test_path("writes");
-        let _ = fs::remove_file(&path);
+        let (_dir, path) = test_path("writes");
         record_version_at("proj-write", &path).unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("proj-write"), "expected proj-write in: {}", content);
@@ -76,8 +76,7 @@ mod tests {
 
     #[test]
     fn test_lookup_at_returns_stored_timestamp() {
-        let path = test_path("stored");
-        let _ = fs::remove_file(&path);
+        let (_dir, path) = test_path("stored");
         record_version_at("proj-stored", &path).unwrap();
         let result = lookup_version_at("proj-stored", &path);
         assert!(result.is_some(), "expected Some but got None");
@@ -87,8 +86,7 @@ mod tests {
 
     #[test]
     fn test_lookup_at_unknown_project_returns_none() {
-        let path = test_path("unknown");
-        let _ = fs::remove_file(&path);
+        let (_dir, path) = test_path("unknown");
         record_version_at("proj-known", &path).unwrap();
         assert!(
             lookup_version_at("proj-unknown", &path).is_none(),
@@ -98,8 +96,7 @@ mod tests {
 
     #[test]
     fn test_record_at_preserves_other_entries() {
-        let path = test_path("preserve");
-        let _ = fs::remove_file(&path);
+        let (_dir, path) = test_path("preserve");
         record_version_at("proj-a", &path).unwrap();
         record_version_at("proj-b", &path).unwrap();
         assert!(
@@ -110,8 +107,7 @@ mod tests {
 
     #[test]
     fn test_record_at_updates_same_project() {
-        let path = test_path("update");
-        let _ = fs::remove_file(&path);
+        let (_dir, path) = test_path("update");
         record_version_at("proj-dup", &path).unwrap();
         record_version_at("proj-dup", &path).unwrap();
         let versions: HashMap<String, String> =

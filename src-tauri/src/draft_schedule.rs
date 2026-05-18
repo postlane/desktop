@@ -210,22 +210,19 @@ mod tests {
 
     #[test]
     fn test_pre_populate_does_nothing_when_schedule_already_set() {
-        let dir = std::env::temp_dir().join("postlane_test_pp_already_set");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta(&dir,
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta(dir.path(),
             r#"{"status":"ready","platforms":["x"],"schedule":"2026-05-05T09:30:00Z"}"#);
         let state = state_with_dpt(10, 0, "UTC");
         pre_populate_schedule_from_state(&meta_path, &state, utc(2026, 5, 5, 8, 0)).unwrap();
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert_eq!(meta.schedule.as_deref(), Some("2026-05-05T09:30:00Z"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_pre_populate_does_nothing_when_default_post_time_null() {
-        let dir = std::env::temp_dir().join("postlane_test_pp_no_dpt");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta(&dir, r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
         let state = crate::app_state::AppStateFile {
             default_post_time: None,
             timezone: "UTC".to_string(),
@@ -234,14 +231,12 @@ mod tests {
         pre_populate_schedule_from_state(&meta_path, &state, utc(2026, 5, 5, 8, 0)).unwrap();
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta.schedule.is_none());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_pre_populate_sets_schedule_when_default_set() {
-        let dir = std::env::temp_dir().join("postlane_test_pp_sets_schedule");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta(&dir, r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
         let state = state_with_dpt(9, 30, "UTC");
         pre_populate_schedule_from_state(&meta_path, &state, utc(2026, 5, 5, 8, 0)).unwrap();
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
@@ -251,26 +246,23 @@ mod tests {
         let expected: chrono::DateTime<chrono::Utc> = "2026-05-05T09:30:00Z".parse().unwrap();
         let diff = (scheduled - expected).num_seconds().abs();
         assert!(diff <= 300, "schedule '{}' is more than 5 min from 09:30 UTC (diff: {}s)", schedule_str, diff);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_pre_populate_writes_atomically_no_tmp_file_left() {
-        let dir = std::env::temp_dir().join("postlane_test_pp_atomic");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta(&dir, r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
         let state = state_with_dpt(9, 0, "UTC");
         pre_populate_schedule_from_state(&meta_path, &state, utc(2026, 5, 5, 8, 0)).unwrap();
-        assert!(!dir.join("meta.json.tmp").exists(), "tmp file must not remain");
-        let _ = fs::remove_dir_all(&dir);
+        assert!(!dir.path().join("meta.json.tmp").exists(), "tmp file must not remain");
     }
 
     #[test]
     fn test_pre_populate_captures_voice_guide_version_when_available() {
-        let base = std::env::temp_dir().join("postlane_test_pp_vgv");
-        let post_folder = base.join("repo/.postlane/posts/my-post");
+        let base = tempfile::TempDir::new().expect("create temp dir");
+        let post_folder = base.path().join("repo/.postlane/posts/my-post");
         fs::create_dir_all(&post_folder).unwrap();
-        let config_dir = base.join("repo/.postlane");
+        let config_dir = base.path().join("repo/.postlane");
         fs::write(config_dir.join("config.json"), r#"{"project_id":"proj-test"}"#).unwrap();
         let meta_path = post_folder.join("meta.json");
         fs::write(&meta_path, r#"{"status":"ready","platforms":["x"]}"#).unwrap();
@@ -280,31 +272,26 @@ mod tests {
         }).unwrap();
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert_eq!(meta.voice_guide_version.as_deref(), Some("2026-05-05T10:00:00Z"));
-        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
     fn test_pre_populate_leaves_voice_guide_version_none_when_lookup_returns_none() {
-        let dir = std::env::temp_dir().join("postlane_test_pp_vgv_none");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta(&dir, r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
         let state = state_with_dpt(9, 0, "UTC");
         pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| None).unwrap();
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta.voice_guide_version.is_none(), "voice_guide_version should be None when lookup returns None");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_pre_populate_sets_schedule_source_to_default() {
-        let dir = std::env::temp_dir().join("postlane_test_pp_source");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta(&dir, r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
         let state = state_with_dpt(9, 0, "UTC");
         pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| None).unwrap();
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert_eq!(meta.schedule_source.as_deref(), Some("default"), "schedule_source should be 'default' when auto-populated");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

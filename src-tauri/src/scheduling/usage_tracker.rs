@@ -164,24 +164,17 @@ pub fn is_at_limit(provider: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
-    fn temp_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("postlane_usage_{}", name));
-        fs::create_dir_all(&dir).expect("create temp dir");
-        dir.join("scheduler_usage.json")
-    }
-
-    fn cleanup(path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = fs::remove_dir_all(parent);
-        }
+    fn temp_path(_name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("scheduler_usage.json");
+        (dir, path)
     }
 
     /// §13.4.1 — count resets when calendar month advances
     #[test]
     fn test_usage_tracker_resets_on_month_boundary() {
-        let path = temp_path("reset_month");
+        let (_dir, path) = temp_path("reset_month");
 
         for _ in 0..10 {
             record_post_at("publer", &path, 1, 2026).expect("record jan");
@@ -198,26 +191,26 @@ mod tests {
         let feb = get_usage_at("publer", &path, 2, 2026).expect("feb after");
         assert_eq!(feb.count, 1, "First February post must be 1, not 11");
 
-        cleanup(&path);
+
     }
 
     #[test]
     fn test_record_post_increments_count() {
-        let path = temp_path("increment");
+        let (_dir, path) = temp_path("increment");
         record_post_at("publer", &path, 4, 2026).expect("first");
         record_post_at("publer", &path, 4, 2026).expect("second");
         let u = get_usage_at("publer", &path, 4, 2026).expect("get");
         assert_eq!(u.count, 2);
-        cleanup(&path);
+
     }
 
     #[test]
     fn test_get_usage_missing_provider_returns_zero() {
-        let path = temp_path("missing");
+        let (_dir, path) = temp_path("missing");
         let u = get_usage_at("publer", &path, 4, 2026).expect("get");
         assert_eq!(u.count, 0);
         assert_eq!(u.provider, "publer");
-        cleanup(&path);
+
     }
 
     #[test]
@@ -233,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_near_limit_threshold_is_80_percent() {
-        let path = temp_path("near_limit");
+        let (_dir, path) = temp_path("near_limit");
         // Publer limit = 10; 80% = 8
         for _ in 0..7 {
             record_post_at("publer", &path, 4, 2026).expect("record");
@@ -243,12 +236,12 @@ mod tests {
         record_post_at("publer", &path, 4, 2026).expect("8th");
         assert!(is_near_limit_at("publer", &path, 4, 2026), "8/10 must be near limit");
 
-        cleanup(&path);
+
     }
 
     #[test]
     fn test_at_limit_threshold_is_100_percent() {
-        let path = temp_path("at_limit");
+        let (_dir, path) = temp_path("at_limit");
         for _ in 0..9 {
             record_post_at("publer", &path, 4, 2026).expect("record");
         }
@@ -257,24 +250,24 @@ mod tests {
         record_post_at("publer", &path, 4, 2026).expect("10th");
         assert!(is_at_limit_at("publer", &path, 4, 2026), "10/10 must be at limit");
 
-        cleanup(&path);
+
     }
 
     #[test]
     fn test_unlimited_providers_never_at_limit() {
-        let path = temp_path("unlimited");
+        let (_dir, path) = temp_path("unlimited");
         for _ in 0..100 {
             record_post_at("zernio", &path, 4, 2026).expect("record");
         }
         assert!(!is_near_limit_at("zernio", &path, 4, 2026));
         assert!(!is_at_limit_at("zernio", &path, 4, 2026));
         assert!(!is_near_limit_at("buffer", &path, 4, 2026));
-        cleanup(&path);
+
     }
 
     #[test]
     fn test_multiple_providers_tracked_independently() {
-        let path = temp_path("multi");
+        let (_dir, path) = temp_path("multi");
         for _ in 0..5 {
             record_post_at("publer", &path, 4, 2026).expect("publer");
         }
@@ -283,6 +276,6 @@ mod tests {
         }
         assert_eq!(get_usage_at("publer", &path, 4, 2026).unwrap().count, 5);
         assert_eq!(get_usage_at("outstand", &path, 4, 2026).unwrap().count, 3);
-        cleanup(&path);
+
     }
 }

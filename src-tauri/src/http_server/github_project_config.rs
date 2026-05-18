@@ -57,13 +57,17 @@ mod tests {
     use tower::ServiceExt;
 
     fn make_state_with_projects(token: &str, projects: Vec<ProjectSummary>) -> ServerState {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        // Keep TempDir alive by leaking it — test-only, small footprint.
+        std::mem::forget(tmp);
         ServerState {
             token: token.to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
                 version: 1,
                 repos: vec![],
             })),
-            repos_path: std::env::temp_dir().join("postlane_test_ghpc_repos.json"),
+            repos_path,
             activation_tx: None,
             projects: Arc::new(tokio::sync::RwLock::new(projects)),
         }

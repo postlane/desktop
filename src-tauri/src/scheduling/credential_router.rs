@@ -135,16 +135,10 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    fn temp_usage(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("postlane_cr_{}", name));
-        fs::create_dir_all(&dir).expect("create dir");
-        dir.join("scheduler_usage.json")
-    }
-
-    fn cleanup(path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = fs::remove_dir_all(parent);
-        }
+    fn temp_usage(_name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("scheduler_usage.json");
+        (dir, path)
     }
 
     fn cred_for_all(provider: &str) -> Option<String> {
@@ -154,7 +148,7 @@ mod tests {
     /// §13.4.2 — primary exhausted; fallback provider is returned
     #[test]
     fn test_fallback_skips_exhausted_provider() {
-        let usage = temp_usage("skip_exhausted");
+        let (_dir, usage) = temp_usage("skip_exhausted");
         let limit = get_known_limit("publer").expect("publer has a limit");
         for _ in 0..limit {
             record_post_at("publer", &usage, 4, 2026).expect("record");
@@ -164,14 +158,12 @@ mod tests {
         let result = select_provider_with_fallback(&providers, &usage, 4, 2026, cred_for_all);
         assert!(result.is_ok(), "should fall back to zernio");
         assert_eq!(result.unwrap().provider, "zernio");
-
-        cleanup(&usage);
     }
 
     /// §13.4.3 — all providers exhausted returns error
     #[test]
     fn test_all_providers_exhausted_returns_error() {
-        let usage = temp_usage("all_exhausted");
+        let (_dir, usage) = temp_usage("all_exhausted");
         let publer_limit = get_known_limit("publer").expect("publer has a limit");
         let webhook_limit = get_known_limit("webhook").expect("webhook has a limit");
         for _ in 0..publer_limit {
@@ -188,49 +180,42 @@ mod tests {
             result.unwrap_err().to_lowercase().contains("limits"),
             "error must mention limits"
         );
-
-        cleanup(&usage);
     }
 
     /// §13.4.4 — fallback_order is respected; first provider with capacity wins
     #[test]
     fn test_fallback_order_respects_config() {
-        let usage = temp_usage("order");
+        let (_dir, usage) = temp_usage("order");
 
         // Both have capacity; Publer is first in the list
         let providers = vec!["publer".to_string(), "zernio".to_string()];
         let result = select_provider_with_fallback(&providers, &usage, 4, 2026, cred_for_all);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().provider, "publer", "first in list must win");
-
-        cleanup(&usage);
     }
 
     #[test]
     fn test_no_credential_skips_provider() {
-        let usage = temp_usage("no_cred");
+        let (_dir, usage) = temp_usage("no_cred");
         let providers = vec!["publer".to_string(), "zernio".to_string()];
         let result = select_provider_with_fallback(&providers, &usage, 4, 2026, |p| {
             if p == "zernio" { Some("key".to_string()) } else { None }
         });
         assert!(result.is_ok());
         assert_eq!(result.unwrap().provider, "zernio");
-        cleanup(&usage);
     }
 
     #[test]
     fn test_empty_provider_list_returns_error() {
-        let usage = temp_usage("empty");
+        let (_dir, usage) = temp_usage("empty");
         let result = select_provider_with_fallback(&[], &usage, 4, 2026, cred_for_all);
         assert!(result.is_err());
-        cleanup(&usage);
     }
 
     #[test]
     fn test_read_fallback_order_uses_fallback_order_field() {
-        let dir = std::env::temp_dir().join("postlane_cr_fbo");
-        fs::create_dir_all(&dir).expect("create dir");
-        let config_path = dir.join("config.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = dir.path().join("config.json");
         let config = serde_json::json!({
             "scheduler": {
                 "provider": "publer",
@@ -242,7 +227,6 @@ mod tests {
             read_fallback_order(&config_path),
             vec!["publer", "zernio", "webhook"]
         );
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -261,12 +245,10 @@ mod tests {
 
     #[test]
     fn test_read_fallback_order_falls_back_to_single_provider() {
-        let dir = std::env::temp_dir().join("postlane_cr_single");
-        fs::create_dir_all(&dir).expect("create dir");
-        let config_path = dir.join("config.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = dir.path().join("config.json");
         let config = serde_json::json!({"scheduler": {"provider": "zernio"}});
         fs::write(&config_path, config.to_string()).expect("write");
         assert_eq!(read_fallback_order(&config_path), vec!["zernio"]);
-        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -153,8 +153,7 @@ mod tests {
 
     #[test]
     fn test_read_meta_valid() {
-        let dir = std::env::temp_dir().join("postlane_test_parser_valid");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
         let meta_json = r#"{
             "status": "draft",
@@ -172,32 +171,26 @@ mod tests {
             "sent_at": null
         }"#;
 
-        fs::write(dir.join("meta.json"), meta_json).expect("Failed to write meta.json");
+        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
 
-        let meta = read_meta(&dir).expect("Should parse valid meta.json");
+        let meta = read_meta(dir.path()).expect("Should parse valid meta.json");
         assert_eq!(meta.status, "draft");
         assert_eq!(meta.platforms.len(), 2);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_meta_malformed() {
-        let dir = std::env::temp_dir().join("postlane_test_parser_malformed");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        fs::write(dir.join("meta.json"), "{ not valid json }").expect("Failed to write");
+        fs::write(dir.path().join("meta.json"), "{ not valid json }").expect("Failed to write");
 
-        let result = read_meta(&dir);
+        let result = read_meta(dir.path());
         assert!(result.is_err(), "Should fail on malformed JSON");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_validate_post_folder_success() {
-        let dir = std::env::temp_dir().join("postlane_test_validate_success");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
         let meta_json = r#"{
             "status": "ready",
@@ -215,19 +208,16 @@ mod tests {
             "sent_at": null
         }"#;
 
-        fs::write(dir.join("meta.json"), meta_json).expect("Failed to write meta.json");
-        fs::write(dir.join("x.md"), "Short post").expect("Failed to write x.md");
+        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
+        fs::write(dir.path().join("x.md"), "Short post").expect("Failed to write x.md");
 
-        let result = validate_post_folder(&dir);
+        let result = validate_post_folder(dir.path());
         assert!(result.is_ok(), "Should validate successfully");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_validate_post_folder_missing_file() {
-        let dir = std::env::temp_dir().join("postlane_test_validate_missing");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
         let meta_json = r#"{
             "status": "ready",
@@ -245,25 +235,22 @@ mod tests {
             "sent_at": null
         }"#;
 
-        fs::write(dir.join("meta.json"), meta_json).expect("Failed to write meta.json");
-        fs::write(dir.join("x.md"), "Post content").expect("Failed to write x.md");
+        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
+        fs::write(dir.path().join("x.md"), "Post content").expect("Failed to write x.md");
         // bluesky.md is missing
 
-        let result = validate_post_folder(&dir);
+        let result = validate_post_folder(dir.path());
         assert!(result.is_err(), "Should fail with missing file error");
 
         if let Err(errors) = result {
             assert_eq!(errors.len(), 1);
             assert!(matches!(errors[0], ValidationError::MissingFile(_)));
         }
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_validate_post_folder_over_limit() {
-        let dir = std::env::temp_dir().join("postlane_test_validate_over");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
         let meta_json = r#"{
             "status": "ready",
@@ -281,11 +268,11 @@ mod tests {
             "sent_at": null
         }"#;
 
-        fs::write(dir.join("meta.json"), meta_json).expect("Failed to write meta.json");
+        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
         // Write 300 characters (over X's 280 limit)
-        fs::write(dir.join("x.md"), "a".repeat(300)).expect("Failed to write x.md");
+        fs::write(dir.path().join("x.md"), "a".repeat(300)).expect("Failed to write x.md");
 
-        let result = validate_post_folder(&dir);
+        let result = validate_post_folder(dir.path());
         assert!(result.is_err(), "Should fail with over-limit error");
 
         if let Err(errors) = result {
@@ -303,8 +290,6 @@ mod tests {
                 panic!("Expected OverLimit error");
             }
         }
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -391,11 +376,10 @@ mod tests {
 
     #[test]
     fn test_read_meta_missing_file() {
-        let dir = std::env::temp_dir().join("postlane_test_parser_missing_meta");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
         // No meta.json file exists
-        let result = read_meta(&dir);
+        let result = read_meta(dir.path());
 
         assert!(result.is_err(), "Should fail when meta.json is missing");
         if let Err(ValidationError::ParseError(msg)) = result {
@@ -403,7 +387,5 @@ mod tests {
         } else {
             panic!("Expected ParseError");
         }
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

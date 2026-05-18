@@ -209,8 +209,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_registers_repo_and_writes_project_id() {
-        let dir = std::env::temp_dir().join("postlane_test_register_repo_pr");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write");
 
@@ -220,9 +220,9 @@ mod tests {
             then.status(200).json_body(serde_json::json!({ "repo_id": "repo-uuid-123" }));
         });
 
-        let repos = make_repos(&[dir.to_str().unwrap()]);
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
         let notice = register_repo_with_project_with_client(
-            "proj-abc", dir.to_str().unwrap(), "The desktop app",
+            "proj-abc", dir.path().to_str().unwrap(), "The desktop app",
             &build_client(), &server.base_url(), "tok", &repos,
         ).await.expect("should succeed");
 
@@ -230,7 +230,6 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(parsed["project_id"].as_str(), Some("proj-abc"));
         assert!(notice.contains("project_id"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -322,8 +321,8 @@ mod tests {
     /// Exercises the full create → register → read_config chain in one test.
     #[tokio::test]
     async fn test_full_wizard_path_create_register_read_config() {
-        let dir = std::env::temp_dir().join("postlane_test_full_wizard_path");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#)
             .expect("write initial config");
@@ -346,7 +345,7 @@ mod tests {
         });
 
         let client = build_client();
-        let repos = make_repos(&[dir.to_str().unwrap()]);
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
 
         let (returned_id, returned_name, workspace_type) =
             create_project_with_client("Integration Workspace", "personal", None, None, &client, &server.base_url(), "tok")
@@ -358,13 +357,13 @@ mod tests {
         assert_eq!(workspace_type, "personal");
 
         register_repo_with_project_with_client(
-            &returned_id, dir.to_str().unwrap(), "Integration test repo",
+            &returned_id, dir.path().to_str().unwrap(), "Integration test repo",
             &client, &server.base_url(), "tok", &repos,
         )
         .await
         .expect("register_repo should succeed");
 
-        let read_back = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos)
+        let read_back = read_project_id_from_path_impl(dir.path().to_str().unwrap(), &repos)
             .expect("read_project_id should not error");
 
         assert_eq!(
@@ -372,7 +371,5 @@ mod tests {
             Some(project_id),
             "project_id written by register_repo must be readable by read_project_id_from_path"
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

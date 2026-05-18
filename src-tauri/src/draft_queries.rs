@@ -220,116 +220,108 @@ mod tests {
 
     #[test]
     fn test_get_all_drafts_inactive_repo_excluded() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_inactive");
-        write_md(&dir, "my-post", "x", "Inactive");
-        let mut repo = make_repo("r1", dir.to_str().unwrap());
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_md(dir.path(), "my-post", "x", "Inactive");
+        let mut repo = make_repo("r1", dir.path().to_str().unwrap());
         repo.active = false;
         let state = make_state(vec![repo]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert!(result.is_empty());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_all_drafts_includes_project_id() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_project_id");
-        write_config(&dir, r#"{"project_id":"proj-abc"}"#);
-        write_md(&dir, "my-post", "x", "Hello");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_config(dir.path(), r#"{"project_id":"proj-abc"}"#);
+        write_md(dir.path(), "my-post", "x", "Hello");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].project_id, Some("proj-abc".to_string()));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_all_drafts_includes_scheduled_for() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_scheduled_for");
-        write_meta(&dir, "my-post", r#"{"scheduled_for":"2026-06-01T10:00:00Z"}"#);
-        write_md(&dir, "my-post", "x", "Hello");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta(dir.path(), "my-post", r#"{"scheduled_for":"2026-06-01T10:00:00Z"}"#);
+        write_md(dir.path(), "my-post", "x", "Hello");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].scheduled_for.as_deref(), Some("2026-06-01T10:00:00Z"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_all_drafts_excludes_sent_platforms() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_excl_sent");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta(
-            &dir,
+            dir.path(),
             "my-post",
             r#"{"sent_platforms":{"x":"2026-05-01T10:00:00Z"}}"#,
         );
-        write_md(&dir, "my-post", "x", "Already sent");
-        write_md(&dir, "my-post", "bluesky", "Not sent yet");
+        write_md(dir.path(), "my-post", "x", "Already sent");
+        write_md(dir.path(), "my-post", "bluesky", "Not sent yet");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].platform, "bluesky");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_draft_event_disappears_from_queue_when_all_platforms_sent() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_all_sent");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta(
-            &dir,
+            dir.path(),
             "my-post",
             r#"{"sent_platforms":{"x":"2026-05-01T10:00:00Z","bluesky":"2026-05-01T10:00:00Z"}}"#,
         );
-        write_md(&dir, "my-post", "x", "X post");
-        write_md(&dir, "my-post", "bluesky", "Bluesky post");
+        write_md(dir.path(), "my-post", "x", "X post");
+        write_md(dir.path(), "my-post", "bluesky", "Bluesky post");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert!(result.is_empty(), "all sent → zero draft rows");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_all_drafts_returns_failed_status() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_failed");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta(
-            &dir,
+            dir.path(),
             "my-post",
             r#"{"status":"failed","error":"scheduler timeout"}"#,
         );
-        write_md(&dir, "my-post", "x", "Failed post");
+        write_md(dir.path(), "my-post", "x", "Failed post");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].status, "failed");
         assert_eq!(result[0].error.as_deref(), Some("scheduler timeout"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_all_drafts_treats_absent_post_meta_as_clean() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_no_meta");
-        write_md(&dir, "my-post", "x", "No meta");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_md(dir.path(), "my-post", "x", "No meta");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].status, "ready");
         assert!(result[0].error.is_none());
         assert!(result[0].scheduled_for.is_none());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     // ── Workspace tests (20.8) ────────────────────────────────────────────────
 
-    fn make_workspace(name: &str) -> (PathBuf, PathBuf, PathBuf) {
-        let ws = std::env::temp_dir().join(format!("postlane_ws_dq_{}", name));
-        let _ = fs::remove_dir_all(&ws);
-        let child_a = ws.join("repo-a");
-        let child_b = ws.join("repo-b");
+    fn make_workspace(_name: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let ws = tempfile::TempDir::new().expect("create temp dir");
+        let child_a = ws.path().join("repo-a");
+        let child_b = ws.path().join("repo-b");
         fs::create_dir_all(child_a.join(".git")).expect("git a");
         fs::create_dir_all(child_b.join(".git")).expect("git b");
         (ws, child_a, child_b)
@@ -339,7 +331,7 @@ mod tests {
     fn test_workspace_drafts_set_repo_path_to_child_path() {
         let (ws, child_a, _) = make_workspace("repo_path_13");
         write_md(&child_a, "my-post", "x", "Hello");
-        let state = make_state(vec![make_repo("ws", ws.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1, "workspace must surface child drafts");
         assert_eq!(
@@ -347,32 +339,29 @@ mod tests {
             child_a.to_str().unwrap(),
             "repo_path must be child path, not workspace root"
         );
-        let _ = fs::remove_dir_all(&ws);
     }
 
     #[test]
     fn test_workspace_child_with_own_config_uses_child_project_id() {
         let (ws, child_a, _) = make_workspace("own_cfg_11");
-        write_config(&ws, r#"{"project_id":"parent-proj"}"#);
+        write_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
         write_config(&child_a, r#"{"project_id":"child-proj"}"#);
         write_md(&child_a, "my-post", "x", "Child post");
-        let state = make_state(vec![make_repo("ws", ws.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].project_id, Some("child-proj".to_string()));
-        let _ = fs::remove_dir_all(&ws);
     }
 
     #[test]
     fn test_workspace_child_without_config_inherits_parent_project_id() {
         let (ws, child_a, _) = make_workspace("inherit_cfg_11");
-        write_config(&ws, r#"{"project_id":"parent-proj"}"#);
+        write_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
         write_md(&child_a, "my-post", "x", "Child post");
-        let state = make_state(vec![make_repo("ws", ws.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].project_id, Some("parent-proj".to_string()));
-        let _ = fs::remove_dir_all(&ws);
     }
 
     #[test]
@@ -380,12 +369,11 @@ mod tests {
         let (ws, child_a, _) = make_workspace("dedup_16");
         write_md(&child_a, "my-post", "x", "Post");
         let state = make_state(vec![
-            make_repo("ws", ws.to_str().unwrap()),
+            make_repo("ws", ws.path().to_str().unwrap()),
             make_repo("child-r", child_a.to_str().unwrap()),
         ]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1, "workspace scan must skip registered child");
-        let _ = fs::remove_dir_all(&ws);
     }
 
     #[test]
@@ -393,47 +381,44 @@ mod tests {
         let (ws, child_a, child_b) = make_workspace("all_children_17");
         write_md(&child_a, "post-1", "x", "A");
         write_md(&child_b, "post-1", "x", "B");
-        let state = make_state(vec![make_repo("ws", ws.to_str().unwrap())]);
+        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2, "both children must be scanned");
         let pa = child_a.to_str().unwrap();
         let pb = child_b.to_str().unwrap();
         assert_eq!(result[0].repo_path, pa.min(pb));
         assert_eq!(result[1].repo_path, pa.max(pb));
-        let _ = fs::remove_dir_all(&ws);
     }
 
     // 20.10.13 — markdown_file outputs in draft_output_dir do not appear in get_all_drafts
     #[test]
     fn test_markdown_file_output_in_draft_output_dir_not_in_queue() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_markdown_file_20_10_13");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(dir.join(".git")).expect("create .git");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
         // Write a file directly to .postlane/drafts/ (not .postlane/posts/)
-        let drafts_dir = dir.join(".postlane").join("drafts");
+        let drafts_dir = dir.path().join(".postlane").join("drafts");
         fs::create_dir_all(&drafts_dir).expect("create drafts dir");
         fs::write(drafts_dir.join("newsletter.md"), "# Update\n\nSome content.").expect("write");
         // Also write a normal social post to confirm queue still works for those
-        write_md(&dir, "social-post", "x", "X post");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        write_md(dir.path(), "social-post", "x", "X post");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");
         // Only the social post should appear; the markdown_file output must not
         assert_eq!(result.len(), 1, "markdown_file output must not appear in queue");
         assert_eq!(result[0].platform, "x", "queue must still contain social posts");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_all_drafts_sorted_by_repo_post_folder_platform() {
-        let dir_a = std::env::temp_dir().join("postlane_test_gad_sort_repo_a");
-        let dir_b = std::env::temp_dir().join("postlane_test_gad_sort_repo_b");
-        write_md(&dir_a, "folder-1", "x", "A x");
-        write_md(&dir_a, "folder-1", "bluesky", "A bluesky");
-        write_md(&dir_b, "folder-1", "x", "B x");
-        write_md(&dir_b, "folder-1", "bluesky", "B bluesky");
+        let dir_a = tempfile::TempDir::new().expect("create temp dir");
+        let dir_b = tempfile::TempDir::new().expect("create temp dir");
+        write_md(dir_a.path(), "folder-1", "x", "A x");
+        write_md(dir_a.path(), "folder-1", "bluesky", "A bluesky");
+        write_md(dir_b.path(), "folder-1", "x", "B x");
+        write_md(dir_b.path(), "folder-1", "bluesky", "B bluesky");
 
-        let path_a = dir_a.to_str().unwrap().to_string();
-        let path_b = dir_b.to_str().unwrap().to_string();
+        let path_a = dir_a.path().to_str().unwrap().to_string();
+        let path_b = dir_b.path().to_str().unwrap().to_string();
         let state = make_state(vec![
             make_repo("rb", &path_b),
             make_repo("ra", &path_a),
@@ -450,21 +435,17 @@ mod tests {
         assert_eq!(result[2].platform, "bluesky");
         assert_eq!(&result[3].repo_path, rb);
         assert_eq!(result[3].platform, "x");
-
-        let _ = fs::remove_dir_all(&dir_a);
-        let _ = fs::remove_dir_all(&dir_b);
     }
 
     #[test]
     fn test_get_all_drafts_capped_at_max_page() {
-        let dir = std::env::temp_dir().join("postlane_test_gad_cap");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
         for i in 0..MAX_DRAFT_PAGE + 5 {
-            write_md(&dir, &format!("folder-{:03}", i), "x", "content");
+            write_md(dir.path(), &format!("folder-{:03}", i), "x", "content");
         }
-        let path = dir.to_str().unwrap().to_string();
+        let path = dir.path().to_str().unwrap().to_string();
         let state = make_state(vec![make_repo("r1", &path)]);
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), MAX_DRAFT_PAGE, "result must be capped at MAX_DRAFT_PAGE");
-        let _ = fs::remove_dir_all(&dir);
     }
 }

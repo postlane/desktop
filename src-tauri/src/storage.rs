@@ -101,25 +101,21 @@ mod tests {
 
     #[test]
     fn test_read_repos_missing_file_returns_empty() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_missing");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = dir.join("repos.json");
+        let repos_path = dir.path().join("repos.json");
 
         let result = read_repos_with_recovery(&repos_path).expect("Should return empty config");
         assert_eq!(result.version, 1);
         assert_eq!(result.repos.len(), 0);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_repos_malformed_json_creates_backup() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_corrupt");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = dir.join("repos.json");
-        let bak_path = dir.join("repos.json.bak");
+        let repos_path = dir.path().join("repos.json");
+        let bak_path = dir.path().join("repos.json.bak");
 
         // Write malformed JSON
         fs::write(&repos_path, "{ this is not valid json }").expect("Failed to write malformed JSON");
@@ -132,16 +128,13 @@ mod tests {
         // Backup should exist
         assert!(bak_path.exists(), "Backup file should exist");
         assert!(!repos_path.exists(), "Original should be renamed");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_repos_valid_json_parses_correctly() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_valid");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = dir.join("repos.json");
+        let repos_path = dir.path().join("repos.json");
 
         let config = ReposConfig {
             version: 1,
@@ -161,16 +154,13 @@ mod tests {
         assert_eq!(result.version, 1);
         assert_eq!(result.repos.len(), 1);
         assert_eq!(result.repos[0].id, "test-id");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_repos_version_mismatch_returns_error() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_version");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = dir.join("repos.json");
+        let repos_path = dir.path().join("repos.json");
 
         // Write config with wrong version
         let json = r#"{"version": 999, "repos": []}"#;
@@ -186,16 +176,13 @@ mod tests {
             }
             _ => panic!("Expected VersionMismatch error"),
         }
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_repos_round_trip_with_version() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_roundtrip");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = dir.join("repos.json");
+        let repos_path = dir.path().join("repos.json");
 
         let config = ReposConfig {
             version: 1,
@@ -230,8 +217,6 @@ mod tests {
         assert_eq!(loaded.repos[0].active, true);
         assert_eq!(loaded.repos[1].id, "repo2-id");
         assert_eq!(loaded.repos[1].active, false);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -239,10 +224,9 @@ mod tests {
         use std::sync::{Arc, Mutex};
         use std::thread;
 
-        let dir = std::env::temp_dir().join("postlane_test_concurrent");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = Arc::new(dir.join("repos.json"));
+        let repos_path = Arc::new(dir.path().join("repos.json"));
         let write_lock = Arc::new(Mutex::new(()));
 
         // Simulate concurrent writes
@@ -280,8 +264,6 @@ mod tests {
         let final_state = read_repos_with_recovery(&repos_path).expect("Failed to read");
         assert_eq!(final_state.version, 1);
         assert_eq!(final_state.repos.len(), 1); // Last write wins
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -313,11 +295,10 @@ mod tests {
 
     #[test]
     fn test_read_repos_malformed_backup_rename_fails() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_backup_fail");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let repos_path = dir.join("repos.json");
-        let bak_path = dir.join("repos.json.bak");
+        let repos_path = dir.path().join("repos.json");
+        let bak_path = dir.path().join("repos.json.bak");
 
         // Create a directory where the .bak file should go
         // This will cause the rename to fail
@@ -333,51 +314,39 @@ mod tests {
         let config = result.unwrap();
         assert_eq!(config.version, 1);
         assert_eq!(config.repos.len(), 0, "Should return empty config");
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&dir);
     }
 
     // ── Corruption flag tests (§review-high) ─────────────────────────────────
 
     #[test]
     fn test_read_repos_returns_false_flag_for_clean_file() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_flag_clean");
-        fs::create_dir_all(&dir).expect("create dir");
-        let repos_path = dir.join("repos.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = dir.path().join("repos.json");
         let config = ReposConfig { version: 1, repos: vec![] };
         let json = serde_json::to_string(&config).unwrap();
         fs::write(&repos_path, json).unwrap();
 
         let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
         assert!(!was_corrupted, "clean file must not set was_corrupted");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_repos_returns_true_flag_for_corrupted_file() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_flag_corrupt");
-        fs::create_dir_all(&dir).expect("create dir");
-        let repos_path = dir.join("repos.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = dir.path().join("repos.json");
         fs::write(&repos_path, "{ bad json }").unwrap();
 
         let (config, was_corrupted) = read_repos_checked(&repos_path).expect("should recover");
         assert!(was_corrupted, "corrupt file must set was_corrupted");
         assert_eq!(config.repos.len(), 0, "should return empty config after recovery");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_repos_returns_false_flag_for_missing_file() {
-        let dir = std::env::temp_dir().join("postlane_test_repos_flag_missing");
-        fs::create_dir_all(&dir).expect("create dir");
-        let repos_path = dir.join("repos.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = dir.path().join("repos.json");
 
         let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
         assert!(!was_corrupted, "missing file is not corruption");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

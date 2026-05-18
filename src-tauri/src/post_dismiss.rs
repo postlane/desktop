@@ -140,9 +140,9 @@ mod tests {
         }
     }
 
-    fn make_dismiss_dir(suffix: &str) -> (std::path::PathBuf, String) {
-        let dir = std::env::temp_dir().join(format!("postlane_test_dismiss_tel_{}", suffix));
-        let post_dir = dir.join(".postlane/posts/post-d");
+    fn make_dismiss_dir(_suffix: &str) -> (tempfile::TempDir, String) {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/post-d");
         std::fs::create_dir_all(&post_dir).expect("create dir");
         let meta = serde_json::json!({"status": "ready", "platforms": ["x"]});
         std::fs::write(
@@ -150,7 +150,7 @@ mod tests {
             serde_json::to_string_pretty(&meta).expect("serialize"),
         )
         .expect("write meta");
-        let path = dir.to_str().unwrap().to_string();
+        let path = dir.path().to_str().unwrap().to_string();
         (dir, path)
     }
 
@@ -183,9 +183,9 @@ mod tests {
 
     #[test]
     fn test_dismiss_post_rejects_unregistered_path() {
-        let registered = std::env::temp_dir().join("postlane_test_dismiss_registered");
-        let unregistered = std::env::temp_dir().join("postlane_test_dismiss_unregistered");
-        let post_dir = unregistered.join(".postlane/posts/post-d");
+        let registered = tempfile::TempDir::new().expect("create temp dir");
+        let unregistered = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = unregistered.path().join(".postlane/posts/post-d");
         fs::create_dir_all(&post_dir).expect("create post dir");
         let meta = serde_json::json!({"status": "ready", "platforms": ["x"]});
         fs::write(
@@ -193,19 +193,16 @@ mod tests {
             serde_json::to_string_pretty(&meta).expect("serialize"),
         )
         .expect("write meta");
-        fs::create_dir_all(&registered).expect("create registered dir");
-        let repos = make_repos_canonical(&[&registered]);
+        let repos = make_repos_canonical(&[registered.path()]);
         let state = AppState::new(repos);
-        let result = dismiss_post_impl(unregistered.to_str().unwrap(), "post-d", &state, false);
+        let result = dismiss_post_impl(unregistered.path().to_str().unwrap(), "post-d", &state, false);
         assert!(result.is_err(), "dismiss_post_impl must reject unregistered path");
-        let _ = fs::remove_dir_all(&registered);
-        let _ = fs::remove_dir_all(&unregistered);
     }
 
     #[test]
     fn test_dismiss_post_canonicalizes_path() {
-        let dir = std::env::temp_dir().join("postlane_test_dismiss_canon");
-        let post_dir = dir.join(".postlane/posts/post-c");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/post-c");
         fs::create_dir_all(&post_dir).expect("create dir");
         let meta = serde_json::json!({"status": "ready", "platforms": ["x"]});
         fs::write(
@@ -213,58 +210,54 @@ mod tests {
             serde_json::to_string_pretty(&meta).expect("serialize"),
         )
         .expect("write meta");
-        let repos = make_repos_canonical(&[&dir]);
+        let repos = make_repos_canonical(&[dir.path()]);
         let state = AppState::new(repos);
-        let canonical_path = fs::canonicalize(&dir).expect("canonicalize");
+        let canonical_path = fs::canonicalize(dir.path()).expect("canonicalize");
         let result = dismiss_post_impl(canonical_path.to_str().unwrap(), "post-c", &state, false);
         assert!(
             result.is_ok(),
             "dismiss_post_impl must accept registered canonical path: {:?}",
             result
         );
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_dismiss_records_telemetry_when_consent_given() {
         let (dir, path) = make_dismiss_dir("yes");
-        let state = make_dismiss_state(&dir);
+        let state = make_dismiss_state(dir.path());
         let result = dismiss_post_impl(&path, "post-d", &state, true);
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_dismiss_telemetry_includes_platforms() {
         let (dir, path) = make_dismiss_dir("platforms-check");
-        let state = make_dismiss_state(&dir);
+        let state = make_dismiss_state(dir.path());
         dismiss_post_impl(&path, "post-d", &state, true).expect("dismiss must succeed");
         let events = state.telemetry.peek_queue();
         let props = &events[0].properties;
         assert!(props.get("platforms").is_some(), "telemetry must include platforms field");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_dismiss_no_telemetry_when_consent_not_given() {
         let (dir, path) = make_dismiss_dir("no");
-        let state = make_dismiss_state(&dir);
+        let state = make_dismiss_state(dir.path());
         let result = dismiss_post_impl(&path, "post-d", &state, false);
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_delete_post_removes_only_the_specified_platform_file() {
-        let dir = std::env::temp_dir().join("postlane_test_delete_post_platform");
-        let post_path = dir.join(".postlane/posts/post-del");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_path = dir.path().join(".postlane/posts/post-del");
         fs::create_dir_all(&post_path).expect("create post dir");
         fs::write(post_path.join("x.md"), "x content").expect("write x.md");
         fs::write(post_path.join("linkedin.md"), "linkedin content").expect("write linkedin.md");
         fs::write(post_path.join("meta.json"), "{}").expect("write meta.json");
-        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_delete_state(&canonical_str);
         let result = delete_post_impl(&canonical_str, "post-del", "x", &state);
@@ -272,46 +265,39 @@ mod tests {
         assert!(!post_path.join("x.md").exists(), "x.md must be deleted");
         assert!(post_path.join("linkedin.md").exists(), "linkedin.md must NOT be deleted");
         assert!(post_path.join("meta.json").exists(), "meta.json must NOT be deleted");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_delete_post_rejects_multi_segment_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_delete_multi_seg");
-        fs::create_dir_all(&dir).expect("create dir");
-        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_delete_state(&canonical_str);
         let result = delete_post_impl(&canonical_str, "a/b", "x", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_delete_post_rejects_path_traversal() {
-        let dir = std::env::temp_dir().join("postlane_test_delete_traversal");
-        fs::create_dir_all(&dir).expect("create dir");
-        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_delete_state(&canonical_str);
         let result = delete_post_impl(&canonical_str, "../etc", "x", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_delete_post_rejects_path_traversal_in_platform() {
-        let dir = std::env::temp_dir().join("postlane_test_delete_traversal_platform");
-        fs::create_dir_all(&dir).expect("create dir");
-        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_delete_state(&canonical_str);
         let result = delete_post_impl(&canonical_str, "post-a", "../secrets", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("invalid platform"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

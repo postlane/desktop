@@ -98,163 +98,141 @@ mod tests {
 
     #[test]
     fn test_sets_future_schedule() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_set");
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
-        let state = make_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
+        let state = make_state_with_dir(dir.path());
         let result = update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
+            dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
         );
         assert!(result.is_ok(), "{:?}", result);
         let meta = crate::post_mutations::read_post_meta(
-            &dir.join(".postlane/posts/post-001/meta.json")
+            &dir.path().join(".postlane/posts/post-001/meta.json")
         ).unwrap();
         assert_eq!(meta.schedule.as_deref(), Some(schedule_tomorrow()));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_clears_schedule_with_none() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_clear");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta_in(&dir, "post-001");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta_in(dir.path(), "post-001");
         // pre-set a schedule
         let mut meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         meta.schedule = Some(schedule_tomorrow().to_string());
         crate::post_mutations::write_post_meta(&meta_path, &meta).unwrap();
-        let state = make_state_with_dir(&dir);
+        let state = make_state_with_dir(dir.path());
         let result = update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", None, &state, future(), None,
+            dir.path().to_str().unwrap(), "post-001", None, &state, future(), None,
         );
         assert!(result.is_ok(), "{:?}", result);
         let meta2 = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta2.schedule.is_none());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_rejects_past_timestamp() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_past");
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
-        let state = make_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
+        let state = make_state_with_dir(dir.path());
         let now: DateTime<Utc> = "2026-06-03T12:00:00Z".parse().unwrap();
         let result = update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some("2026-06-03T11:00:00Z"), &state, now, None,
+            dir.path().to_str().unwrap(), "post-001", Some("2026-06-03T11:00:00Z"), &state, now, None,
         );
         assert!(result.is_err());
         let msg = result.unwrap_err();
         assert!(msg.contains("past"), "error should mention 'past': {}", msg);
         assert!(msg.contains("current UTC time"), "error should include current UTC time: {}", msg);
         assert!(msg.contains("timezone"), "error should mention timezone setting: {}", msg);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_rejects_malformed_iso() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_malformed");
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
-        let state = make_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
+        let state = make_state_with_dir(dir.path());
         let result = update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some("not-a-date"), &state, future(), None,
+            dir.path().to_str().unwrap(), "post-001", Some("not-a-date"), &state, future(), None,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("valid ISO 8601"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_rejects_unregistered_repo_path() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_unregistered");
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
         let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
         let result = update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &empty_state, future(), None,
+            dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &empty_state, future(), None,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not in the registered repos list"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_atomic_write_leaves_no_tmp_file() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_atomic");
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
-        let state = make_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
+        let state = make_state_with_dir(dir.path());
         update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
+            dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
         ).unwrap();
-        assert!(!dir.join(".postlane/posts/post-001/meta.json.tmp").exists());
-        let _ = fs::remove_dir_all(&dir);
+        assert!(!dir.path().join(".postlane/posts/post-001/meta.json.tmp").exists());
     }
 
     #[test]
     fn test_stores_timezone_when_setting_schedule() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_tz_set");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
-        let state = make_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
+        let state = make_state_with_dir(dir.path());
         update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(),
+            dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(),
             Some("America/New_York"),
         ).unwrap();
         let meta = crate::post_mutations::read_post_meta(
-            &dir.join(".postlane/posts/post-001/meta.json")
+            &dir.path().join(".postlane/posts/post-001/meta.json")
         ).unwrap();
         assert_eq!(meta.schedule_timezone.as_deref(), Some("America/New_York"), "timezone should be stored");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_clears_timezone_when_clearing_schedule() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_tz_clear");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta_in(&dir, "post-001");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta_in(dir.path(), "post-001");
         let mut meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         meta.schedule = Some(schedule_tomorrow().to_string());
         meta.schedule_timezone = Some("America/New_York".to_string());
         crate::post_mutations::write_post_meta(&meta_path, &meta).unwrap();
-        let state = make_state_with_dir(&dir);
-        update_post_schedule_impl(dir.to_str().unwrap(), "post-001", None, &state, future(), None).unwrap();
+        let state = make_state_with_dir(dir.path());
+        update_post_schedule_impl(dir.path().to_str().unwrap(), "post-001", None, &state, future(), None).unwrap();
         let meta2 = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta2.schedule_timezone.is_none(), "timezone should be cleared when schedule is cleared");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_sets_schedule_source_to_user_when_setting_schedule() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_source_user");
-        fs::create_dir_all(&dir).unwrap();
-        write_meta_in(&dir, "post-001");
-        let state = make_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_in(dir.path(), "post-001");
+        let state = make_state_with_dir(dir.path());
         update_post_schedule_impl(
-            dir.to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
+            dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
         ).unwrap();
         let meta = crate::post_mutations::read_post_meta(
-            &dir.join(".postlane/posts/post-001/meta.json")
+            &dir.path().join(".postlane/posts/post-001/meta.json")
         ).unwrap();
         assert_eq!(meta.schedule_source.as_deref(), Some("user"), "schedule_source should be 'user' when set by user");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_clears_schedule_source_when_clearing_schedule() {
-        let dir = std::env::temp_dir().join("postlane_test_ups_source_clear");
-        fs::create_dir_all(&dir).unwrap();
-        let meta_path = write_meta_in(&dir, "post-001");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = write_meta_in(dir.path(), "post-001");
         let mut meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         meta.schedule = Some(schedule_tomorrow().to_string());
         meta.schedule_source = Some("user".to_string());
         crate::post_mutations::write_post_meta(&meta_path, &meta).unwrap();
-        let state = make_state_with_dir(&dir);
-        update_post_schedule_impl(dir.to_str().unwrap(), "post-001", None, &state, future(), None).unwrap();
+        let state = make_state_with_dir(dir.path());
+        update_post_schedule_impl(dir.path().to_str().unwrap(), "post-001", None, &state, future(), None).unwrap();
         let meta2 = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta2.schedule_source.is_none(), "schedule_source should be None when schedule is cleared");
-        let _ = fs::remove_dir_all(&dir);
     }
 }

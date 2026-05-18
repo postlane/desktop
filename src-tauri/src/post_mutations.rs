@@ -34,14 +34,12 @@ mod tests {
 
     #[test]
     fn read_post_meta_returns_parsed_meta() {
-        let dir = std::env::temp_dir().join("postlane_test_rpm_read");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         fs::write(&path, ready_meta_json()).unwrap();
         let meta = read_post_meta(&path).expect("should parse");
         assert_eq!(meta.status, "ready");
         assert_eq!(meta.platforms, vec!["x"]);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -53,38 +51,32 @@ mod tests {
 
     #[test]
     fn read_post_meta_errors_on_malformed_json() {
-        let dir = std::env::temp_dir().join("postlane_test_rpm_malformed");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         fs::write(&path, "{ not valid json }").unwrap();
         let result = read_post_meta(&path);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to parse"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn write_post_meta_creates_file_and_cleans_up_tmp() {
-        let dir = std::env::temp_dir().join("postlane_test_wpm_roundtrip");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         let meta: PostMeta = serde_json::from_str(ready_meta_json()).unwrap();
         write_post_meta(&path, &meta).expect("write should succeed");
         assert!(path.exists(), "meta.json must be created");
-        assert!(!dir.join("meta.json.tmp").exists(), "tmp file must not remain");
-        let _ = fs::remove_dir_all(&dir);
+        assert!(!dir.path().join("meta.json.tmp").exists(), "tmp file must not remain");
     }
 
     #[test]
     fn write_post_meta_roundtrips_status() {
-        let dir = std::env::temp_dir().join("postlane_test_wpm_status");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         let mut meta: PostMeta = serde_json::from_str(ready_meta_json()).unwrap();
         meta.status = "dismissed".to_string();
         write_post_meta(&path, &meta).expect("ok");
         let read_back = read_post_meta(&path).expect("read back");
         assert_eq!(read_back.status, "dismissed");
-        let _ = fs::remove_dir_all(&dir);
     }
 }

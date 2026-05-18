@@ -150,15 +150,14 @@ mod tests {
 
     #[test]
     fn test_queue_redraft_writes_correct_json() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_writes");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
 
         let result =
-            queue_redraft_impl(dir.to_str().unwrap(), "20260101-v100-changelog", "make it shorter", &repos);
+            queue_redraft_impl(dir.path().to_str().unwrap(), "20260101-v100-changelog", "make it shorter", &repos);
         assert!(result.is_ok(), "expected Ok but got: {:?}", result);
 
-        let pending_path = dir.join(".postlane/pending-redraft.json");
+        let pending_path = dir.path().join(".postlane/pending-redraft.json");
         assert!(pending_path.exists(), "pending-redraft.json should exist");
 
         let content = std::fs::read_to_string(&pending_path).expect("read pending-redraft.json");
@@ -167,19 +166,16 @@ mod tests {
         assert_eq!(parsed["post_folder"].as_str(), Some("20260101-v100-changelog"));
         assert_eq!(parsed["instruction"].as_str(), Some("make it shorter"));
         assert!(parsed["queued_at"].as_str().is_some(), "queued_at must be present");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_queue_redraft_rejects_unregistered_repo() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_rejects");
-        let registered = std::env::temp_dir().join("postlane_test_registered_only");
-        fs::create_dir_all(&registered).expect("create registered dir");
-        let repos = make_repos_canonical(&[&registered]);
+        let registered = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[registered.path()]);
 
+        // Use a path that does not exist so canonicalize fails, triggering 403
         let result = queue_redraft_impl(
-            dir.to_str().unwrap(),
+            "/nonexistent/postlane_test_queue_redraft_rejects",
             "20260101-v100-changelog",
             "make it shorter",
             &repos,
@@ -190,16 +186,15 @@ mod tests {
 
     #[test]
     fn test_queue_redraft_blocks_overwrite_of_existing_pending() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_blocks_overwrite");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
 
         let first =
-            queue_redraft_impl(dir.to_str().unwrap(), "20260101-v100-changelog", "first instruction", &repos);
+            queue_redraft_impl(dir.path().to_str().unwrap(), "20260101-v100-changelog", "first instruction", &repos);
         assert!(first.is_ok(), "first queue_redraft should succeed");
 
         let second = queue_redraft_impl(
-            dir.to_str().unwrap(),
+            dir.path().to_str().unwrap(),
             "20260201-v110-changelog",
             "second instruction",
             &repos,
@@ -212,22 +207,19 @@ mod tests {
             err
         );
 
-        let pending_path = dir.join(".postlane/pending-redraft.json");
+        let pending_path = dir.path().join(".postlane/pending-redraft.json");
         let content = std::fs::read_to_string(&pending_path).expect("read pending-redraft.json");
         let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse JSON");
         assert_eq!(parsed["post_folder"].as_str(), Some("20260101-v100-changelog"));
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_queue_redraft_rejects_path_traversal_in_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_traversal");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
 
         let result = queue_redraft_impl(
-            dir.to_str().unwrap(),
+            dir.path().to_str().unwrap(),
             "../../../etc",
             "make it shorter",
             &repos,
@@ -238,101 +230,86 @@ mod tests {
             result.unwrap_err().contains("Invalid post folder"),
             "error must mention 'Invalid post folder'"
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_queue_redraft_rejects_instruction_too_long() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_long_instruction");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
         let long_instruction = "x".repeat(10_001);
 
         let result =
-            queue_redraft_impl(dir.to_str().unwrap(), "post-folder", &long_instruction, &repos);
+            queue_redraft_impl(dir.path().to_str().unwrap(), "post-folder", &long_instruction, &repos);
 
         assert!(result.is_err(), "expected Err for too-long instruction");
         assert!(
             result.unwrap_err().contains("Instruction too long"),
             "error must mention 'Instruction too long'"
         );
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_cancel_redraft_deletes_pending_file() {
-        let dir = std::env::temp_dir().join("postlane_test_cancel_redraft_deletes");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
 
-        queue_redraft_impl(dir.to_str().unwrap(), "post-folder", "make it shorter", &repos)
+        queue_redraft_impl(dir.path().to_str().unwrap(), "post-folder", "make it shorter", &repos)
             .expect("queue should succeed");
 
-        let pending_path = dir.join(".postlane/pending-redraft.json");
+        let pending_path = dir.path().join(".postlane/pending-redraft.json");
         assert!(pending_path.exists(), "pending file should exist after queue");
 
-        let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
+        let result = cancel_redraft_impl(dir.path().to_str().unwrap(), &repos);
         assert!(result.is_ok(), "cancel should succeed: {:?}", result);
         assert!(!pending_path.exists(), "pending file should be gone after cancel");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_cancel_redraft_is_idempotent() {
-        let dir = std::env::temp_dir().join("postlane_test_cancel_redraft_idempotent");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
 
-        let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
+        let result = cancel_redraft_impl(dir.path().to_str().unwrap(), &repos);
         assert!(result.is_ok(), "cancel with no pending file should return Ok");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_queue_redraft_sanitizes_control_characters() {
-        let dir = std::env::temp_dir().join("postlane_test_queue_redraft_sanitize");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let repos = make_repos_canonical(&[&dir]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
 
         let instruction_with_controls = "make it shorter\x00\x01\x08";
         let result = queue_redraft_impl(
-            dir.to_str().unwrap(),
+            dir.path().to_str().unwrap(),
             "post-folder",
             instruction_with_controls,
             &repos,
         );
         assert!(result.is_ok(), "should succeed: {:?}", result);
 
-        let pending_path = dir.join(".postlane/pending-redraft.json");
+        let pending_path = dir.path().join(".postlane/pending-redraft.json");
         let content = std::fs::read_to_string(&pending_path).expect("read file");
         let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse JSON");
         let saved = parsed["instruction"].as_str().expect("instruction field");
         assert!(!saved.contains('\x00'), "null bytes must be stripped");
         assert!(!saved.contains('\x01'), "control chars must be stripped");
         assert!(saved.contains("make it shorter"), "printable text must be kept");
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_cancel_redraft_rejects_unregistered_repo() {
-        let dir = std::env::temp_dir().join("postlane_test_cancel_redraft_unregistered");
-        let registered = std::env::temp_dir().join("postlane_test_cancel_registered_only");
-        fs::create_dir_all(&registered).expect("create registered dir");
-        let repos = make_repos_canonical(&[&registered]);
+        let registered = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[registered.path()]);
 
-        let result = cancel_redraft_impl(dir.to_str().unwrap(), &repos);
+        let result = cancel_redraft_impl("/nonexistent/postlane_test_cancel_redraft_unregistered", &repos);
         assert!(result.is_err(), "expected Err for unregistered repo");
     }
 
     /// Error messages for filesystem operations must include the repo path for debugging.
     #[test]
     fn test_queue_redraft_create_dir_error_includes_path() {
-        let base = std::env::temp_dir().join("postlane_test_path_in_error");
+        let parent = tempfile::TempDir::new().expect("create temp dir");
+        let base = parent.path().join("postlane_test_path_in_error");
         std::fs::write(&base, b"not a dir").expect("write file");
         let canonical = fs::canonicalize(&base).expect("canonicalize");
         let repos = crate::storage::ReposConfig {
@@ -347,7 +324,6 @@ mod tests {
         };
         let result =
             queue_redraft_impl(canonical.to_str().unwrap(), "post-folder", "make it shorter", &repos);
-        let _ = std::fs::remove_file(&base);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(

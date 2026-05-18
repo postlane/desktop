@@ -94,34 +94,30 @@ mod tests {
 
     #[test]
     fn collect_posts_from_dir_returns_parsed_entries() {
-        let dir = std::env::temp_dir().join("postlane_test_collect_posts_dir");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("a.txt"), "").unwrap();
-        fs::write(dir.join("b.txt"), "").unwrap();
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::write(dir.path().join("a.txt"), "").unwrap();
+        fs::write(dir.path().join("b.txt"), "").unwrap();
 
-        let mut results: Vec<String> = collect_posts_from_dir(&dir, |p| {
+        let mut results: Vec<String> = collect_posts_from_dir(dir.path(), |p| {
             p.file_name().and_then(|n| n.to_str()).map(String::from)
         });
         results.sort();
 
         assert_eq!(results, vec!["a.txt", "b.txt"]);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn collect_posts_from_dir_skips_entries_returning_none() {
-        let dir = std::env::temp_dir().join("postlane_test_collect_posts_skip");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("keep.txt"), "").unwrap();
-        fs::write(dir.join("skip.txt"), "").unwrap();
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::write(dir.path().join("keep.txt"), "").unwrap();
+        fs::write(dir.path().join("skip.txt"), "").unwrap();
 
-        let results: Vec<String> = collect_posts_from_dir(&dir, |p| {
+        let results: Vec<String> = collect_posts_from_dir(dir.path(), |p| {
             let name = p.file_name()?.to_str()?.to_string();
             if name.starts_with("skip") { None } else { Some(name) }
         });
 
         assert_eq!(results, vec!["keep.txt"]);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     // --- sort_by_status_priority_then_timestamp ---
@@ -186,49 +182,43 @@ mod tests {
 
     #[test]
     fn collect_posts_from_repos_gathers_from_all_repos() {
-        let dir1 = std::env::temp_dir().join("postlane_test_cfr_r1");
-        let dir2 = std::env::temp_dir().join("postlane_test_cfr_r2");
-        for d in [&dir1, &dir2] {
+        let dir1 = tempfile::TempDir::new().expect("create temp dir");
+        let dir2 = tempfile::TempDir::new().expect("create temp dir");
+        for d in [dir1.path(), dir2.path()] {
             let posts = d.join(".postlane/posts/p1");
             fs::create_dir_all(&posts).unwrap();
             fs::write(posts.join("meta.json"), "{}").unwrap();
         }
 
         let repos = vec![
-            make_repo("r1", dir1.to_str().unwrap(), true),
-            make_repo("r2", dir2.to_str().unwrap(), true),
+            make_repo("r1", dir1.path().to_str().unwrap(), true),
+            make_repo("r2", dir2.path().to_str().unwrap(), true),
         ];
         let results: Vec<String> = collect_posts_from_repos(&repos, false, |_p, id, _name, _path| Some(id.to_string()));
         assert_eq!(results.len(), 2);
-
-        let _ = fs::remove_dir_all(&dir1);
-        let _ = fs::remove_dir_all(&dir2);
     }
 
     #[test]
     fn collect_posts_from_repos_skips_inactive_when_active_only() {
-        let dir = std::env::temp_dir().join("postlane_test_cfr_inactive");
-        let posts = dir.join(".postlane/posts/p1");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let posts = dir.path().join(".postlane/posts/p1");
         fs::create_dir_all(&posts).unwrap();
         fs::write(posts.join("meta.json"), "{}").unwrap();
 
-        let repos = vec![make_repo("r1", dir.to_str().unwrap(), false)];
+        let repos = vec![make_repo("r1", dir.path().to_str().unwrap(), false)];
         let results: Vec<String> = collect_posts_from_repos(&repos, true, |_p, id, _name, _path| Some(id.to_string()));
         assert!(results.is_empty());
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     // --- read_repo_config_provider ---
 
     #[test]
     fn read_repo_config_provider_returns_provider_from_config() {
-        let dir = std::env::temp_dir().join("postlane_test_rrcp");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         fs::create_dir_all(&config_dir).unwrap();
         fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).unwrap();
-        assert_eq!(read_repo_config_provider(dir.to_str().unwrap()), Some("zernio".into()));
-        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(read_repo_config_provider(dir.path().to_str().unwrap()), Some("zernio".into()));
     }
 
     #[test]

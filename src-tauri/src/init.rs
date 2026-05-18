@@ -75,10 +75,9 @@ mod tests {
 
     #[test]
     fn test_atomic_write_creates_file() {
-        let dir = std::env::temp_dir().join("postlane_test_atomic");
-        fs::create_dir_all(&dir).expect("Failed to create test directory");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let target = dir.join("test.json");
+        let target = dir.path().join("test.json");
         let content = b"{\"test\": true}";
 
         atomic_write(&target, content).expect("Atomic write failed");
@@ -86,17 +85,13 @@ mod tests {
         assert!(target.exists(), "Target file should exist");
         let read_content = fs::read(&target).expect("Failed to read target file");
         assert_eq!(read_content, content, "Content should match");
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_atomic_write_concurrent_same_target_all_succeed() {
         use std::sync::{Arc, Barrier};
-        let dir = std::env::temp_dir().join("postlane_test_atomic_concurrent");
-        fs::create_dir_all(&dir).expect("create test dir");
-        let target = dir.join("shared.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let target = dir.path().join("shared.json");
         let n = 16usize;
         let barrier = Arc::new(Barrier::new(n));
         let handles: Vec<_> = (0..n).map(|i| {
@@ -110,16 +105,15 @@ mod tests {
         let errors: Vec<_> = handles.into_iter()
             .filter_map(|h| h.join().unwrap().err())
             .collect();
-        let _ = fs::remove_dir_all(&dir);
+        drop(dir);
         assert!(errors.is_empty(), "concurrent writes should all succeed, got: {:?}", errors);
     }
 
     #[test]
     fn test_atomic_write_preserves_original_on_interruption() {
-        let dir = std::env::temp_dir().join("postlane_test_atomic_preserve");
-        fs::create_dir_all(&dir).expect("Failed to create test directory");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let target = dir.join("test.json");
+        let target = dir.path().join("test.json");
         let original_content = b"{\"original\": true}";
         let new_content = b"{\"new\": true}";
 
@@ -133,8 +127,5 @@ mod tests {
         // Original file should still have original content
         let read_content = fs::read(&target).expect("Failed to read target file");
         assert_eq!(read_content, original_content, "Original file should be intact");
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&dir);
     }
 }

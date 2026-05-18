@@ -154,8 +154,8 @@ mod tests {
 
     #[test]
     fn test_get_repos_counts_ready_and_failed_posts() {
-        let dir = std::env::temp_dir().join("postlane_test_get_repos_counts");
-        let posts_dir = dir.join(".postlane/posts");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let posts_dir = dir.path().join(".postlane/posts");
 
         let p1 = posts_dir.join("post-001");
         fs::create_dir_all(&p1).expect("create post dir");
@@ -172,7 +172,7 @@ mod tests {
         let state = make_state(vec![Repo {
             id: "r1".to_string(),
             name: "Repo".to_string(),
-            path: dir.to_str().unwrap().to_string(),
+            path: dir.path().to_str().unwrap().to_string(),
             active: true,
             added_at: "2024-01-01T00:00:00Z".to_string(),
         }]);
@@ -181,8 +181,6 @@ mod tests {
         assert_eq!(result[0].ready_count, 1);
         assert_eq!(result[0].failed_count, 1);
         assert_eq!(result[0].last_post_at.as_deref(), Some("2024-06-03T10:00:00Z"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -195,52 +193,48 @@ mod tests {
 
     #[test]
     fn test_reads_project_id_from_config() {
-        let dir = std::env::temp_dir().join("postlane_test_project_id_rq");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"project_id":"proj-uuid-abc"}"#).expect("write config");
 
         let state = make_state(vec![Repo {
             id: "r1".to_string(), name: "Repo".to_string(),
-            path: dir.to_str().unwrap().to_string(),
+            path: dir.path().to_str().unwrap().to_string(),
             active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
         }]);
 
         let result = get_repos_impl(&state).expect("should succeed");
         assert_eq!(result[0].project_id.as_deref(), Some("proj-uuid-abc"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_project_id_is_none_when_not_in_config() {
-        let dir = std::env::temp_dir().join("postlane_test_no_project_id_rq");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         fs::create_dir_all(&config_dir).expect("create .postlane");
         fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write config");
 
         let state = make_state(vec![Repo {
             id: "r1".to_string(), name: "Repo".to_string(),
-            path: dir.to_str().unwrap().to_string(),
+            path: dir.path().to_str().unwrap().to_string(),
             active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
         }]);
 
         let result = get_repos_impl(&state).expect("should succeed");
         assert!(result[0].project_id.is_none());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_scan_malformed_meta_skipped() {
-        let dir = std::env::temp_dir().join("postlane_test_scan_malformed_rq");
-        let posts_dir = dir.join(".postlane/posts/post-bad");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let posts_dir = dir.path().join(".postlane/posts/post-bad");
         fs::create_dir_all(&posts_dir).expect("create dir");
         fs::write(posts_dir.join("meta.json"), "{ not valid json }").expect("write");
 
-        let (ready, failed, ts) = scan_post_statuses(dir.to_str().unwrap());
+        let (ready, failed, ts) = scan_post_statuses(dir.path().to_str().unwrap());
         assert_eq!(ready, 0);
         assert_eq!(failed, 0);
         assert!(ts.is_none());
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }
