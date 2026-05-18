@@ -188,7 +188,7 @@ function useOrgList(provider: string) {
     setScopeError(false);
     setOrgs(null);
     invoke<OrgSummary[]>('list_provider_orgs', { provider })
-      .then(setOrgs)
+      .then((orgs) => { setOrgs(orgs); })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('scope_not_granted')) { setScopeError(true); } else { setLoadError(msg); }
@@ -199,7 +199,9 @@ function useOrgList(provider: string) {
     if (!scopeError) return;
     let unlisten: (() => void) | undefined;
     let mounted = true;
-    listen('license:activated', () => { if (mounted) setRetryCount((c) => c + 1); })
+    listen('license:activated', () => {
+      if (mounted) setRetryCount((c) => c + 1);
+    })
       .then((fn) => { if (mounted) { unlisten = fn; } else { fn(); } })
       .catch(console.error);
     return () => { mounted = false; unlisten?.(); };
