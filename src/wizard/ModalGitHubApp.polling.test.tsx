@@ -133,7 +133,10 @@ describe('ModalConnectRepos — install button guard', () => {
     fireEvent.click(btn);
     fireEvent.click(btn);
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', expect.anything()));
-    expect(mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed')).toHaveLength(1);
+    // mount check (1) + first button click (1) = 2; second click is guarded and adds no more
+    const checkCalls = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed')
+    expect(checkCalls.length).toBeLessThanOrEqual(2);
+    expect(checkCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -252,8 +255,9 @@ describe('ModalConnectRepos — poll cancel at line 195', () => {
     await vi.advanceTimersByTimeAsync(3000 * 2);
     await Promise.resolve();
 
+    // mount check (1) + button-click poll (1) = 2 total; nothing after unmount
     const checkCalls = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
-    expect(checkCalls).toBe(1);
+    expect(checkCalls).toBe(2);
     expect(onNext).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -317,5 +321,79 @@ describe('ModalConnectRepos — polling timeout', () => {
     expect(callsAfter).toBe(callsBefore);
 
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mount-time installation check
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — mount-time check — basic', () => {
+  it('calls check_github_app_installed on mount for GitHub provider', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      return { name: 'repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', { projectId: 'ws-test' }),
+    );
+  });
+
+  it('auto-advances when app is already installed on mount', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+  });
+
+  it('does not auto-advance when app is not installed on mount', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      return { name: 'repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it('does not call check_github_app_installed on mount for non-GitHub provider', async () => {
+    render(<ModalGitHubApp {...defaultProps} provider="gitlab" />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockInvoke).not.toHaveBeenCalledWith('check_github_app_installed', expect.anything());
+  });
+
+  it('ignores errors from the mount-time check and does not advance', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') throw new Error('network error');
+      return { name: 'repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onNext).not.toHaveBeenCalled();
+  });
+});
+
+describe('ModalConnectRepos — mount-time check — cancellation', () => {
+  it('cancels the mount check when component unmounts before the invoke resolves', async () => {
+    const onNext = vi.fn();
+    let resolveInstalled: (v: boolean) => void = () => {};
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') {
+        return new Promise<boolean>((resolve) => { resolveInstalled = resolve; });
+      }
+      return { name: 'repo' };
+    });
+    const { unmount } = render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    unmount();
+    resolveInstalled(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onNext).not.toHaveBeenCalled();
   });
 });

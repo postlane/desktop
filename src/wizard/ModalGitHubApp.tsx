@@ -174,6 +174,24 @@ interface InstallHookResult {
   handleInstall: () => Promise<void>;
 }
 
+function useGitHubAppEvents(
+  isGitHub: boolean,
+  advance: () => void,
+  onError: (msg: string) => void,
+) {
+  useEffect(() => {
+    const unlisten = Promise.all([
+      listen<{ installation_id: number }>('github:app-installed', () => {
+        if (isGitHub) advance();
+      }),
+      listen<{ message: string }>('github:install-error', (e) => {
+        if (isGitHub) onError(e.payload.message);
+      }),
+    ]);
+    return () => { void unlisten.then(([u1, u2]) => { u1(); u2(); }); };
+  }, [isGitHub, advance, onError]);
+}
+
 function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void, onRepoConnected: () => void): InstallHookResult {
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const [pollSlowNotice, setPollSlowNotice] = useState(false);
@@ -194,17 +212,20 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
     onNext();
   }, [onNext, onRepoConnected]);
 
+  const advanceFnRef = useRef(advance);
+  advanceFnRef.current = advance;
+
+  // Check on mount — detects installations that predate the current session
   useEffect(() => {
-    const unlisten = Promise.all([
-      listen<{ installation_id: number }>('github:app-installed', () => {
-        if (isGitHub) advance();
-      }),
-      listen<{ message: string }>('github:install-error', (e) => {
-        if (isGitHub) setAppInstallError(e.payload.message);
-      }),
-    ]);
-    return () => { void unlisten.then(([u1, u2]) => { u1(); u2(); }); };
-  }, [isGitHub, advance]);
+    if (!isGitHub) return;
+    let cancelled = false;
+    invoke<boolean>('check_github_app_installed', { projectId: workspaceId })
+      .then((installed) => { if (!cancelled && installed) advanceFnRef.current(); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isGitHub, workspaceId]);
+
+  useGitHubAppEvents(isGitHub, advance, setAppInstallError);
 
   async function handleInstall() {
     openUrl(GITHUB_APP_INSTALL_URL).catch(console.error);
