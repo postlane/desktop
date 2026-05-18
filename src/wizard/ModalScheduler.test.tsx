@@ -155,6 +155,25 @@ describe('ModalScheduler — invoke scoping', () => {
   })
 })
 
+describe('ModalScheduler — provider type guard', () => {
+  it('test_unknown_provider_string_from_ipc_is_ignored', async () => {
+    // IPC returns a string that is not a valid Provider; it must be silently
+    // ignored rather than leaking into connectedProviders state.
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_connected_providers') return ['zernio', 'not_a_real_provider', 'upload_post'];
+      return undefined;
+    });
+    render(<ModalScheduler {...defaultProps} />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
+    );
+    // only zernio and upload_post should show Connected; the rogue string is filtered
+    expect(screen.getByRole('button', { name: /upload post/i }).textContent).toContain('Connected');
+    // The "next" button is visible (2 valid providers connected)
+    expect(screen.getByRole('button', { name: /continue to repos/i })).toBeDefined();
+  });
+});
+
 describe('ModalScheduler — pre-connected providers', () => {
   function setupPreConnected(providers: string[]) {
     mockInvoke.mockImplementation(async (cmd: string) => {

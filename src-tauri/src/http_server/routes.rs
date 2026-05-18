@@ -1,60 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use axum::{
-    extract::{Query, Request, State},
+    extract::{Request, State},
     http::{HeaderMap, StatusCode},
     middleware::Next,
-    response::{Html, IntoResponse, Json, Response},
+    response::Response,
 };
-use serde::Deserialize;
 use subtle::ConstantTimeEq;
-use super::{ErrorResponse, RegisterRequest, RegisterResponse, SendRequest, SendResponse, ServerState};
-
-#[derive(Deserialize)]
-pub struct ActivateParams {
-    pub token: String,
-    pub new_link: Option<String>,
-}
-
-/// Receives the license token forwarded from the browser after OAuth completes.
-/// Sends the token to the activation channel; the receiver in lib.rs validates it
-/// against the backend, stores it in the keyring, and emits `license:activated`.
-///
-/// No bearer auth: the token itself is the credential — validated by the backend.
-pub(super) async fn activate_handler(
-    State(state): State<ServerState>,
-    Query(params): Query<ActivateParams>,
-) -> Response {
-    if params.token.split('.').count() != 3 {
-        return (StatusCode::BAD_REQUEST, "Invalid token format").into_response();
-    }
-
-    log::info!("[activate] token received (length={})", params.token.len());
-
-    let new_link = params.new_link.as_deref() == Some("1");
-    if let Some(tx) = &state.activation_tx {
-        match tx.try_send((params.token, new_link)) {
-            Ok(()) => {}
-            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                log::warn!("[activate] activation channel full");
-                return (StatusCode::SERVICE_UNAVAILABLE, "Activation in progress — try again in a moment").into_response();
-            }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                log::error!("[activate] activation channel closed");
-                return (StatusCode::SERVICE_UNAVAILABLE, "Activation unavailable").into_response();
-            }
-        }
-    }
-
-    Html(concat!(
-        "<!doctype html><html><head><title>Postlane Activated</title></head>",
-        r#"<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8f9fa">"#,
-        r#"<div style="text-align:center;max-width:400px;padding:2rem">"#,
-        r#"<h1 style="font-size:1.5rem;color:#1a1a1a">You&#x2019;re signed in</h1>"#,
-        r#"<p style="color:#6c757d">Postlane is activated. You can close this tab and return to the app.</p>"#,
-        "</div></body></html>",
-    )).into_response()
-}
+use super::ServerState;
 
 pub(super) async fn auth_middleware(
     State(state): State<ServerState>,
@@ -82,170 +35,15 @@ pub(super) async fn health_handler() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-pub(super) fn error_response(status: StatusCode, message: String) -> Response {
-    (status, Json(ErrorResponse { error: message })).into_response()
-}
-
-/// Validates that a path is registered in repos and returns the canonicalized path.
-async fn validate_registered_path(
-    repos: &tokio::sync::MutexGuard<'_, crate::storage::ReposConfig>,
-    repo_path: &str,
-) -> Result<std::path::PathBuf, (StatusCode, String)> {
-    let canonical_path = std::fs::canonicalize(repo_path)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Path not found or not accessible".to_string()))?;
-
-    let path_str = canonical_path.to_string_lossy();
-    if !repos.repos.iter().any(|r| r.path == path_str.as_ref()) {
-        return Err((StatusCode::FORBIDDEN, "Path not registered in repos.json".to_string()));
-    }
-
-    Ok(canonical_path)
-}
-
-/// Validates that `post_folder` contains no path-traversal characters and that the
-/// folder + its `meta.json` exist under `canonical_path/.postlane/posts/`.
-fn validate_post_folder(
-    canonical_path: &std::path::Path,
-    post_folder: &str,
-) -> Result<std::path::PathBuf, (StatusCode, String)> {
-    if post_folder.contains('/') || post_folder.contains('\\') || post_folder.contains("..") {
-        return Err((StatusCode::BAD_REQUEST, "Invalid post folder: path traversal not permitted".to_string()));
-    }
-
-    let post_path = canonical_path.join(".postlane/posts").join(post_folder);
-    if !post_path.exists() {
-        return Err((StatusCode::BAD_REQUEST, format!("Post folder does not exist: {}", post_folder)));
-    }
-
-    let meta_path = post_path.join("meta.json");
-    if !meta_path.exists() {
-        return Err((StatusCode::BAD_REQUEST, "meta.json not found in post folder".to_string()));
-    }
-
-    Ok(meta_path)
-}
-
-/// Reads and parses `meta.json`, stamps `status=sent` and `sent_at`, then writes back atomically.
-fn mark_meta_as_sent(meta_path: &std::path::Path) -> Result<(), (StatusCode, String)> {
-    let meta_content = std::fs::read_to_string(meta_path)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read meta.json: {}", e)))?;
-
-    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to parse meta.json: {}", e)))?;
-
-    meta["status"] = serde_json::json!("sent");
-    meta["sent_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
-
-    let json_str = serde_json::to_string_pretty(&meta)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to serialize meta.json: {}", e)))?;
-
-    let temp_path = meta_path.with_extension("json.tmp");
-    std::fs::write(&temp_path, &json_str)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write meta.json: {}", e)))?;
-
-    std::fs::rename(&temp_path, meta_path)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to rename meta.json: {}", e)))?;
-
-    Ok(())
-}
-
-pub(super) async fn send_handler(
-    State(state): State<ServerState>,
-    Json(payload): Json<SendRequest>,
-) -> Response {
-    let repos = state.repos.lock().await;
-
-    // SECURITY NOTE: TOCTOU race window exists between checking is_registered and
-    // using the path (below). Another thread could unregister the repo after our check
-    // but before we use the path. However, practical risk is low because:
-    // 1. Unregistration requires explicit user action (rare during active operations)
-    // 2. Path validation continues to work even if repo is unregistered
-    // 3. Worst case: we process a post for an unregistered repo (benign - no security impact)
-    // 4. Alternative (holding lock during file I/O) would block all other operations
-    // We accept this minimal race window to avoid blocking operations.
-    let canonical_path = match validate_registered_path(&repos, &payload.repo_path).await {
-        Ok(p) => p,
-        Err((status, msg)) => return error_response(status, msg),
-    };
-    drop(repos);
-
-    let meta_path = match validate_post_folder(&canonical_path, &payload.post_folder) {
-        Ok(p) => p,
-        Err((status, msg)) => return error_response(status, msg),
-    };
-
-    if let Err((status, msg)) = mark_meta_as_sent(&meta_path) {
-        return error_response(status, msg);
-    }
-
-    (StatusCode::OK, Json(SendResponse { success: true })).into_response()
-}
-
-/// Validates that `path` is a git repo with `.postlane/config.json`.
-/// Returns `(canonical_str, repo_name)` on success.
-fn validate_repo_path_for_register(path: &str) -> Result<(String, String), (StatusCode, String)> {
-    let canonical_path = std::fs::canonicalize(path)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Path not found or not accessible".to_string()))?;
-
-    if !canonical_path.join(".git").exists() {
-        return Err((StatusCode::BAD_REQUEST, "Not a git repository".to_string()));
-    }
-
-    if !canonical_path.join(".postlane").join("config.json").exists() {
-        return Err((StatusCode::BAD_REQUEST, ".postlane/config.json not found - run postlane init first".to_string()));
-    }
-
-    let canonical_str = canonical_path
-        .to_str()
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Path contains invalid UTF-8 characters".to_string()))?;
-
-    let name = canonical_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Unable to extract repository name from path".to_string()))?;
-
-    Ok((canonical_str.to_string(), name.to_string()))
-}
-
-pub(super) async fn register_handler(
-    State(state): State<ServerState>,
-    Json(payload): Json<RegisterRequest>,
-) -> Response {
-    let (canonical_str, name) = match validate_repo_path_for_register(&payload.path) {
-        Ok(v) => v,
-        Err((status, msg)) => return error_response(status, msg),
-    };
-
-    let repo = crate::storage::Repo {
-        id: uuid::Uuid::new_v4().to_string(),
-        name: name.clone(),
-        path: canonical_str,
-        active: true,
-        added_at: chrono::Utc::now().to_rfc3339(),
-    };
-
-    let mut repos = state.repos.lock().await;
-    repos.repos.push(repo);
-
-    if let Err(e) = crate::storage::write_repos(&state.repos_path, &repos) {
-        return error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to write repos.json: {:?}", e),
-        );
-    }
-
-    (StatusCode::OK, Json(RegisterResponse { success: true, name })).into_response()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::{create_router, ServerState};
+    use axum::http::StatusCode;
     use std::sync::Arc;
     use tower::ServiceExt;
 
-    fn empty_projects() -> std::sync::Arc<tokio::sync::RwLock<Vec<crate::project_registry::ProjectSummary>>> {
-        std::sync::Arc::new(tokio::sync::RwLock::new(vec![]))
+    fn empty_projects() -> Arc<tokio::sync::RwLock<Vec<crate::project_registry::ProjectSummary>>> {
+        Arc::new(tokio::sync::RwLock::new(vec![]))
     }
 
     fn make_state(token: &str) -> ServerState {
@@ -262,33 +60,6 @@ mod tests {
             activation_tx: None,
             projects: empty_projects(),
         }
-    }
-
-    fn make_state_with_tmp_repo() -> (ServerState, String) {
-        let repo_dir = tempfile::TempDir::new().expect("create temp dir");
-        let canonical = std::fs::canonicalize(repo_dir.path()).expect("temp dir exists");
-        let path_str = canonical.to_str().expect("valid utf8").to_string();
-        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
-                id: "test-id".to_string(),
-                name: "test".to_string(),
-                path: path_str.clone(),
-                active: true,
-                added_at: "2024-01-01T00:00:00Z".to_string(),
-            }],
-        }));
-        let repos_dir = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = repos_dir.path().join("repos.json");
-        std::mem::forget(repos_dir);
-        std::mem::forget(repo_dir);
-        (ServerState {
-            token: "tok".to_string(),
-            repos,
-            repos_path,
-            activation_tx: None,
-            projects: empty_projects(),
-        }, path_str)
     }
 
     #[tokio::test]
@@ -337,20 +108,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_endpoint_rejects_unregistered_path() {
-        let app = create_router(make_state("test-token"));
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .method("POST").uri("/send")
-                .header("content-type", "application/json")
-                .header("authorization", "Bearer test-token")
-                .body(axum::body::Body::from(r#"{"repo_path": "/nonexistent", "post_folder": "test-post"}"#))
-                .unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
     async fn test_register_endpoint_requires_auth() {
         let app = create_router(make_state("test-token"));
         let response = app.oneshot(
@@ -361,176 +118,6 @@ mod tests {
                 .unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn test_send_rejects_path_traversal() {
-        let (state, path_str) = make_state_with_tmp_repo();
-        let app = create_router(state);
-        for folder in &["../secret", "sub/dir", "sub\\dir", "../../etc/passwd"] {
-            let body = format!(r#"{{"repo_path":"{}","post_folder":"{}"}}"#, path_str, folder);
-            let response = app.clone().oneshot(
-                axum::http::Request::builder()
-                    .method("POST").uri("/send")
-                    .header("content-type", "application/json")
-                    .header("authorization", "Bearer tok")
-                    .body(axum::body::Body::from(body))
-                    .unwrap(),
-            ).await.unwrap();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "folder: {}", folder);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_send_accepts_valid_post_folder_name() {
-        let (state, path_str) = make_state_with_tmp_repo();
-        let app = create_router(state);
-        let body = format!(r#"{{"repo_path":"{}","post_folder":"2024-01-01-launch"}}"#, path_str);
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .method("POST").uri("/send")
-                .header("content-type", "application/json")
-                .header("authorization", "Bearer tok")
-                .body(axum::body::Body::from(body))
-                .unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let body_str = std::str::from_utf8(&body_bytes).unwrap();
-        assert!(!body_str.contains("path traversal"), "valid folder name must not trigger traversal error: {}", body_str);
-    }
-
-    #[tokio::test]
-    async fn test_activate_returns_200_and_sends_token_to_channel() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = tmp.path().join("repos.json");
-        std::mem::forget(tmp);
-        let state = ServerState {
-            token: "tok".to_string(),
-            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-                version: 1, repos: vec![],
-            })),
-            repos_path,
-            activation_tx: Some(tx),
-            projects: empty_projects(),
-        };
-        let app = create_router(state);
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=header.payload.sig")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let (received_token, _) = rx.try_recv().expect("token should have been sent");
-        assert_eq!(received_token, "header.payload.sig");
-    }
-
-    #[tokio::test]
-    async fn test_activate_passes_new_link_true_when_flag_set() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = tmp.path().join("repos.json");
-        std::mem::forget(tmp);
-        let state = ServerState {
-            token: "tok".to_string(),
-            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
-            repos_path,
-            activation_tx: Some(tx),
-            projects: empty_projects(),
-        };
-        let app = create_router(state);
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=a.b.c&new_link=1")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let (token, new_link) = rx.try_recv().expect("should have received");
-        assert_eq!(token, "a.b.c");
-        assert!(new_link, "new_link should be true when flag is set");
-    }
-
-    #[tokio::test]
-    async fn test_activate_passes_new_link_false_when_flag_absent() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = tmp.path().join("repos.json");
-        std::mem::forget(tmp);
-        let state = ServerState {
-            token: "tok".to_string(),
-            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
-            repos_path,
-            activation_tx: Some(tx),
-            projects: empty_projects(),
-        };
-        let app = create_router(state);
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=a.b.c")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let (token, new_link) = rx.try_recv().expect("should have received");
-        assert_eq!(token, "a.b.c");
-        assert!(!new_link, "new_link should be false when flag is absent");
-    }
-
-    #[tokio::test]
-    async fn test_activate_rejects_malformed_token() {
-        let app = create_router(make_state("tok"));
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=only.twosegments")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn test_activate_returns_200_when_no_channel_configured() {
-        let app = create_router(make_state("tok"));
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=a.b.c")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn test_activate_requires_no_bearer_auth() {
-        let app = create_router(make_state("tok"));
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=a.b.c")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn test_activate_returns_503_when_channel_is_full() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
-        // Fill the channel
-        tx.try_send(("filler.filler.filler".to_string(), false)).unwrap();
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = tmp.path().join("repos.json");
-        std::mem::forget(tmp);
-        let state = ServerState {
-            token: "tok".to_string(),
-            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig { version: 1, repos: vec![] })),
-            repos_path,
-            activation_tx: Some(tx),
-            projects: empty_projects(),
-        };
-        let app = create_router(state);
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=a.b.c")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     /// Security: token comparison must use constant-time equality to prevent timing attacks.
@@ -553,8 +140,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_timing_safe_token_comparison_accepts_correct_token() {
-        // With correct token, auth passes and we get a further error (forbidden/bad-request),
-        // not 401 Unauthorized.
         let correct = "a".repeat(64);
         let app = create_router(make_state(&correct));
         let response = app.oneshot(
@@ -566,18 +151,5 @@ mod tests {
                 .unwrap(),
         ).await.unwrap();
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED, "correct token must pass auth middleware");
-    }
-
-    #[tokio::test]
-    async fn test_activate_html_body_contains_no_backslash() {
-        let app = create_router(make_state("tok"));
-        let response = app.oneshot(
-            axum::http::Request::builder()
-                .uri("/activate?token=a.b.c")
-                .body(axum::body::Body::empty()).unwrap(),
-        ).await.unwrap();
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let body_str = std::str::from_utf8(&body_bytes).unwrap();
-        assert!(!body_str.contains('\\'), "HTML response must not contain backslashes, got: {}", body_str);
     }
 }

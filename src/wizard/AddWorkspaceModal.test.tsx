@@ -12,7 +12,7 @@ const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('AddWorkspaceModal', () => {
+describe('AddWorkspaceModal — form and submission', () => {
   it('renders a name input and a workspace type selector', () => {
     render(<AddWorkspaceModal onClose={vi.fn()} onCreated={vi.fn()} />);
     expect(screen.getByRole('textbox', { name: /workspace name/i })).toBeInTheDocument();
@@ -44,6 +44,16 @@ describe('AddWorkspaceModal', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
   });
 
+  it('calls onClose and does not call create_project when Cancel is clicked', () => {
+    const onClose = vi.fn();
+    render(<AddWorkspaceModal onClose={onClose} onCreated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddWorkspaceModal — error handling and type guard', () => {
   it('shows the API error inline and keeps the modal open when create_project rejects', async () => {
     const onClose = vi.fn();
     mockInvoke.mockRejectedValue(new Error('No free project slot. Subscribe at postlane.dev/billing'));
@@ -62,19 +72,27 @@ describe('AddWorkspaceModal', () => {
     expect(await screen.findByText(/no free workspace slot/i)).toBeInTheDocument();
   });
 
-  it('calls onClose and does not call create_project when Cancel is clicked', () => {
-    const onClose = vi.fn();
-    render(<AddWorkspaceModal onClose={onClose} onCreated={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
-    expect(onClose).toHaveBeenCalledOnce();
-    expect(mockInvoke).not.toHaveBeenCalled();
-  });
-
-  it('test_generic_api_error_shows_failed_to_create_workspace_message', async () => {
+  it('shows failed-to-create-workspace message for generic API errors', async () => {
     mockInvoke.mockRejectedValue(new Error('Network timeout'));
     render(<AddWorkspaceModal onClose={vi.fn()} onCreated={vi.fn()} />);
     fireEvent.change(screen.getByRole('textbox', { name: /workspace name/i }), { target: { value: 'My Workspace' } });
     fireEvent.click(screen.getByRole('button', { name: /create workspace/i }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Failed to create workspace: Network timeout');
+  });
+
+  it('isWorkspaceType guard accepts all valid values without type assertion', async () => {
+    const validTypes: Array<'personal' | 'organization' | 'client'> = ['personal', 'organization', 'client'];
+    for (const wt of validTypes) {
+      vi.clearAllMocks();
+      mockInvoke.mockResolvedValue({ project_id: 'p-1', name: 'W', workspace_type: wt });
+      const { unmount } = render(<AddWorkspaceModal onClose={vi.fn()} onCreated={vi.fn()} />);
+      fireEvent.change(screen.getByRole('textbox', { name: /workspace name/i }), { target: { value: 'W' } });
+      fireEvent.change(screen.getByRole('combobox', { name: /workspace type/i }), { target: { value: wt } });
+      fireEvent.click(screen.getByRole('button', { name: /create workspace/i }));
+      await waitFor(() =>
+        expect(mockInvoke).toHaveBeenCalledWith('create_project', { name: 'W', workspaceType: wt }),
+      );
+      unmount();
+    }
   });
 });

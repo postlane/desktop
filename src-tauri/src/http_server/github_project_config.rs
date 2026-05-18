@@ -7,8 +7,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
-use super::ServerState;
-use super::routes::error_response;
+use super::{error_response, ServerState};
 
 #[derive(Deserialize)]
 pub struct OrgLoginParams {

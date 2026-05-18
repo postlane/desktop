@@ -3,6 +3,7 @@
 use crate::types::PostMeta;
 use regex::Regex;
 use std::path::Path;
+use std::sync::OnceLock;
 
 #[derive(Debug, PartialEq)]
 pub enum ValidationError {
@@ -52,9 +53,15 @@ pub fn count_linkedin_chars(content: &str) -> usize {
     content.chars().count()
 }
 
+static URL_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn url_regex() -> &'static Regex {
+    URL_REGEX.get_or_init(|| Regex::new(r"https?://[^\s]+").expect("valid hardcoded regex"))
+}
+
 /// Counts characters for a platform, handling URL shortening
 pub fn count_chars(content: &str, platform: &str) -> usize {
-    let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
+    let url_regex = url_regex();
 
     match platform {
         "x" | "mastodon" => {
@@ -314,6 +321,18 @@ mod tests {
 
         let meta: PostMeta = serde_json::from_str(meta_json).expect("Should parse");
         assert_eq!(meta.platform_results.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_url_regex_initialised_via_once_lock() {
+        // Exercises the OnceLock path: calling count_chars twice must return the
+        // same result (same static Regex instance, no panic on second call).
+        let content = "See https://example.com/path for details";
+        let first = count_chars(content, "x");
+        let second = count_chars(content, "x");
+        assert_eq!(first, second, "OnceLock must return consistent results across calls");
+        // "See " (4) + " for details" (12) + 23 (shortened URL) = 39
+        assert_eq!(first, 39);
     }
 
     #[test]

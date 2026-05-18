@@ -197,6 +197,25 @@ describe('ModalProjectContext — load on mount', () => {
     expect((screen.getByLabelText(/tone/i) as HTMLTextAreaElement).value).toBe('Casual');
   });
 
+  it('test_does_not_fail_when_fields_fetch_returns_malformed_object', async () => {
+    // IPC may return objects with non-string values; the typed wrapper must
+    // ignore malformed fields and keep the defaults rather than crashing.
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') {
+        // description is a number (unexpected type from IPC boundary)
+        return Promise.resolve({ description: 42, tone: 'Casual', audience: null, avoid: '', examples: '' });
+      }
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', expect.anything());
+    });
+    // description field should fall back to empty default, tone should be applied
+    const descInput = screen.getByLabelText(/identity/i) as HTMLInputElement;
+    expect(descInput.value).toBe('');
+  });
+
   it('test_does_not_fail_when_fields_fetch_returns_null', async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_voice_guide_fields') return Promise.resolve(null);
