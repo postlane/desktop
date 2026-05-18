@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useProjectRepos } from '../hooks/useRepoData';
 import type { RepoSummary } from '../hooks/useRepoData';
@@ -90,6 +90,14 @@ function useRepoActions(refresh: () => void) {
 
 export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
   const { repos, refresh } = useProjectRepos(projectId);
+  const [githubAppInstalled, setGithubAppInstalled] = useState(false);
+
+  useEffect(() => {
+    invoke<boolean>('check_github_app_installed', { projectId })
+      .then((installed) => setGithubAppInstalled(installed))
+      .catch(() => {});
+  }, [projectId]);
+
   const {
     pendingRemoveId, setPendingRemoveId, removeLoading,
     showAddModal, setShowAddModal,
@@ -105,9 +113,11 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
       <p className="is-size-6 has-text-weight-medium mb-3">Repositories</p>
       {repos.length === 0 && (
         <p className="is-size-7 has-text-grey mb-3">
-          {isOwner
-            ? 'No repositories connected. Add one to start detecting drafts.'
-            : 'No repositories connected. Ask a workspace owner to add a repository.'}
+          {githubAppInstalled
+            ? 'Repos are monitored via your GitHub App installation. You can also add individual repos using the folder picker below.'
+            : isOwner
+              ? 'No repositories connected. Add one to start detecting drafts.'
+              : 'No repositories connected. Ask a workspace owner to add a repository.'}
         </p>
       )}
       {repos.map((repo) => (

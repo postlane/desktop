@@ -276,13 +276,20 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
   const isGitHub = provider === 'github';
   const { appInstalled, appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext, () => setRepoConnected(true));
 
+  // When the app was already installed before this session, advance() is not
+  // called (no auto-advance), so setRepoConnected must be called here instead.
+  function handleNext() {
+    if (appInstalled) setRepoConnected(true);
+    onNext();
+  }
+
   return (
     <WizardShell
       step={5}
       totalSteps={7}
       title="Connect your repos"
       subtitle="Choose how Postlane monitors your projects. All methods are read-only."
-      onNext={onNext}
+      onNext={handleNext}
       onBack={onBack}
       nextHidden={!folderConnected && !alreadyConnected && !appInstalled}
       onSkip={!folderConnected && !appInstalled ? onNext : undefined}
