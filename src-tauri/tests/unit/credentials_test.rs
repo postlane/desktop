@@ -147,18 +147,12 @@ mod credential_tests {
     fn test_get_credential_keyring_key_format() {
         use postlane_desktop_lib::commands::get_credential_keyring_key;
 
-        // Test: Per-repo override key should be checked first
-        // Format: postlane/{provider}/{repo_id} then postlane/{provider}
+        // Credentials are always workspace-scoped: "provider/workspace_id"
+        let key = get_credential_keyring_key("zernio", "repo-123");
+        assert_eq!(key, "zernio/repo-123");
 
-        // Case 1: With repo_id - exact scoped key only, no global fallback
-        let keys = get_credential_keyring_key("zernio", Some("repo-123"));
-        assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0], "zernio/repo-123");
-
-        // Case 2: Without repo_id - should only return global key
-        let keys = get_credential_keyring_key("buffer", None);
-        assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0], "buffer");
+        let key = get_credential_keyring_key("buffer", "ws-abc");
+        assert_eq!(key, "buffer/ws-abc");
     }
 
     #[test]
