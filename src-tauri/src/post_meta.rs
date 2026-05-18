@@ -1,8 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Deserializes a value as `T::default()` when the JSON value is `null` or the field is absent.
+/// `#[serde(default)]` alone handles absent fields but not explicit `null` — pre-M19 meta.json
+/// files wrote explicit nulls for map fields, so both cases must be handled.
+fn default_on_null<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    let opt: Option<T> = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -30,13 +42,13 @@ pub struct PostMeta {
     /// ISO8601 of most recent save_post_draft call.
     pub edited_at: Option<String>,
     /// platform → ISO8601 sent_at; written by approve_post on success.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_on_null")]
     pub sent_platforms: HashMap<String, String>,
     /// platform → scheduler-assigned post ID; written by approve_post on success.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_on_null")]
     pub scheduler_ids: HashMap<String, String>,
     /// platform → published post URL; written by approve_post on success.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_on_null")]
     pub platform_urls: HashMap<String, String>,
     /// ISO8601 scheduled send time set by the user.
     pub scheduled_for: Option<String>,
@@ -221,6 +233,29 @@ mod tests {
         meta.save(&path).expect("save");
         let loaded = PostMeta::load(&path).expect("load");
         assert_eq!(loaded.repo_path, Some("/workspace/child-repo".to_string()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_post_meta_load_tolerates_explicit_null_for_map_fields() {
+        // Pre-M19 meta.json files wrote explicit null for scheduler_ids, platform_urls,
+        // and sent_platforms. #[serde(default)] only handles absent fields, not null.
+        let dir = std::env::temp_dir().join("postlane_test_pm_null_maps");
+        fs::create_dir_all(&dir).expect("create dir");
+        let path = dir.join("meta.json");
+        fs::write(&path, r#"{
+            "status": "ready",
+            "platforms": ["x"],
+            "schedule": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "platform_urls": null,
+            "sent_platforms": null
+        }"#).expect("write json");
+        let meta = PostMeta::load(&path).expect("explicit null map fields must not error");
+        assert!(meta.scheduler_ids.is_empty(), "null scheduler_ids must deserialise as empty map");
+        assert!(meta.platform_urls.is_empty(), "null platform_urls must deserialise as empty map");
+        assert!(meta.sent_platforms.is_empty(), "null sent_platforms must deserialise as empty map");
         let _ = fs::remove_dir_all(&dir);
     }
 
