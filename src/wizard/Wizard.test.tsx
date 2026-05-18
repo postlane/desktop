@@ -265,12 +265,12 @@ describe('Wizard — step 4', () => {
     expect(screen.getByText('next-github-app')).toBeDefined();
   });
 
-  it('test_step_4_skip_calls_set_wizard_completed_and_on_complete', async () => {
+  it('test_step_4_skip_advances_to_step_5_not_complete', async () => {
     const onComplete = vi.fn();
     render(<Wizard onComplete={onComplete} startAt={4} />);
     fireEvent.click(screen.getByText('skip-scheduler'));
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_wizard_completed'));
-    expect(onComplete).toHaveBeenCalled();
+    expect(screen.getByText('next-github-app')).toBeDefined();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });
 
