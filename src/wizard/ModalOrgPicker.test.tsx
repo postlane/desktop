@@ -300,3 +300,67 @@ describe('ModalOrgPicker — provider badges on org rows', () => {
     expect(svgs.length).toBeGreaterThan(0);
   });
 });
+
+describe('ModalOrgPicker — backfill provider_org_login for existing org workspaces', () => {
+  it('calls backfill_project_org_login with project_id and org login when selecting existing org', async () => {
+    const onNext = vi.fn();
+    render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByText('postlane'));
+    await userEvent.click(screen.getByRole('option', { name: /postlane/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    expect(mockInvoke).toHaveBeenCalledWith('backfill_project_org_login', {
+      projectId: 'existing-proj-456',
+      orgLogin: 'postlane',
+    });
+  });
+
+  it('still calls onNext even if backfill_project_org_login rejects', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_provider_orgs') return MOCK_ORGS;
+      if (cmd === 'backfill_project_org_login') throw new Error('network error');
+      return null;
+    });
+    render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByText('postlane'));
+    await userEvent.click(screen.getByRole('option', { name: /postlane/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(onNext).toHaveBeenCalledWith('existing-proj-456', expect.any(String)));
+  });
+
+  it('does not call backfill_project_org_login for personal account existing workspaces', async () => {
+    const personalWithProject = [
+      { login: 'hugoelliott', display_name: 'Hugo Elliott', avatar_url: 'https://avatars.githubusercontent.com/u/1', is_personal: true, has_project: true, project_id: 'personal-proj-789' },
+    ];
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_provider_orgs') return personalWithProject;
+      return null;
+    });
+    const onNext = vi.fn();
+    render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByText('hugoelliott'));
+    await userEvent.click(screen.getByRole('option', { name: /hugoelliott/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    expect(mockInvoke).not.toHaveBeenCalledWith('backfill_project_org_login', expect.anything());
+  });
+
+  it('does not call backfill_project_org_login when creating a new org workspace', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_provider_orgs') return MOCK_ORGS;
+      if (cmd === 'create_project') return { project_id: 'new-proj', name: 'New Org', workspace_type: 'organization' };
+      return null;
+    });
+    render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByText('neworg'));
+    await userEvent.click(screen.getByRole('option', { name: /neworg/i }));
+    const input = screen.getByRole('textbox');
+    await userEvent.clear(input);
+    await userEvent.type(input, 'New Org');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    expect(mockInvoke).not.toHaveBeenCalledWith('backfill_project_org_login', expect.anything());
+  });
+});
