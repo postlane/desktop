@@ -119,7 +119,7 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
     return <WizardStep3 provider={provider} showProviderLinked={showProviderLinked} linkedProviders={linkedProviders} onContinue={() => setShowProviderLinked(false)} onOrgNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }} onBack={wizard.back} onPricingGate={() => setShowPricingGate(true)} onSkipToApp={handleSkipToApp} />;
   }
   if (wizard.step === 4) {
-    return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={handleSkipToApp} />;
+    return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={wizard.next} />;
   }
   return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} repoConnected={repoConnected} setRepoConnected={setRepoConnected} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
 }
