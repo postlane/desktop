@@ -34,7 +34,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockListen.mockResolvedValue(() => {});
   mockOpenDialog.mockResolvedValue(null);
-  mockInvoke.mockResolvedValue({ name: 'my-repo' });
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'check_github_app_installed') return false;
+    return { name: 'my-repo' };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -179,7 +182,7 @@ describe('ModalConnectRepos — folder picker errors', () => {
     mockOpenDialog.mockResolvedValue(null);
     render(<ModalGitHubApp {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
-    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith('connect_repo_from_desktop', expect.anything());
   });
 
   it('shows clean error for PathNotAuthorised', async () => {
