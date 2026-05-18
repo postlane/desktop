@@ -80,17 +80,11 @@ pub async fn list_profiles_for_repo(
 
     let (_repo_path, provider_name) = get_repo_config_impl(&repo_id, &state)?;
 
-    let keyring_keys = get_credential_keyring_key(&provider_name, Some(&repo_id));
-    let mut api_key: Option<String> = None;
-    for key in &keyring_keys {
-        if let Ok(Some(k)) = app.keyring().get_password("postlane", key) {
-            api_key = Some(k);
-            break;
-        }
-    }
-    let api_key = api_key.ok_or_else(|| {
-        format!("No {} API key configured. Add it in Settings → Scheduler.", provider_name)
-    })?;
+    let keyring_key = get_credential_keyring_key(&provider_name, &repo_id);
+    let api_key = app.keyring()
+        .get_password("postlane", &keyring_key)
+        .map_err(|e| format!("Failed to retrieve credential: {}", e))?
+        .ok_or_else(|| format!("No {} API key configured. Add it in Settings → Scheduler.", provider_name))?;
 
     let provider = crate::providers::scheduling::build_scheduling_provider(&provider_name, api_key)?;
     provider.list_profiles().await.map_err(|e: ProviderError| e.to_string())

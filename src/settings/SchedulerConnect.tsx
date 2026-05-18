@@ -73,7 +73,7 @@ interface Props {
   onCancel: () => void;
 }
 
-export default function SchedulerConnect({ provider, onSuccess, onCancel }: Props) {
+export default function SchedulerConnect({ workspaceId, provider, onSuccess, onCancel }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export default function SchedulerConnect({ provider, onSuccess, onCancel }: Prop
     setError(null);
     setSaving(true);
     try {
-      await invoke('save_scheduler_credential', { provider, apiKey, repoId: null });
+      await invoke('save_scheduler_credential', { provider, apiKey, repoId: workspaceId });
       onSuccess(provider);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -58,8 +58,9 @@ function ProviderLink({ provider }: { provider: string }) {
 
 // ── ConnectForm ───────────────────────────────────────────────────────────────
 
-function ConnectForm({ provider, onConnected, onCancel }: {
+function ConnectForm({ provider, repoId, onConnected, onCancel }: {
   provider: string;
+  repoId: string;
   onConnected: () => void;
   onCancel: () => void;
 }) {
@@ -72,7 +73,7 @@ function ConnectForm({ provider, onConnected, onCancel }: {
     setLoading(true);
     setError(null);
     try {
-      await invoke('save_scheduler_credential', { provider, apiKey, repoId: null });
+      await invoke('save_scheduler_credential', { provider, apiKey, repoId });
       onConnected();
     } catch (e: unknown) {
       setError(String(e));
@@ -106,8 +107,9 @@ function ConnectForm({ provider, onConnected, onCancel }: {
 
 // ── ConnectedRow ──────────────────────────────────────────────────────────────
 
-function ConnectedRow({ provider, isOwner, expanded, onExpand, onRekeyed, onCancel, onDisconnect, disconnecting }: {
+function ConnectedRow({ provider, repoId, isOwner, expanded, onExpand, onRekeyed, onCancel, onDisconnect, disconnecting }: {
   provider: string;
+  repoId: string;
   isOwner: boolean;
   expanded: boolean;
   onExpand: () => void;
@@ -132,7 +134,7 @@ function ConnectedRow({ provider, isOwner, expanded, onExpand, onRekeyed, onCanc
         )}
       </div>
       {expanded && (
-        <ConnectForm provider={provider} onConnected={onRekeyed} onCancel={onCancel} />
+        <ConnectForm provider={provider} repoId={repoId} onConnected={onRekeyed} onCancel={onCancel} />
       )}
     </div>
   );
@@ -140,8 +142,9 @@ function ConnectedRow({ provider, isOwner, expanded, onExpand, onRekeyed, onCanc
 
 // ── AvailableRow ──────────────────────────────────────────────────────────────
 
-function AvailableRow({ provider, expanded, onExpand, onConnected, onCancel }: {
+function AvailableRow({ provider, repoId, expanded, onExpand, onConnected, onCancel }: {
   provider: string;
+  repoId: string;
   expanded: boolean;
   onExpand: () => void;
   onConnected: () => void;
@@ -158,7 +161,7 @@ function AvailableRow({ provider, expanded, onExpand, onConnected, onCancel }: {
         )}
       </div>
       {expanded && (
-        <ConnectForm provider={provider} onConnected={onConnected} onCancel={onCancel} />
+        <ConnectForm provider={provider} repoId={repoId} onConnected={onConnected} onCancel={onCancel} />
       )}
     </div>
   );
@@ -166,23 +169,23 @@ function AvailableRow({ provider, expanded, onExpand, onConnected, onCancel }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function SchedulerBlock({ projectId: _projectId, isOwner }: Props) {
+export default function SchedulerBlock({ projectId, isOwner }: Props) {
   const [connected, setConnected] = useState<string[]>([]);
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const loadProfiles = useCallback(() => {
-    invoke<string[]>('list_connected_providers', { repoId: null })
+    invoke<string[]>('list_connected_providers', { repoId: projectId })
       .then(setConnected)
       .catch(() => setConnected([]));
-  }, []);
+  }, [projectId]);
 
   useEffect(() => { loadProfiles(); }, [loadProfiles]);
 
   async function handleDisconnect(provider: string) {
     setLoading(true);
     try {
-      await invoke('delete_scheduler_credential', { provider, repoId: null });
+      await invoke('delete_scheduler_credential', { provider, repoId: projectId });
       loadProfiles();
     } finally {
       setLoading(false);
@@ -198,7 +201,7 @@ export default function SchedulerBlock({ projectId: _projectId, isOwner }: Props
         <p className="is-size-7 has-text-grey mb-2">No scheduler connected.</p>
       )}
       {connected.map((p) => (
-        <ConnectedRow key={p} provider={p} isOwner={isOwner}
+        <ConnectedRow key={p} provider={p} repoId={projectId} isOwner={isOwner}
           expanded={expandedProvider === p}
           onExpand={() => setExpandedProvider(p)}
           onRekeyed={() => { setExpandedProvider(null); loadProfiles(); }}
@@ -208,7 +211,7 @@ export default function SchedulerBlock({ projectId: _projectId, isOwner }: Props
         />
       ))}
       {isOwner && available.map((p) => (
-        <AvailableRow key={p} provider={p}
+        <AvailableRow key={p} provider={p} repoId={projectId}
           expanded={expandedProvider === p}
           onExpand={() => setExpandedProvider(p)}
           onConnected={() => { setExpandedProvider(null); loadProfiles(); }}

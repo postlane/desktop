@@ -29,7 +29,7 @@ describe('SchedulerBlock — list', () => {
   it('calls list_connected_providers on mount', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('list_connected_providers', { repoId: null })
+      expect(mockInvoke).toHaveBeenCalledWith('list_connected_providers', { repoId: 'proj-1' })
     )
   })
 
@@ -88,14 +88,14 @@ describe('SchedulerBlock — list', () => {
 // ── Disconnect ────────────────────────────────────────────────────────────────
 
 describe('SchedulerBlock — disconnect', () => {
-  it('calls delete_scheduler_credential with provider and repoId null', async () => {
+  it('calls delete_scheduler_credential with provider and workspace repoId', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => screen.getByRole('button', { name: /Disconnect/i }))
     fireEvent.click(screen.getByRole('button', { name: /Disconnect/i }))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('delete_scheduler_credential', {
         provider: 'zernio',
-        repoId: null,
+        repoId: 'proj-1',
       })
     )
   })
@@ -141,7 +141,7 @@ describe('SchedulerBlock — connect form interactions', () => {
     expect(screen.getByLabelText(/API key/i)).toHaveAttribute('type', 'password')
   })
 
-  it('calls save_scheduler_credential with provider, apiKey, and repoId null', async () => {
+  it('calls save_scheduler_credential with provider, apiKey, and workspace repoId', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => screen.getAllByRole('button', { name: /^Connect$/i }))
     fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
@@ -150,7 +150,7 @@ describe('SchedulerBlock — connect form interactions', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('save_scheduler_credential', {
-        provider: expect.any(String), apiKey: 'sk-test-123', repoId: null,
+        provider: expect.any(String), apiKey: 'sk-test-123', repoId: 'proj-1',
       })
     )
   })

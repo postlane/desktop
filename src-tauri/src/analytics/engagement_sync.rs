@@ -170,15 +170,11 @@ fn build_provider_for_post(
     app: &AppHandle,
 ) -> Result<Box<dyn SchedulingProvider>, String> {
     use tauri_plugin_keyring::KeyringExt;
-    let keys = get_credential_keyring_key(&post.provider, Some(&post.repo_uuid));
-    let mut api_key: Option<String> = None;
-    for key in &keys {
-        if let Ok(Some(k)) = app.keyring().get_password("postlane", key) {
-            api_key = Some(k);
-            break;
-        }
-    }
-    let api_key = api_key.ok_or_else(|| {
+    let key = get_credential_keyring_key(&post.provider, &post.repo_uuid);
+    let api_key = app.keyring()
+        .get_password("postlane", &key)
+        .map_err(|e| format!("Failed to retrieve credential: {}", e))?
+        .ok_or_else(|| {
         format!("No {} credentials for repo {}", post.provider, post.repo_uuid)
     })?;
     crate::providers::scheduling::build_scheduling_provider(&post.provider, api_key)

@@ -119,12 +119,10 @@ pub async fn get_scheduler_credential_with_fallback(
     let repo_id = repo_id.to_string();
 
     select_provider_with_fallback(&providers, &usage_path, month, year, move |provider| {
-        let keys =
-            crate::scheduler_credentials::get_credential_keyring_key(provider, Some(&repo_id));
-        for key in keys {
-            if let Ok(Some(cred)) = app.keyring().get_password("postlane", &key) {
-                return Some(cred);
-            }
+        let key =
+            crate::scheduler_credentials::get_credential_keyring_key(provider, &repo_id);
+        if let Ok(Some(cred)) = app.keyring().get_password("postlane", &key) {
+            return Some(cred);
         }
         None
     })

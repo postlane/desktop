@@ -5,7 +5,7 @@ import { invoke } from '../ipc/invoke';
 
 interface Props {
   repoName: string;
-  repoId?: string;
+  repoId: string;
   onSetupLater: () => void;
   onOpenSchedulerSettings?: (_provider: string) => void;
   onDone?: () => void;
@@ -86,7 +86,6 @@ export default function SchedulerSetupModal({ repoName, repoId, onSetupLater, on
   }, [onOpenSchedulerSettings]);
 
   const handleCheck = useCallback(async (key: string) => {
-    if (!repoId) return;
     setChecking(key);
     try {
       const ok = await invoke<boolean>('has_provider_credential', { repoId, provider: key });
@@ -99,7 +98,7 @@ export default function SchedulerSetupModal({ repoName, repoId, onSetupLater, on
   }, [repoId]);
 
   const handleRemove = useCallback(async (key: string) => {
-    try { await invoke('delete_scheduler_credential', { provider: key, repoId: repoId ?? null }); } catch { /* non-critical */ }
+    try { await invoke('delete_scheduler_credential', { provider: key, repoId }); } catch { /* non-critical */ }
     setOrdered((prev) => prev.filter((p) => p !== key));
   }, [repoId]);
 

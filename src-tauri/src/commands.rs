@@ -21,8 +21,8 @@ use crate::app_state::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub fn test_scheduler(repo_id: Option<String>, provider: String, state: State<AppState>) -> Result<bool, String> {
-    validate_scheduler_registration_impl(repo_id.as_deref(), &provider, &state)
+pub fn test_scheduler(repo_id: String, provider: String, state: State<AppState>) -> Result<bool, String> {
+    validate_scheduler_registration_impl(&repo_id, &provider, &state)
 }
 
 #[tauri::command]
