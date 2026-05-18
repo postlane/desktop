@@ -340,14 +340,15 @@ describe('ModalConnectRepos — mount-time check — basic', () => {
     );
   });
 
-  it('auto-advances when app is already installed on mount', async () => {
+  it('shows Connected badge and does NOT auto-advance when app is already installed on mount', async () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
       return { name: 'repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
-    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByText(/github app connected/i)).toBeInTheDocument());
+    expect(onNext).not.toHaveBeenCalled();
   });
 
   it('does not auto-advance when app is not installed on mount', async () => {
