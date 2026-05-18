@@ -34,19 +34,26 @@ interface Props {
 }
 
 interface GitHubAppSectionProps {
+  appInstalled: boolean;
   error: string | null;
   onInstall: () => void;
   pollSlowNotice: boolean;
   pollTimedOut: boolean;
 }
 
-function GitHubAppSection({ error, onInstall, pollSlowNotice, pollTimedOut }: GitHubAppSectionProps) {
+function GitHubAppSection({ appInstalled, error, onInstall, pollSlowNotice, pollTimedOut }: GitHubAppSectionProps) {
   return (
     <div className="box mb-3">
       <p className="has-text-weight-semibold mb-1">GitHub App</p>
       <p className="is-size-7 has-text-grey mb-3">
         Monitors selected repos via GitHub webhooks. Works for the whole team, even when this app is closed.
       </p>
+      {appInstalled && (
+        <p className="is-size-7 mb-2">
+          <span className="tag is-success is-light mr-2">&#10003;</span>
+          GitHub App connected
+        </p>
+      )}
       <button className="button is-primary is-small" onClick={onInstall}>
         Install GitHub App
       </button>
@@ -168,6 +175,7 @@ function CliSection() {
 }
 
 interface InstallHookResult {
+  appInstalled: boolean;
   appInstallError: string | null;
   pollSlowNotice: boolean;
   pollTimedOut: boolean;
@@ -193,6 +201,7 @@ function useGitHubAppEvents(
 }
 
 function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void, onRepoConnected: () => void): InstallHookResult {
+  const [appInstalled, setAppInstalled] = useState(false);
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
   const [pollSlowNotice, setPollSlowNotice] = useState(false);
   const [pollTimedOut, setPollTimedOut] = useState(false);
@@ -215,12 +224,13 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   const advanceFnRef = useRef(advance);
   advanceFnRef.current = advance;
 
-  // Check on mount — detects installations that predate the current session
+  // Check on mount — if app was installed before this session, show Connected badge.
+  // Do NOT auto-advance: let the user explicitly click Next.
   useEffect(() => {
     if (!isGitHub) return;
     let cancelled = false;
     invoke<boolean>('check_github_app_installed', { projectId: workspaceId })
-      .then((installed) => { if (!cancelled && installed) advanceFnRef.current(); })
+      .then((installed) => { if (!cancelled && installed) setAppInstalled(true); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [isGitHub, workspaceId]);
@@ -257,14 +267,14 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
     await poll();
   }
 
-  return { appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
+  return { appInstalled, appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
 }
 
 export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack, setRepoConnected }: Props) {
   const [folderConnected, setFolderConnected] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(false);
   const isGitHub = provider === 'github';
-  const { appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext, () => setRepoConnected(true));
+  const { appInstalled, appInstallError, pollSlowNotice, pollTimedOut, handleInstall } = useGitHubAppInstall(isGitHub, workspaceId, onNext, () => setRepoConnected(true));
 
   return (
     <WizardShell
@@ -274,11 +284,11 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       subtitle="Choose how Postlane monitors your projects. All methods are read-only."
       onNext={onNext}
       onBack={onBack}
-      nextHidden={!folderConnected && !alreadyConnected}
-      onSkip={!folderConnected ? onNext : undefined}
+      nextHidden={!folderConnected && !alreadyConnected && !appInstalled}
+      onSkip={!folderConnected && !appInstalled ? onNext : undefined}
       skipLabel="I'll connect repos later"
     >
-      {isGitHub && <GitHubAppSection error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
+      {isGitHub && <GitHubAppSection appInstalled={appInstalled} error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
       <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName}
         onConnected={() => { setFolderConnected(true); setRepoConnected(true); }}
         onAlreadyConnected={() => { setAlreadyConnected(true); setRepoConnected(true); }}

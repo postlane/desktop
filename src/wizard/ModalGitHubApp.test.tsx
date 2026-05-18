@@ -355,3 +355,53 @@ describe('ModalConnectRepos — install-error event for non-GitHub provider', ()
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mount-time already-installed detection (§fix — step 5 auto-advance bug)
+// ---------------------------------------------------------------------------
+
+describe('ModalConnectRepos — mount-time already-installed', () => {
+  it('does NOT call onNext when mount check finds GitHub App already installed', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', expect.anything()));
+    await new Promise(r => setTimeout(r, 50));
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it('shows a "GitHub App connected" badge when mount check finds app already installed', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.getByText(/github app connected/i)).toBeInTheDocument());
+  });
+
+  it('shows Next button when mount check finds app already installed', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next/i })).toBeInTheDocument());
+  });
+
+  it('still auto-advances when github:app-installed event fires (user just installed)', async () => {
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await waitFor(() => expect(mockListen).toHaveBeenCalledWith('github:app-installed', expect.any(Function)));
+    const entry = mockListen.mock.calls.find(([ev]) => ev === 'github:app-installed');
+    if (!entry) throw new Error('github:app-installed listener not registered');
+    act(() => (entry[1] as (e: { payload: { installation_id: number } }) => void)({ payload: { installation_id: 1 } }));
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+});
