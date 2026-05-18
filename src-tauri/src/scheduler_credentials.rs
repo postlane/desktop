@@ -4,8 +4,8 @@ use crate::app_state::AppState;
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
 
-pub fn get_credential_keyring_key(provider: &str, repo_id: &str) -> String {
-    format!("{}/{}", provider, repo_id)
+pub fn get_credential_keyring_key(provider: &str, id: &str) -> String {
+    format!("{}/{}", provider, id)
 }
 
 pub fn mask_credential(_credential: &str) -> String {
@@ -49,12 +49,8 @@ pub fn check_libsecret_availability(app: Option<tauri::AppHandle>) -> bool {
 
 pub const VALID_PROVIDERS: [&str; 8] = ["zernio", "upload_post", "buffer", "ayrshare", "publer", "outstand", "substack_notes", "webhook"];
 
-pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str, repo_id: Option<&str>) {
-    let scope = if repo_id.is_some() { "repo" } else { "global" };
-    let mut props = serde_json::json!({"provider": provider, "scope": scope});
-    if let Some(id) = repo_id {
-        props["repo_id"] = serde_json::Value::String(id.to_string());
-    }
+pub fn record_provider_configured(state: &AppState, consent: bool, provider: &str) {
+    let props = serde_json::json!({"provider": provider, "scope": "workspace"});
     state.telemetry.record(consent, "provider_configured", props);
 }
 
@@ -85,23 +81,6 @@ pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_scheduler_credential(
-    provider: String,
-    repo_id: String,
-    app: tauri::AppHandle,
-) -> Result<Option<String>, String> {
-    get_scheduler_credential_impl(&provider)?;
-
-    let key = get_credential_keyring_key(&provider, &repo_id);
-
-    match app.keyring().get_password("postlane", &key) {
-        Ok(Some(credential)) => Ok(Some(mask_credential(&credential))),
-        Ok(None) => Ok(None),
-        Err(e) => Err(format!("Failed to retrieve credential: {}", e)),
-    }
-}
-
-#[tauri::command]
 pub fn save_scheduler_credential(
     provider: String,
     api_key: String,
@@ -125,7 +104,7 @@ pub fn save_scheduler_credential(
         .set_password("postlane", &keyring_key, &api_key)
         .map_err(|e| format!("Failed to store credential: {}", e))?;
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    record_provider_configured(&state, consent, &provider, Some(&repo_id));
+    record_provider_configured(&state, consent, &provider);
     Ok(())
 }
 
@@ -146,74 +125,12 @@ pub fn delete_scheduler_credential(
     Ok(())
 }
 
-pub fn validate_repo_registered(repo_id: &str, state: &AppState) -> Result<(), String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-    repos
-        .repos
-        .iter()
-        .find(|r| r.id == repo_id)
-        .ok_or_else(|| format!("Repo {} not found in repos.json", repo_id))?;
-    Ok(())
-}
-
-/// Validates provider is known and, when a repo_id is provided, that it is registered.
-pub fn validate_scheduler_registration_impl(repo_id: &str, provider: &str, state: &AppState) -> Result<bool, String> {
-    validate_repo_registered(repo_id, state)?;
-    if !VALID_PROVIDERS.contains(&provider) {
-        return Err(format!("Unknown provider: {}", provider));
-    }
-    Ok(true)
-}
-
 pub fn is_keyring_not_found(error_msg: &str) -> bool {
     let lower = error_msg.to_lowercase();
     lower.contains("no entry")
         || lower.contains("no such entry")
         || lower.contains("not found")
         || lower.contains("could not be found")
-}
-
-fn credential_found(key: &str, result: Result<Option<String>, String>) -> bool {
-    match result {
-        Ok(Some(_)) => true,
-        Ok(None) => false,
-        Err(e) => {
-            if !is_keyring_not_found(&e) {
-                eprintln!("[scheduler_credentials] keyring error for '{}': {}", key, e);
-            }
-            false
-        }
-    }
-}
-
-/// Returns true if any provider has a credential for the given repo.
-/// Used by the per-repo scheduler setup modal to decide whether to show.
-pub fn has_scheduler_configured_impl(repo_id: &str, app: &tauri::AppHandle) -> bool {
-    use tauri_plugin_keyring::KeyringExt;
-    for provider in &VALID_PROVIDERS {
-        let key = get_credential_keyring_key(provider, repo_id);
-        if credential_found(&key, app.keyring().get_password("postlane", &key).map_err(|e| e.to_string())) {
-            return true;
-        }
-    }
-    false
-}
-
-#[tauri::command]
-pub fn has_scheduler_configured(repo_id: String, app: tauri::AppHandle) -> bool {
-    has_scheduler_configured_impl(&repo_id, &app)
-}
-
-/// Returns true if the given provider has a credential stored for the given repo.
-/// Does not expose the credential value — safe to call from the frontend.
-#[tauri::command]
-pub fn has_provider_credential(repo_id: String, provider: String, app: tauri::AppHandle) -> bool {
-    if !VALID_PROVIDERS.contains(&provider.as_str()) { return false; }
-    let key = get_credential_keyring_key(&provider, &repo_id);
-    matches!(app.keyring().get_password("postlane", &key), Ok(Some(_)))
 }
 
 pub fn list_connected_providers_impl<F>(repo_id: &str, has_cred: F) -> Vec<String>
@@ -311,22 +228,6 @@ mod tests {
         }
     }
 
-    // --- §15.3 per-repo scheduler key ---
-
-    fn make_state_with_repo(repo_id: &str) -> crate::app_state::AppState {
-        use crate::storage::{Repo, ReposConfig};
-        crate::app_state::AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: repo_id.to_string(),
-                name: "test-repo".to_string(),
-                path: "/tmp/test-repo".to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
-    }
-
     #[test]
     fn test_is_keyring_not_found_recognises_no_entry_messages() {
         assert!(is_keyring_not_found("No such entry exists"), "platform: Linux libsecret");
@@ -343,7 +244,7 @@ mod tests {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, true, "zernio", None);
+        record_provider_configured(&state, true, "zernio");
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
@@ -352,45 +253,19 @@ mod tests {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, false, "zernio", None);
+        record_provider_configured(&state, false, "zernio");
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
 
-    // --- telemetry payload ---
-
     #[test]
-    fn test_record_provider_configured_global_has_scope_global_and_no_repo_id() {
+    fn test_record_provider_configured_has_scope_workspace() {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
         let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        record_provider_configured(&state, true, "zernio", None);
+        record_provider_configured(&state, true, "zernio");
         let events = state.telemetry.peek_queue();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].properties["scope"], "global", "global event must have scope=global");
-        assert!(events[0].properties.get("repo_id").is_none(), "global event must not include repo_id");
-    }
-
-    // --- validate_scheduler_registration_impl Security Rule 2 ---
-
-    #[test]
-    fn test_validate_scheduler_registration_rejects_unregistered_repo() {
-        let state = make_state_with_repo("r1");
-        let result = validate_scheduler_registration_impl("attacker-id", "zernio", &state);
-        assert!(result.is_err(), "must reject repo_id not in repos.json (Security Rule 2)");
-    }
-
-    #[test]
-    fn test_validate_scheduler_registration_accepts_registered_repo_with_valid_provider() {
-        let state = make_state_with_repo("r1");
-        let result = validate_scheduler_registration_impl("r1", "zernio", &state);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_scheduler_registration_rejects_invalid_provider() {
-        let state = make_state_with_repo("r1");
-        let result = validate_scheduler_registration_impl("r1", "not_a_provider", &state);
-        assert!(result.is_err());
+        assert_eq!(events[0].properties["scope"], "workspace");
     }
 
     // --- log_libsecret_cleanup_error ---
@@ -408,37 +283,9 @@ mod tests {
     // --- credential keyring key format ---
 
     #[test]
-    fn test_get_credential_keyring_key_is_workspace_scoped() {
-        let key = get_credential_keyring_key("zernio", "ws-abc");
-        assert_eq!(key, "zernio/ws-abc");
-    }
-
-    #[test]
-    fn test_get_credential_keyring_key_uses_workspace_id_as_suffix() {
-        let key = get_credential_keyring_key("upload_post", "proj-999");
-        assert_eq!(key, "upload_post/proj-999");
-    }
-
-    // --- credential_found ---
-
-    #[test]
-    fn credential_found_returns_true_when_credential_exists() {
-        assert!(credential_found("postlane/zernio/r1", Ok(Some("api-key".to_string()))));
-    }
-
-    #[test]
-    fn credential_found_returns_false_when_no_entry() {
-        assert!(!credential_found("postlane/zernio/r1", Ok::<_, String>(None)));
-    }
-
-    #[test]
-    fn credential_found_returns_false_and_does_not_panic_on_genuine_keyring_error() {
-        assert!(!credential_found("postlane/zernio/r1", Err("Keychain locked — user must unlock".to_string())));
-    }
-
-    #[test]
-    fn credential_found_returns_false_silently_on_not_found_error() {
-        assert!(!credential_found("postlane/zernio/r1", Err("no entry found".to_string())));
+    fn test_get_credential_keyring_key_format() {
+        assert_eq!(get_credential_keyring_key("zernio", "proj-abc"), "zernio/proj-abc");
+        assert_eq!(get_credential_keyring_key("upload_post", "proj-999"), "upload_post/proj-999");
     }
 
     // --- list_connected_providers — workspace scope isolation ---

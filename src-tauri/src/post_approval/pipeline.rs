@@ -24,12 +24,6 @@ impl Drop for InFlightGuard {
     }
 }
 
-/// In v1, all social platforms route through the Zernio scheduler.
-/// This indirection allows per-platform provider routing in v2 without call-site changes.
-pub(super) fn scheduler_provider_for(_platform: &str) -> &'static str {
-    "zernio"
-}
-
 pub(super) fn validate_platform(platform: &str) -> Result<(), String> {
     if !KNOWN_SOCIAL_PLATFORMS.contains(&platform) {
         return Err(format!(
@@ -84,25 +78,15 @@ pub(super) fn is_platform_edited(meta: &PostMeta, platform: &str) -> bool {
         .contains(&platform.to_string())
 }
 
-/// Testable credential resolver — injectable for unit testing.
-pub(super) fn get_api_key_for_platform(
-    platform: &str,
-    keyring_fn: impl Fn(&str, &str) -> Option<String>,
-) -> Result<String, String> {
-    let provider = scheduler_provider_for(platform);
-    let key = format!("postlane-scheduler-{}", provider);
-    keyring_fn("postlane", &key)
-        .ok_or_else(|| format!("No credential found for scheduler provider '{}'", provider))
-}
-
-pub(super) fn get_api_key_from_handle(app: &tauri::AppHandle, platform: &str) -> Result<String, String> {
-    use tauri_plugin_keyring::KeyringExt;
-    get_api_key_for_platform(platform, |service, account| {
-        app.keyring()
-            .get_password(service, account)
-            .ok()
-            .flatten()
-    })
+pub(super) fn read_project_id_from_config(config_path: &Path) -> Result<String, String> {
+    let content = std::fs::read_to_string(config_path)
+        .map_err(|e| format!("Failed to read config.json at {}: {}", config_path.display(), e))?;
+    let config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    config["project_id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "No project linked to this repo. Run `postlane init` to connect it.".to_string())
 }
 
 pub(super) fn read_platform_content(post_path: &Path, platform: &str) -> Result<String, String> {
@@ -166,7 +150,14 @@ pub(super) async fn call_scheduler(
     meta: &PostMeta,
     canonical_path: &Path,
 ) -> Result<(String, Option<String>), String> {
-    let api_key = get_api_key_from_handle(app, platform)?;
+    let config_path = canonical_path.join(".postlane/config.json");
+    let project_id = read_project_id_from_config(&config_path)?;
+    let cred = crate::scheduling::credential_router::get_scheduler_credential_with_fallback(
+        &config_path,
+        &project_id,
+        app,
+    )
+    .await?;
     let content = read_platform_content(post_path, platform)?;
     let account_ids = load_account_ids(canonical_path).unwrap_or_default();
     let account_id = account_ids
@@ -178,10 +169,7 @@ pub(super) async fn call_scheduler(
         .as_deref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc));
-    let provider = crate::scheduling::credential_router::build_provider(
-        scheduler_provider_for(platform),
-        api_key,
-    )?;
+    let provider = crate::scheduling::credential_router::build_provider(&cred.provider, cred.api_key)?;
     let result = provider
         .schedule_post(&content, platform, scheduled_for, None, account_id)
         .await
@@ -194,23 +182,34 @@ mod tests {
     use super::*;
     use crate::post_meta::PostMeta;
 
-    // --- §scheduler_provider_for ---
+    // --- §read_project_id_from_config ---
 
     #[test]
-    fn test_approve_post_resolves_x_to_zernio_provider() {
-        let key_used = std::cell::RefCell::new(String::new());
-        let _ = get_api_key_for_platform("x", |_service, account| {
-            *key_used.borrow_mut() = account.to_string();
-            None
-        });
-        assert_eq!(*key_used.borrow(), "postlane-scheduler-zernio");
+    fn test_read_project_id_returns_id_from_config() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = dir.path().join("config.json");
+        std::fs::write(&config_path, r#"{"project_id": "proj-abc-123"}"#).expect("write");
+        let result = read_project_id_from_config(&config_path);
+        assert_eq!(result.unwrap(), "proj-abc-123");
     }
 
     #[test]
-    fn test_approve_post_returns_error_when_no_scheduler_credential() {
-        let result = get_api_key_for_platform("x", |_service, _account| None);
+    fn test_read_project_id_errors_when_field_missing() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = dir.path().join("config.json");
+        std::fs::write(&config_path, r#"{"scheduler": {"provider": "zernio"}}"#).expect("write");
+        let result = read_project_id_from_config(&config_path);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("zernio"));
+        let msg = result.unwrap_err().to_lowercase();
+        assert!(msg.contains("postlane init"), "error must guide user: got '{}'", msg);
+    }
+
+    #[test]
+    fn test_read_project_id_errors_when_config_missing() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = dir.path().join("nonexistent_config.json");
+        let result = read_project_id_from_config(&config_path);
+        assert!(result.is_err());
     }
 
     // --- §is_platform_edited ---
@@ -309,14 +308,4 @@ mod tests {
         assert_eq!(meta.error.as_deref(), Some("HTTP 500 from scheduler"));
     }
 
-    // --- §warn_on_tracking_error (retained for coverage) ---
-
-    #[test]
-    fn test_provider_is_usable_returns_false_when_rate_limited() {
-        // This function was removed in M19 — approve_post is now single-provider.
-        // Verify scheduler_provider_for always returns "zernio" for all known platforms.
-        assert_eq!(scheduler_provider_for("x"), "zernio");
-        assert_eq!(scheduler_provider_for("linkedin"), "zernio");
-        assert_eq!(scheduler_provider_for("bluesky"), "zernio");
-    }
 }
