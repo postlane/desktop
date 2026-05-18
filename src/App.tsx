@@ -182,13 +182,15 @@ function useWindowSizePersistence() {
 }
 
 function useCmdHShortcut(onActivate: () => void) {
+  const onActivateRef = useRef(onActivate);
+  onActivateRef.current = onActivate;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'h') { e.preventDefault(); onActivate(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'h') { e.preventDefault(); onActivateRef.current(); }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onActivate]);
+  }, []);
 }
 
 // ── Toast hook ────────────────────────────────────────────────────────────────
