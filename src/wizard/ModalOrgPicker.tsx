@@ -226,9 +226,17 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
   async function handleNext() {
     if (!selectedOrg) return;
 
-    // Existing workspace — route directly without creating
+    // Existing workspace — backfill org login if missing, then route
     if (selectedOrg.has_project) {
-      if (selectedOrg.project_id) onNext(selectedOrg.project_id, selectedOrg.display_name);
+      if (selectedOrg.project_id) {
+        if (!selectedOrg.is_personal && selectedOrg.login) {
+          invoke('backfill_project_org_login', {
+            projectId: selectedOrg.project_id,
+            orgLogin: selectedOrg.login,
+          }).catch(() => {});
+        }
+        onNext(selectedOrg.project_id, selectedOrg.display_name);
+      }
       return;
     }
 
