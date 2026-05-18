@@ -36,7 +36,8 @@
     ],
     "macOS": {
       "hardenedRuntime": true,
-      "entitlements": "../Entitlements.plist"
+      "entitlements": "../Entitlements.plist",
+      "signingIdentity": "Developer ID Application: Hugo Elliott (RNUCP3LV48)"
     }
   },
   "plugins": {
