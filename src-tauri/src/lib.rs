@@ -253,55 +253,45 @@ mod tests {
 
     #[test]
     fn test_port_from_file_when_present() {
-        let dir = std::env::temp_dir().join("postlane_port_test_file");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("port");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port");
         std::fs::write(&path, "47312").unwrap();
         assert_eq!(get_local_server_port_impl(&path, None).unwrap(), 47312);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_port_from_file_takes_priority_over_in_memory() {
-        let dir = std::env::temp_dir().join("postlane_port_test_priority");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("port");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port");
         std::fs::write(&path, "47312").unwrap();
         let result = get_local_server_port_impl(&path, Some(9999));
         assert_eq!(result.unwrap(), 47312, "file port must win over in-memory");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_port_falls_back_to_in_memory_when_file_missing() {
-        let dir = std::env::temp_dir().join("postlane_port_test_fallback");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("port"); // does not exist
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port"); // does not exist
         let result = get_local_server_port_impl(&path, Some(47312));
         assert_eq!(result.unwrap(), 47312);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_port_falls_back_to_in_memory_when_file_corrupt() {
-        let dir = std::env::temp_dir().join("postlane_port_test_corrupt");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("port");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port");
         std::fs::write(&path, "not_a_port_number").unwrap();
         let result = get_local_server_port_impl(&path, Some(47312));
         assert_eq!(result.unwrap(), 47312, "corrupt file must fall back to in-memory");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_port_returns_error_when_file_missing_and_no_in_memory() {
-        let dir = std::env::temp_dir().join("postlane_port_test_nofile_nomem");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("port"); // does not exist
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port"); // does not exist
         let result = get_local_server_port_impl(&path, None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not available"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

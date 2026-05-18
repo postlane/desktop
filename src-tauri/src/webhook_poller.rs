@@ -144,119 +144,102 @@ mod tests {
 
     #[test]
     fn test_project_id_from_config_returns_id_when_present() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_proj_id_present");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane")).expect("create .postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane")).expect("create .postlane");
         std::fs::write(
-            dir.join(".postlane/config.json"),
+            dir.path().join(".postlane/config.json"),
             r#"{"project_id":"proj-abc-123"}"#,
         ).expect("write config");
 
-        let result = project_id_from_config(&dir);
+        let result = project_id_from_config(dir.path());
         assert_eq!(result, Some("proj-abc-123".to_string()));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_project_id_from_config_returns_none_when_file_absent() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_proj_id_absent");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
-        let result = project_id_from_config(&dir);
+        let result = project_id_from_config(dir.path());
         assert!(result.is_none());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_project_id_from_config_returns_none_when_field_missing() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_proj_id_no_field");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane")).expect("create .postlane");
-        std::fs::write(dir.join(".postlane/config.json"), r#"{"scheduler":{}}"#).expect("write");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane")).expect("create .postlane");
+        std::fs::write(dir.path().join(".postlane/config.json"), r#"{"scheduler":{}}"#).expect("write");
 
-        let result = project_id_from_config(&dir);
+        let result = project_id_from_config(dir.path());
         assert!(result.is_none());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── create_draft_from_push ───────────────────────────────────────────────
 
     #[test]
     fn test_create_draft_writes_meta_json() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_draft_write");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane/posts")).expect("create posts");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
         let event = make_push_event("evt-001", "fix: typo in readme");
 
-        let meta_path = create_draft_from_push(&dir, &event).expect("should succeed");
+        let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         assert!(meta_path.exists(), "meta.json should be created");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_create_draft_uses_first_commit_message_as_title() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_draft_title");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane/posts")).expect("create posts");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
         let event = make_push_event("evt-002", "feat: add dark mode");
 
-        let meta_path = create_draft_from_push(&dir, &event).expect("should succeed");
+        let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         let content = std::fs::read_to_string(&meta_path).expect("read meta.json");
         let meta: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(meta["title"].as_str(), Some("feat: add dark mode"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_create_draft_sets_source_to_webhook() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_draft_source");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane/posts")).expect("create posts");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
         let event = make_push_event("evt-003", "chore: bump deps");
 
-        let meta_path = create_draft_from_push(&dir, &event).expect("should succeed");
+        let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         let content = std::fs::read_to_string(&meta_path).expect("read meta.json");
         let meta: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(meta["source"].as_str(), Some("webhook"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_create_draft_is_idempotent() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_draft_idempotent");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane/posts")).expect("create posts");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
         let event = make_push_event("evt-004", "refactor: rename module");
 
-        let path1 = create_draft_from_push(&dir, &event).expect("first call");
-        let path2 = create_draft_from_push(&dir, &event).expect("second call");
+        let path1 = create_draft_from_push(dir.path(), &event).expect("first call");
+        let path2 = create_draft_from_push(dir.path(), &event).expect("second call");
         assert_eq!(path1, path2, "same path returned on second call");
 
-        let entries: Vec<_> = std::fs::read_dir(dir.join(".postlane/posts"))
+        let entries: Vec<_> = std::fs::read_dir(dir.path().join(".postlane/posts"))
             .expect("read posts dir")
             .flatten()
             .collect();
         assert_eq!(entries.len(), 1, "only one draft folder created");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_create_draft_fallback_title_when_no_commits() {
-        let dir = std::env::temp_dir().join("postlane_test_poller_draft_no_commits");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".postlane/posts")).expect("create posts");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
         let event = PendingEvent {
             id: "evt-005".to_string(),
             event_type: "push".to_string(),
             payload: serde_json::json!({ "commits": [] }),
         };
 
-        let meta_path = create_draft_from_push(&dir, &event).expect("should succeed");
+        let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         let content = std::fs::read_to_string(&meta_path).expect("read meta.json");
         let meta: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(meta["title"].as_str(), Some("Push event"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── fetch_pending_events ─────────────────────────────────────────────────

@@ -345,6 +345,32 @@ describe('ModalConnectRepos — setRepoConnected callback', () => {
   });
 });
 
+describe('ModalConnectRepos — setRepoConnected via manual Next after mount-check', () => {
+  it('calls setRepoConnected(true) when Next is clicked after mount check finds app already installed', async () => {
+    const setRepoConnected = vi.fn();
+    const onNext = vi.fn();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true;
+      return { name: 'my-repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} setRepoConnected={setRepoConnected} />);
+    await waitFor(() => screen.getByRole('button', { name: /^next/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^next/i }));
+    expect(setRepoConnected).toHaveBeenCalledWith(true);
+    expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  it('does not call setRepoConnected when Next is clicked with no app installed and no folder connected', async () => {
+    const setRepoConnected = vi.fn();
+    const onNext = vi.fn();
+    mockOpenDialog.mockResolvedValue(null);
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} setRepoConnected={setRepoConnected} />);
+    // Skip button is the only way to advance with nothing connected
+    fireEvent.click(screen.getByRole('button', { name: /connect repos later/i }));
+    expect(setRepoConnected).not.toHaveBeenCalled();
+  });
+});
+
 describe('ModalConnectRepos — install-error event for non-GitHub provider', () => {
   it('does not set error when github:install-error fires for non-GitHub provider', async () => {
     render(<ModalGitHubApp {...defaultProps} provider="gitlab" />);

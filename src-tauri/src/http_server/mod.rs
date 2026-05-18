@@ -259,7 +259,10 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -283,7 +286,10 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "tok".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = ServerState { token: "tok".to_string(), repos, repos_path, activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -302,7 +308,10 @@ mod tests {
             version: 1,
             repos: vec![],
         }));
-        let state = ServerState { token: "test-token".to_string(), repos, repos_path: std::env::temp_dir().join("postlane_test_repos.json"), activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let test_port = 57312u16;
         let bound_port = start_server(state, test_port).await.unwrap();
         assert_eq!(bound_port, test_port);

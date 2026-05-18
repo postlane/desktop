@@ -344,23 +344,22 @@ mod tests {
 
     #[test]
     fn test_update_scheduler_config_writes_single_provider() {
-        let dir = std::env::temp_dir().join("postlane_test_cfg_single");
-        let config_path = write_test_config(&dir);
-        let state = make_test_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_test_config(dir.path());
+        let state = make_test_state_with_dir(dir.path());
         let result = update_scheduler_config_impl("r99", &["zernio".to_string()], &state);
         assert!(result.is_ok(), "{:?}", result);
         let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(config["scheduler"]["provider"].as_str().unwrap(), "zernio");
         let order: Vec<&str> = config["scheduler"]["fallback_order"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
         assert_eq!(order, vec!["zernio"]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_update_scheduler_config_writes_full_fallback_order() {
-        let dir = std::env::temp_dir().join("postlane_test_cfg_multi");
-        let config_path = write_test_config(&dir);
-        let state = make_test_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_test_config(dir.path());
+        let state = make_test_state_with_dir(dir.path());
         let order_in = ["zernio".to_string(), "publer".to_string(), "outstand".to_string()];
         let result = update_scheduler_config_impl("r99", &order_in, &state);
         assert!(result.is_ok(), "{:?}", result);
@@ -368,7 +367,6 @@ mod tests {
         assert_eq!(config["scheduler"]["provider"].as_str().unwrap(), "zernio");
         let order: Vec<&str> = config["scheduler"]["fallback_order"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
         assert_eq!(order, vec!["zernio", "publer", "outstand"]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -380,28 +378,26 @@ mod tests {
 
     #[test]
     fn test_update_scheduler_config_rejects_unknown_provider() {
-        let dir = std::env::temp_dir().join("postlane_test_cfg_unknown_prov");
-        write_test_config(&dir);
-        let state = make_test_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_test_config(dir.path());
+        let state = make_test_state_with_dir(dir.path());
         let result = update_scheduler_config_impl("r99", &["unknown_xyz".to_string()], &state);
         assert!(result.is_err(), "unknown provider must be rejected");
         let err = result.unwrap_err();
         assert!(err.contains("unknown_xyz"), "error must identify the bad provider, got: {}", err);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_update_scheduler_config_rejects_provider_in_mixed_list() {
-        let dir = std::env::temp_dir().join("postlane_test_cfg_mixed_prov");
-        write_test_config(&dir);
-        let state = make_test_state_with_dir(&dir);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_test_config(dir.path());
+        let state = make_test_state_with_dir(dir.path());
         let result = update_scheduler_config_impl(
             "r99",
             &["zernio".to_string(), "bad_provider".to_string()],
             &state,
         );
         assert!(result.is_err(), "list with unknown provider must be rejected");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

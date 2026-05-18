@@ -121,8 +121,7 @@ mod tests {
 
     #[test]
     fn test_app_state_round_trip() {
-        let dir = std::env::temp_dir().join("postlane_test_app_state_roundtrip");
-        fs::create_dir_all(&dir).expect("Failed to create test dir");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
 
         let state = AppStateFile {
             version: 1,
@@ -144,7 +143,7 @@ mod tests {
             org_upgrade_banner_dismissed_v1_2: false,
         };
 
-        let path = dir.join("app_state.json");
+        let path = dir.path().join("app_state.json");
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
         crate::init::atomic_write(&path, json.as_bytes()).expect("Failed to write");
 
@@ -153,7 +152,6 @@ mod tests {
         assert_eq!(loaded.window.width, 1200);
         assert_eq!(loaded.nav.last_view, "repo");
         assert_eq!(loaded.nav.expanded_repos.len(), 2);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

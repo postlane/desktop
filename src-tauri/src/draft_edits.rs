@@ -90,51 +90,49 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_post_draft_writes_updated_text() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_writes");
-        setup_post_dir(&dir, "commit-abc");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        setup_post_dir(dir.path(), "commit-abc");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
 
-        save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "x", "New draft text.", &state)
+        save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "x", "New draft text.", &state)
             .await.expect("should succeed");
 
-        let content = fs::read_to_string(dir.join(".postlane/posts/commit-abc/x.md")).expect("read");
+        let content = fs::read_to_string(dir.path().join(".postlane/posts/commit-abc/x.md")).expect("read");
         assert_eq!(content, "New draft text.");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_save_post_draft_appends_platform_to_edited_platforms() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_append");
-        setup_post_dir(&dir, "commit-abc");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        setup_post_dir(dir.path(), "commit-abc");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
 
-        save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "x", "Draft for X.", &state)
+        save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "x", "Draft for X.", &state)
             .await.expect("first save");
-        save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "linkedin", "Draft for LinkedIn.", &state)
+        save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "linkedin", "Draft for LinkedIn.", &state)
             .await.expect("second save");
         // calling twice for the same platform must not duplicate
-        save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "x", "Updated X.", &state)
+        save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "x", "Updated X.", &state)
             .await.expect("duplicate save");
 
-        let meta_path = PostMeta::path_for(Path::new(dir.to_str().unwrap()), "commit-abc");
+        let meta_path = PostMeta::path_for(dir.path(), "commit-abc");
         let meta = PostMeta::load(&meta_path).expect("load meta");
         let ep = meta.edited_platforms.expect("edited_platforms must be Some");
         assert_eq!(ep.iter().filter(|p| *p == "x").count(), 1, "x must appear exactly once");
         assert!(ep.contains(&"linkedin".to_string()), "linkedin must be present");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_save_post_draft_initialises_edited_platforms_when_none() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_init");
-        setup_post_dir(&dir, "commit-pre-m19");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        setup_post_dir(dir.path(), "commit-pre-m19");
         // Write a meta.json with no edited_platforms key (pre-M19 post)
-        let meta_path = PostMeta::path_for(Path::new(dir.to_str().unwrap()), "commit-pre-m19");
+        let meta_path = PostMeta::path_for(dir.path(), "commit-pre-m19");
         fs::create_dir_all(meta_path.parent().unwrap()).expect("dirs");
         fs::write(&meta_path, r#"{"sent_platforms":{}}"#).expect("write pre-M19 meta");
 
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
-        save_post_draft_impl(dir.to_str().unwrap(), "commit-pre-m19", "x", "Draft.", &state)
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        save_post_draft_impl(dir.path().to_str().unwrap(), "commit-pre-m19", "x", "Draft.", &state)
             .await.expect("should not panic on pre-M19 post");
 
         let meta = PostMeta::load(&meta_path).expect("load");
@@ -143,22 +141,20 @@ mod tests {
             Some(vec!["x".to_string()]),
             "pre-M19 post must get Some([\"x\"]) after first save"
         );
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_save_post_draft_writes_edited_at() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_edited_at");
-        setup_post_dir(&dir, "commit-abc");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        setup_post_dir(dir.path(), "commit-abc");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
 
-        save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "x", "Draft.", &state)
+        save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "x", "Draft.", &state)
             .await.expect("should succeed");
 
-        let meta_path = PostMeta::path_for(Path::new(dir.to_str().unwrap()), "commit-abc");
+        let meta_path = PostMeta::path_for(dir.path(), "commit-abc");
         let meta = PostMeta::load(&meta_path).expect("load");
         assert!(meta.edited_at.is_some(), "edited_at must be set after save");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -171,46 +167,46 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_post_draft_rejects_empty_text() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_empty");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
-        let result = save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "x", "", &state).await;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "x", "", &state).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("empty"), "error must mention empty");
     }
 
     #[tokio::test]
     async fn test_save_post_draft_rejects_text_exceeding_max_length() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_toolong");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
         let long_text = "x".repeat(15_001);
-        let result = save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "x", &long_text, &state).await;
+        let result = save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "x", &long_text, &state).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("15,000"), "error must mention the limit");
     }
 
     #[tokio::test]
     async fn test_save_post_draft_rejects_multi_segment_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_multiseg");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
-        let result = save_post_draft_impl(dir.to_str().unwrap(), "a/b", "x", "Draft.", &state).await;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = save_post_draft_impl(dir.path().to_str().unwrap(), "a/b", "x", "Draft.", &state).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("single path component"));
     }
 
     #[tokio::test]
     async fn test_save_post_draft_rejects_path_traversal() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_traversal");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
-        let result = save_post_draft_impl(dir.to_str().unwrap(), "../etc", "x", "Draft.", &state).await;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = save_post_draft_impl(dir.path().to_str().unwrap(), "../etc", "x", "Draft.", &state).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("single path component"));
     }
 
     #[tokio::test]
     async fn test_save_post_draft_rejects_path_traversal_in_platform() {
-        let dir = std::env::temp_dir().join("postlane_test_spd_plat_traversal");
-        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
-        let result = save_post_draft_impl(dir.to_str().unwrap(), "commit-abc", "../evil", "Draft.", &state).await;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = save_post_draft_impl(dir.path().to_str().unwrap(), "commit-abc", "../evil", "Draft.", &state).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("single path component"));
     }

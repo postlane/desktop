@@ -117,56 +117,48 @@ mod tests {
 
     #[tokio::test]
     async fn test_approve_post_rejects_unknown_platform() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_unknown_platform");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-a", "unknown", &state, None, false).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown platform"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_approve_post_rejects_empty_platform() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_empty_platform");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-a", "", &state, None, false).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown platform"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §validate_post_folder ---
 
     #[tokio::test]
     async fn test_approve_post_rejects_path_traversal() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_traversal_m19");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "../etc", "x", &state, None, false).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_approve_post_rejects_multi_segment_post_folder() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_multi_seg");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "a/b", "x", &state, None, false).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §validate_repo_path ---
@@ -183,9 +175,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_approve_post_is_idempotent_when_already_sent() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_idempotent_m19");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "post-idem");
         // Pre-populate sent_platforms so post appears already sent
@@ -200,16 +191,14 @@ mod tests {
         // sent_platforms must still have exactly one entry
         let loaded = PostMeta::load(&meta_path).unwrap();
         assert_eq!(loaded.sent_platforms.len(), 1);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §concurrent_calls ---
 
     #[tokio::test]
     async fn test_approve_post_concurrent_calls_send_only_once() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_concurrent");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "post-concurrent");
         let state = make_state(&canonical_str);
@@ -221,14 +210,12 @@ mod tests {
         let meta_path = PostMeta::path_for(&canonical, "post-concurrent");
         let meta = PostMeta::load(&meta_path).unwrap();
         assert_eq!(meta.sent_platforms.len(), 1, "exactly one sent_at entry");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_approve_post_and_save_post_draft_do_not_race() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_race");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "post-race");
         let meta_path = PostMeta::path_for(&canonical, "post-race");
@@ -254,16 +241,14 @@ mod tests {
             Some(vec!["x".to_string()]),
             "edited_platforms must be preserved"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §scheduler_result (integration) ---
 
     #[tokio::test]
     async fn test_approve_post_writes_sent_status_to_meta() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_sent_status_m19");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "my-post");
         let state = make_state(&canonical_str);
@@ -277,16 +262,14 @@ mod tests {
             Some(PostStatus::Sent),
             "approve_post must write status=sent so engagement_sync can pick up the post"
         );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §failed_status (integration) ---
 
     #[tokio::test]
     async fn test_approve_post_failed_status_does_not_block_retry() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_retry");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "post-retry");
         // Pre-write meta with status=Failed (simulates a prior failed attempt)
@@ -301,36 +284,31 @@ mod tests {
         assert!(result.is_ok(), "retry after failure must succeed: {:?}", result);
         let final_meta = PostMeta::load(&meta_path).unwrap();
         assert!(final_meta.sent_platforms.contains_key("x"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // --- §telemetry ---
 
     #[tokio::test]
     async fn test_approve_records_telemetry_when_consent_given() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_tel_yes_m19");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "post-tel-a");
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-tel-a", "x", &state, None, true).await;
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 1);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn test_approve_no_telemetry_when_consent_not_given() {
-        let dir = std::env::temp_dir().join("postlane_test_approve_tel_no_m19");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let canonical_str = canonical.to_str().unwrap().to_string();
         write_post(&canonical, "post-tel-b");
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-tel-b", "x", &state, None, false).await;
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 0);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

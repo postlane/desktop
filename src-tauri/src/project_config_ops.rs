@@ -202,19 +202,18 @@ mod tests {
 
     #[test]
     fn test_writes_project_id_to_config_atomically() {
-        let dir = std::env::temp_dir().join("postlane_test_write_project_id_pr");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         std::fs::create_dir_all(&config_dir).expect("create .postlane");
         std::fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write config");
 
-        let repos = make_repos(&[dir.to_str().unwrap()]);
-        let notice = write_project_id_to_config_impl(dir.to_str().unwrap(), "proj-uuid-xyz", &repos).expect("should succeed");
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let notice = write_project_id_to_config_impl(dir.path().to_str().unwrap(), "proj-uuid-xyz", &repos).expect("should succeed");
 
         let content = std::fs::read_to_string(config_dir.join("config.json")).expect("read");
         let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(parsed["project_id"].as_str(), Some("proj-uuid-xyz"));
         assert!(notice.contains("project_id"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -228,21 +227,18 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_write_config_rejects_symlinked_config_json() {
-        let dir = std::env::temp_dir().join("postlane_test_write_symlink");
-        let _ = std::fs::remove_dir_all(&dir);
-        let postlane_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let target_dir = tempfile::TempDir::new().expect("create target temp dir");
+        let postlane_dir = dir.path().join(".postlane");
         std::fs::create_dir_all(&postlane_dir).expect("create .postlane");
-        let target = std::env::temp_dir().join("evil_write_target.json");
+        let target = target_dir.path().join("evil_write_target.json");
         std::fs::write(&target, "{}").expect("write target");
         std::os::unix::fs::symlink(&target, postlane_dir.join("config.json")).expect("create symlink");
 
-        let repos = make_repos(&[dir.to_str().unwrap()]);
-        let result = write_project_id_to_config_impl(dir.to_str().unwrap(), "proj-123", &repos);
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let result = write_project_id_to_config_impl(dir.path().to_str().unwrap(), "proj-123", &repos);
         assert!(result.is_err(), "must reject symlinked config.json");
         assert!(result.unwrap_err().to_lowercase().contains("symlink"), "error must mention symlink");
-
-        let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_file(&target);
     }
 
     // ── read_project_id_from_path ────────────────────────────────────────────
@@ -256,72 +252,64 @@ mod tests {
 
     #[test]
     fn test_read_project_id_from_path_returns_id() {
-        let dir = std::env::temp_dir().join("postlane_test_read_project_id_present");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         std::fs::create_dir_all(&config_dir).expect("create .postlane");
         std::fs::write(config_dir.join("config.json"), r#"{"project_id":"proj-abc","scheduler":{"provider":"zernio"}}"#).expect("write config");
-        let repos = make_repos_with_path(dir.to_str().unwrap());
+        let repos = make_repos_with_path(dir.path().to_str().unwrap());
 
-        let result = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos);
+        let result = read_project_id_from_path_impl(dir.path().to_str().unwrap(), &repos);
         assert_eq!(result, Ok(Some("proj-abc".to_string())));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_read_project_id_from_path_returns_none_when_missing() {
-        let dir = std::env::temp_dir().join("postlane_test_read_project_id_missing");
-        let config_dir = dir.join(".postlane");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
         std::fs::create_dir_all(&config_dir).expect("create .postlane");
         std::fs::write(config_dir.join("config.json"), r#"{"scheduler":{"provider":"zernio"}}"#).expect("write config");
-        let repos = make_repos_with_path(dir.to_str().unwrap());
+        let repos = make_repos_with_path(dir.path().to_str().unwrap());
 
-        let result = read_project_id_from_path_impl(dir.to_str().unwrap(), &repos);
+        let result = read_project_id_from_path_impl(dir.path().to_str().unwrap(), &repos);
         assert_eq!(result, Ok(None));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── get_repo_remote_name ─────────────────────────────────────────────────
 
     #[test]
     fn test_returns_remote_name_for_https_remote() {
-        let dir = std::env::temp_dir().join("postlane_test_remote_https");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        std::process::Command::new("git").args(["init"]).current_dir(&dir).output().expect("git init");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::process::Command::new("git").args(["init"]).current_dir(dir.path()).output().expect("git init");
         std::process::Command::new("git")
             .args(["remote", "add", "origin", "https://github.com/postlane/desktop.git"])
-            .current_dir(&dir).output().expect("git remote add");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+            .current_dir(dir.path()).output().expect("git remote add");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let repos = make_repos(&[canonical.to_str().unwrap()]);
         let result = get_repo_remote_name_impl(canonical.to_str().unwrap(), &repos).expect("should succeed");
         assert_eq!(result.as_deref(), Some("desktop"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_returns_remote_name_for_ssh_remote() {
-        let dir = std::env::temp_dir().join("postlane_test_remote_ssh");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        std::process::Command::new("git").args(["init"]).current_dir(&dir).output().expect("git init");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::process::Command::new("git").args(["init"]).current_dir(dir.path()).output().expect("git init");
         std::process::Command::new("git")
             .args(["remote", "add", "origin", "git@github.com:postlane/desktop.git"])
-            .current_dir(&dir).output().expect("git remote add");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+            .current_dir(dir.path()).output().expect("git remote add");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let repos = make_repos(&[canonical.to_str().unwrap()]);
         let result = get_repo_remote_name_impl(canonical.to_str().unwrap(), &repos).expect("should succeed");
         assert_eq!(result.as_deref(), Some("desktop"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_returns_none_for_no_remote() {
-        let dir = std::env::temp_dir().join("postlane_test_remote_none");
-        std::fs::create_dir_all(&dir).expect("create dir");
-        std::process::Command::new("git").args(["init"]).current_dir(&dir).output().expect("git init");
-        let canonical = std::fs::canonicalize(&dir).expect("canonicalize");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::process::Command::new("git").args(["init"]).current_dir(dir.path()).output().expect("git init");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
         let repos = make_repos(&[canonical.to_str().unwrap()]);
         let result = get_repo_remote_name_impl(canonical.to_str().unwrap(), &repos).expect("should succeed");
         assert!(result.is_none());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

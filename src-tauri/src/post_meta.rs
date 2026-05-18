@@ -1,8 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Deserializes a value as `T::default()` when the JSON value is `null` or the field is absent.
+/// `#[serde(default)]` alone handles absent fields but not explicit `null` — pre-M19 meta.json
+/// files wrote explicit nulls for map fields, so both cases must be handled.
+fn default_on_null<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    let opt: Option<T> = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -30,13 +42,13 @@ pub struct PostMeta {
     /// ISO8601 of most recent save_post_draft call.
     pub edited_at: Option<String>,
     /// platform → ISO8601 sent_at; written by approve_post on success.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_on_null")]
     pub sent_platforms: HashMap<String, String>,
     /// platform → scheduler-assigned post ID; written by approve_post on success.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_on_null")]
     pub scheduler_ids: HashMap<String, String>,
     /// platform → published post URL; written by approve_post on success.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_on_null")]
     pub platform_urls: HashMap<String, String>,
     /// ISO8601 scheduled send time set by the user.
     pub scheduled_for: Option<String>,
@@ -102,9 +114,8 @@ mod tests {
 
     #[test]
     fn test_post_meta_load_deserialises_all_fields() {
-        let dir = std::env::temp_dir().join("postlane_test_post_meta_all");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         fs::write(&path, r#"{
             "edited_platforms": ["x"],
             "edited_at": "2026-05-01T10:00:00Z",
@@ -125,36 +136,30 @@ mod tests {
         assert_eq!(meta.model_name.as_deref(), Some("claude-sonnet-4-5"));
         assert_eq!(meta.status, Some(PostStatus::Failed));
         assert_eq!(meta.error.as_deref(), Some("scheduler error"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_post_meta_load_absent_edited_platforms_deserialises_as_none() {
-        let dir = std::env::temp_dir().join("postlane_test_post_meta_ep_none");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         fs::write(&path, r#"{}"#).expect("write json");
         let meta = PostMeta::load(&path).expect("load");
         assert!(meta.edited_platforms.is_none(), "absent field must be None, not Some([])");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_post_meta_load_empty_edited_platforms_deserialises_as_some_empty() {
-        let dir = std::env::temp_dir().join("postlane_test_post_meta_ep_empty");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         fs::write(&path, r#"{"edited_platforms": []}"#).expect("write json");
         let meta = PostMeta::load(&path).expect("load");
         assert_eq!(meta.edited_platforms, Some(vec![]), "empty array must be Some([]), not None");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_post_meta_save_writes_atomically() {
-        let dir = std::env::temp_dir().join("postlane_test_post_meta_atomic");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         let meta = PostMeta {
             model_name: Some("claude-test".to_string()),
             ..Default::default()
@@ -164,14 +169,12 @@ mod tests {
         let tmp = path.with_extension("json.tmp");
         assert!(!tmp.exists(), ".tmp file must be cleaned up after rename");
         assert!(path.exists(), "meta.json must exist after save");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_post_meta_round_trips() {
-        let dir = std::env::temp_dir().join("postlane_test_post_meta_roundtrip");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         let mut original = PostMeta::default();
         original.edited_platforms = Some(vec!["x".to_string(), "bluesky".to_string()]);
         original.model_name = Some("claude-opus-4".to_string());
@@ -185,7 +188,6 @@ mod tests {
         assert_eq!(loaded.sent_platforms, original.sent_platforms);
         assert_eq!(loaded.status, original.status);
         assert_eq!(loaded.error, original.error);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -201,27 +203,44 @@ mod tests {
 
     #[test]
     fn test_post_meta_absent_repo_path_reads_as_none() {
-        let dir = std::env::temp_dir().join("postlane_test_pm_no_repo_path");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         // Pre-20.8 meta.json with no repo_path field
         fs::write(&path, r#"{"model_name":"claude-test"}"#).expect("write");
         let meta = PostMeta::load(&path).expect("load");
         assert!(meta.repo_path.is_none(), "absent repo_path must be None, not an error");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_post_meta_repo_path_round_trips() {
-        let dir = std::env::temp_dir().join("postlane_test_pm_repo_path_rt");
-        fs::create_dir_all(&dir).expect("create dir");
-        let path = dir.join("meta.json");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
         let mut meta = PostMeta::default();
         meta.repo_path = Some("/workspace/child-repo".to_string());
         meta.save(&path).expect("save");
         let loaded = PostMeta::load(&path).expect("load");
         assert_eq!(loaded.repo_path, Some("/workspace/child-repo".to_string()));
-        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_post_meta_load_tolerates_explicit_null_for_map_fields() {
+        // Pre-M19 meta.json files wrote explicit null for scheduler_ids, platform_urls,
+        // and sent_platforms. #[serde(default)] only handles absent fields, not null.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        fs::write(&path, r#"{
+            "status": "ready",
+            "platforms": ["x"],
+            "schedule": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "platform_urls": null,
+            "sent_platforms": null
+        }"#).expect("write json");
+        let meta = PostMeta::load(&path).expect("explicit null map fields must not error");
+        assert!(meta.scheduler_ids.is_empty(), "null scheduler_ids must deserialise as empty map");
+        assert!(meta.platform_urls.is_empty(), "null platform_urls must deserialise as empty map");
+        assert!(meta.sent_platforms.is_empty(), "null sent_platforms must deserialise as empty map");
     }
 
     #[test]

@@ -146,94 +146,84 @@ mod tests {
 
     #[test]
     fn test_get_drafts_sorts_failed_before_ready() {
-        let dir = std::env::temp_dir().join("postlane_test_get_drafts_sort_status");
-        write_draft(&dir, "r1", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
-        write_draft(&dir, "f1", r#"{"status":"failed","platforms":["x"],"created_at":"2026-04-19T00:00:00Z"}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_draft(dir.path(), "r1", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+        write_draft(dir.path(), "f1", r#"{"status":"failed","platforms":["x"],"created_at":"2026-04-19T00:00:00Z"}"#);
 
-        let state = make_drafts_state(dir.to_str().unwrap());
+        let state = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result[0].status, "failed");
         assert_eq!(result[1].status, "ready");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_drafts_sorts_by_created_at_descending() {
-        let dir = std::env::temp_dir().join("postlane_test_get_drafts_sort_ts");
-        write_draft(&dir, "old", r#"{"status":"ready","platforms":["x"],"created_at":"2026-01-01T00:00:00Z"}"#);
-        write_draft(&dir, "new", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_draft(dir.path(), "old", r#"{"status":"ready","platforms":["x"],"created_at":"2026-01-01T00:00:00Z"}"#);
+        write_draft(dir.path(), "new", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
 
-        let state = make_drafts_state(dir.to_str().unwrap());
+        let state = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result[0].created_at.as_deref() > result[1].created_at.as_deref());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_drafts_none_created_at_sorts_before_timestamped() {
-        let dir = std::env::temp_dir().join("postlane_test_get_drafts_none_ts");
-        write_draft(&dir, "with-ts", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
-        write_draft(&dir, "no-ts", r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_draft(dir.path(), "with-ts", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
+        write_draft(dir.path(), "no-ts", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.to_str().unwrap());
+        let state = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result[0].created_at.is_none());
         assert!(result[1].created_at.is_some());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_drafts_two_none_created_at_stable() {
-        let dir = std::env::temp_dir().join("postlane_test_get_drafts_two_none");
-        write_draft(&dir, "a", r#"{"status":"ready","platforms":["x"]}"#);
-        write_draft(&dir, "b", r#"{"status":"ready","platforms":["x"]}"#);
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_draft(dir.path(), "a", r#"{"status":"ready","platforms":["x"]}"#);
+        write_draft(dir.path(), "b", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.to_str().unwrap());
+        let state = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|p| p.created_at.is_none()));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_post_content_rejects_invalid_platform() {
-        let dir = std::env::temp_dir().join("postlane_test_invalid_platform");
-        fs::create_dir_all(&dir).expect("create dir");
-        let result = get_post_content_impl(dir.to_str().unwrap(), "my-post", "twitter");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let result = get_post_content_impl(dir.path().to_str().unwrap(), "my-post", "twitter");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid platform"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_get_post_content_accepts_substack_notes() {
-        let dir = std::env::temp_dir().join("postlane_test_substack_notes_platform");
-        fs::create_dir_all(&dir).expect("create dir");
-        let result = get_post_content_impl(dir.to_str().unwrap(), "my-post", "substack_notes");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let result = get_post_content_impl(dir.path().to_str().unwrap(), "my-post", "substack_notes");
         let err = result.unwrap_err();
         assert!(!err.contains("Invalid platform"), "got: {}", err);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_no_url_suppression_for_linkedin() {
-        let dir = std::env::temp_dir().join("postlane_test_linkedin_url_passthrough");
-        let post_dir = dir.join(".postlane/posts/my-post");
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/my-post");
         fs::create_dir_all(&post_dir).expect("create dir");
 
         let long_url = format!("https://example.com/{}", "a".repeat(30));
         let content = format!("Check this out {}", long_url);
         fs::write(post_dir.join("linkedin.md"), &content).expect("write linkedin.md");
 
-        let result = get_post_content_impl(dir.to_str().unwrap(), "my-post", "linkedin")
+        let result = get_post_content_impl(dir.path().to_str().unwrap(), "my-post", "linkedin")
             .expect("linkedin is a valid platform and file exists");
 
         assert_eq!(result, content, "content must be returned verbatim");
         assert!(result.contains(&long_url), "full URL must be present");
         assert!(!result.contains(&"x".repeat(23)), "URL must not have been replaced");
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

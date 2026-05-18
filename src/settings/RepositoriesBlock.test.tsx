@@ -46,6 +46,52 @@ describe('RepositoriesBlock — empty state', () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     expect(screen.getByRole('button', { name: /Add repository/i })).toBeInTheDocument()
   })
+
+  it('shows GitHub App note when app is installed and no repos are folder-connected', async () => {
+    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true
+      return null
+    })
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() =>
+      expect(screen.getByText(/monitored via your github app/i)).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/No repositories connected/i)).not.toBeInTheDocument()
+  })
+
+  it('still shows standard message when GitHub App check returns false', async () => {
+    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false
+      return null
+    })
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() =>
+      expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
+    )
+    expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
+  })
+
+  it('does not show GitHub App note when repos are present even if app is installed', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return true
+      return null
+    })
+    // repos is non-empty (beforeEach default)
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() =>
+      expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
+    )
+  })
+
+  it('calls check_github_app_installed with the correct projectId', async () => {
+    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', { projectId: 'proj-42' })
+    )
+  })
 })
 
 // ── Repo list ──────────────────────────────────────────────────────────────────
