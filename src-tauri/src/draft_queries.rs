@@ -47,7 +47,7 @@ fn build_draft(
         schedule_source: None,
         trigger: None,
         platform_results: None,
-        image_url: None,
+        image_url: meta.image_url.clone(),
         created_at: None,
         scheduler_ids: None,
         platform_urls: None,

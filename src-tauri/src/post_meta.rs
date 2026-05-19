@@ -61,6 +61,10 @@ pub struct PostMeta {
     /// Child repo path that triggered this draft (workspace mode only).
     /// `None` in single-repo mode or in pre-20.8 `meta.json` files — never treated as error.
     pub repo_path: Option<String>,
+    /// User-set image URL for this post. skip_serializing_if ensures the merge-save in
+    /// PostMeta::save() does not overwrite an existing image_url with null when this is None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
 }
 
 impl PostMeta {

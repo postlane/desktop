@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use std::path::PathBuf;
 use std::fs;
-use crate::types::PostMeta;
+use std::path::{Path, PathBuf};
+use crate::post_meta::PostMeta;
 
 const VALID_PLATFORMS: &[&str] = &[
     "x", "bluesky", "mastodon",
@@ -109,31 +109,29 @@ pub fn update_post_image_impl(
         }
     }
 
-    let meta_path = PathBuf::from(repo_path)
-        .join(".postlane/posts")
-        .join(post_folder)
-        .join("meta.json");
+    let meta_path = PostMeta::path_for(Path::new(repo_path), post_folder);
 
     if !meta_path.exists() {
         return Err("meta.json not found in post folder".to_string());
     }
 
     let raw = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read meta.json: {}", e))?;
-    let mut meta: PostMeta = serde_json::from_str(&raw)
-        .map_err(|e| format!("Failed to parse meta.json: {}", e))?;
-
-    meta.image_url = image_url.map(|s| s.to_string());
-
+        .map_err(|e| format!("Failed to read {}: {}", meta_path.display(), e))?;
+    let mut v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse {}: {}", meta_path.display(), e))?;
+    let obj = v.as_object_mut()
+        .ok_or_else(|| format!("meta.json is not a JSON object: {}", meta_path.display()))?;
+    match image_url {
+        Some(url) => { obj.insert("image_url".to_string(), serde_json::json!(url)); }
+        None => { obj.remove("image_url"); }
+    }
+    let json = serde_json::to_string_pretty(&v)
+        .map_err(|e| format!("Failed to serialise: {}", e))?;
     let tmp_path = meta_path.with_extension("json.tmp");
-    let json = serde_json::to_string_pretty(&meta)
-        .map_err(|e| format!("Failed to serialize meta.json: {}", e))?;
     fs::write(&tmp_path, &json)
-        .map_err(|e| format!("Failed to write meta.json: {}", e))?;
+        .map_err(|e| format!("Failed to write {}: {}", tmp_path.display(), e))?;
     fs::rename(&tmp_path, &meta_path)
-        .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
-
-    Ok(())
+        .map_err(|e| format!("Failed to rename to {}: {}", meta_path.display(), e))
 }
 
 #[tauri::command]
