@@ -28,22 +28,20 @@ beforeEach(() => {
 });
 
 describe('ModalScheduler — picker', () => {
-  it('test_renders_provider_options_and_skip', () => {
+  it('test_renders_zernio_and_skip', () => {
     render(<ModalScheduler {...defaultProps} />);
     expect(screen.getByRole('button', { name: /zernio/i })).toBeDefined();
-    expect(screen.getByRole('button', { name: /upload post/i })).toBeDefined();
     expect(screen.getByRole('button', { name: /skip/i })).toBeDefined();
+  });
+
+  it('test_does_not_render_upload_post', () => {
+    render(<ModalScheduler {...defaultProps} />);
+    expect(screen.queryByRole('button', { name: /upload post/i })).toBeNull();
   });
 
   it('test_selecting_zernio_opens_key_entry', async () => {
     render(<ModalScheduler {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
-    expect(screen.getByRole('textbox')).toBeDefined();
-  });
-
-  it('test_selecting_upload_post_opens_key_entry', async () => {
-    render(<ModalScheduler {...defaultProps} />);
-    await userEvent.click(screen.getByRole('button', { name: /upload post/i }));
     expect(screen.getByRole('textbox')).toBeDefined();
   });
 
@@ -67,7 +65,6 @@ describe('ModalScheduler — picker', () => {
   it('test_back_button_while_provider_selected_returns_to_picker', async () => {
     render(<ModalScheduler {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /zernio/i }));
-    // In key-entry view, back button should clear selectedProvider and show picker
     await userEvent.click(screen.getByRole('button', { name: /back/i }));
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByRole('button', { name: /zernio/i })).toBeDefined();
@@ -85,7 +82,6 @@ describe('ModalScheduler — picker', () => {
     const mockOpenUrl = vi.mocked(openUrl);
     render(<ModalScheduler {...defaultProps} />);
     const link = screen.getByRole('link', { name: /scheduler setup docs/i });
-    // fireEvent is needed because userEvent follows href navigation
     fireEvent.click(link);
     expect(mockOpenUrl).toHaveBeenCalledWith('https://docs.postlane.dev/scheduling');
   });
@@ -99,7 +95,7 @@ async function connectZernio(overrides: { onNext?: () => void; setSchedulerLinke
   await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
 }
 
-describe('ModalScheduler — after connecting first provider', () => {
+describe('ModalScheduler — after connecting Zernio', () => {
   it('test_stays_on_picker_without_advancing', async () => {
     const onNext = vi.fn();
     await connectZernio({ onNext });
@@ -138,38 +134,28 @@ describe('ModalScheduler — after connecting first provider', () => {
     await connectZernio({ setSchedulerLinked });
     expect(setSchedulerLinked).toHaveBeenCalledWith(true);
   });
-
-  it('test_second_provider_button_remains_enabled', async () => {
-    await connectZernio();
-    expect((screen.getByRole('button', { name: /upload post/i }) as HTMLButtonElement).disabled).toBe(false);
-  });
 });
 
 describe('ModalScheduler — invoke scoping', () => {
-  it('test_queries_list_connected_providers_with_workspace_id_not_null', async () => {
-    render(<ModalScheduler {...defaultProps} workspaceId="ws-42" />)
+  it('test_queries_list_connected_providers_with_workspace_id', async () => {
+    render(<ModalScheduler {...defaultProps} workspaceId="ws-42" />);
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('list_connected_providers', { repoId: 'ws-42' })
-    })
-    expect(mockInvoke).not.toHaveBeenCalledWith('list_connected_providers', { repoId: null })
-  })
-})
+      expect(mockInvoke).toHaveBeenCalledWith('list_connected_providers', { repoId: 'ws-42' });
+    });
+    expect(mockInvoke).not.toHaveBeenCalledWith('list_connected_providers', { repoId: null });
+  });
+});
 
 describe('ModalScheduler — provider type guard', () => {
   it('test_unknown_provider_string_from_ipc_is_ignored', async () => {
-    // IPC returns a string that is not a valid Provider; it must be silently
-    // ignored rather than leaking into connectedProviders state.
     mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'list_connected_providers') return ['zernio', 'not_a_real_provider', 'upload_post'];
+      if (cmd === 'list_connected_providers') return ['zernio', 'not_a_real_provider'];
       return undefined;
     });
     render(<ModalScheduler {...defaultProps} />);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
     );
-    // only zernio and upload_post should show Connected; the rogue string is filtered
-    expect(screen.getByRole('button', { name: /upload post/i }).textContent).toContain('Connected');
-    // The "next" button is visible (2 valid providers connected)
     expect(screen.getByRole('button', { name: /continue to repos/i })).toBeDefined();
   });
 });
@@ -209,19 +195,10 @@ describe('ModalScheduler — pre-connected providers', () => {
     expect(screen.getByRole('textbox')).toBeDefined();
   });
 
-  it('Next is visible immediately when a provider is pre-connected', async () => {
+  it('Next is visible immediately when Zernio is pre-connected', async () => {
     setupPreConnected(['zernio']);
     render(<ModalScheduler {...defaultProps} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /continue to repos/i })).toBeDefined());
     expect(screen.queryByRole('button', { name: /skip/i })).toBeNull();
-  });
-
-  it('unconnected provider button shows no Connected badge', async () => {
-    setupPreConnected(['zernio']);
-    render(<ModalScheduler {...defaultProps} />);
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /zernio/i }).textContent).toContain('Connected'),
-    );
-    expect(screen.getByRole('button', { name: /upload post/i }).textContent).not.toContain('Connected');
   });
 });

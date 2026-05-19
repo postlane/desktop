@@ -10,32 +10,29 @@ pub struct SchedulerCredential {
     pub api_key: String,
 }
 
-/// Reads the provider fallback order from a `config.json` file.
+/// Reads the provider fallback order from a parsed config value.
 /// Uses `scheduler.fallback_order` when present; otherwise returns `[scheduler.provider]`.
-/// Returns an empty vec if the config is missing or cannot be parsed.
-pub(crate) fn read_fallback_order(config_path: &Path) -> Vec<String> {
-    let content = match std::fs::read_to_string(config_path) {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
-    let config: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return vec![],
-    };
+/// Empty strings are filtered out. Returns an empty vec if nothing is configured.
+pub(crate) fn read_fallback_order_from_value(config: &serde_json::Value) -> Vec<String> {
     if let Some(arr) = config["scheduler"]["fallback_order"].as_array() {
         let order: Vec<String> = arr
             .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
+            .filter_map(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
             .collect();
         if !order.is_empty() {
             return order;
         }
     }
     if let Some(p) = config["scheduler"]["provider"].as_str() {
-        return vec![p.to_string()];
+        if !p.is_empty() {
+            return vec![p.to_string()];
+        }
     }
     vec![]
 }
+
 
 /// Selects the first non-exhausted provider from `providers` that has a configured credential.
 ///
@@ -59,6 +56,9 @@ where
             continue;
         }
         if let Some(api_key) = get_credential(provider) {
+            if build_provider(provider, String::new()).is_err() {
+                continue; // provider saved but not yet implemented — skip silently
+            }
             return Ok(SchedulerCredential {
                 provider: provider.clone(),
                 api_key,
@@ -79,8 +79,8 @@ pub fn build_provider(
 ) -> Result<Box<dyn crate::providers::scheduling::SchedulingProvider>, String> {
     use crate::providers::scheduling::{
         ayrshare::AyrshareProvider, buffer::BufferProvider, outstand::OutstandProvider,
-        publer::PublerProvider, substack_notes::SubstackNotesProvider, webhook::WebhookProvider,
-        zernio::ZernioProvider,
+        publer::PublerProvider, substack_notes::SubstackNotesProvider,
+        upload_post::UploadPostProvider, webhook::WebhookProvider, zernio::ZernioProvider,
     };
     match name {
         "zernio" => Ok(Box::new(ZernioProvider::new(api_key))),
@@ -89,22 +89,25 @@ pub fn build_provider(
         "publer" => Ok(Box::new(PublerProvider::new(api_key))),
         "outstand" => Ok(Box::new(OutstandProvider::new(api_key))),
         "substack_notes" => Ok(Box::new(SubstackNotesProvider::new(api_key))),
+        "upload_post" => Ok(Box::new(UploadPostProvider::new(api_key))),
         "webhook" => Ok(Box::new(WebhookProvider::new(api_key))),
         _ => Err(format!("Unknown provider: {}", name)),
     }
 }
 
 /// Returns the first eligible scheduler credential for `repo_id`, applying the
-/// fallback chain from `.postlane/config.json`.
+/// fallback chain from the merged `.postlane/config.json` + `.postlane/config.local.json`.
 pub async fn get_scheduler_credential_with_fallback(
-    config_path: &Path,
+    repo_path: &Path,
     repo_id: &str,
     app: &tauri::AppHandle,
 ) -> Result<SchedulerCredential, String> {
     use chrono::{Datelike, Utc};
     use tauri_plugin_keyring::KeyringExt;
 
-    let providers = read_fallback_order(config_path);
+    let config = crate::config_merge::read_merged_repo_config(repo_path)
+        .unwrap_or_else(|_| serde_json::json!({}));
+    let providers = read_fallback_order_from_value(&config);
     if providers.is_empty() {
         return Err(
             "No scheduler configured. Add one in Settings \u{2192} Scheduler.".to_string(),
@@ -132,7 +135,6 @@ pub async fn get_scheduler_credential_with_fallback(
 mod tests {
     use super::*;
     use crate::scheduling::usage_tracker::{get_known_limit, record_post_at};
-    use std::fs;
     use std::path::PathBuf;
 
     fn temp_usage(_name: &str) -> (tempfile::TempDir, PathBuf) {
@@ -213,19 +215,28 @@ mod tests {
     }
 
     #[test]
-    fn test_read_fallback_order_uses_fallback_order_field() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = dir.path().join("config.json");
+    fn test_read_fallback_order_from_value_uses_fallback_order_field() {
         let config = serde_json::json!({
-            "scheduler": {
-                "provider": "publer",
-                "fallback_order": ["publer", "zernio", "webhook"]
-            }
+            "scheduler": { "provider": "publer", "fallback_order": ["publer", "zernio"] }
         });
-        fs::write(&config_path, config.to_string()).expect("write");
         assert_eq!(
-            read_fallback_order(&config_path),
-            vec!["publer", "zernio", "webhook"]
+            read_fallback_order_from_value(&config),
+            vec!["publer", "zernio"]
+        );
+    }
+
+    #[test]
+    fn test_read_fallback_order_from_value_falls_back_to_single_provider() {
+        let config = serde_json::json!({"scheduler": {"provider": "zernio"}});
+        assert_eq!(read_fallback_order_from_value(&config), vec!["zernio"]);
+    }
+
+    #[test]
+    fn test_read_fallback_order_from_value_filters_empty_provider() {
+        let config = serde_json::json!({"scheduler": {"provider": ""}});
+        assert!(
+            read_fallback_order_from_value(&config).is_empty(),
+            "empty provider string must not appear in fallback list"
         );
     }
 
@@ -243,12 +254,23 @@ mod tests {
         assert!(err.contains("Unknown provider"), "got: {}", err);
     }
 
+    /// Providers not yet in build_provider's match arms must be skipped silently.
     #[test]
-    fn test_read_fallback_order_falls_back_to_single_provider() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = dir.path().join("config.json");
-        let config = serde_json::json!({"scheduler": {"provider": "zernio"}});
-        fs::write(&config_path, config.to_string()).expect("write");
-        assert_eq!(read_fallback_order(&config_path), vec!["zernio"]);
+    fn test_unimplemented_provider_skipped_falls_back_to_next() {
+        let (_dir, usage) = temp_usage("unimplemented");
+        // "future_provider" is not in build_provider's match arms
+        let providers = vec!["future_provider".to_string(), "zernio".to_string()];
+        let result = select_provider_with_fallback(&providers, &usage, 4, 2026, cred_for_all);
+        assert!(result.is_ok(), "must fall back past unimplemented provider");
+        assert_eq!(result.unwrap().provider, "zernio");
     }
+
+    #[test]
+    fn test_all_unimplemented_providers_returns_error() {
+        let (_dir, usage) = temp_usage("all_unimplemented");
+        let providers = vec!["future_provider".to_string()];
+        let result = select_provider_with_fallback(&providers, &usage, 4, 2026, cred_for_all);
+        assert!(result.is_err());
+    }
+
 }
