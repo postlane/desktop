@@ -32,7 +32,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockListen.mockResolvedValue(() => {});
   mockOpenDialog.mockResolvedValue(null);
-  mockInvoke.mockResolvedValue({ name: 'my-repo' });
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'list_repos_for_project') return [];
+    return { name: 'my-repo' };
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -44,6 +47,7 @@ describe('ModalConnectRepos — GitHub App installation polling', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -57,6 +61,7 @@ describe('ModalConnectRepos — GitHub App installation polling', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -76,6 +81,7 @@ describe('ModalConnectRepos — GitHub App installation polling', () => {
   it('calls check_github_app_installed with the workspaceId when polling', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -125,6 +131,7 @@ describe('ModalConnectRepos — install button guard', () => {
       if (cmd === 'check_github_app_installed') {
         return new Promise<boolean>(() => {});
       }
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -154,6 +161,7 @@ describe('ModalConnectRepos — polling continues when app not installed', () =>
         callCount += 1;
         return callCount >= 2;
       }
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -174,6 +182,7 @@ describe('ModalConnectRepos — polling continues when app not installed', () =>
     vi.useFakeTimers();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -237,6 +246,7 @@ describe('ModalConnectRepos — poll cancel at line 195', () => {
       if (cmd === 'check_github_app_installed') {
         return new Promise<boolean>((resolve) => { resolveInstalled = resolve; });
       }
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -272,6 +282,7 @@ describe('ModalConnectRepos — polling slow notice', () => {
     vi.useFakeTimers();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -299,6 +310,7 @@ describe('ModalConnectRepos — polling timeout', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
@@ -332,6 +344,7 @@ describe('ModalConnectRepos — mount-time check — basic', () => {
   it('calls check_github_app_installed on mount for GitHub provider', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
     render(<ModalGitHubApp {...defaultProps} />);
@@ -344,6 +357,7 @@ describe('ModalConnectRepos — mount-time check — basic', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
@@ -355,6 +369,7 @@ describe('ModalConnectRepos — mount-time check — basic', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
@@ -372,6 +387,7 @@ describe('ModalConnectRepos — mount-time check — basic', () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') throw new Error('network error');
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
@@ -388,6 +404,7 @@ describe('ModalConnectRepos — mount-time check — cancellation', () => {
       if (cmd === 'check_github_app_installed') {
         return new Promise<boolean>((resolve) => { resolveInstalled = resolve; });
       }
+      if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
     const { unmount } = render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);

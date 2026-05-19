@@ -12,18 +12,11 @@ pub use crate::repo_mgmt::{
 pub use crate::scheduler_credentials::{
     check_libsecret_availability, check_libsecret_before_save, delete_scheduler_credential,
     delete_scheduler_credential_impl, get_credential_keyring_key, get_libsecret_status,
-    get_scheduler_credential, get_scheduler_credential_impl, has_scheduler_configured,
-    has_scheduler_configured_impl, mask_credential, save_scheduler_credential,
-    save_scheduler_credential_impl, validate_scheduler_registration_impl,
+    mask_credential, save_scheduler_credential, save_scheduler_credential_impl,
 };
 
-use crate::app_state::AppState;
 use tauri::State;
-
-#[tauri::command]
-pub fn test_scheduler(repo_id: String, provider: String, state: State<AppState>) -> Result<bool, String> {
-    validate_scheduler_registration_impl(&repo_id, &provider, &state)
-}
+use crate::app_state::AppState;
 
 #[tauri::command]
 pub fn cancel_post_command(

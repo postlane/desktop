@@ -80,15 +80,32 @@ impl PostMeta {
             .map_err(|e| format!("Failed to parse {:?}: {}", path, e))
     }
 
-    /// Atomically write meta.json: write to `.tmp` then rename.
+    /// Atomically write meta.json: merge self's fields into existing JSON, then write via `.tmp`.
+    /// Fields present in the file but absent from PostMeta (e.g. image_url, platforms) are preserved.
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialise PostMeta: {}", e))?;
-        let tmp = path.with_extension("json.tmp");
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create dir {:?}: {}", parent, e))?;
         }
+        let mut base: serde_json::Value = if path.exists() {
+            let raw = std::fs::read_to_string(path)
+                .map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
+            serde_json::from_str(&raw).unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+        let overlay = serde_json::to_value(self)
+            .map_err(|e| format!("Failed to serialise PostMeta: {}", e))?;
+        if let (serde_json::Value::Object(base_map), serde_json::Value::Object(overlay_map)) =
+            (&mut base, overlay)
+        {
+            for (k, v) in overlay_map {
+                base_map.insert(k, v);
+            }
+        }
+        let json = serde_json::to_string_pretty(&base)
+            .map_err(|e| format!("Failed to serialise merged PostMeta: {}", e))?;
+        let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, &json)
             .map_err(|e| format!("Failed to write {:?}: {}", tmp, e))?;
         std::fs::rename(&tmp, path)
@@ -220,6 +237,31 @@ mod tests {
         meta.save(&path).expect("save");
         let loaded = PostMeta::load(&path).expect("load");
         assert_eq!(loaded.repo_path, Some("/workspace/child-repo".to_string()));
+    }
+
+    #[test]
+    fn test_post_meta_save_preserves_unknown_fields() {
+        // Regression: save() used to overwrite the file completely, losing fields written by
+        // /draft-post (image_url, platforms, trigger) that PostMeta doesn't declare.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        fs::write(&path, r#"{
+            "status": "ready",
+            "platforms": ["x", "bluesky"],
+            "trigger": "launch announcement",
+            "image_url": "https://example.com/img.png",
+            "model_name": "claude-sonnet-4-5"
+        }"#).expect("write initial");
+        let mut meta = PostMeta::load(&path).expect("load");
+        meta.edited_platforms = Some(vec!["x".to_string()]);
+        meta.edited_at = Some("2026-05-18T10:00:00Z".to_string());
+        meta.save(&path).expect("save");
+        let raw = fs::read_to_string(&path).expect("read back");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("parse");
+        assert_eq!(v["image_url"].as_str(), Some("https://example.com/img.png"), "image_url must survive save");
+        assert_eq!(v["platforms"].as_array().map(|a| a.len()), Some(2), "platforms must survive save");
+        assert_eq!(v["trigger"].as_str(), Some("launch announcement"), "trigger must survive save");
+        assert_eq!(v["edited_platforms"][0].as_str(), Some("x"), "edited_platforms must be written");
     }
 
     #[test]

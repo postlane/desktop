@@ -5,32 +5,6 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 
-pub fn get_repo_config_impl(
-    repo_id: &str,
-    state: &AppState,
-) -> Result<(String, String), String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-
-    let repo = repos
-        .repos
-        .iter()
-        .find(|r| r.id == repo_id)
-        .ok_or_else(|| format!("Repo '{}' not in registered repos", repo_id))?;
-
-    let repo_path = PathBuf::from(&repo.path);
-    let config = crate::config_merge::read_merged_repo_config(&repo_path)?;
-
-    let provider_name = config["scheduler"]["provider"]
-        .as_str()
-        .ok_or("scheduler.provider not set in config.json")?
-        .to_string();
-
-    Ok((repo.path.clone(), provider_name))
-}
-
 pub fn save_account_id_impl(
     config_path: &std::path::Path,
     platform: &str,
@@ -66,28 +40,6 @@ pub fn save_account_id_impl(
         .map_err(|e| format!("Failed to rename temp config: {}", e))?;
 
     Ok(())
-}
-
-#[tauri::command]
-pub async fn list_profiles_for_repo(
-    repo_id: String,
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<Vec<crate::providers::scheduling::SchedulerProfile>, String> {
-    use crate::providers::scheduling::ProviderError;
-    use crate::scheduler_credentials::get_credential_keyring_key;
-    use tauri_plugin_keyring::KeyringExt;
-
-    let (_repo_path, provider_name) = get_repo_config_impl(&repo_id, &state)?;
-
-    let keyring_key = get_credential_keyring_key(&provider_name, &repo_id);
-    let api_key = app.keyring()
-        .get_password("postlane", &keyring_key)
-        .map_err(|e| format!("Failed to retrieve credential: {}", e))?
-        .ok_or_else(|| format!("No {} API key configured. Add it in Settings → Scheduler.", provider_name))?;
-
-    let provider = crate::providers::scheduling::build_scheduling_provider(&provider_name, api_key)?;
-    provider.list_profiles().await.map_err(|e: ProviderError| e.to_string())
 }
 
 #[tauri::command]
@@ -153,7 +105,6 @@ pub fn get_account_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::Repo;
     use crate::test_fixtures::make_state;
     use std::fs;
     use std::path::PathBuf;
@@ -272,84 +223,4 @@ mod tests {
         assert!(result.unwrap_err().contains("not in registered repos"));
     }
 
-    #[test]
-    fn test_get_repo_config_returns_provider_and_path() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_config(dir.path(), r#"{
-            "version": 1,
-            "scheduler": { "provider": "zernio", "profile_id": "" }
-        }"#);
-
-        let state = make_state(vec![Repo {
-            id: "r1".to_string(),
-            name: "My Repo".to_string(),
-            path: dir.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }]);
-
-        let result = get_repo_config_impl("r1", &state).expect("should succeed");
-        assert_eq!(result.0, dir.path().to_str().unwrap());
-        assert_eq!(result.1, "zernio");
-    }
-
-    #[test]
-    fn test_get_repo_config_errors_on_missing_repo() {
-        let state = make_state(vec![]);
-        let result = get_repo_config_impl("nonexistent", &state);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not in registered repos"));
-    }
-
-    #[test]
-    fn test_get_repo_config_errors_on_missing_config_file() {
-        let state = make_state(vec![Repo {
-            id: "r1".to_string(),
-            name: "My Repo".to_string(),
-            path: "/nonexistent/path/that/cannot/exist".to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }]);
-        let result = get_repo_config_impl("r1", &state);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_get_repo_config_reads_provider_from_config_local_json() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        // config.json has no scheduler.provider; config.local.json overrides
-        write_config(dir.path(), r#"{"version":1}"#);
-        let local_path = dir.path().join(".postlane").join("config.local.json");
-        fs::write(&local_path, r#"{"scheduler":{"provider":"zernio"}}"#)
-            .expect("write config.local.json");
-
-        let state = make_state(vec![crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "My Repo".to_string(),
-            path: dir.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }]);
-
-        let result = get_repo_config_impl("r1", &state).expect("should succeed");
-        assert_eq!(result.1, "zernio");
-    }
-
-    #[test]
-    fn test_get_repo_config_errors_when_provider_missing_from_config() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_config(dir.path(), r#"{ "version": 1, "platforms": ["x"] }"#);
-
-        let state = make_state(vec![Repo {
-            id: "r1".to_string(),
-            name: "My Repo".to_string(),
-            path: dir.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2024-01-01T00:00:00Z".to_string(),
-        }]);
-
-        let result = get_repo_config_impl("r1", &state);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("scheduler.provider"));
-    }
 }

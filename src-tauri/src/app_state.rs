@@ -99,12 +99,9 @@ pub fn write_app_state(state: &AppStateFile) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
 
-    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-
-    fn get_test_mutex() -> &'static Mutex<()> {
-        TEST_MUTEX.get_or_init(|| Mutex::new(()))
+    fn get_test_mutex() -> &'static std::sync::Mutex<()> {
+        crate::test_fixtures::app_state_mutex()
     }
 
     #[test]
