@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[cfg(test)]
+static TEST_SITES_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+    std::sync::OnceLock::new();
+
 /// Maps repo_id → site_token; persisted to analytics_sites.json
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AnalyticsSites {
@@ -17,6 +21,17 @@ impl Default for AnalyticsSites {
 }
 
 fn sites_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    {
+        let maybe = TEST_SITES_OVERRIDE
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(path) = maybe {
+            return Ok(path);
+        }
+    }
     Ok(postlane_dir()?.join("analytics_sites.json"))
 }
 
@@ -60,27 +75,47 @@ mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
 
-    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-    fn lock() -> &'static Mutex<()> { TEST_MUTEX.get_or_init(|| Mutex::new(())) }
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    fn lock() -> &'static Mutex<()> { TEST_LOCK.get_or_init(|| Mutex::new(())) }
+
+    struct SitesGuard {
+        _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl SitesGuard {
+        fn acquire() -> Self {
+            let _lock = lock().lock().unwrap_or_else(|p| p.into_inner());
+            let _dir = tempfile::TempDir::new().expect("temp dir");
+            let path = _dir.path().join("analytics_sites.json");
+            *super::TEST_SITES_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(path);
+            SitesGuard { _dir, _lock }
+        }
+    }
+
+    impl Drop for SitesGuard {
+        fn drop(&mut self) {
+            *super::TEST_SITES_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+        }
+    }
 
     #[test]
     fn test_save_and_get_site_token() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = sites_path().expect("path");
-        let _ = std::fs::remove_file(&path);
+        let _guard = SitesGuard::acquire();
         save_site_token("repo-1", "tok-abc").expect("save");
         assert_eq!(get_cached_site_token("repo-1").as_deref(), Some("tok-abc"));
         assert!(get_cached_site_token("repo-2").is_none());
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn test_get_site_token_missing_returns_none() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = sites_path().expect("path");
-        let _ = std::fs::remove_file(&path);
+        let _guard = SitesGuard::acquire();
         assert!(get_cached_site_token("nobody").is_none());
     }
 }

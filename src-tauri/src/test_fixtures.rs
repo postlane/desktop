@@ -16,6 +16,33 @@ pub fn app_state_mutex() -> &'static Mutex<()> {
     APP_STATE_MUTEX.get_or_init(|| Mutex::new(()))
 }
 
+/// RAII guard for tests that touch the real app_state.json path.
+/// Acquires the mutex (poison-safe), inits the dir, removes any stale file or
+/// directory at the path on acquire, then removes it again on drop — so cleanup
+/// is guaranteed even when an assertion panics.
+pub struct AppStateGuard {
+    pub path: PathBuf,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl AppStateGuard {
+    pub fn acquire() -> Self {
+        let _lock = app_state_mutex().lock().unwrap_or_else(|p| p.into_inner());
+        crate::init::init_postlane_dir().expect("init postlane dir");
+        let path = crate::app_state::app_state_path().expect("app state path");
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir_all(&path);
+        AppStateGuard { path, _lock }
+    }
+}
+
+impl Drop for AppStateGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 static TEST_REPOS_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn make_state(repos: Vec<Repo>) -> AppState {

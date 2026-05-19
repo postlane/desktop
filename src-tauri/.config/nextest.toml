@@ -1,0 +1,6 @@
+[test-groups]
+app-state-serial = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(app_state::tests) | test(app_state_ops::tests)'
+test-group = 'app-state-serial'

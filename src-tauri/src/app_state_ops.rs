@@ -64,11 +64,8 @@ pub fn set_wizard_completed() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_state::{app_state_path, AppStateFile, DefaultPostTime};
-
-    fn get_test_mutex() -> &'static std::sync::Mutex<()> {
-        crate::test_fixtures::app_state_mutex()
-    }
+    use crate::app_state::{AppStateFile, DefaultPostTime};
+    use crate::test_fixtures::AppStateGuard;
 
     #[test]
     fn test_validate_default_post_time_rejects_hour_25() {
@@ -92,8 +89,7 @@ mod tests {
 
     #[test]
     fn test_wizard_completed_written_atomically() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
+        let _guard = AppStateGuard::acquire();
 
         let initial = AppStateFile { wizard_completed: false, ..AppStateFile::default() };
         write_app_state(&initial).expect("write initial");
@@ -102,15 +98,11 @@ mod tests {
 
         let result = read_app_state();
         assert!(result.wizard_completed, "wizard_completed should be true after set_wizard_completed_impl");
-
-        let path = app_state_path().expect("path");
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn test_set_wizard_completed_concurrent_calls_all_succeed() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
+        let _guard = AppStateGuard::acquire();
 
         let initial = AppStateFile { wizard_completed: false, ..AppStateFile::default() };
         write_app_state(&initial).expect("write initial");
@@ -125,15 +117,11 @@ mod tests {
 
         let result = read_app_state();
         assert!(result.wizard_completed, "wizard_completed must be true after concurrent writes");
-
-        let path = app_state_path().expect("path");
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn test_set_default_post_time_writes_without_clobbering_other_fields() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
+        let _guard = AppStateGuard::acquire();
 
         let initial = AppStateFile {
             timezone: "Europe/London".to_string(),
@@ -151,15 +139,11 @@ mod tests {
         assert_eq!(result.default_post_time.as_ref().map(|d| d.minute), Some(30));
         assert_eq!(result.timezone, "Europe/London");
         assert!(result.wizard_completed);
-
-        let path = app_state_path().expect("path");
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn test_set_default_post_time_concurrent_calls_do_not_interleave() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
+        let _guard = AppStateGuard::acquire();
 
         let initial = AppStateFile {
             default_post_time: None,
@@ -181,15 +165,11 @@ mod tests {
         let dpt = result.default_post_time.expect("default_post_time must be set");
         let is_valid = (dpt.hour == 9 && dpt.minute == 30) || (dpt.hour == 14 && dpt.minute == 0);
         assert!(is_valid, "got inconsistent state: hour={}, minute={}", dpt.hour, dpt.minute);
-
-        let path = app_state_path().expect("path");
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn test_set_default_post_time_clear_sets_none() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
+        let _guard = AppStateGuard::acquire();
 
         let initial = AppStateFile {
             default_post_time: Some(DefaultPostTime { hour: 9, minute: 30, timezone: String::new() }),
@@ -201,8 +181,5 @@ mod tests {
 
         let result = read_app_state();
         assert!(result.default_post_time.is_none(), "should be cleared");
-
-        let path = app_state_path().expect("path");
-        let _ = std::fs::remove_file(path);
     }
 }

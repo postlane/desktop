@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[cfg(test)]
+static TEST_ENGAGEMENT_CACHE_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+    std::sync::OnceLock::new();
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EngagementEntry {
     pub expires_at: DateTime<Utc>,
@@ -31,6 +35,17 @@ impl Default for EngagementCache {
 }
 
 fn cache_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    {
+        let maybe = TEST_ENGAGEMENT_CACHE_OVERRIDE
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(path) = maybe {
+            return Ok(path);
+        }
+    }
     Ok(postlane_dir()?.join("engagement_cache.json"))
 }
 
@@ -126,11 +141,35 @@ mod tests {
     use std::fs;
     use std::sync::{Mutex, OnceLock};
 
-    // Global mutex to serialize tests that use the shared cache file
-    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    fn lock() -> &'static Mutex<()> { TEST_LOCK.get_or_init(|| Mutex::new(())) }
 
-    fn get_test_mutex() -> &'static Mutex<()> {
-        TEST_MUTEX.get_or_init(|| Mutex::new(()))
+    struct EngagementCacheGuard {
+        pub path: PathBuf,
+        _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EngagementCacheGuard {
+        fn acquire() -> Self {
+            let _lock = lock().lock().unwrap_or_else(|p| p.into_inner());
+            let _dir = tempfile::TempDir::new().expect("temp dir");
+            let path = _dir.path().join("engagement_cache.json");
+            *super::TEST_ENGAGEMENT_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(path.clone());
+            EngagementCacheGuard { path, _dir, _lock }
+        }
+    }
+
+    impl Drop for EngagementCacheGuard {
+        fn drop(&mut self) {
+            *super::TEST_ENGAGEMENT_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+        }
     }
 
     #[test]
@@ -141,10 +180,7 @@ mod tests {
 
     #[test]
     fn test_read_engagement_cache_missing_file() {
-        // Clean up if exists
-        let path = cache_path().expect("Failed to get cache path");
-        let _ = fs::remove_file(&path);
-
+        let _guard = EngagementCacheGuard::acquire();
         let cache = read_engagement_cache();
         assert_eq!(cache.version, 1);
         assert_eq!(cache.entries.len(), 0);
@@ -152,38 +188,19 @@ mod tests {
 
     #[test]
     fn test_engagement_cache_round_trip() {
-        // Acquire lock to prevent race conditions with other tests
-        let _lock = get_test_mutex().lock().unwrap();
-
-        // Ensure ~/.postlane exists
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-
+        let _guard = EngagementCacheGuard::acquire();
         let mut cache = EngagementCache::default();
-
         let entry = new_entry(100, 50, 25, Some(1000));
-        cache.entries.insert(
-            cache_key("repo1", "post1", "x"),
-            entry,
-        );
-
-        // Clean up any existing cache first
-        let path = cache_path().expect("Failed to get cache path");
-        let _ = fs::remove_file(&path);
-
+        cache.entries.insert(cache_key("repo1", "post1", "x"), entry);
         write_engagement_cache(&cache).expect("Failed to write cache");
-
         let loaded = read_engagement_cache();
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.entries.len(), 1, "Should have 1 entry");
-
         let retrieved = loaded.entries.get("repo1:post1:x").unwrap();
         assert_eq!(retrieved.likes, 100);
         assert_eq!(retrieved.reposts, 50);
         assert_eq!(retrieved.replies, 25);
         assert_eq!(retrieved.impressions, Some(1000));
-
-        // Cleanup
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
@@ -207,7 +224,7 @@ mod tests {
     #[test]
     fn test_entry_clock_manipulation_guard() {
         let entry = EngagementEntry {
-            expires_at: Utc::now() + Duration::hours(3), // More than 2 hours in future
+            expires_at: Utc::now() + Duration::hours(3),
             likes: 10,
             reposts: 5,
             replies: 2,
@@ -218,30 +235,18 @@ mod tests {
 
     #[test]
     fn test_cache_version_mismatch() {
-        // Acquire lock to prevent race conditions with other tests
-        let _lock = get_test_mutex().lock().unwrap();
-
-        // Clean up before test to prevent race conditions
-        let path = cache_path().expect("Failed to get cache path");
-        let _ = fs::remove_file(&path);
-
+        let guard = EngagementCacheGuard::acquire();
         let mut cache = EngagementCache::default();
         cache.version = 999;
-
         let json = serde_json::to_string(&cache).expect("Failed to serialize");
-        fs::write(&path, json).expect("Failed to write");
-
+        fs::write(&guard.path, json).expect("Failed to write");
         let loaded = read_engagement_cache();
         assert_eq!(loaded.version, 1, "Should return default with correct version");
         assert_eq!(loaded.entries.len(), 0, "Should be empty");
-
-        // Cleanup
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn test_entry_within_two_hour_window() {
-        // Entry that expires in 90 minutes (within 2-hour window)
         let entry = EngagementEntry {
             expires_at: Utc::now() + Duration::minutes(90),
             likes: 10,
@@ -254,40 +259,20 @@ mod tests {
 
     #[test]
     fn test_read_engagement_cache_malformed_returns_default() {
-        let _lock = get_test_mutex().lock().unwrap();
-
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = cache_path().expect("Failed to get cache path");
-        let _ = fs::remove_file(&path);
-
-        // Write malformed JSON
-        fs::write(&path, "{ this is not valid json }").expect("Failed to write");
-
-        // Should return default on parse error
+        let guard = EngagementCacheGuard::acquire();
+        fs::write(&guard.path, "{ this is not valid json }").expect("Failed to write");
         let loaded = read_engagement_cache();
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.entries.len(), 0);
-
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn test_read_engagement_cache_io_error() {
-        let _lock = get_test_mutex().lock().unwrap();
-
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = cache_path().expect("Failed to get cache path");
-        let _ = fs::remove_file(&path);
-
-        // Create a directory with the same name as the file to cause IO error
-        fs::create_dir_all(&path).expect("Failed to create dir");
-
-        // Should return default on IO error
+        let guard = EngagementCacheGuard::acquire();
+        fs::create_dir_all(&guard.path).expect("Failed to create dir");
         let loaded = read_engagement_cache();
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.entries.len(), 0);
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&path);
+        let _ = fs::remove_dir_all(&guard.path);
     }
 }

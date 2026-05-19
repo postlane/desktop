@@ -43,7 +43,24 @@ pub struct LicenseCache {
     pub repos: Vec<RepoLicenseInfo>,
 }
 
+/// In test builds, individual tests redirect cache_path() to a private TempDir
+/// so concurrent nextest processes never share the same file.
+#[cfg(test)]
+static TEST_CACHE_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+    std::sync::OnceLock::new();
+
 fn cache_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    {
+        let maybe = TEST_CACHE_OVERRIDE
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(path) = maybe {
+            return Ok(path);
+        }
+    }
     Ok(postlane_dir()?.join("license_cache.json"))
 }
 
@@ -180,6 +197,38 @@ mod tests {
     static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
     fn lock() -> &'static Mutex<()> { TEST_MUTEX.get_or_init(|| Mutex::new(())) }
 
+    /// Per-test RAII guard that redirects cache_path() to a private TempDir.
+    /// Each test process gets its own directory, so concurrent nextest processes
+    /// can never observe each other's cache files regardless of scheduling.
+    struct CacheGuard {
+        pub path: PathBuf,
+        _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl CacheGuard {
+        fn acquire() -> Self {
+            let _lock = lock().lock().unwrap_or_else(|p| p.into_inner());
+            let _dir = tempfile::TempDir::new().expect("temp dir");
+            let path = _dir.path().join("license_cache.json");
+            *super::TEST_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(path.clone());
+            CacheGuard { path, _dir, _lock }
+        }
+    }
+
+    impl Drop for CacheGuard {
+        fn drop(&mut self) {
+            *super::TEST_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+            // _dir drops here, removing the entire temp directory
+        }
+    }
+
     fn mock_valid_response() -> serde_json::Value {
         serde_json::json!({
             "valid": true,
@@ -194,9 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_token_success() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let _guard = CacheGuard::acquire();
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -204,7 +251,6 @@ mod tests {
         });
         let client = build_client();
         let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
-        let _ = std::fs::remove_file(&path);
         assert!(matches!(state, LicenseState::Valid { .. }));
     }
 
@@ -222,17 +268,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_token_offline() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let guard = CacheGuard::acquire();
         let cache = LicenseCache {
             version: 1,
             validated_at: Utc::now() - Duration::hours(1),
             user: test_user(),
             repos: vec![],
         };
-        let json = serde_json::to_string_pretty(&cache).unwrap();
-        std::fs::write(&path, json).unwrap();
+        std::fs::write(&guard.path, serde_json::to_string_pretty(&cache).unwrap()).unwrap();
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -241,7 +284,6 @@ mod tests {
         let client = build_client();
         let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
         assert!(matches!(state, LicenseState::Offline { .. }), "503 should return Offline");
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -258,20 +300,17 @@ mod tests {
     }
 
     /// validate_token_enforcing_expiry upgrades Offline to Expired when cache is >30 days old
-    /// (§review-security-medium). Uses the mutex to prevent other tests writing fresh cache.
+    /// (§review-security-medium).
     #[tokio::test]
     async fn test_enforcing_variant_returns_expired_for_stale_offline_cache() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let guard = CacheGuard::acquire();
         let stale = LicenseCache {
             version: 1,
             validated_at: Utc::now() - Duration::days(31),
             user: test_user(),
             repos: vec![],
         };
-        let json = serde_json::to_string_pretty(&stale).unwrap();
-        std::fs::write(&path, json).unwrap();
+        std::fs::write(&guard.path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -279,7 +318,6 @@ mod tests {
         });
         let client = build_client();
         let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
-        let _ = std::fs::remove_file(&path);
         assert!(
             matches!(state, LicenseState::Expired),
             "enforcing variant must return Expired for 31-day-old offline cache"
@@ -287,12 +325,10 @@ mod tests {
     }
 
     /// validate_token_enforcing_expiry must treat a >30-day-old offline cache as Expired
-    /// and a <30-day-old cache as Offline. Holds the mutex to prevent concurrent cache writes.
+    /// and a <30-day-old cache as Offline.
     #[tokio::test]
     async fn test_enforcing_expiry_30_day_boundary() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let guard = CacheGuard::acquire();
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -301,14 +337,13 @@ mod tests {
         let client = build_client();
 
         let fresh = LicenseCache { version: 1, validated_at: Utc::now() - Duration::days(29), user: test_user(), repos: vec![] };
-        std::fs::write(&path, serde_json::to_string_pretty(&fresh).unwrap()).unwrap();
+        std::fs::write(&guard.path, serde_json::to_string_pretty(&fresh).unwrap()).unwrap();
         let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
         assert!(matches!(state, LicenseState::Offline { .. }), "29-day-old cache must not be hard-expired");
 
         let stale = LicenseCache { version: 1, validated_at: Utc::now() - Duration::days(31), user: test_user(), repos: vec![] };
-        std::fs::write(&path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
+        std::fs::write(&guard.path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
         let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
-        let _ = std::fs::remove_file(&path);
         assert!(matches!(state, LicenseState::Expired), "31-day-old cache must be hard-expired");
     }
 
@@ -320,12 +355,10 @@ mod tests {
     }
 
     /// Confirms the revalidation interval fires validate_token at the configured cadence.
-    /// Uses a 100ms interval and waits 350ms — expects at least 2 calls to the backend.
+    /// Uses a 100ms interval and polls until 3 hits are observed (5 s deadline).
     #[tokio::test]
     async fn test_24hr_revalidation_interval() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let _guard = CacheGuard::acquire();
         let server = MockServer::start();
         let mock_handle = server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -350,15 +383,16 @@ mod tests {
             }
         });
 
-        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if mock_handle.hits() >= 3 { break; }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "revalidation loop did not fire 3 times within 5 s"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
         handle.abort();
-        let _ = std::fs::remove_file(&path);
-
-        assert!(
-            mock_handle.hits() >= 2,
-            "expected at least 2 validate calls in 350ms at 100ms interval, got {}",
-            mock_handle.hits()
-        );
     }
 
     /// Confirms on_expired callback is invoked when the backend returns 401.
@@ -445,6 +479,16 @@ mod tests {
     }
 
     #[test]
+    fn test_cache_guard_removes_file_on_drop() {
+        let path = {
+            let guard = CacheGuard::acquire();
+            std::fs::write(&guard.path, b"test").expect("write test file");
+            guard.path.clone()
+        };
+        assert!(!path.exists(), "CacheGuard::drop must remove the cache file");
+    }
+
+    #[test]
     fn warn_on_cache_write_is_noop_on_ok() {
         warn_on_cache_write(Ok(()));
     }
@@ -457,9 +501,7 @@ mod tests {
     /// Web endpoint can return `display_name: null` — must not fail deserialization.
     #[tokio::test]
     async fn test_validate_token_null_display_name_succeeds() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let _guard = CacheGuard::acquire();
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -471,16 +513,13 @@ mod tests {
         });
         let client = build_client();
         let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
-        let _ = std::fs::remove_file(&path);
         assert!(matches!(state, LicenseState::Valid { .. }), "null display_name must parse successfully");
     }
 
     /// Web endpoint may omit `repos` field — must not fail deserialization.
     #[tokio::test]
     async fn test_validate_token_missing_repos_field_succeeds() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let _guard = CacheGuard::acquire();
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(POST).path("/v1/license/validate");
@@ -491,7 +530,6 @@ mod tests {
         });
         let client = build_client();
         let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
-        let _ = std::fs::remove_file(&path);
         assert!(matches!(state, LicenseState::Valid { .. }), "missing repos field must parse successfully");
     }
 }

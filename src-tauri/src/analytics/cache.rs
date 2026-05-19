@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[cfg(test)]
+static TEST_ANALYTICS_CACHE_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+    std::sync::OnceLock::new();
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AnalyticsCacheEntry {
     pub data: PostAnalytics,
@@ -26,6 +30,17 @@ impl Default for AnalyticsCache {
 }
 
 fn cache_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    {
+        let maybe = TEST_ANALYTICS_CACHE_OVERRIDE
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(path) = maybe {
+            return Ok(path);
+        }
+    }
     Ok(postlane_dir()?.join("analytics_cache.json"))
 }
 
@@ -86,8 +101,36 @@ mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
 
-    static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-    fn lock() -> &'static Mutex<()> { TEST_MUTEX.get_or_init(|| Mutex::new(())) }
+    static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    fn lock() -> &'static Mutex<()> { TEST_LOCK.get_or_init(|| Mutex::new(())) }
+
+    struct AnalyticsCacheGuard {
+        pub path: PathBuf,
+        _dir: tempfile::TempDir,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl AnalyticsCacheGuard {
+        fn acquire() -> Self {
+            let _lock = lock().lock().unwrap_or_else(|p| p.into_inner());
+            let _dir = tempfile::TempDir::new().expect("temp dir");
+            let path = _dir.path().join("analytics_cache.json");
+            *super::TEST_ANALYTICS_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(path.clone());
+            AnalyticsCacheGuard { path, _dir, _lock }
+        }
+    }
+
+    impl Drop for AnalyticsCacheGuard {
+        fn drop(&mut self) {
+            *super::TEST_ANALYTICS_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+        }
+    }
 
     #[test]
     fn test_analytics_cache_returns_hit_within_ttl() {
@@ -107,15 +150,12 @@ mod tests {
 
     #[test]
     fn test_analytics_cache_version_mismatch() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
+        let _guard = AnalyticsCacheGuard::acquire();
         let bad = r#"{"version":2,"entries":{}}"#;
-        std::fs::write(&path, bad).unwrap();
+        std::fs::write(&_guard.path, bad).unwrap();
         let cache = read_analytics_cache();
         assert_eq!(cache.version, 1);
         assert!(cache.entries.is_empty());
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -135,10 +175,7 @@ mod tests {
 
     #[test]
     fn test_analytics_cache_round_trip() {
-        let _g = lock().lock().unwrap();
-        crate::init::init_postlane_dir().expect("init");
-        let path = cache_path().expect("path");
-        let _ = std::fs::remove_file(&path);
+        let _guard = AnalyticsCacheGuard::acquire();
         let mut cache = AnalyticsCache::default();
         cache.entries.insert(
             cache_key("r1", "post-1"),
@@ -149,6 +186,5 @@ mod tests {
         let e = loaded.entries.get("r1:post-1").expect("entry");
         assert_eq!(e.data.sessions, 10);
         assert_eq!(e.data.top_referrer.as_deref(), Some("t.co"));
-        let _ = std::fs::remove_file(&path);
     }
 }
