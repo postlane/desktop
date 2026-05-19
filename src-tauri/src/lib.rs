@@ -128,10 +128,19 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     register_close_to_tray(app);
     register_deep_link_handler(app.handle().clone());
-    app_lifecycle::spawn_http_server(app.handle().clone(), repos_config)?;
+    app_lifecycle::spawn_http_server(app.handle().clone(), repos_config.clone())?;
     app_lifecycle::spawn_daily_engagement_sync(app.handle().clone());
     app_lifecycle::spawn_telemetry_flush(app.handle().clone());
     app_lifecycle::spawn_license_revalidation(app.handle().clone());
+
+    // Restart watchers for all repos that were already registered before this launch.
+    // Watchers are started at registration time but are not persisted across restarts,
+    // so without this any post drafted after a restart would never appear in the queue.
+    let handle = app.handle().clone();
+    let state = app.state::<AppState>();
+    for repo in repos_config.repos.iter().filter(|r| r.active) {
+        repo_mgmt::start_repo_watcher(&repo.id, &repo.path, &state, handle.clone());
+    }
 
     Ok(())
 }
