@@ -48,15 +48,16 @@ function GitHubAppSection({ appInstalled, error, onInstall, pollSlowNotice, poll
       <p className="is-size-7 has-text-grey mb-3">
         Monitors selected repos via GitHub webhooks. Works for the whole team, even when this app is closed.
       </p>
-      {appInstalled && (
+      {appInstalled ? (
         <p className="is-size-7 mb-2">
           <span className="tag is-success is-light mr-2">&#10003;</span>
           GitHub App connected
         </p>
+      ) : (
+        <button className="button is-primary is-small" onClick={onInstall}>
+          Install GitHub App
+        </button>
       )}
-      <button className="button is-primary is-small" onClick={onInstall}>
-        Install GitHub App
-      </button>
       {error && <p role="alert" className="is-size-7 has-text-danger mt-2">{error}</p>}
       {pollSlowNotice && !pollTimedOut && (
         <p className="is-size-7 has-text-grey mt-2">
@@ -92,10 +93,15 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlread
   const [newlyConnected, setNewlyConnected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const pickerOpenRef = useRef(false);
+  const onAlreadyConnectedRef = useRef(onAlreadyConnected);
+  onAlreadyConnectedRef.current = onAlreadyConnected;
 
   useEffect(() => {
     invoke<RepoSummary[]>('list_repos_for_project', { projectId: workspaceId })
-      .then((repos) => setExistingRepos(repos))
+      .then((repos) => {
+        setExistingRepos(repos);
+        if (repos.length > 0) onAlreadyConnectedRef.current();
+      })
       .catch(() => {});
   }, [workspaceId]);
 
@@ -308,7 +314,7 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       onNext={handleNext}
       onBack={onBack}
       nextHidden={!folderConnected && !alreadyConnected && !appInstalled}
-      onSkip={!folderConnected && !appInstalled ? onNext : undefined}
+      onSkip={!folderConnected && !alreadyConnected && !appInstalled ? onNext : undefined}
       skipLabel="I'll connect repos later"
     >
       {isGitHub && <GitHubAppSection appInstalled={appInstalled} error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}

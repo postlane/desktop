@@ -274,7 +274,7 @@ function useAppState() {
     currentView, setCurrentView,
     showWizard: init.showWizard, wizardStartStep: init.wizardStartStep,
     resumeStep: init.resumeStep, setResumeStep: init.setResumeStep,
-    wizardWorkspaceId: init.wizardWorkspaceId, wizardWorkspaceName: init.wizardWorkspaceName,
+    wizardWorkspaceId: init.wizardWorkspaceId, wizardWorkspaceName: init.wizardWorkspaceName, wizardProvider: init.wizardProvider,
     showReSignIn: init.showReSignIn, showConsentModal: init.showConsentModal,
     timezone: init.timezone, setTimezone: init.setTimezone,
     repoVersion, setRepoVersion, initError: init.initError,
@@ -364,7 +364,7 @@ export default function App() {
   if (appState.showWizard && appState.resumeStep) {
     return <WizardResumePrompt step={appState.resumeStep} onResume={() => appState.setResumeStep(null)} onStartOver={appState.handleResumeDecline} />;
   }
-  if (appState.showWizard) return <Wizard startAt={appState.wizardStartStep} initialWorkspaceId={appState.wizardWorkspaceId} initialWorkspaceName={appState.wizardWorkspaceName} onComplete={appState.handleWizardComplete} />;
+  if (appState.showWizard) return <Wizard startAt={appState.wizardStartStep} initialProvider={appState.wizardProvider} initialWorkspaceId={appState.wizardWorkspaceId} initialWorkspaceName={appState.wizardWorkspaceName} onComplete={appState.handleWizardComplete} />;
   if (appState.showReSignIn) return <ReSignInScreen onSignedIn={appState.handleSignedIn} />;
 
   return (

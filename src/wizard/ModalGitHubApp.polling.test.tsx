@@ -43,15 +43,20 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ModalConnectRepos — GitHub App installation polling', () => {
-  it('calls onNext immediately when the app is already installed at the moment the button is clicked', async () => {
+  it('calls onNext when the first poll finds the app installed', async () => {
     const onNext = vi.fn();
+    let callCount = 0;
     mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'check_github_app_installed') {
+        callCount++;
+        return callCount >= 2; // false on mount check → button shows; true on first poll → advance
+      }
       if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await waitFor(() => screen.getByRole('button', { name: /install github app/i }));
     fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
 
     await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
@@ -59,15 +64,20 @@ describe('ModalConnectRepos — GitHub App installation polling', () => {
 
   it('calls onNext once when the deep link fires and polling also finds the app installed', async () => {
     const onNext = vi.fn();
+    let callCount = 0;
     mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'check_github_app_installed') {
+        callCount++;
+        return callCount >= 2; // false on mount → button shows; true on first poll
+      }
       if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
-
     await waitFor(() => expect(mockListen).toHaveBeenCalledWith('github:app-installed', expect.any(Function)));
+    await waitFor(() => screen.getByRole('button', { name: /install github app/i }));
+
     const entry = mockListen.mock.calls.find(([ev]) => ev === 'github:app-installed');
     if (!entry) throw new Error('github:app-installed listener not registered');
 
@@ -79,13 +89,18 @@ describe('ModalConnectRepos — GitHub App installation polling', () => {
   });
 
   it('calls check_github_app_installed with the workspaceId when polling', async () => {
+    let callCount = 0;
     mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true;
+      if (cmd === 'check_github_app_installed') {
+        callCount++;
+        return callCount >= 2; // false on mount → button shows; true on first poll
+      }
       if (cmd === 'list_repos_for_project') return [];
       return { name: 'repo' };
     });
 
     render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => screen.getByRole('button', { name: /install github app/i }));
     fireEvent.click(screen.getByRole('button', { name: /install github app/i }));
 
     await waitFor(() =>

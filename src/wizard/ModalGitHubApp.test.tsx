@@ -294,14 +294,14 @@ describe('ModalConnectRepos — repoConnectError edge cases', () => {
 // ---------------------------------------------------------------------------
 
 describe('ModalConnectRepos — already connected Next button', () => {
-  it('shows Next button alongside Skip when RepoAlreadyRegistered', async () => {
+  it('shows Next button and hides Skip when RepoAlreadyRegistered', async () => {
     mockOpenDialog.mockResolvedValue('/Users/user/my-repo');
     mockInvoke.mockRejectedValue("RepoAlreadyRegistered: already connected");
     render(<ModalGitHubApp {...defaultProps} />);
     await userEvent.click(screen.getByRole('button', { name: /choose folder/i }));
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^Next/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /connect repos later/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /connect repos later/i })).not.toBeInTheDocument();
     });
   });
 
@@ -382,12 +382,18 @@ describe('ModalConnectRepos — setRepoConnected via manual Next after mount-che
 // ---------------------------------------------------------------------------
 
 describe('ModalConnectRepos — existing repos shown on load', () => {
+  beforeEach(() => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [{ id: 'r1', name: 'docs', path: '/path', active: true }];
+      return { name: 'my-repo' };
+    });
+  });
+
   it('lists already-connected repos in the Desktop folder section', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return false;
-      if (cmd === 'list_repos_for_project') return [
-        { id: 'r1', name: 'my-existing-repo', path: '/Users/user/my-existing-repo', active: true },
-      ];
+      if (cmd === 'list_repos_for_project') return [{ id: 'r1', name: 'my-existing-repo', path: '/path', active: true }];
       return { name: 'my-repo' };
     });
     render(<ModalGitHubApp {...defaultProps} />);
@@ -395,20 +401,34 @@ describe('ModalConnectRepos — existing repos shown on load', () => {
   });
 
   it('shows Add another folder button when repos are already connected', async () => {
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return false;
-      if (cmd === 'list_repos_for_project') return [
-        { id: 'r1', name: 'existing-repo', path: '/path', active: true },
-      ];
-      return { name: 'my-repo' };
-    });
     render(<ModalGitHubApp {...defaultProps} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /add another folder/i })).toBeInTheDocument());
   });
 
   it('shows Choose folder when no repos are connected', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
+      return { name: 'my-repo' };
+    });
     render(<ModalGitHubApp {...defaultProps} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /choose folder/i })).toBeInTheDocument());
+  });
+
+  it('shows Next button when existing repos are loaded on mount', async () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^next/i })).toBeInTheDocument());
+  });
+
+  it('hides Skip button when existing repos are loaded on mount', async () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.queryByRole('button', { name: /connect repos later/i })).not.toBeInTheDocument());
+  });
+
+  it('calls setRepoConnected when existing repos are loaded on mount', async () => {
+    const setRepoConnected = vi.fn();
+    render(<ModalGitHubApp {...defaultProps} setRepoConnected={setRepoConnected} />);
+    await waitFor(() => expect(setRepoConnected).toHaveBeenCalledWith(true));
   });
 });
 
@@ -428,13 +448,21 @@ describe('ModalConnectRepos — install-error event for non-GitHub provider', ()
 // ---------------------------------------------------------------------------
 
 describe('ModalConnectRepos — mount-time already-installed', () => {
-  it('does NOT call onNext when mount check finds GitHub App already installed', async () => {
-    const onNext = vi.fn();
+  beforeEach(() => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'check_github_app_installed') return true;
       if (cmd === 'list_repos_for_project') return [];
       return { name: 'my-repo' };
     });
+  });
+
+  it('hides Install GitHub App button when app is already installed', async () => {
+    render(<ModalGitHubApp {...defaultProps} />);
+    await waitFor(() => expect(screen.queryByRole('button', { name: /install github app/i })).not.toBeInTheDocument());
+  });
+
+  it('does NOT call onNext when mount check finds GitHub App already installed', async () => {
+    const onNext = vi.fn();
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', expect.anything()));
     await new Promise(r => setTimeout(r, 50));
@@ -442,21 +470,11 @@ describe('ModalConnectRepos — mount-time already-installed', () => {
   });
 
   it('shows a "GitHub App connected" badge when mount check finds app already installed', async () => {
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true;
-      if (cmd === 'list_repos_for_project') return [];
-      return { name: 'my-repo' };
-    });
     render(<ModalGitHubApp {...defaultProps} />);
     await waitFor(() => expect(screen.getByText(/github app connected/i)).toBeInTheDocument());
   });
 
   it('shows Next button when mount check finds app already installed', async () => {
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true;
-      if (cmd === 'list_repos_for_project') return [];
-      return { name: 'my-repo' };
-    });
     render(<ModalGitHubApp {...defaultProps} />);
     await waitFor(() => expect(screen.getByRole('button', { name: /^next/i })).toBeInTheDocument());
   });

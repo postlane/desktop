@@ -338,12 +338,28 @@ describe('Wizard — wizard state persistence', () => {
     render(<Wizard onComplete={vi.fn()} startAt={3} />);
     fireEvent.click(screen.getByText('next-org'));
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('write_wizard_state', {
+      expect(mockInvoke).toHaveBeenCalledWith('write_wizard_state', expect.objectContaining({
         step: 4,
         workspaceId: 'ws-id-1',
         workspaceName: 'My Org',
-      })
+      }))
     );
+  });
+
+  it('write_wizard_state includes provider after step 2 next', async () => {
+    render(<Wizard onComplete={vi.fn()} startAt={2} />);
+    fireEvent.click(screen.getByText('next-account-github'));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('write_wizard_state', expect.objectContaining({
+        step: 3,
+        provider: 'github',
+      }))
+    );
+  });
+
+  it('initialProvider seeds provider in step 5 GitHub App section', () => {
+    render(<Wizard onComplete={vi.fn()} startAt={5} initialProvider="gitlab" />);
+    expect(screen.getByTestId('github-app-provider').textContent).toBe('gitlab');
   });
 
   it('initialWorkspaceId seeds workspaceId in step 6 project context', () => {
