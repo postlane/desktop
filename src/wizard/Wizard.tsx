@@ -16,6 +16,7 @@ import ModalProviderLinked from './ModalProviderLinked';
 interface Props {
   onComplete: () => void;
   startAt?: number;
+  initialProvider?: string | null;
   initialWorkspaceId?: string | null;
   initialWorkspaceName?: string | null;
 }
@@ -61,11 +62,12 @@ function WizardLateSteps({ step, provider, workspaceId, workspaceName, scheduler
   return <ModalComplete schedulerLinked={schedulerLinked} repoConnected={repoConnected} onComplete={onComplete} onBack={onBack} />;
 }
 
-export default function Wizard({ onComplete, startAt, initialWorkspaceId, initialWorkspaceName }: Props) {
+export default function Wizard({ onComplete, startAt, initialProvider, initialWorkspaceId, initialWorkspaceName }: Props) {
   const wizard = useWizardState({
     startAt,
-    initialWorkspaceId: initialWorkspaceId ?? undefined,
-    initialWorkspaceName: initialWorkspaceName ?? undefined,
+    initialProvider,
+    initialWorkspaceId,
+    initialWorkspaceName,
   });
   const [showPricingGate, setShowPricingGate] = useState(false);
   const [repoConnected, setRepoConnected] = useState(false);
@@ -80,7 +82,7 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
     if (!isNewLinkRef.current) return;
     invoke<string[]>('list_linked_providers')
       .then((providers) => {
-        if (Array.isArray(providers) && providers.length > 1) {
+        if (providers.length > 1) {
           setLinkedProviders(providers);
           setShowProviderLinked(true);
         }
@@ -92,11 +94,12 @@ export default function Wizard({ onComplete, startAt, initialWorkspaceId, initia
     if (wizard.step > 1) {
       invoke('write_wizard_state', {
         step: wizard.step,
+        provider: wizard.provider,
         workspaceId: wizard.workspaceId,
         workspaceName: wizard.workspaceName,
       }).catch(console.warn);
     }
-  }, [wizard.step, wizard.workspaceId, wizard.workspaceName]);
+  }, [wizard.step, wizard.provider, wizard.workspaceId, wizard.workspaceName]);
 
   const handleSkipToApp = async () => {
     invoke('clear_wizard_state').catch(console.warn);

@@ -11,6 +11,8 @@ pub struct WizardState {
     pub workspace_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 fn wizard_state_path() -> Result<std::path::PathBuf, String> {
@@ -32,8 +34,8 @@ fn read_from_path(path: &Path) -> Result<Option<WizardState>, String> {
     }
 }
 
-fn write_to_path(path: &Path, step: u32, workspace_id: Option<String>, workspace_name: Option<String>) -> Result<(), String> {
-    let state = WizardState { step, workspace_id, workspace_name };
+fn write_to_path(path: &Path, step: u32, workspace_id: Option<String>, workspace_name: Option<String>, provider: Option<String>) -> Result<(), String> {
+    let state = WizardState { step, workspace_id, workspace_name, provider };
     let json = serde_json::to_string(&state).map_err(|e| format!("Serialise error: {}", e))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &json).map_err(|e| format!("Failed to write wizard state: {}", e))?;
@@ -48,7 +50,7 @@ pub fn read_wizard_state() -> Result<Option<WizardState>, String> {
 }
 
 #[tauri::command]
-pub fn write_wizard_state(step: u32, workspace_id: Option<String>, workspace_name: Option<String>) -> Result<(), String> {
+pub fn write_wizard_state(step: u32, workspace_id: Option<String>, workspace_name: Option<String>, provider: Option<String>) -> Result<(), String> {
     if step < 2 {
         return Ok(());
     }
@@ -57,7 +59,7 @@ pub fn write_wizard_state(step: u32, workspace_id: Option<String>, workspace_nam
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create .postlane dir: {}", e))?;
     }
-    write_to_path(&path, step, workspace_id, workspace_name)
+    write_to_path(&path, step, workspace_id, workspace_name, provider)
 }
 
 #[tauri::command]
@@ -80,9 +82,36 @@ mod tests {
     }
 
     #[test]
+    fn test_write_to_path_persists_provider() {
+        let path = tmp_path("with_provider");
+        write_to_path(&path, 3, None, None, Some("github".to_string())).unwrap();
+        let state = read_from_path(&path).unwrap().unwrap();
+        assert_eq!(state.provider.as_deref(), Some("github"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_write_to_path_with_none_provider_omits_field_from_json() {
+        let path = tmp_path("no_provider");
+        write_to_path(&path, 3, None, None, None).unwrap();
+        let json = std::fs::read_to_string(&path).unwrap();
+        assert!(!json.contains("provider"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_read_old_format_without_provider_returns_none_for_provider() {
+        let path = tmp_path("old_format_no_provider");
+        std::fs::write(&path, r#"{"step":4}"#).unwrap();
+        let state = read_from_path(&path).unwrap().unwrap();
+        assert!(state.provider.is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn test_write_to_path_persists_workspace_fields() {
         let path = tmp_path("workspace_fields");
-        write_to_path(&path, 4, Some("ws-1".to_string()), Some("My Org".to_string())).unwrap();
+        write_to_path(&path, 4, Some("ws-1".to_string()), Some("My Org".to_string()), None).unwrap();
         let state = read_from_path(&path).unwrap().unwrap();
         assert_eq!(state.step, 4);
         assert_eq!(state.workspace_id.as_deref().unwrap(), "ws-1");
@@ -104,7 +133,7 @@ mod tests {
     #[test]
     fn test_write_to_path_with_none_workspace_omits_fields_from_json() {
         let path = tmp_path("no_workspace");
-        write_to_path(&path, 3, None, None).unwrap();
+        write_to_path(&path, 3, None, None, None).unwrap();
         let json = std::fs::read_to_string(&path).unwrap();
         assert!(!json.contains("workspace_id"));
         assert!(!json.contains("workspace_name"));

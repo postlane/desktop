@@ -18,6 +18,7 @@ export interface AppInitState {
   setResumeStep: (_step: number | null) => void;
   wizardWorkspaceId: string | null;
   wizardWorkspaceName: string | null;
+  wizardProvider: string | null;
   showReSignIn: boolean;
   setShowReSignIn: (_v: boolean) => void;
   wizardNudgePending: boolean;
@@ -34,6 +35,7 @@ export function useAppInit(): AppInitState {
   const [resumeStep, setResumeStep] = useState<number | null>(null);
   const [wizardWorkspaceId, setWizardWorkspaceId] = useState<string | null>(null);
   const [wizardWorkspaceName, setWizardWorkspaceName] = useState<string | null>(null);
+  const [wizardProvider, setWizardProvider] = useState<string | null>(null);
   const [showReSignIn, setShowReSignIn] = useState(false);
   const [wizardNudgePending, setWizardNudgePending] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export function useAppInit(): AppInitState {
         }
         if (!appState.consent_asked) setShowConsentModal(true);
         if (!appState.wizard_completed) {
-          const saved = await invoke<{ step: number; workspaceId?: string; workspaceName?: string } | null>(
+          const saved = await invoke<{ step: number; workspaceId?: string; workspaceName?: string; provider?: string } | null>(
             'read_wizard_state'
           ).catch(() => null);
           if (saved && saved.step > 1) {
@@ -66,6 +68,7 @@ export function useAppInit(): AppInitState {
             setResumeStep(saved.step);
             if (saved.workspaceId) setWizardWorkspaceId(saved.workspaceId);
             if (saved.workspaceName) setWizardWorkspaceName(saved.workspaceName);
+            if (saved.provider) setWizardProvider(saved.provider);
           }
           setShowWizard(true);
           return;
@@ -79,7 +82,7 @@ export function useAppInit(): AppInitState {
   return {
     timezone, setTimezone, showConsentModal, setShowConsentModal,
     showWizard, setShowWizard, wizardStartStep, setWizardStartStep,
-    resumeStep, setResumeStep, wizardWorkspaceId, wizardWorkspaceName,
+    resumeStep, setResumeStep, wizardWorkspaceId, wizardWorkspaceName, wizardProvider,
     showReSignIn, setShowReSignIn, wizardNudgePending, setWizardNudgePending,
     initError, appStateRef,
   };

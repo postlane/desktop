@@ -145,6 +145,24 @@ describe('useWizardState — step 7 completion', () => {
   });
 });
 
+describe('useWizardState — resume with initial provider', () => {
+  it('initialProvider seeds provider state', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 5, initialProvider: 'gitlab' }));
+    expect(result.current.provider).toBe('gitlab');
+  });
+
+  it('provider is null when no initialProvider provided', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 5 }));
+    expect(result.current.provider).toBeNull();
+  });
+
+  it('setProvider still overrides the initial value', () => {
+    const { result } = renderHook(() => useWizardState({ startAt: 5, initialProvider: 'github' }));
+    act(() => result.current.setProvider('gitlab'));
+    expect(result.current.provider).toBe('gitlab');
+  });
+});
+
 describe('useWizardState — resume with initial workspace', () => {
   it('initialWorkspaceId seeds workspaceId state', () => {
     const { result } = renderHook(() => useWizardState({ startAt: 4, initialWorkspaceId: 'ws-saved' }));
