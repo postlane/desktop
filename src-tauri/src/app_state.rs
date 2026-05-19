@@ -112,19 +112,13 @@ pub fn write_app_state(state: &AppStateFile) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_fixtures::AppStateGuard;
     use std::fs;
-
-    fn get_test_mutex() -> &'static std::sync::Mutex<()> {
-        crate::test_fixtures::app_state_mutex()
-    }
 
     #[test]
     fn test_read_app_state_missing_file_returns_default() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path().expect("Failed to get app state path");
-        let _ = fs::remove_file(&path);
-        assert!(!path.exists(), "File should not exist");
+        let _guard = AppStateGuard::acquire();
+        assert!(!_guard.path.exists(), "File should not exist");
         let state = read_app_state();
         assert_eq!(state.version, 1);
         assert_eq!(state.window.width, 1100);
@@ -176,8 +170,7 @@ mod tests {
 
     #[test]
     fn test_write_app_state() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+        let _guard = AppStateGuard::acquire();
 
         let state = AppStateFile {
             version: 1,
@@ -199,64 +192,48 @@ mod tests {
             org_upgrade_banner_dismissed_v1_2: false,
         };
 
-        let path = app_state_path().expect("Failed to get app state path");
-        let _ = fs::remove_file(&path);
         write_app_state(&state).expect("Failed to write app_state");
-        assert!(path.exists());
+        assert!(_guard.path.exists());
 
-        let content = fs::read_to_string(&path).expect("Failed to read");
+        let content = fs::read_to_string(&_guard.path).expect("Failed to read");
         let loaded: AppStateFile = serde_json::from_str(&content).expect("Failed to parse");
         assert_eq!(loaded.window.width, 1300);
         assert_eq!(loaded.nav.last_view, "test");
         assert_eq!(loaded.nav.expanded_repos.len(), 1);
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn test_read_app_state_malformed_json_returns_default() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path().expect("Failed to get app state path");
-        fs::write(&path, "{ invalid json }").expect("Failed to write malformed JSON");
+        let guard = AppStateGuard::acquire();
+        fs::write(&guard.path, "{ invalid json }").expect("Failed to write malformed JSON");
         let state = read_app_state();
         assert_eq!(state.version, 1);
         assert_eq!(state.window.width, 1100);
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn test_read_app_state_version_mismatch_returns_default() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path().expect("Failed to get app state path");
+        let guard = AppStateGuard::acquire();
         let wrong = AppStateFile { version: 999, ..AppStateFile::default() };
         let json = serde_json::to_string_pretty(&wrong).expect("Failed to serialize");
-        fs::write(&path, json).expect("Failed to write");
+        fs::write(&guard.path, json).expect("Failed to write");
         let loaded = read_app_state();
         assert_eq!(loaded.version, 1, "Should return default with correct version");
         assert_eq!(loaded.window.width, 1100, "Should have default window width");
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn test_read_app_state_io_error() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path().expect("Failed to get app state path");
-        let _ = fs::remove_file(&path);
-        fs::create_dir_all(&path).expect("Failed to create dir");
+        let guard = AppStateGuard::acquire();
+        fs::create_dir_all(&guard.path).expect("Failed to create dir");
         let loaded = read_app_state();
         assert_eq!(loaded.version, 1, "Should return default on IO error");
         assert_eq!(loaded.window.width, 1100, "Should have default values");
-        let _ = fs::remove_dir_all(&path);
     }
 
     #[test]
     fn test_read_app_state_valid_file() {
-        let _lock = get_test_mutex().lock().unwrap();
-        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
-        let path = app_state_path().expect("Failed to get app state path");
-        let _ = fs::remove_file(&path);
+        let guard = AppStateGuard::acquire();
 
         let state = AppStateFile {
             version: 1,
@@ -279,12 +256,11 @@ mod tests {
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
-        fs::write(&path, json).expect("Failed to write");
+        fs::write(&guard.path, json).expect("Failed to write");
         let loaded = read_app_state();
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.window.width, 1400);
         assert_eq!(loaded.window.height, 1000);
         assert_eq!(loaded.nav.last_section, "sent");
-        let _ = fs::remove_file(&path);
     }
 }
