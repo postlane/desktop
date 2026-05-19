@@ -142,6 +142,7 @@ pub fn delete_scheduler_credential(
     provider: String,
     repo_id: String,
     app: tauri::AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
     delete_scheduler_credential_impl(&provider)?;
 
@@ -150,6 +151,18 @@ pub fn delete_scheduler_credential(
     app.keyring()
         .delete_password("postlane", &keyring_key)
         .map_err(|e| format!("Failed to delete credential: {}", e))?;
+
+    for repo_path in collect_matching_repo_paths(&repo_id, &state) {
+        if let Err(e) =
+            crate::config_merge::remove_scheduler_provider_from_local_config(&repo_path, &provider)
+        {
+            log::warn!(
+                "[delete_scheduler_credential] clear provider from {}: {}",
+                repo_path.display(),
+                e
+            );
+        }
+    }
 
     Ok(())
 }

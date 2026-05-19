@@ -215,6 +215,32 @@ describe('MainContent — org_history', () => {
   })
 })
 
+// ── org_history: post selection ───────────────────────────────────────────────
+
+describe('MainContent — org_history post selection', () => {
+  it('selecting a history post renders EditPostView', () => {
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_history', projectId: 'p1' })} />)
+    fireEvent.click(screen.getByTestId('select-post'))
+    expect(screen.getByTestId('edit-post-view')).toBeInTheDocument()
+  })
+
+  it('back from history EditPostView returns to PostTable', () => {
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_history', projectId: 'p1' })} />)
+    fireEvent.click(screen.getByTestId('select-post'))
+    fireEvent.click(screen.getByTestId('post-back'))
+    expect(screen.getByTestId('post-table')).toBeInTheDocument()
+  })
+
+  it('history EditPostView does not open when project not found', () => {
+    render(<MainContent {...baseProps({ view: 'org_history', projectId: 'p1' })} />)
+    fireEvent.click(screen.getByTestId('select-post'))
+    expect(screen.queryByTestId('edit-post-view')).not.toBeInTheDocument()
+    expect(screen.getByTestId('post-table')).toBeInTheDocument()
+  })
+})
+
 // ── org_settings ──────────────────────────────────────────────────────────────
 
 describe('MainContent — org_settings', () => {

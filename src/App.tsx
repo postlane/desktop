@@ -21,7 +21,7 @@ import { DraftPostsProvider, useDraftPostsContext } from './context/DraftPostsPr
 import { useSentPosts } from './hooks/useSentPosts';
 import OrgUpgradeBanner from './components/OrgUpgradeBanner';
 import OrgLinkModal from './components/OrgLinkModal';
-import type { AppStateFile, ViewSelection, DraftPost } from './types';
+import type { AppStateFile, ViewSelection, DraftPost, PublishedPost } from './types';
 import { LoadingView, QueueLoadError } from './AppLoadingStates';
 
 const DEFAULT_VIEW: ViewSelection = { view: 'no_orgs' };
@@ -98,12 +98,29 @@ function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNa
   );
 }
 
-function OrgHistoryView({ projectId }: { projectId: string }) {
+function OrgHistoryView({ projectId, onToast }: {
+  projectId: string;
+  onToast: (_msg: string, _durationMs?: number) => void;
+}) {
   const tz = useTimezone();
   const { posts, loading, error, refresh } = useSentPosts(projectId);
+  const { projects } = useProjectsContext();
+  const [selectedPost, setSelectedPost] = useState<PublishedPost | null>(null);
+  const project = projects.find(p => p.id === projectId) ?? null;
+
+  if (selectedPost && project) {
+    return (
+      <EditPostView post={selectedPost} project={project} isHistory={true} timezone={tz}
+        onBack={() => setSelectedPost(null)}
+        onApproved={() => setSelectedPost(null)}
+        onToast={onToast}
+        onNavigate={() => {}}
+      />
+    );
+  }
   if (loading) return <LoadingView />;
   if (error) return <QueueLoadError error={error} onRetry={refresh} />;
-  return <PostTable posts={posts} isHistory={true} onSelect={() => {}} timezone={tz} />;
+  return <PostTable posts={posts} isHistory={true} onSelect={setSelectedPost} timezone={tz} />;
 }
 
 function OrgSettingsDispatch({ projectId }: { projectId: string }) {
@@ -146,7 +163,7 @@ export function MainContent({
       />
     );
   }
-  if (view.view === 'org_history') return <OrgHistoryView projectId={view.projectId} />;
+  if (view.view === 'org_history') return <OrgHistoryView projectId={view.projectId} onToast={onToast} />;
   if (view.view === 'org_settings') return <OrgSettingsDispatch projectId={view.projectId} />;
   if (view.view === 'global_settings') {
     return (
