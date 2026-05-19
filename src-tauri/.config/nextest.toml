@@ -1,6 +1,6 @@
 [test-groups]
-shared-path-serial = { max-threads = 1 }
+app-state-serial = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'test(app_state::tests) | test(app_state_ops::tests) | test(license::validator::tests)'
-test-group = 'shared-path-serial'
+filter = 'test(app_state::tests) | test(app_state_ops::tests)'
+test-group = 'app-state-serial'

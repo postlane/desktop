@@ -43,7 +43,24 @@ pub struct LicenseCache {
     pub repos: Vec<RepoLicenseInfo>,
 }
 
+/// In test builds, individual tests redirect cache_path() to a private TempDir
+/// so concurrent nextest processes never share the same file.
+#[cfg(test)]
+static TEST_CACHE_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+    std::sync::OnceLock::new();
+
 fn cache_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    {
+        let maybe = TEST_CACHE_OVERRIDE
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(path) = maybe {
+            return Ok(path);
+        }
+    }
     Ok(postlane_dir()?.join("license_cache.json"))
 }
 
@@ -180,24 +197,35 @@ mod tests {
     static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
     fn lock() -> &'static Mutex<()> { TEST_MUTEX.get_or_init(|| Mutex::new(())) }
 
+    /// Per-test RAII guard that redirects cache_path() to a private TempDir.
+    /// Each test process gets its own directory, so concurrent nextest processes
+    /// can never observe each other's cache files regardless of scheduling.
     struct CacheGuard {
         pub path: PathBuf,
+        _dir: tempfile::TempDir,
         _lock: std::sync::MutexGuard<'static, ()>,
     }
 
     impl CacheGuard {
         fn acquire() -> Self {
             let _lock = lock().lock().unwrap_or_else(|p| p.into_inner());
-            crate::init::init_postlane_dir().expect("init postlane dir");
-            let path = cache_path().expect("cache path");
-            let _ = std::fs::remove_file(&path);
-            CacheGuard { path, _lock }
+            let _dir = tempfile::TempDir::new().expect("temp dir");
+            let path = _dir.path().join("license_cache.json");
+            *super::TEST_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(path.clone());
+            CacheGuard { path, _dir, _lock }
         }
     }
 
     impl Drop for CacheGuard {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.path);
+            *super::TEST_CACHE_OVERRIDE
+                .get_or_init(|| std::sync::Mutex::new(None))
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+            // _dir drops here, removing the entire temp directory
         }
     }
 
