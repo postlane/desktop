@@ -115,9 +115,23 @@ pub fn update_post_image_impl(
         return Err("meta.json not found in post folder".to_string());
     }
 
-    let mut meta = PostMeta::load(&meta_path)?;
-    meta.image_url = image_url.map(|s| s.to_string());
-    meta.save(&meta_path)
+    let raw = fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Failed to read {}: {}", meta_path.display(), e))?;
+    let mut v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse {}: {}", meta_path.display(), e))?;
+    let obj = v.as_object_mut()
+        .ok_or_else(|| format!("meta.json is not a JSON object: {}", meta_path.display()))?;
+    match image_url {
+        Some(url) => { obj.insert("image_url".to_string(), serde_json::json!(url)); }
+        None => { obj.remove("image_url"); }
+    }
+    let json = serde_json::to_string_pretty(&v)
+        .map_err(|e| format!("Failed to serialise: {}", e))?;
+    let tmp_path = meta_path.with_extension("json.tmp");
+    fs::write(&tmp_path, &json)
+        .map_err(|e| format!("Failed to write {}: {}", tmp_path.display(), e))?;
+    fs::rename(&tmp_path, &meta_path)
+        .map_err(|e| format!("Failed to rename to {}: {}", meta_path.display(), e))
 }
 
 #[tauri::command]
