@@ -126,7 +126,7 @@ function ActionBar({ platform, isDirty, isOverLimit, isHistory, project, isFaile
 }
 
 function ImageSection({ imageState, onCustomSet }: {
-  imageState: ImageState; onCustomSet: (_url: string | null) => void;
+  imageState: ImageState; onCustomSet: (_url: string) => Promise<void>;
 }) {
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
@@ -137,7 +137,7 @@ function ImageSection({ imageState, onCustomSet }: {
     setCustomLoading(true);
     try {
       await invoke('validate_url_safe', { url: customUrl });
-      onCustomSet(customUrl);
+      await onCustomSet(customUrl);
     } catch (e: unknown) {
       setCustomError(String(e));
     } finally {
@@ -197,6 +197,20 @@ function useOgDetection(text: string, disabled: boolean): ImageState {
     return () => clearTimeout(timer);
   }, [text, disabled]);
   return state;
+}
+
+function usePostImage(post: DraftPost | PublishedPost, text: string, isHistory: boolean) {
+  const initialUrl = 'image_url' in post ? (post.image_url ?? null) : null;
+  const [customImageUrl, setCustomImageUrl] = useState<string | null>(initialUrl);
+  const ogState = useOgDetection(text, !!customImageUrl || isHistory);
+  const imageState: ImageState = customImageUrl ? { status: 'loaded', url: customImageUrl } : ogState;
+
+  const handleSetImage = useCallback(async (url: string) => {
+    await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: url });
+    setCustomImageUrl(url);
+  }, [post.repo_path, post.post_folder]);
+
+  return { imageState, handleSetImage };
 }
 
 function useSavePost(
@@ -364,9 +378,7 @@ export default function EditPostView({
   const del = useDeletePost(post, platform, onBack);
   const guard = useDiscardGuard(isDirty, onBack, onNavigate, pendingNavSel, onNavCancelled);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [customImageUrl, setCustomImageUrl] = useState<string | null>(null);
-  const ogState = useOgDetection(text, !!customImageUrl || isHistory);
-  const imageState: ImageState = customImageUrl ? { status: 'loaded', url: customImageUrl } : ogState;
+  const { imageState, handleSetImage } = usePostImage(post, text, isHistory);
   useEditKeyboard(isDirty, isHistory, isOverLimit, save.doSave, approve.doApprove);
   return (
     <div className="is-flex" style={{ flexDirection: 'column', height: '100%' }}>
@@ -381,7 +393,7 @@ export default function EditPostView({
       </div>
       <PostBody isHistory={isHistory} text={text} setText={setText} post={post}
         saveError={save.saveError} approveError={approve.approveError} />
-      {!isHistory && <ImageSection imageState={imageState} onCustomSet={setCustomImageUrl} />}
+      {!isHistory && <ImageSection imageState={imageState} onCustomSet={handleSetImage} />}
       <ActionBar platform={platform} isDirty={isDirty} isOverLimit={isOverLimit} isHistory={isHistory}
         project={project} isFailed={isFailed} doSave={save.doSave} saveLoading={save.saveLoading}
         doApprove={approve.doApprove} approveLoading={approve.approveLoading}
