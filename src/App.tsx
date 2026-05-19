@@ -247,6 +247,7 @@ function useAppState() {
   const init = useAppInit();
 
   function handleWizardComplete() {
+    invoke('set_wizard_completed').catch(console.error);
     init.setShowWizard(false); init.setWizardStartStep(1); init.setResumeStep(null);
   }
   function handleResumeDecline() {
