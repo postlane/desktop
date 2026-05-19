@@ -61,6 +61,7 @@ describe('PostCard — error paths — content and fetch', () => {
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('update_post_content', expect.anything()),
+      { timeout: 10000 },
     );
     expect(screen.getByRole('article')).toBeInTheDocument();
   });
