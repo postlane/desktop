@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::init::{atomic_write, postlane_dir};
+use crate::init::atomic_write;
 use crate::project_validation::{reject_if_symlink, validate_project_id};
 use crate::storage::{write_repos, Repo};
 use std::fs;
@@ -42,8 +42,7 @@ fn register_in_repos(canonical_path: &str, name: &str, state: &AppState) -> Resu
     };
     let mut repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
     repos.repos.push(repo.clone());
-    let repos_path = postlane_dir()?.join("repos.json");
-    write_repos(&repos_path, &repos).map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
+    write_repos(&state.repos_path, &repos).map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
     Ok(repo)
 }
 

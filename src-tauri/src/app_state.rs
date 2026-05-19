@@ -26,11 +26,24 @@ pub struct AppState {
     /// Port the local HTTP server is bound to. Set by spawn_http_server so
     /// get_local_server_port can fall back here if the port file is deleted.
     pub http_port: Mutex<Option<u16>>,
+    /// Path to repos.json. Production code uses the real ~/.postlane/repos.json;
+    /// tests use an isolated temp path so they cannot corrupt user data.
+    pub repos_path: PathBuf,
 }
 
 impl AppState {
-    /// Creates a new `AppState` with the given repos config and default values for all other fields.
+    /// Creates a new `AppState` with the given repos config.
+    /// The repos path is resolved from `postlane_dir()` at construction time.
     pub fn new(repos: ReposConfig) -> Self {
+        let repos_path = postlane_dir()
+            .map(|d| d.join("repos.json"))
+            .unwrap_or_else(|_| PathBuf::from("/dev/null"));
+        Self::new_with_path(repos, repos_path)
+    }
+
+    /// Creates a new `AppState` with an explicit repos path.
+    /// Use this in tests to point at an isolated temp file.
+    pub fn new_with_path(repos: ReposConfig, repos_path: PathBuf) -> Self {
         Self {
             repos: Mutex::new(repos),
             watchers: Mutex::new(HashMap::new()),
@@ -38,6 +51,7 @@ impl AppState {
             telemetry: Arc::new(TelemetryClient::new()),
             in_flight_sends: Arc::new(AtomicUsize::new(0)),
             http_port: Mutex::new(None),
+            repos_path,
         }
     }
 }

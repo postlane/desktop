@@ -5,6 +5,7 @@ use crate::app_state::AppState;
 use crate::storage::{Repo, ReposConfig};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// Single mutex for all tests that read/write the real app_state.json path.
@@ -15,8 +16,13 @@ pub fn app_state_mutex() -> &'static Mutex<()> {
     APP_STATE_MUTEX.get_or_init(|| Mutex::new(()))
 }
 
+static TEST_REPOS_SEQ: AtomicU64 = AtomicU64::new(0);
+
 pub fn make_state(repos: Vec<Repo>) -> AppState {
-    AppState::new(ReposConfig { version: 1, repos })
+    let n = TEST_REPOS_SEQ.fetch_add(1, Ordering::Relaxed);
+    let repos_path = std::env::temp_dir()
+        .join(format!("postlane_test_repos_{}_{}.json", std::process::id(), n));
+    AppState::new_with_path(ReposConfig { version: 1, repos }, repos_path)
 }
 
 pub fn make_repo(id: &str, path: &str) -> Repo {

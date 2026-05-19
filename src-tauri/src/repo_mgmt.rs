@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::init::postlane_dir;
 use crate::storage::{write_repos, Repo};
 use crate::types::RepoHealthStatus;
 use std::fs;
@@ -52,8 +51,7 @@ pub fn add_repo_impl(path: &str, state: &AppState) -> Result<Repo, String> {
 
     repos.repos.push(repo.clone());
 
-    let repos_path = postlane_dir()?.join("repos.json");
-    write_repos(&repos_path, &repos)
+    write_repos(&state.repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
     let consent = crate::app_state::read_app_state().telemetry_consent;
@@ -86,8 +84,7 @@ pub fn remove_repo_impl(id: &str, state: &AppState) -> Result<(), String> {
 
     repos.repos.remove(repo_index);
 
-    let repos_path = postlane_dir()?.join("repos.json");
-    write_repos(&repos_path, &repos)
+    write_repos(&state.repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
     Ok(())
@@ -112,8 +109,7 @@ pub fn set_repo_active_impl(id: &str, active: bool, state: &AppState) -> Result<
 
     repo.active = active;
 
-    let repos_path = postlane_dir()?.join("repos.json");
-    write_repos(&repos_path, &repos)
+    write_repos(&state.repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
     Ok(())
@@ -213,8 +209,7 @@ pub fn update_repo_path(
 
     repo.path = canonical_str.to_string();
 
-    let repos_path = postlane_dir()?.join("repos.json");
-    write_repos(&repos_path, &repos)
+    write_repos(&state.repos_path, &repos)
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
     Ok(())
