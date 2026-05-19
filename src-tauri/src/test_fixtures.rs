@@ -5,6 +5,15 @@ use crate::app_state::AppState;
 use crate::storage::{Repo, ReposConfig};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+
+/// Single mutex for all tests that read/write the real app_state.json path.
+/// Both app_state and app_state_ops tests must use this to prevent races.
+static APP_STATE_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+pub fn app_state_mutex() -> &'static Mutex<()> {
+    APP_STATE_MUTEX.get_or_init(|| Mutex::new(()))
+}
 
 pub fn make_state(repos: Vec<Repo>) -> AppState {
     AppState::new(ReposConfig { version: 1, repos })
