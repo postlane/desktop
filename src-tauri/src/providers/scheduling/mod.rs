@@ -6,6 +6,7 @@ pub mod mastodon;
 pub mod outstand;
 pub mod publer;
 pub mod substack_notes;
+pub mod upload_post;
 pub mod webhook;
 pub mod zernio;
 
@@ -231,6 +232,7 @@ pub fn build_scheduling_provider(
         "publer" => Box::new(publer::PublerProvider::new(api_key)),
         "outstand" => Box::new(outstand::OutstandProvider::new(api_key)),
         "substack_notes" => Box::new(substack_notes::SubstackNotesProvider::new(api_key)),
+        "upload_post" => Box::new(upload_post::UploadPostProvider::new(api_key)),
         "webhook" => Box::new(webhook::WebhookProvider::new(api_key)),
         other => return Err(format!("Unknown scheduler provider: {}", other)),
     })

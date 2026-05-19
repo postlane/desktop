@@ -263,11 +263,12 @@ async fn test_schedule_post_429_returns_rate_limit_error_with_retry_after() {
 
     let server = MockServer::start();
 
-    // Mock 429 response with Retry-After header
+    // Use Retry-After: 2 — short enough that the test suite doesn't stall,
+    // large enough to verify the header value is passed through correctly.
     server.mock(|when, then| {
         when.method(POST).path("/api/v1/posts");
         then.status(429)
-            .header("Retry-After", "60")  // 60 seconds
+            .header("Retry-After", "2")
             .body("Rate limit exceeded");
     });
 
@@ -285,7 +286,7 @@ async fn test_schedule_post_429_returns_rate_limit_error_with_retry_after() {
     assert!(result.is_err());
     match result.unwrap_err() {
         ProviderError::RateLimit(duration) => {
-            assert_eq!(duration.as_secs(), 60);
+            assert_eq!(duration.as_secs(), 2);
         }
         other => panic!("Expected RateLimit error, got {:?}", other),
     }

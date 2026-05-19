@@ -155,6 +155,18 @@ describe('RepositoriesBlock — owner-only', () => {
   })
 })
 
+describe('RepositoriesBlock — no Configure button', () => {
+  it('does not render a Configure button for owners', () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    expect(screen.queryByRole('button', { name: /Configure/i })).not.toBeInTheDocument()
+  })
+
+  it('does not render a Configure button for non-owners', () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    expect(screen.queryByRole('button', { name: /Configure/i })).not.toBeInTheDocument()
+  })
+})
+
 // ── AddRepoModal ───────────────────────────────────────────────────────────────
 
 describe('RepositoriesBlock — AddRepoModal', () => {

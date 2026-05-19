@@ -5,7 +5,6 @@ import { invoke } from '../ipc/invoke';
 import { useProjectRepos } from '../hooks/useRepoData';
 import type { RepoSummary } from '../hooks/useRepoData';
 import AddRepoModal from '../wizard/AddRepoModal';
-import RepoConfigureModal from './RepoConfigureModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,24 +34,18 @@ function RemoveConfirm({ repo, onConfirm, onCancel, loading }: {
   );
 }
 
-function RepoRow({ repo, isOwner, onRemoveStart, onConfigureStart }: {
+function RepoRow({ repo, isOwner, onRemoveStart }: {
   repo: RepoSummary; isOwner: boolean;
   onRemoveStart: (_id: string) => void;
-  onConfigureStart: (_id: string) => void;
 }) {
   return (
     <div className="is-flex is-align-items-center py-2" style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
       <span className="is-size-7" style={{ flex: 1 }}>{repo.name}</span>
       <span className="is-size-7 has-text-grey">{repo.path}</span>
       {isOwner && (
-        <>
-          <button className="button is-small is-ghost" onClick={() => onConfigureStart(repo.id)}>
-            Configure
-          </button>
-          <button className="button is-small is-ghost has-text-danger" onClick={() => onRemoveStart(repo.id)}>
-            Remove
-          </button>
-        </>
+        <button className="button is-small is-ghost has-text-danger" onClick={() => onRemoveStart(repo.id)}>
+          Remove
+        </button>
       )}
     </div>
   );
@@ -64,7 +57,6 @@ function useRepoActions(refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [configureRepoId, setConfigureRepoId] = useState<string | null>(null);
 
   async function handleConfirmRemove() {
     if (!pendingRemoveId) return;
@@ -81,7 +73,6 @@ function useRepoActions(refresh: () => void) {
   return {
     pendingRemoveId, setPendingRemoveId, removeLoading,
     showAddModal, setShowAddModal,
-    configureRepoId, setConfigureRepoId,
     handleConfirmRemove,
   };
 }
@@ -101,12 +92,10 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
   const {
     pendingRemoveId, setPendingRemoveId, removeLoading,
     showAddModal, setShowAddModal,
-    configureRepoId, setConfigureRepoId,
     handleConfirmRemove,
   } = useRepoActions(refresh);
 
   const pendingRepo = repos.find((r) => r.id === pendingRemoveId) ?? null;
-  const configureRepo = repos.find((r) => r.id === configureRepoId) ?? null;
 
   return (
     <div>
@@ -122,18 +111,13 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
       )}
       {repos.map((repo) => (
         <div key={repo.id}>
-          <RepoRow repo={repo} isOwner={isOwner} onRemoveStart={setPendingRemoveId} onConfigureStart={setConfigureRepoId} />
+          <RepoRow repo={repo} isOwner={isOwner} onRemoveStart={setPendingRemoveId} />
           {pendingRemoveId === repo.id && pendingRepo && (
             <RemoveConfirm repo={pendingRepo} onConfirm={handleConfirmRemove}
               onCancel={() => setPendingRemoveId(null)} loading={removeLoading} />
           )}
         </div>
       ))}
-      {configureRepo && (
-        <RepoConfigureModal repoName={configureRepo.name}
-          projectId={projectId}
-          onClose={() => setConfigureRepoId(null)} />
-      )}
       {isOwner && (
         <button className="button is-small is-light mt-3" onClick={() => setShowAddModal(true)}>
           Add repository

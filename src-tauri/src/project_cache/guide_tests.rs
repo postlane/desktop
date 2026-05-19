@@ -1,11 +1,74 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use super::{
-    get_project_voice_guide_with_client, save_project_voice_guide_with_client,
+    get_project_voice_guide_full_with_client, get_project_voice_guide_with_client,
+    save_project_voice_guide_with_client,
 };
 use crate::project_registry::SESSION_EXPIRED_ERROR;
 use crate::providers::scheduling::build_client;
 use httpmock::prelude::*;
+
+// ── get_project_voice_guide_full ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_full_returns_both_fields_in_one_request() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/v1/projects/proj-full1");
+        then.status(200).json_body(serde_json::json!({
+            "voice_guide": "Direct tone.",
+            "voice_guide_fields": { "tone": "direct" }
+        }));
+    });
+    let result = get_project_voice_guide_full_with_client(
+        "proj-full1", &build_client(), &server.base_url(), "tok",
+    ).await;
+    let data = result.expect("should succeed");
+    assert_eq!(data.voice_guide, Some("Direct tone.".to_string()));
+    assert_eq!(data.voice_guide_fields, Some(serde_json::json!({ "tone": "direct" })));
+    mock.assert_hits(1);
+}
+
+#[tokio::test]
+async fn test_full_returns_none_fields_when_both_null() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/v1/projects/proj-full2");
+        then.status(200).json_body(serde_json::json!({
+            "voice_guide": null, "voice_guide_fields": null
+        }));
+    });
+    let data = get_project_voice_guide_full_with_client(
+        "proj-full2", &build_client(), &server.base_url(), "tok",
+    ).await.unwrap();
+    assert_eq!(data.voice_guide, None);
+    assert_eq!(data.voice_guide_fields, None);
+}
+
+#[tokio::test]
+async fn test_full_returns_session_expired_on_401() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/v1/projects/proj-full3");
+        then.status(401);
+    });
+    let err = get_project_voice_guide_full_with_client(
+        "proj-full3", &build_client(), &server.base_url(), "tok",
+    ).await.unwrap_err();
+    assert_eq!(err, SESSION_EXPIRED_ERROR);
+}
+
+#[tokio::test]
+async fn test_full_returns_err_on_non_200() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/v1/projects/proj-full4");
+        then.status(503);
+    });
+    assert!(get_project_voice_guide_full_with_client(
+        "proj-full4", &build_client(), &server.base_url(), "tok",
+    ).await.is_err());
+}
 
 // ── SessionExpired on 401 ────────────────────────────────────────────────────
 

@@ -153,7 +153,7 @@ pub(super) async fn call_scheduler(
     let config_path = canonical_path.join(".postlane/config.json");
     let project_id = read_project_id_from_config(&config_path)?;
     let cred = crate::scheduling::credential_router::get_scheduler_credential_with_fallback(
-        &config_path,
+        canonical_path,
         &project_id,
         app,
     )

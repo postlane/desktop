@@ -21,7 +21,7 @@ pub fn save_account_id_impl(
         .map_err(|e| format!("Failed to parse config.json: {}", e))?;
 
     if !config["scheduler"].is_object() {
-        return Err("config.json is missing the 'scheduler' block".to_string());
+        config["scheduler"] = serde_json::json!({});
     }
 
     if !config["scheduler"]["account_ids"].is_object() {
@@ -101,6 +101,44 @@ pub fn get_account_ids(
     Ok(account_ids)
 }
 
+
+/// Writes each profile's account ID into `config_path` for its platforms.
+/// Failures are logged as warnings and silently skipped.
+pub fn apply_profiles_to_repo(
+    profiles: &[crate::providers::scheduling::SchedulerProfile],
+    config_path: &std::path::Path,
+) {
+    for profile in profiles {
+        for platform in &profile.platforms {
+            if let Err(e) = save_account_id_impl(config_path, platform, &profile.id) {
+                log::warn!("[account_sync] {}/{}: {}", platform, config_path.display(), e);
+            }
+        }
+    }
+}
+
+/// Fetches the connected social accounts for `provider_name` and writes them
+/// into `config.json` for each repo path. Best-effort: errors are logged only.
+pub async fn sync_accounts_for_provider(
+    provider_name: &str,
+    api_key: &str,
+    repo_paths: Vec<std::path::PathBuf>,
+) {
+    if repo_paths.is_empty() {
+        return;
+    }
+    let provider = match crate::scheduling::credential_router::build_provider(provider_name, api_key.to_string()) {
+        Ok(p) => p,
+        Err(e) => { log::warn!("[account_sync] build provider {}: {}", provider_name, e); return; }
+    };
+    let profiles = match provider.list_profiles().await {
+        Ok(p) => p,
+        Err(e) => { log::warn!("[account_sync] list_profiles {}: {}", provider_name, e); return; }
+    };
+    for path in &repo_paths {
+        apply_profiles_to_repo(&profiles, &path.join(".postlane/config.json"));
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -202,13 +240,15 @@ mod tests {
     }
 
     #[test]
-    fn test_save_account_id_errors_when_no_scheduler_block() {
+    fn test_save_account_id_creates_scheduler_block_when_missing() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path(), r#"{ "version": 1, "platforms": ["x"] }"#);
 
-        let result = save_account_id_impl(&config_path, "x", "acc-123");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("scheduler"));
+        save_account_id_impl(&config_path, "x", "acc-123").expect("should succeed");
+
+        let content = fs::read_to_string(&config_path).expect("read config");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-123"));
     }
 
     #[test]
@@ -221,6 +261,43 @@ mod tests {
             .unwrap_or_else(|| Err(format!("Repo '{}' not in registered repos", "nonexistent")));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not in registered repos"));
+    }
+
+    #[test]
+    fn test_apply_profiles_to_repo_writes_account_id() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version": 1}"#);
+        let profiles = vec![SchedulerProfile { id: "acc-1".to_string(), name: "Hugo".to_string(), platforms: vec!["x".to_string()] }];
+        apply_profiles_to_repo(&profiles, &config_path);
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-1"));
+    }
+
+    #[test]
+    fn test_apply_profiles_to_repo_skips_missing_config() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = dir.path().join("nonexistent/config.json");
+        let profiles = vec![SchedulerProfile { id: "acc-1".to_string(), name: "Hugo".to_string(), platforms: vec!["x".to_string()] }];
+        apply_profiles_to_repo(&profiles, &config_path); // must not panic
+    }
+
+    #[test]
+    fn test_apply_profiles_to_repo_writes_multiple_platforms() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version": 1}"#);
+        let profiles = vec![
+            SchedulerProfile { id: "acc-x".to_string(), name: "X acc".to_string(), platforms: vec!["x".to_string()] },
+            SchedulerProfile { id: "acc-bs".to_string(), name: "BS acc".to_string(), platforms: vec!["bluesky".to_string()] },
+        ];
+        apply_profiles_to_repo(&profiles, &config_path);
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-x"));
+        assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("acc-bs"));
     }
 
 }

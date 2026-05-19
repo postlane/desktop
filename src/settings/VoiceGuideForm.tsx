@@ -7,7 +7,14 @@ import type { ChangeEvent } from 'react';
 const DEFAULT_TONE = 'Direct and professional. Technically precise. No marketing language.';
 const DEFAULT_AUDIENCE = 'developers and technical users.';
 
-// Keep in sync with FORBIDDEN_PHRASES in prompts/runner/validation.ts
+// Machine-readable list used in tests and prompt validation.
+// Keep in sync with prompts/runner/validation.ts
+export const FORBIDDEN_PHRASES_PATTERNS = [
+  'excited to share', 'thrilled to announce', 'game-changing', 'revolutionary',
+  'groundbreaking', 'dive into', 'delve into', 'leverage', 'seamlessly',
+  'the future of', "i'm proud to", "i'm humbled to",
+] as const;
+
 export const AVOID_DEFAULT = [
   '"Excited to share" / "Thrilled to announce"',
   '"Game-changing" / "Revolutionary" / "Groundbreaking"',

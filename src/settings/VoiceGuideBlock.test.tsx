@@ -202,13 +202,7 @@ describe('VoiceGuideBlock — non-owner', () => {
 
 // ── AI-M6: template content must not contain forbidden phrases ─────────────────
 
-import { VOICE_GUIDE_TEMPLATES } from './VoiceGuideForm'
-
-const FORBIDDEN_PHRASES = [
-  'excited to share', 'thrilled to announce', 'game-changing', 'revolutionary',
-  'groundbreaking', 'dive into', 'delve into', 'leverage', 'seamlessly',
-  'the future of', "i'm proud to", "i'm humbled to",
-]
+import { VOICE_GUIDE_TEMPLATES, FORBIDDEN_PHRASES_PATTERNS } from './VoiceGuideForm'
 
 describe('VoiceGuideBlock — templates must not use forbidden phrases (AI-M6)', () => {
   for (const template of VOICE_GUIDE_TEMPLATES) {
@@ -216,7 +210,7 @@ describe('VoiceGuideBlock — templates must not use forbidden phrases (AI-M6)',
       const checkable = [template.fields.description, template.fields.audience, template.fields.tone, template.fields.examples]
       for (const field of checkable) {
         const lower = field.toLowerCase()
-        for (const phrase of FORBIDDEN_PHRASES) {
+        for (const phrase of FORBIDDEN_PHRASES_PATTERNS) {
           expect(lower, `"${template.label}" contains "${phrase}"`).not.toContain(phrase)
         }
       }
