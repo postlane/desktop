@@ -1,4 +1,4 @@
-[profile.default.test-groups]
+[test-groups]
 app-state-serial = { max-threads = 1 }
 
 [[profile.default.overrides]]
