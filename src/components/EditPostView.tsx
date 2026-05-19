@@ -199,7 +199,10 @@ function useOgDetection(text: string, disabled: boolean): ImageState {
   return state;
 }
 
-function usePostImage(post: DraftPost | PublishedPost, text: string, isHistory: boolean) {
+function usePostImage(
+  post: DraftPost | PublishedPost, text: string, isHistory: boolean,
+  onToast: (_msg: string, _ms: number) => void,
+) {
   const initialUrl = 'image_url' in post ? (post.image_url ?? null) : null;
   const [customImageUrl, setCustomImageUrl] = useState<string | null>(initialUrl);
   const ogState = useOgDetection(text, !!customImageUrl || isHistory);
@@ -208,7 +211,8 @@ function usePostImage(post: DraftPost | PublishedPost, text: string, isHistory: 
   const handleSetImage = useCallback(async (url: string) => {
     await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: url });
     setCustomImageUrl(url);
-  }, [post.repo_path, post.post_folder]);
+    onToast('Image saved.', 2000);
+  }, [post.repo_path, post.post_folder, onToast]);
 
   return { imageState, handleSetImage };
 }
@@ -378,7 +382,7 @@ export default function EditPostView({
   const del = useDeletePost(post, platform, onBack);
   const guard = useDiscardGuard(isDirty, onBack, onNavigate, pendingNavSel, onNavCancelled);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const { imageState, handleSetImage } = usePostImage(post, text, isHistory);
+  const { imageState, handleSetImage } = usePostImage(post, text, isHistory, onToast);
   useEditKeyboard(isDirty, isHistory, isOverLimit, save.doSave, approve.doApprove);
   return (
     <div className="is-flex" style={{ flexDirection: 'column', height: '100%' }}>
