@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use std::path::Path;
+use crate::credential_repo_sync::{collect_matching_repo_paths, write_provider_to_matching_repos};
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
 
@@ -79,29 +79,6 @@ pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
         return Err(format!("Unknown provider: {}", provider));
     }
     Ok(())
-}
-
-pub(crate) fn collect_matching_repo_paths(project_id: &str, state: &AppState) -> Vec<std::path::PathBuf> {
-    let Ok(repos) = state.repos.lock() else { return vec![] };
-    repos.repos.iter().filter_map(|repo| {
-        let repo_path = Path::new(&repo.path);
-        let config_path = repo_path.join(".postlane/config.json");
-        let content = std::fs::read_to_string(&config_path).ok()?;
-        let config: serde_json::Value = serde_json::from_str(&content).ok()?;
-        if config["project_id"].as_str() == Some(project_id) {
-            Some(std::path::PathBuf::from(&repo.path))
-        } else {
-            None
-        }
-    }).collect()
-}
-
-fn write_provider_to_matching_repos(project_id: &str, provider: &str, state: &AppState) {
-    for repo_path in collect_matching_repo_paths(project_id, state) {
-        if let Err(e) = crate::config_merge::write_scheduler_provider_to_local_config(&repo_path, provider) {
-            log::warn!("[save_scheduler_credential] write provider to {}: {}", repo_path.display(), e);
-        }
-    }
 }
 
 #[tauri::command]
@@ -388,51 +365,6 @@ mod tests {
         }
     }
 
-    fn make_test_state_with_repo(repo_path: &str, project_id: &str) -> AppState {
-        use crate::storage::Repo;
-        use crate::test_fixtures::make_state;
-        let _ = project_id; // used via config.json on disk
-        make_state(vec![Repo {
-            id: "test-repo-id".to_string(),
-            name: "test".to_string(),
-            path: repo_path.to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        }])
-    }
-
-    #[test]
-    fn test_write_provider_to_matching_repos_writes_provider_when_project_id_matches() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-abc"}"#).expect("write config.json");
-        std::fs::write(postlane.join("config.local.json"), r#"{"scheduler":{"provider":""}}"#).expect("write config.local.json");
-
-        let state = make_test_state_with_repo(dir.path().to_str().unwrap(), "proj-abc");
-        write_provider_to_matching_repos("proj-abc", "zernio", &state);
-
-        let written = std::fs::read_to_string(postlane.join("config.local.json")).expect("read");
-        let v: serde_json::Value = serde_json::from_str(&written).expect("parse");
-        assert_eq!(v["scheduler"]["provider"].as_str(), Some("zernio"));
-    }
-
-    #[test]
-    fn test_write_provider_to_matching_repos_skips_non_matching_project_id() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"other-proj"}"#).expect("write config.json");
-        std::fs::write(postlane.join("config.local.json"), r#"{"scheduler":{"provider":""}}"#).expect("write config.local.json");
-
-        let state = make_test_state_with_repo(dir.path().to_str().unwrap(), "other-proj");
-        write_provider_to_matching_repos("proj-abc", "zernio", &state);
-
-        let written = std::fs::read_to_string(postlane.join("config.local.json")).expect("read");
-        let v: serde_json::Value = serde_json::from_str(&written).expect("parse");
-        assert_eq!(v["scheduler"]["provider"].as_str(), Some(""), "non-matching repo must not be modified");
-    }
-
     #[test]
     fn test_check_libsecret_before_save_returns_err_when_libsecret_unavailable() {
         let result = check_libsecret_before_save(Some(false));
@@ -460,48 +392,6 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err();
         assert!(msg.contains("Unknown provider"), "got: {}", msg);
-    }
-
-    #[test]
-    fn test_collect_matching_repo_paths_returns_empty_when_no_repos() {
-        use crate::test_fixtures::make_state;
-        let state = make_state(vec![]);
-        let paths = collect_matching_repo_paths("proj-abc", &state);
-        assert!(paths.is_empty(), "no repos registered means no matching paths");
-    }
-
-    #[test]
-    fn test_collect_matching_repo_paths_returns_empty_when_config_missing() {
-        use crate::test_fixtures::make_repo;
-        use crate::test_fixtures::make_state;
-        // Repo registered but has no .postlane/config.json
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let paths = collect_matching_repo_paths("proj-abc", &state);
-        assert!(paths.is_empty(), "missing config.json must not match");
-    }
-
-    #[test]
-    fn test_collect_matching_repo_paths_returns_path_when_project_id_matches() {
-        use crate::test_fixtures::make_repo;
-        use crate::test_fixtures::make_state;
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"my-proj"}"#)
-            .expect("write config.json");
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let paths = collect_matching_repo_paths("my-proj", &state);
-        assert_eq!(paths.len(), 1);
-        assert_eq!(paths[0], dir.path());
-    }
-
-    #[test]
-    fn test_write_provider_to_matching_repos_no_op_when_no_repos() {
-        use crate::test_fixtures::make_state;
-        // Must not panic when the state has no repos registered
-        let state = make_state(vec![]);
-        write_provider_to_matching_repos("proj-abc", "zernio", &state);
     }
 
 }

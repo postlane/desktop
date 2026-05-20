@@ -113,7 +113,7 @@ pub fn write_project_id_to_config_impl(
 /// Tauri command: reads the `project_id` field from a repo's `.postlane/config.json`.
 #[tauri::command]
 pub fn read_project_id_from_path(path: String, state: State<AppState>) -> Result<Option<String>, String> {
-    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     read_project_id_from_path_impl(&path, &repos)
 }
 

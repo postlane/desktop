@@ -2,10 +2,13 @@
 
 pub mod account_config;
 pub mod app_lifecycle;
+pub mod config_local_write;
 pub mod project_api;
 pub mod config_merge;
+pub mod schedule_time;
 pub mod instance_guard;
 pub mod connect_repo;
+pub mod credential_repo_sync;
 pub mod analytics;
 pub mod app_state;
 pub mod app_state_ops;
@@ -15,16 +18,20 @@ pub mod deep_link_routing;
 pub mod github_app;
 pub mod draft_edits;
 pub mod draft_output;
+pub mod draft_post_scanner;
 pub mod draft_queries;
 pub mod draft_schedule;
 pub mod engagement_cache;
 pub mod http_server;
 pub mod init;
 pub mod license;
-pub mod mastodon_oauth;
+pub mod mastodon_app_registration;
+pub mod mastodon_connection;
+pub mod mastodon_token_exchange;
 pub mod model_stats;
 pub mod nav_commands;
 pub mod og_image;
+pub mod org_avatar;
 pub mod org_published;
 pub mod parser;
 pub mod platform_constants;
@@ -41,6 +48,7 @@ pub mod post_redraft;
 pub mod post_retry;
 pub mod project_billing;
 pub mod project_cache;
+pub mod project_delete;
 pub mod project_config_ops;
 pub mod project_lifecycle;
 pub mod project_registry;
@@ -51,6 +59,7 @@ pub mod providers;
 pub mod published_queries;
 pub mod repo_mgmt;
 pub mod repo_project_filter;
+pub mod repo_scheduler_config;
 pub mod repo_queries;
 pub mod scheduler_credentials;
 pub mod security;
@@ -328,19 +337,22 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         post_dismiss::dismiss_post, post_dismiss::delete_post, post_retry::retry_post,
         post_redraft::queue_redraft, post_redraft::cancel_redraft,
         repo_mgmt::add_repo, repo_mgmt::remove_repo, repo_mgmt::set_repo_active,
-        repo_mgmt::check_repo_health, repo_mgmt::update_repo_path, repo_mgmt::update_scheduler_config,
+        repo_mgmt::check_repo_health, repo_mgmt::update_repo_path,
+        repo_scheduler_config::update_scheduler_config,
         repo_project_filter::list_repos_for_project, repo_project_filter::unregister_repo,
         scheduler_credentials::get_libsecret_status, scheduler_credentials::list_connected_providers,
         scheduler_credentials::save_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
         commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,
-        provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
+        org_avatar::fetch_avatar_bytes,
+        provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
         github_app::check_github_app_installed, github_app::backfill_project_org_login,
         post_schedule::update_post_schedule,
-        mastodon_oauth::get_mastodon_char_limit, mastodon_oauth::get_mastodon_connected_instance,
-        mastodon_oauth::register_mastodon_app, mastodon_oauth::exchange_mastodon_code,
-        mastodon_oauth::disconnect_mastodon,
+        mastodon_connection::get_mastodon_char_limit, mastodon_connection::get_mastodon_connected_instance,
+        mastodon_connection::disconnect_mastodon,
+        mastodon_app_registration::register_mastodon_app,
+        mastodon_token_exchange::exchange_mastodon_code,
         analytics::client::get_site_token, analytics::client::get_post_analytics,
         telemetry_commands::get_telemetry_consent, telemetry_commands::set_telemetry_consent,
         scheduling_commands::get_scheduler_usage,
@@ -349,7 +361,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         project_billing::check_project_status, project_billing::check_billing_gate,
         project_lifecycle::create_project, project_lifecycle::update_project_org_login,
         project_lifecycle::register_repo_with_project, project_lifecycle::list_projects,
-        project_lifecycle::delete_project,
+        project_delete::delete_project,
         project_config_ops::write_project_id_to_config, project_config_ops::get_repo_remote_name,
         project_config_ops::read_project_id_from_path,
         project_voice_guide::save_project_voice_guide, project_voice_guide::get_project_voice_guide,

@@ -126,6 +126,14 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn meta_json(status: &str, platforms: &[&str]) -> String {
+        let p: Vec<String> = platforms.iter().map(|s| format!("\"{}\"", s)).collect();
+        format!(
+            r#"{{"status":"{}","platforms":[{}],"schedule":null,"trigger":null,"scheduler_ids":null,"platform_results":null,"error":null,"image_url":null,"image_source":null,"image_attribution":null,"llm_model":null,"created_at":null,"sent_at":null}}"#,
+            status, p.join(",")
+        )
+    }
+
     #[test]
     fn test_char_limits() {
         assert_eq!(char_limit("x").unwrap(), 280);
@@ -137,50 +145,27 @@ mod tests {
     #[test]
     fn test_x_url_counting() {
         let content = "Check out this cool link https://example.com/very/long/url/that/is/definitely/more/than/twenty/three/characters";
-        let count = count_chars(content, "x");
-        // "Check out this cool link " = 25 chars + 23 (URL) = 48
-        assert_eq!(count, 48);
+        assert_eq!(count_chars(content, "x"), 48);
     }
 
     #[test]
     fn test_mastodon_url_counting() {
         let content = "Check out this cool link https://example.com/very/long/url/that/is/definitely/more/than/twenty/three/characters";
-        let count = count_chars(content, "mastodon");
-        // Same as X - Mastodon also uses 23-char shortened URLs
-        assert_eq!(count, 48);
+        assert_eq!(count_chars(content, "mastodon"), 48);
     }
 
     #[test]
     fn test_bluesky_url_counting() {
         let content = "Check out https://example.com/very/long/url/here";
-        let count = count_chars(content, "bluesky");
-        // Bluesky counts full URL
-        assert_eq!(count, content.chars().count());
+        assert_eq!(count_chars(content, "bluesky"), content.chars().count());
     }
 
     #[test]
     fn test_read_meta_valid() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let meta_json = r#"{
-            "status": "draft",
-            "platforms": ["x", "bluesky"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": null,
-            "sent_at": null
-        }"#;
-
-        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
-
-        let meta = read_meta(dir.path()).expect("Should parse valid meta.json");
+        fs::write(dir.path().join("meta.json"), meta_json("draft", &["x", "bluesky"]))
+            .expect("write meta.json");
+        let meta = read_meta(dir.path()).expect("parse valid meta.json");
         assert_eq!(meta.status, "draft");
         assert_eq!(meta.platforms.len(), 2);
     }
@@ -188,174 +173,70 @@ mod tests {
     #[test]
     fn test_read_meta_malformed() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        fs::write(dir.path().join("meta.json"), "{ not valid json }").expect("Failed to write");
-
-        let result = read_meta(dir.path());
-        assert!(result.is_err(), "Should fail on malformed JSON");
+        fs::write(dir.path().join("meta.json"), "{ not valid json }").expect("write");
+        assert!(read_meta(dir.path()).is_err());
     }
 
     #[test]
     fn test_validate_post_folder_success() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let meta_json = r#"{
-            "status": "ready",
-            "platforms": ["x"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": null,
-            "sent_at": null
-        }"#;
-
-        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
-        fs::write(dir.path().join("x.md"), "Short post").expect("Failed to write x.md");
-
-        let result = validate_post_folder(dir.path());
-        assert!(result.is_ok(), "Should validate successfully");
+        fs::write(dir.path().join("meta.json"), meta_json("ready", &["x"])).expect("write meta");
+        fs::write(dir.path().join("x.md"), "Short post").expect("write x.md");
+        assert!(validate_post_folder(dir.path()).is_ok());
     }
 
     #[test]
     fn test_validate_post_folder_missing_file() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let meta_json = r#"{
-            "status": "ready",
-            "platforms": ["x", "bluesky"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": null,
-            "sent_at": null
-        }"#;
-
-        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
-        fs::write(dir.path().join("x.md"), "Post content").expect("Failed to write x.md");
-        // bluesky.md is missing
-
+        fs::write(dir.path().join("meta.json"), meta_json("ready", &["x", "bluesky"]))
+            .expect("write meta");
+        fs::write(dir.path().join("x.md"), "Post content").expect("write x.md");
         let result = validate_post_folder(dir.path());
-        assert!(result.is_err(), "Should fail with missing file error");
-
-        if let Err(errors) = result {
-            assert_eq!(errors.len(), 1);
-            assert!(matches!(errors[0], ValidationError::MissingFile(_)));
-        }
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0], ValidationError::MissingFile(_)));
     }
 
     #[test]
     fn test_validate_post_folder_over_limit() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let meta_json = r#"{
-            "status": "ready",
-            "platforms": ["x"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": null,
-            "sent_at": null
-        }"#;
-
-        fs::write(dir.path().join("meta.json"), meta_json).expect("Failed to write meta.json");
-        // Write 300 characters (over X's 280 limit)
-        fs::write(dir.path().join("x.md"), "a".repeat(300)).expect("Failed to write x.md");
-
+        fs::write(dir.path().join("meta.json"), meta_json("ready", &["x"])).expect("write meta");
+        fs::write(dir.path().join("x.md"), "a".repeat(300)).expect("write x.md");
         let result = validate_post_folder(dir.path());
-        assert!(result.is_err(), "Should fail with over-limit error");
-
-        if let Err(errors) = result {
-            assert_eq!(errors.len(), 1);
-            if let ValidationError::OverLimit {
-                platform,
-                count,
-                limit,
-            } = &errors[0]
-            {
-                assert_eq!(platform, "x");
-                assert_eq!(*count, 300);
-                assert_eq!(*limit, 280);
-            } else {
-                panic!("Expected OverLimit error");
-            }
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        if let ValidationError::OverLimit { platform, count, limit } = &errors[0] {
+            assert_eq!(platform, "x");
+            assert_eq!(*count, 300);
+            assert_eq!(*limit, 280);
+        } else {
+            panic!("Expected OverLimit error");
         }
     }
 
     #[test]
-    fn test_partial_platform_results() {
-        // This tests PostMeta deserialization with partial results - already in types.rs
-        // Just verify the concept here
-        let meta_json = r#"{
-            "status": "sent",
-            "platforms": ["x", "bluesky"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": {"x": "123"},
-            "platform_results": {"x": "success"},
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": null,
-            "sent_at": null
-        }"#;
-
-        let meta: PostMeta = serde_json::from_str(meta_json).expect("Should parse");
-        assert_eq!(meta.platform_results.unwrap().len(), 1);
-    }
-
-    #[test]
     fn test_url_regex_initialised_via_once_lock() {
-        // Exercises the OnceLock path: calling count_chars twice must return the
-        // same result (same static Regex instance, no panic on second call).
         let content = "See https://example.com/path for details";
         let first = count_chars(content, "x");
         let second = count_chars(content, "x");
-        assert_eq!(first, second, "OnceLock must return consistent results across calls");
-        // "See " (4) + " for details" (12) + 23 (shortened URL) = 39
+        assert_eq!(first, second);
         assert_eq!(first, 39);
     }
 
     #[test]
     fn test_unknown_platform_url_counting() {
-        // Unknown platforms should fall through to default case (full character count)
         let content = "Check out https://example.com/very/long/url";
-        let count = count_chars(content, "unknown-platform");
-        // Should count full length including full URL
-        assert_eq!(count, content.chars().count());
+        assert_eq!(count_chars(content, "unknown-platform"), content.chars().count());
     }
 
     #[test]
     fn test_count_chars_linkedin_explicit_arm() {
-        // count_chars("linkedin") must have an explicit arm, not rely on the wildcard
-        // fallthrough. Verify via a test that would break if the wildcard changed behaviour.
-        // A 50-char URL must count as 50, not 23 (which x/mastodon would give).
-        let url = format!("https://example.com/{}", "a".repeat(30)); // 50 chars
+        let url = format!("https://example.com/{}", "a".repeat(30));
         assert_eq!(count_chars(&url, "linkedin"), 50, "linkedin URL must not be shortened");
-        // And must equal count_linkedin_chars directly.
         assert_eq!(count_chars(&url, "linkedin"), count_linkedin_chars(&url));
     }
-
-    // --- 8.2 LinkedIn character counting ---
 
     #[test]
     fn test_linkedin_char_limit() {
@@ -369,40 +250,33 @@ mod tests {
 
     #[test]
     fn test_linkedin_url_counted_at_full_length() {
-        // LinkedIn counts every character including URLs — no t.co-style shortening
-        let url = format!("https://example.com/{}", "a".repeat(30)); // 50-char URL
+        let url = format!("https://example.com/{}", "a".repeat(30));
         assert_eq!(count_linkedin_chars(&url), 50);
     }
 
     #[test]
     fn test_linkedin_url_not_collapsed_to_23() {
-        let content = format!("Check out {}", format!("https://example.com/{}", "a".repeat(30)));
-        // "Check out " = 10 chars + 50-char URL = 60 total; must NOT be 10 + 23 = 33
+        let content = format!("Check out https://example.com/{}", "a".repeat(30));
         assert_eq!(count_linkedin_chars(&content), 60);
     }
 
     #[test]
     fn test_linkedin_multibyte_unicode_counts_as_one() {
-        // Each Unicode scalar counts as 1 character
         assert_eq!(count_linkedin_chars("café"), 4);
     }
 
     #[test]
     fn test_linkedin_3000_chars_at_limit() {
-        let content = "a".repeat(3000);
-        assert_eq!(count_linkedin_chars(&content), 3000);
+        assert_eq!(count_linkedin_chars(&"a".repeat(3000)), 3000);
     }
 
     #[test]
     fn test_read_meta_missing_file() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        // No meta.json file exists
         let result = read_meta(dir.path());
-
-        assert!(result.is_err(), "Should fail when meta.json is missing");
+        assert!(result.is_err());
         if let Err(ValidationError::ParseError(msg)) = result {
-            assert!(msg.contains("Failed to read meta.json"), "Error should mention read failure");
+            assert!(msg.contains("Failed to read meta.json"));
         } else {
             panic!("Expected ParseError");
         }

@@ -48,7 +48,7 @@ pub(crate) fn sync_voice_guide_to_repos_impl(
     state: &AppState,
 ) -> Vec<String> {
     let mut synced = Vec::new();
-    for repo_path in crate::scheduler_credentials::collect_matching_repo_paths(project_id, state) {
+    for repo_path in crate::credential_repo_sync::collect_matching_repo_paths(project_id, state) {
         if !repo_path.exists() {
             log::warn!(
                 "[sync_voice_guide_to_repos] repo path no longer exists: {}",

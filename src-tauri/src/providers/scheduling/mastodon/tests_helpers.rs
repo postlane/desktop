@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 use super::*;
+use super::queue_parser::parse_link_next;
 
 #[tokio::test]
 async fn test_schedule_post_429_returns_rate_limit_error_with_retry_after() {

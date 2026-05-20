@@ -37,8 +37,7 @@ fn read_config_project_id(repo_path: &str) -> Result<Option<String>, String> {
 pub fn list_repos_for_project_impl(project_id: &str, state: &AppState) -> Result<Vec<RepoSummary>, String> {
     let home_dir = dirs::home_dir()
         .ok_or_else(|| "Could not determine home directory".to_string())?;
-    let repos = state.repos.lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let mut result = Vec::new();
     for repo in &repos.repos {

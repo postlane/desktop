@@ -20,9 +20,9 @@ pub use crate::project_billing::{check_billing_gate, check_project_status};
 pub use crate::project_config_ops::{
     get_repo_remote_name, read_project_id_from_path, write_project_id_to_config,
 };
+pub use crate::project_delete::delete_project;
 pub use crate::project_lifecycle::{
-    create_project, delete_project, list_projects, register_repo_with_project,
-    update_project_org_login,
+    create_project, list_projects, register_repo_with_project, update_project_org_login,
 };
 pub use crate::project_voice_guide::{
     get_project_voice_guide, get_voice_guide_fields, save_project_voice_guide,

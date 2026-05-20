@@ -7,7 +7,7 @@ use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub use crate::app_state_types::{AppStateFile, DefaultPostTime, NavState, WindowState};
 
@@ -39,6 +39,10 @@ impl AppState {
             .map(|d| d.join("repos.json"))
             .unwrap_or_else(|_| PathBuf::from("/dev/null"));
         Self::new_with_path(repos, repos_path)
+    }
+
+    pub fn lock_repos(&self) -> Result<MutexGuard<'_, ReposConfig>, String> {
+        self.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))
     }
 
     /// Creates a new `AppState` with an explicit repos path.
@@ -166,6 +170,31 @@ mod tests {
         assert_eq!(app_state.repos.lock().unwrap().version, 1);
         assert_eq!(app_state.repos.lock().unwrap().repos.len(), 0);
         assert_eq!(app_state.watchers.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_lock_repos_returns_guard_with_correct_data() {
+        let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
+        let state = AppState::new(repos);
+        let guard = state.lock_repos().expect("must acquire repos lock");
+        assert_eq!(guard.version, 1);
+        assert!(guard.repos.is_empty());
+    }
+
+    #[test]
+    fn test_lock_repos_error_message_mentions_repos() {
+        // Poison the mutex from another thread, then verify the error message.
+        use std::sync::Arc;
+        let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
+        let state = Arc::new(AppState::new(repos));
+        let state2 = Arc::clone(&state);
+        let _ = std::thread::spawn(move || {
+            let _guard = state2.repos.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        let err = state.lock_repos().unwrap_err();
+        assert!(err.contains("Failed to lock repos"), "error was: {}", err);
     }
 
     #[test]

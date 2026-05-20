@@ -28,7 +28,7 @@ fn build_config_local_json() -> serde_json::Value {
 }
 
 fn is_already_registered(canonical_path: &str, state: &AppState) -> Result<bool, String> {
-    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     Ok(repos.repos.iter().any(|r| r.path == canonical_path))
 }
 
@@ -40,7 +40,7 @@ fn register_in_repos(canonical_path: &str, name: &str, state: &AppState) -> Resu
         active: true,
         added_at: chrono::Utc::now().to_rfc3339(),
     };
-    let mut repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut repos = state.lock_repos()?;
     repos.repos.push(repo.clone());
     write_repos(&state.repos_path, &repos).map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
     Ok(repo)
