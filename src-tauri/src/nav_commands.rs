@@ -139,6 +139,86 @@ pub fn set_attribution(enabled: bool) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::app_state::{AppStateFile, DefaultPostTime, NavState, WindowState};
+    use std::fs;
+
+    // ── read_attribution ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_read_attribution_returns_true_when_file_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        assert!(read_attribution(&path));
+    }
+
+    #[test]
+    fn test_read_attribution_returns_true_when_json_has_no_attribution_key() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{}").expect("write json");
+        assert!(read_attribution(&path));
+    }
+
+    #[test]
+    fn test_read_attribution_returns_false_when_attribution_is_false() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"attribution":false}"#).expect("write json");
+        assert!(!read_attribution(&path));
+    }
+
+    #[test]
+    fn test_read_attribution_returns_true_when_attribution_is_true() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"attribution":true}"#).expect("write json");
+        assert!(read_attribution(&path));
+    }
+
+    #[test]
+    fn test_read_attribution_returns_true_on_corrupt_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, "not json").expect("write corrupt content");
+        assert!(read_attribution(&path));
+    }
+
+    // ── write_attribution ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_write_attribution_creates_file_when_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        write_attribution(&path, false).expect("write should succeed");
+        assert!(!read_attribution(&path));
+    }
+
+    #[test]
+    fn test_write_attribution_preserves_existing_keys() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"foo":"bar"}"#).expect("write initial json");
+        write_attribution(&path, true).expect("write attribution");
+        let raw = fs::read_to_string(&path).expect("read back");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("parse");
+        assert_eq!(v["foo"].as_str(), Some("bar"), "existing key 'foo' must be preserved");
+        assert_eq!(v["attribution"].as_bool(), Some(true), "attribution must be written");
+    }
+
+    #[test]
+    fn test_write_attribution_updates_existing_value() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"attribution":false}"#).expect("write initial json");
+        write_attribution(&path, true).expect("write attribution");
+        assert!(read_attribution(&path), "attribution must now be true");
+    }
+
+    #[test]
+    fn test_write_attribution_returns_err_on_bad_path() {
+        let path = std::path::Path::new("/nonexistent_dir/cfg.json");
+        let result = write_attribution(path, true);
+        assert!(result.is_err(), "write to unwritable path must return Err");
+    }
 
     #[test]
     fn test_get_app_version_returns_semver() {
