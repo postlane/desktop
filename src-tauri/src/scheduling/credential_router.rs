@@ -106,7 +106,7 @@ pub async fn get_scheduler_credential_with_fallback(
     use tauri_plugin_keyring::KeyringExt;
 
     let config = crate::config_merge::read_merged_repo_config(repo_path)
-        .unwrap_or_else(|_| serde_json::json!({}));
+        .map_err(|e| format!("Could not read scheduler config: {}", e))?;
     let providers = read_fallback_order_from_value(&config);
     if providers.is_empty() {
         return Err(
@@ -271,6 +271,23 @@ mod tests {
         let providers = vec!["future_provider".to_string()];
         let result = select_provider_with_fallback(&providers, &usage, 4, 2026, cred_for_all);
         assert!(result.is_err());
+    }
+
+    /// Broken config.local.json now propagates a meaningful error (via map_err + ?)
+    /// rather than silently becoming an empty config that masquerades as "not configured".
+    #[test]
+    fn test_broken_config_local_propagates_error() {
+        use std::fs;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        fs::create_dir_all(&postlane).unwrap();
+        fs::write(postlane.join("config.json"), r#"{"version":1}"#).unwrap();
+        fs::write(postlane.join("config.local.json"), "{ broken json").unwrap();
+        let result = crate::config_merge::read_merged_repo_config(dir.path());
+        assert!(result.is_err(), "broken config.local.json must return Err");
+        let err = result.unwrap_err();
+        assert!(err.contains("config.local.json") || err.contains("parse"),
+            "error must describe the parse failure, got: {}", err);
     }
 
 }
