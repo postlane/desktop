@@ -221,4 +221,90 @@ mod tests {
         let result = provider.test_connection().await;
         assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
     }
+
+    #[test]
+    fn test_name_returns_webhook() {
+        let provider = WebhookProvider::new("https://hooks.zapier.com/x".to_string());
+        assert_eq!(provider.name(), "webhook");
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/hook");
+            then.status(500).body("error");
+        });
+        let url = format!("{}/hook", server.base_url());
+        let provider = WebhookProvider::new(url);
+        let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_profiles_returns_empty() {
+        let provider = WebhookProvider::new("https://hooks.zapier.com/x".to_string());
+        let result = provider.list_profiles().await;
+        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.unwrap().is_empty(), "webhook has no profiles");
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_returns_empty() {
+        let provider = WebhookProvider::new("https://hooks.zapier.com/x".to_string());
+        let result = provider.get_queue().await;
+        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.unwrap().is_empty(), "webhook has no queue");
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_not_supported() {
+        let provider = WebhookProvider::new("https://hooks.zapier.com/x".to_string());
+        let result = provider.get_engagement("any-id", "linkedin").await;
+        assert!(matches!(result, Err(ProviderError::NotSupported(_))), "{:?}", result);
+    }
+
+    #[test]
+    fn test_post_url_returns_none() {
+        let provider = WebhookProvider::new("https://hooks.zapier.com/x".to_string());
+        assert_eq!(provider.post_url("linkedin", "post-id"), None);
+    }
+
+    #[tokio::test]
+    async fn test_test_connection_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/hook");
+            then.status(200);
+        });
+        let url = format!("{}/hook", server.base_url());
+        let provider = WebhookProvider::new(url);
+        let result = provider.test_connection().await;
+        assert!(result.is_ok(), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_local_post_id_is_unique() {
+        let id1 = super::local_post_id();
+        let id2 = super::local_post_id();
+        assert!(id1.starts_with("wh-"), "id must start with wh-");
+        assert_ne!(id1, id2, "successive ids must differ");
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_with_scheduled_at_and_profile_id() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/hook");
+            then.status(200);
+        });
+        let url = format!("{}/hook", server.base_url());
+        let provider = WebhookProvider::new(url);
+        let dt = chrono::DateTime::parse_from_rfc3339("2026-06-01T10:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let result = provider.schedule_post("Hello", "linkedin", Some(dt), None, Some("profile-1")).await;
+        assert!(result.is_ok(), "{:?}", result);
+    }
 }

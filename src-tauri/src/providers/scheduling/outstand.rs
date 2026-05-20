@@ -364,4 +364,217 @@ mod tests {
         let result = provider.get_queue().await;
         assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
     }
+
+    #[test]
+    fn test_name_returns_outstand() {
+        let provider = OutstandProvider::new("key".to_string());
+        assert_eq!(provider.name(), "outstand");
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/posts");
+            then.status(500).body("internal error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_profiles_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/social-accounts");
+            then.status(500).body("server error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.list_profiles().await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cancel_post_non_2xx_non_405_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(DELETE).path("/posts/post-x");
+            then.status(500).body("server error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.cancel_post("post-x", "linkedin").await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cancel_post_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(DELETE).path("/posts/post-del");
+            then.status(200);
+        });
+        let provider = make_provider(&server);
+        let result = provider.cancel_post("post-del", "linkedin").await;
+        assert!(result.is_ok(), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_returns_scheduled_posts() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/posts").query_param("status", "scheduled");
+            then.status(200).json_body(serde_json::json!({
+                "data": [{
+                    "id": "q1",
+                    "platform": "linkedin",
+                    "scheduledAt": "2026-06-01T10:00:00Z",
+                    "containers": [{ "content": "Hello from queue" }]
+                }]
+            }));
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_queue().await;
+        assert!(result.is_ok(), "{:?}", result);
+        let posts = result.unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].post_id, "q1");
+        assert_eq!(posts[0].platform, "linkedin");
+        assert!(posts[0].content_preview.contains("Hello"));
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_truncates_long_content_preview() {
+        let server = MockServer::start();
+        let long_content = "x".repeat(100);
+        server.mock(|when, then| {
+            when.method(GET).path("/posts").query_param("status", "scheduled");
+            then.status(200).json_body(serde_json::json!({
+                "data": [{
+                    "id": "q2",
+                    "platform": "linkedin",
+                    "scheduledAt": "2026-06-01T10:00:00Z",
+                    "containers": [{ "content": long_content }]
+                }]
+            }));
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_queue().await;
+        assert!(result.is_ok(), "{:?}", result);
+        let posts = result.unwrap();
+        assert_eq!(posts.len(), 1);
+        assert!(posts[0].content_preview.ends_with("..."), "long content must be truncated with ...");
+        assert!(posts[0].content_preview.len() <= 83, "preview must not exceed 80 chars + ...");
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/posts").query_param("status", "scheduled");
+            then.status(500).body("error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_queue().await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_with_scheduled_at() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/posts");
+            then.status(200).json_body(serde_json::json!({
+                "data": { "id": "out_sched", "postUrl": null }
+            }));
+        });
+        let provider = make_provider(&server);
+        let dt = chrono::DateTime::parse_from_rfc3339("2026-06-01T10:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let result = provider.schedule_post("Hello", "linkedin", Some(dt), None, None).await;
+        assert!(result.is_ok(), "{:?}", result);
+        let res = result.unwrap();
+        assert_eq!(res.scheduler_id, "out_sched");
+        assert_eq!(res.platform_url, None);
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_missing_id_returns_unknown_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/posts");
+            then.status(200).json_body(serde_json::json!({ "data": {} }));
+        });
+        let provider = make_provider(&server);
+        let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+        assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_post_url_returns_none() {
+        let provider = OutstandProvider::new("key".to_string());
+        assert_eq!(provider.post_url("linkedin", "some-id"), None);
+    }
+
+    #[tokio::test]
+    async fn test_test_connection_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/usage");
+            then.status(200).json_body(serde_json::json!({}));
+        });
+        let provider = make_provider(&server);
+        let result = provider.test_connection().await;
+        assert!(result.is_ok(), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_test_connection_401_returns_auth_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/usage");
+            then.status(401);
+        });
+        let provider = make_provider(&server);
+        let result = provider.test_connection().await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/posts/p1/analytics");
+            then.status(500).body("error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_engagement("p1", "linkedin").await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_unauthorised() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/posts/p2/analytics");
+            then.status(403);
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_engagement("p2", "linkedin").await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
 }

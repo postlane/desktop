@@ -137,4 +137,75 @@ mod tests {
             "header must start with repo,slug,platforms"
         );
     }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_none_for_path_not_dir() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        // Pass a plain file path — is_dir() returns false → None
+        let file_path = tmp.path().join("not-a-dir.json");
+        fs::write(&file_path, "{}").expect("write file");
+        let row = post_folder_csv_row("myrepo", &file_path);
+        assert!(row.is_none(), "non-directory path must yield None");
+    }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_none_for_malformed_meta_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = tmp.path().join("bad-post");
+        fs::create_dir_all(&post_dir).expect("create dir");
+        fs::write(post_dir.join("meta.json"), "this is not json at all").expect("write bad json");
+        let row = post_folder_csv_row("myrepo", &post_dir);
+        assert!(row.is_none(), "malformed meta.json must yield None");
+    }
+
+    #[test]
+    fn test_export_history_csv_impl_skips_repo_with_no_posts_dir() {
+        use crate::storage::{Repo, ReposConfig};
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        // Repo directory exists but has no .postlane/posts
+        let state = crate::app_state::AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![Repo {
+                    id: "r1".to_string(),
+                    name: "my-repo".to_string(),
+                    path: tmp.path().to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            std::env::temp_dir().join("postlane_test_export_skip.json"),
+        );
+        let result = export_history_csv_impl(&state).expect("ok");
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 1, "only the header when posts dir is absent");
+    }
+
+    #[test]
+    fn test_export_history_csv_impl_includes_sent_posts() {
+        use crate::storage::{Repo, ReposConfig};
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_json(
+            &tmp.path().join(".postlane/posts/sent-post"),
+            r#"{"status":"sent","platforms":["x"],"schedule":null,"trigger":null,"scheduler_ids":null,"platform_results":null,"platform_urls":null,"error":null,"image_url":null,"image_source":null,"image_attribution":null,"llm_model":"gpt-4","created_at":null,"sent_at":"2024-06-01T12:00:00Z"}"#,
+        );
+        let state = crate::app_state::AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![Repo {
+                    id: "r1".to_string(),
+                    name: "my-repo".to_string(),
+                    path: tmp.path().to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            std::env::temp_dir().join("postlane_test_export_sent.json"),
+        );
+        let result = export_history_csv_impl(&state).expect("ok");
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 2, "header + one data row");
+        assert!(lines[1].contains("my-repo"), "row must contain repo name");
+        assert!(lines[1].contains("gpt-4"), "row must contain model");
+    }
 }

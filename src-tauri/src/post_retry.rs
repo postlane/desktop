@@ -155,4 +155,99 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn test_retry_post_returns_error_when_repo_not_registered() {
+        // Use a temp dir that is NOT in the state's repos list
+        let dir = std::env::temp_dir().join("postlane_test_retry_unregistered");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![],
+        });
+        let result = retry_post_impl(dir.to_str().unwrap(), "some-post", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("403"), "error must indicate not-registered");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_retry_post_returns_error_when_post_folder_missing() {
+        let dir = std::env::temp_dir().join("postlane_test_retry_no_folder");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        });
+        let result = retry_post_impl(dir.to_str().unwrap(), "nonexistent-folder", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not exist"), "error must indicate missing folder");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_retry_post_returns_error_when_meta_json_missing() {
+        let dir = std::env::temp_dir().join("postlane_test_retry_no_meta");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let post_path = canonical.join(".postlane/posts/no-meta-post");
+        fs::create_dir_all(&post_path).expect("create post dir");
+        // No meta.json written
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        });
+        let result = retry_post_impl(dir.to_str().unwrap(), "no-meta-post", &state);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("meta.json"), "error must mention meta.json");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_retry_post_adds_platform_with_no_prior_result() {
+        // Platform in meta.platforms but NOT in platform_results → must be inserted as success
+        let dir = std::env::temp_dir().join("postlane_test_retry_new_platform");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let canonical = fs::canonicalize(&dir).expect("canonicalize");
+        let post_path = canonical.join(".postlane/posts/multi-platform");
+        fs::create_dir_all(&post_path).expect("create post dir");
+        fs::write(
+            post_path.join("meta.json"),
+            r#"{"status":"failed","platforms":["x","bluesky"],"platform_results":{"x":"failed"}}"#,
+        ).expect("write meta");
+        let state = AppState::new(ReposConfig {
+            version: 1,
+            repos: vec![crate::storage::Repo {
+                id: "r1".to_string(),
+                name: "test".to_string(),
+                path: canonical.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        });
+        let result = retry_post_impl(dir.to_str().unwrap(), "multi-platform", &state);
+        assert!(result.is_ok(), "{:?}", result);
+        let send_result = result.unwrap();
+        let results = send_result.platform_results.unwrap();
+        assert_eq!(results.get("bluesky").map(String::as_str), Some("success"));
+        assert_eq!(results.get("x").map(String::as_str), Some("success"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -225,4 +225,52 @@ mod tests {
         assert_eq!(result[0].platform, "x");
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn test_get_org_published_skips_post_folder_with_unloadable_meta() {
+        // post folder exists but meta.json is a directory — PostMeta::load fails → vec![]
+        let dir = home_tmp("gop_bad_meta");
+        write_config(&dir, r#"{"project_id":"proj-abc"}"#);
+        // Create meta.json as a directory (unreadable as a file)
+        let meta_as_dir = dir.join(".postlane/posts/bad-post/meta.json");
+        fs::create_dir_all(&meta_as_dir).expect("create meta.json as dir");
+
+        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let result = get_org_published_impl("proj-abc", &state).expect("ok");
+        assert!(result.is_empty(), "post with unloadable meta must be skipped");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_org_published_skips_repo_with_no_posts_dir() {
+        // repo matches project_id but has no .postlane/posts directory
+        let dir = home_tmp("gop_no_posts_dir");
+        write_config(&dir, r#"{"project_id":"proj-abc"}"#);
+        // No posts directory created
+
+        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let result = get_org_published_impl("proj-abc", &state).expect("ok");
+        assert!(result.is_empty(), "repo without posts dir must return empty");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_get_org_published_sorts_by_sent_at_descending() {
+        let dir1 = home_tmp("gop_sort_r1");
+        let dir2 = home_tmp("gop_sort_r2");
+        write_config(&dir1, r#"{"project_id":"proj-abc"}"#);
+        write_config(&dir2, r#"{"project_id":"proj-abc"}"#);
+        write_meta(&dir1, "post-old", r#"{"sent_platforms":{"x":"2026-01-01T10:00:00Z"}}"#);
+        write_meta(&dir2, "post-new", r#"{"sent_platforms":{"x":"2026-06-01T10:00:00Z"}}"#);
+
+        let state = make_state(vec![
+            make_repo("r1", dir1.to_str().unwrap()),
+            make_repo("r2", dir2.to_str().unwrap()),
+        ]);
+        let result = get_org_published_impl("proj-abc", &state).expect("ok");
+        assert_eq!(result.len(), 2);
+        assert!(result[0].sent_at > result[1].sent_at, "must be sorted newest first");
+        let _ = fs::remove_dir_all(&dir1);
+        let _ = fs::remove_dir_all(&dir2);
+    }
 }

@@ -320,4 +320,134 @@ mod tests {
         assert!(!header.contains('\n'), "LF must be stripped");
         assert_eq!(header, "connect.sid=validX-Injected: evil");
     }
+
+    #[tokio::test]
+    async fn test_list_profiles_unauthorised_returns_auth_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/profile");
+            then.status(401);
+        });
+        let provider = make_provider(&server);
+        let result = provider.list_profiles().await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_list_profiles_403_returns_auth_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/profile");
+            then.status(403);
+        });
+        let provider = make_provider(&server);
+        let result = provider.list_profiles().await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_list_profiles_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/profile");
+            then.status(500).body("server error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.list_profiles().await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_non_2xx_non_auth_returns_http_error() {
+        let server = MockServer::start();
+        profile_mock(&server);
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/comment/feed");
+            then.status(500).body("internal error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.schedule_post("Hello", "substack", None, None, None).await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_schedule_post_missing_id_in_response_returns_unknown_error() {
+        let server = MockServer::start();
+        profile_mock(&server);
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/comment/feed");
+            then.status(200).json_body(serde_json::json!({ "type": "publication" }));
+        });
+        let provider = make_provider(&server);
+        let result = provider.schedule_post("Hello", "substack", None, None, None).await;
+        assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_unauthorised_returns_auth_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/comment/note-x");
+            then.status(401);
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_engagement("note-x", "substack").await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_get_engagement_non_2xx_returns_http_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/comment/note-y");
+            then.status(500).body("server error");
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_engagement("note-y", "substack").await;
+        match result {
+            Err(ProviderError::HttpError { status, .. }) => assert_eq!(status, 500),
+            other => panic!("expected HttpError(500), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_profiles_caches_username_on_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/profile");
+            then.status(200).json_body(serde_json::json!({
+                "id": "user-1", "handle": "cachedhandle", "name": "Cached Pub"
+            }));
+        });
+        let provider = make_provider(&server);
+        provider.list_profiles().await.expect("list_profiles ok");
+        assert_eq!(
+            provider.cached_username(),
+            Some("cachedhandle".to_string()),
+            "username must be cached after list_profiles"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ensure_username_cached_uses_cached_value() {
+        let server = MockServer::start();
+        // Profile endpoint should only be called once
+        let profile_mock_handle = server.mock(|when, then| {
+            when.method(GET).path("/api/v1/profile");
+            then.status(200).json_body(serde_json::json!({
+                "id": "u1", "handle": "myhandle", "name": "My Pub"
+            }));
+        });
+        let provider = make_provider(&server);
+        provider.ensure_username_cached().await.expect("first call ok");
+        provider.ensure_username_cached().await.expect("second call ok — must not re-fetch");
+        // Profile endpoint was only hit once
+        profile_mock_handle.assert_hits(1);
+    }
 }

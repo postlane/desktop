@@ -226,4 +226,98 @@ mod tests {
         assert!(result.contains(&long_url), "full URL must be present");
         assert!(!result.contains(&"x".repeat(23)), "URL must not have been replaced");
     }
+
+    #[test]
+    fn test_get_drafts_skips_non_dir_entries() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let posts_dir = dir.path().join(".postlane/posts");
+        fs::create_dir_all(&posts_dir).expect("create posts dir");
+        // Write a plain file (not a directory) inside posts/
+        fs::write(posts_dir.join("not-a-dir.json"), "noise").expect("write file");
+        // Also write a valid draft so we know scanning continues
+        write_draft(dir.path(), "real-post", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1, "non-dir entry must be skipped");
+    }
+
+    #[test]
+    fn test_get_drafts_skips_post_folder_without_meta_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let posts_dir = dir.path().join(".postlane/posts");
+        // Create a directory with no meta.json
+        fs::create_dir_all(posts_dir.join("no-meta")).expect("create no-meta dir");
+        // Valid draft to confirm scanning continues
+        write_draft(dir.path(), "real-post", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1, "folder without meta.json must be skipped");
+    }
+
+    #[test]
+    fn test_get_drafts_skips_malformed_meta_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Write malformed JSON
+        let bad_dir = dir.path().join(".postlane/posts/bad-meta");
+        fs::create_dir_all(&bad_dir).expect("create dir");
+        fs::write(bad_dir.join("meta.json"), "this is not json").expect("write bad meta");
+        // Valid draft alongside
+        write_draft(dir.path(), "good-post", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1, "malformed meta.json must be skipped");
+    }
+
+    #[test]
+    fn test_get_drafts_skips_post_with_other_status() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Post with status "sent" should be excluded
+        write_draft(dir.path(), "sent-post", r#"{"status":"sent","platforms":["x"]}"#);
+        write_draft(dir.path(), "ready-post", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1, "only ready/failed statuses are returned");
+        assert_eq!(result[0].status, "ready");
+    }
+
+    #[test]
+    fn test_get_drafts_empty_when_no_posts_dir() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // No .postlane/posts directory at all
+        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert!(result.is_empty(), "missing posts dir must yield empty result");
+    }
+
+    #[test]
+    fn test_get_post_content_rejects_path_traversal_in_post_folder() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let result = get_post_content_impl(dir.path().to_str().unwrap(), "../etc", "x");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("path separators") || msg.contains("'..'"), "got: {}", msg);
+    }
+
+    #[test]
+    fn test_sort_none_some_both_arms() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Two posts: one with created_at, two without (exercises both None/Some arms)
+        write_draft(dir.path(), "p1", r#"{"status":"ready","platforms":["x"],"created_at":"2026-01-01T00:00:00Z"}"#);
+        write_draft(dir.path(), "p2", r#"{"status":"ready","platforms":["x"]}"#);
+        write_draft(dir.path(), "p3", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        // The two None entries sort before the Some entry
+        assert_eq!(result.len(), 3);
+        // At least both None entries come before or after Some entry, not mixed
+        let none_count = result.iter().filter(|p| p.created_at.is_none()).count();
+        let some_count = result.iter().filter(|p| p.created_at.is_some()).count();
+        assert_eq!(none_count, 2);
+        assert_eq!(some_count, 1);
+    }
 }
