@@ -2,8 +2,10 @@
 
 pub mod account_config;
 pub mod app_lifecycle;
+pub mod config_local_write;
 pub mod project_api;
 pub mod config_merge;
+pub mod schedule_time;
 pub mod instance_guard;
 pub mod connect_repo;
 pub mod credential_repo_sync;
