@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use crate::security::api_error::format_api_error;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -37,7 +38,7 @@ pub async fn fetch_projects(
         .map_err(|e| format!("fetch_projects request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("fetch_projects: HTTP {}", resp.status()));
+        return Err(format_api_error("fetch_projects", resp.status().as_u16(), ""));
     }
 
     resp.json::<Body>().await

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use crate::security::api_error::format_api_error;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -90,7 +91,7 @@ pub async fn fetch_pending_events(
         .map_err(|e| format!("fetch_pending_events request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("fetch_pending_events: HTTP {}", resp.status()));
+        return Err(format_api_error("fetch_pending_events", resp.status().as_u16(), ""));
     }
 
     #[derive(Deserialize)]
@@ -117,7 +118,7 @@ pub async fn mark_delivered(
         .map_err(|e| format!("mark_delivered request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("mark_delivered: HTTP {}", resp.status()));
+        return Err(format_api_error("mark_delivered", resp.status().as_u16(), ""));
     }
     Ok(())
 }

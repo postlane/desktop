@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use crate::init::atomic_write;
+use crate::init::{atomic_write, read_json_file};
 use std::path::Path;
 
 /// Fields permitted in `config.local.json` (dot-notation for nested fields).
@@ -73,21 +73,14 @@ fn apply_local_overrides(merged: &mut serde_json::Value, local: &serde_json::Val
 /// with an error that names the offending field.
 pub fn read_merged_repo_config(repo_path: &Path) -> Result<serde_json::Value, String> {
     let config_path = repo_path.join(".postlane").join("config.json");
-    let content = std::fs::read_to_string(&config_path).map_err(|e| {
-        format!("Failed to read config.json at {}: {}", config_path.display(), e)
-    })?;
-    let mut merged: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let mut merged: serde_json::Value = read_json_file(&config_path)?;
 
     let local_path = repo_path.join(".postlane").join("config.local.json");
     if !local_path.exists() {
         return Ok(merged);
     }
 
-    let local_content = std::fs::read_to_string(&local_path)
-        .map_err(|e| format!("Failed to read config.local.json: {}", e))?;
-    let local: serde_json::Value = serde_json::from_str(&local_content)
-        .map_err(|e| format!("Failed to parse config.local.json: {}", e))?;
+    let local: serde_json::Value = read_json_file(&local_path)?;
 
     validate_local_config(&local)?;
     apply_local_overrides(&mut merged, &local);
@@ -103,10 +96,7 @@ pub fn write_scheduler_provider_to_local_config(repo_path: &Path, provider: &str
     let local_path = repo_path.join(".postlane").join("config.local.json");
 
     let mut local: serde_json::Value = if local_path.exists() {
-        let content = std::fs::read_to_string(&local_path)
-            .map_err(|e| format!("Failed to read config.local.json: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse config.local.json: {}", e))?
+        read_json_file(&local_path)?
     } else {
         serde_json::json!({})
     };
@@ -156,10 +146,7 @@ pub fn remove_scheduler_provider_from_local_config(
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(&local_path)
-        .map_err(|e| format!("Failed to read config.local.json: {}", e))?;
-    let mut local: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.local.json: {}", e))?;
+    let mut local: serde_json::Value = read_json_file(&local_path)?;
 
     if !local["scheduler"].is_object() {
         return Ok(());

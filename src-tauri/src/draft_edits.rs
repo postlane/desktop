@@ -23,7 +23,7 @@ pub async fn save_post_draft_impl(
     state: &AppState,
 ) -> Result<(), String> {
     let is_registered = {
-        let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+        let repos = state.lock_repos()?;
         repos.repos.iter().any(|r| r.path == repo_path)
     };
     if !is_registered {

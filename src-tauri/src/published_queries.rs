@@ -102,7 +102,7 @@ pub fn get_all_published_impl(
     limit: usize,
     state: &AppState,
 ) -> Result<Vec<Post>, String> {
-    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     let mut posts = collect_posts_from_repos(&repos.repos, false, parse_published_post);
     posts.sort_by(|a, b| match (&b.sent_at, &a.sent_at) {
         (Some(bt), Some(at)) => bt.cmp(at),

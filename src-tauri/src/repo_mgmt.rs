@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
+use crate::init::read_json_file;
 use crate::storage::{write_repos, Repo};
 use crate::types::RepoHealthStatus;
 use std::fs;
@@ -44,10 +45,7 @@ pub fn add_repo_impl(path: &str, state: &AppState) -> Result<Repo, String> {
         added_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let mut repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut repos = state.lock_repos()?;
 
     repos.repos.push(repo.clone());
 
@@ -71,10 +69,7 @@ pub fn add_repo(
 }
 
 pub fn remove_repo_impl(id: &str, state: &AppState) -> Result<(), String> {
-    let mut repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut repos = state.lock_repos()?;
 
     let repo_index = repos
         .repos
@@ -96,10 +91,7 @@ pub fn remove_repo(id: String, state: State<AppState>) -> Result<(), String> {
 }
 
 pub fn set_repo_active_impl(id: &str, active: bool, state: &AppState) -> Result<(), String> {
-    let mut repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut repos = state.lock_repos()?;
 
     let repo = repos
         .repos
@@ -191,10 +183,7 @@ pub(crate) fn update_repo_path_impl(id: &str, new_path: &str, state: &AppState) 
         return Err("config.json not found at new path".to_string());
     }
 
-    let mut repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let mut repos = state.lock_repos()?;
 
     let repo = repos
         .repos
@@ -276,10 +265,7 @@ pub fn update_scheduler_config_impl(
         }
     }
     let repo_path = {
-        let repos = state
-            .repos
-            .lock()
-            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        let repos = state.lock_repos()?;
         repos
             .repos
             .iter()
@@ -289,10 +275,7 @@ pub fn update_scheduler_config_impl(
             .clone()
     };
     let config_path = std::path::PathBuf::from(&repo_path).join(".postlane/config.json");
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let mut config: serde_json::Value = read_json_file(&config_path)?;
     config["scheduler"]["provider"] = serde_json::json!(fallback_order[0]);
     config["scheduler"]["fallback_order"] = serde_json::json!(fallback_order);
     let tmp = config_path.with_extension("json.tmp");

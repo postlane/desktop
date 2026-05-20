@@ -1,33 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::providers::scheduling::{build_client, mastodon::validate_instance_domain};
+use crate::security::api_error::format_api_error;
+use crate::security::instance_url::validate_instance_hostname;
 use tauri_plugin_keyring::KeyringExt;
 
 const KEYRING_SERVICE: &str = "postlane";
 const KEYRING_ACTIVE_INSTANCE: &str = "mastodon_active_instance";
 
-/// Validates that the instance string is a plain hostname (no "://" scheme prefix).
-fn validate_instance_format(instance: &str) -> Result<(), String> {
-    if instance.is_empty() {
-        return Err("Instance hostname cannot be empty".to_string());
-    }
-    if instance.contains("://") {
-        return Err(format!(
-            "Instance must be a hostname only (e.g. mastodon.social), not a URL. Got: {}",
-            instance
-        ));
-    }
-    // Reject URL injection characters that could affect URL construction
-    for ch in ['/', '@', '?', '#', '\n', '\r'] {
-        if instance.contains(ch) {
-            return Err(format!(
-                "Instance hostname contains invalid character {:?}. Use a plain hostname like mastodon.social",
-                ch
-            ));
-        }
-    }
-    Ok(())
-}
 
 /// Returns the hostname of the currently connected Mastodon instance, or `None`.
 ///
@@ -50,7 +30,7 @@ pub async fn register_mastodon_app(
     instance: String,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    validate_instance_format(&instance)?;
+    validate_instance_hostname(&instance)?;
 
     validate_instance_domain(&instance)
         .await
@@ -92,7 +72,7 @@ pub async fn exchange_mastodon_code(
     code: String,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    validate_instance_format(&instance)?;
+    validate_instance_hostname(&instance)?;
 
     let client_id = app.keyring()
         .get_password(KEYRING_SERVICE, &format!("mastodon_client_id/{}", instance))
@@ -151,7 +131,7 @@ async fn get_mastodon_char_limit_impl(client: &reqwest::Client, base_url: &str) 
 /// Performs SSRF validation on the instance domain before making any HTTP request.
 #[tauri::command]
 pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
-    validate_instance_format(&instance)?;
+    validate_instance_hostname(&instance)?;
 
     validate_instance_domain(&instance)
         .await
@@ -180,7 +160,7 @@ fn keys_for_disconnect(instance: &str, is_active: bool) -> Vec<String> {
 /// Ignores individual delete errors — all entries are attempted regardless.
 #[tauri::command]
 pub fn disconnect_mastodon(instance: String, app: tauri::AppHandle) -> Result<(), String> {
-    validate_instance_format(&instance)?;
+    validate_instance_hostname(&instance)?;
 
     let active = app
         .keyring()
@@ -202,12 +182,6 @@ pub fn disconnect_mastodon(instance: String, app: tauri::AppHandle) -> Result<()
     }
 }
 
-/// Returns a user-facing error string with only the HTTP status code.
-/// Raw response body is logged privately to avoid leaking server internals.
-fn format_api_error(operation: &str, status: u16, raw_body: &str) -> String {
-    log::debug!("{} — raw response body: {}", operation, raw_body);
-    format!("{} (HTTP {})", operation, status)
-}
 
 /// POSTs to `POST {base_url}/api/v1/apps` and returns `(client_id, client_secret)`.
 async fn register_app_with_instance(client: &reqwest::Client, base_url: &str) -> Result<(String, String), String> {
@@ -337,52 +311,6 @@ fn build_auth_url(instance: &str, client_id: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use httpmock::prelude::*;
-
-    #[test]
-    fn test_validate_instance_format_rejects_url_with_scheme() {
-        assert!(validate_instance_format("https://mastodon.social").is_err());
-        assert!(validate_instance_format("http://mastodon.social").is_err());
-        assert!(validate_instance_format("ftp://example.com").is_err());
-    }
-
-    #[test]
-    fn test_validate_instance_format_accepts_bare_hostname() {
-        assert!(validate_instance_format("mastodon.social").is_ok());
-        assert!(validate_instance_format("fosstodon.org").is_ok());
-    }
-
-    #[test]
-    fn test_validate_instance_format_accepts_hostname_with_port() {
-        assert!(validate_instance_format("mastodon.social:8080").is_ok());
-    }
-
-    #[test]
-    fn test_validate_instance_format_rejects_empty() {
-        assert!(validate_instance_format("").is_err());
-    }
-
-    // §review-security-high: reject path components and URL injection characters
-    #[test]
-    fn test_validate_instance_format_rejects_path_component(  ) {
-        assert!(validate_instance_format("mastodon.social/evil").is_err());
-        assert!(validate_instance_format("mastodon.social/../../etc/passwd").is_err());
-    }
-
-    #[test]
-    fn test_validate_instance_format_rejects_at_sign() {
-        assert!(validate_instance_format("user@mastodon.social").is_err());
-    }
-
-    #[test]
-    fn test_validate_instance_format_rejects_query_and_fragment() {
-        assert!(validate_instance_format("mastodon.social?evil=1").is_err());
-        assert!(validate_instance_format("mastodon.social#evil").is_err());
-    }
-
-    #[test]
-    fn test_validate_instance_format_rejects_newline() {
-        assert!(validate_instance_format("mastodon.social\nevil: injected").is_err());
-    }
 
     // Issue 1 — access token key must be instance-specific to prevent credential collision
     #[test]

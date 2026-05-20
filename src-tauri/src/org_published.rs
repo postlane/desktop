@@ -106,7 +106,7 @@ fn collect_from_repo(repo: &Repo, project_id: &str, home_dir: &Path, repos: &Rep
 pub fn get_org_published_impl(project_id: &str, state: &AppState) -> Result<Vec<PublishedPost>, String> {
     let home_dir = dirs::home_dir()
         .ok_or_else(|| "Could not determine home directory".to_string())?;
-    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     let mut results: Vec<PublishedPost> = repos
         .repos
         .iter()

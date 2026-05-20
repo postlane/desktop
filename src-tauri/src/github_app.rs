@@ -5,6 +5,7 @@ use std::time::Duration;
 use tauri_plugin_keyring::KeyringExt;
 
 use crate::license::POSTLANE_API_BASE;
+use crate::security::api_error::format_api_error;
 
 #[derive(Deserialize)]
 struct InstallationStatusBody {
@@ -38,7 +39,7 @@ pub async fn backfill_project_org_login_impl(
     if resp.status().is_success() {
         Ok(())
     } else {
-        Err(format!("backfill_project_org_login: HTTP {}", resp.status().as_u16()))
+        Err(format_api_error("backfill_project_org_login", resp.status().as_u16(), ""))
     }
 }
 
@@ -88,7 +89,7 @@ pub async fn check_github_app_installed_impl(
         }
         401 => Err("session_expired".to_string()),
         403 => Err("forbidden".to_string()),
-        status => Err(format!("check_github_app_installed: HTTP {}", status)),
+        status => Err(format_api_error("check_github_app_installed", status, "")),
     }
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -18,6 +19,15 @@ pub fn init_postlane_dir() -> Result<(), String> {
     let dir = postlane_dir()?;
     std::fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create .postlane directory: {}", e))
+}
+
+/// Reads and deserialises a JSON file. Both the read and parse error messages
+/// include the file path so failures are diagnosable without a stack trace.
+pub fn read_json_file<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
 /// Atomic write: writes content to a unique .tmp file then renames to target.
@@ -127,5 +137,47 @@ mod tests {
         // Original file should still have original content
         let read_content = fs::read(&target).expect("Failed to read target file");
         assert_eq!(read_content, original_content, "Original file should be intact");
+    }
+
+    #[test]
+    fn test_read_json_file_returns_typed_value() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("test.json");
+        fs::write(&path, r#"{"key": "value"}"#).expect("write");
+        let v: serde_json::Value = read_json_file(&path).expect("must succeed");
+        assert_eq!(v["key"].as_str(), Some("value"));
+    }
+
+    #[test]
+    fn test_read_json_file_returns_err_when_file_missing() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("nonexistent.json");
+        let result: Result<serde_json::Value, _> = read_json_file(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("nonexistent.json"), "error must name the file: {}", err);
+    }
+
+    #[test]
+    fn test_read_json_file_returns_err_on_invalid_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("bad.json");
+        fs::write(&path, "{ not valid json }").expect("write");
+        let result: Result<serde_json::Value, _> = read_json_file(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("bad.json"), "error must name the file: {}", err);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct TestConfig { name: String }
+
+    #[test]
+    fn test_read_json_file_deserialises_into_typed_struct() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("config.json");
+        fs::write(&path, r#"{"name":"postlane"}"#).expect("write");
+        let cfg: TestConfig = read_json_file(&path).expect("must succeed");
+        assert_eq!(cfg.name, "postlane");
     }
 }

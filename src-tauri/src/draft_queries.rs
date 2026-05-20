@@ -160,7 +160,7 @@ pub const MAX_DRAFT_PAGE: usize = 50;
 /// are silently dropped; callers that need the full count should call
 /// `get_all_drafts_count` separately.
 pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
-    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     let mut drafts: Vec<Post> = repos
         .repos
         .iter()
@@ -187,7 +187,7 @@ pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
 /// Use alongside `get_all_drafts` to show "Showing N of M" when M > 50.
 #[tauri::command]
 pub fn get_all_drafts_count(state: State<'_, AppState>) -> Result<usize, String> {
-    let repos = state.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     let total = repos
         .repos
         .iter()

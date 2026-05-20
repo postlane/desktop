@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
+use crate::init::read_json_file;
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
@@ -14,11 +15,7 @@ pub fn save_account_id_impl(
         return Err(format!("config.json not found at {}", config_path.display()));
     }
 
-    let content = fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let mut config: serde_json::Value = read_json_file(config_path)?;
 
     if !config["scheduler"].is_object() {
         config["scheduler"] = serde_json::json!({});
@@ -49,10 +46,7 @@ pub fn save_account_id(
     account_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let repo = repos
         .repos
@@ -71,10 +65,7 @@ pub(crate) fn get_account_ids_impl(
         return Ok(std::collections::HashMap::new());
     }
 
-    let content = fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let config: serde_json::Value = read_json_file(config_path)?;
 
     let account_ids = match config["scheduler"]["account_ids"].as_object() {
         Some(obj) => obj
@@ -92,10 +83,7 @@ pub fn get_account_ids(
     repo_id: String,
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let repo = repos
         .repos
