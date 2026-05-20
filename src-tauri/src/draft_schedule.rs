@@ -81,6 +81,18 @@ pub(crate) fn pre_populate_with_version_lookup(
         }
     }
 
+    if meta.llm_model.is_none() {
+        if let Some(model) = llm_model_for_meta(meta_path) {
+            meta.llm_model = Some(model);
+            dirty = true;
+        }
+    }
+
+    if meta.created_at.is_none() {
+        meta.created_at = Some(now.to_rfc3339());
+        dirty = true;
+    }
+
     let post_folder = meta_path
         .parent()
         .and_then(|p| p.file_name())
@@ -123,13 +135,20 @@ fn seed_to_offset(seed: &str) -> i64 {
     (hash % 601) as i64 - 300
 }
 
-fn project_id_for_meta(meta_path: &std::path::Path) -> Option<String> {
+fn config_for_meta(meta_path: &std::path::Path) -> Option<serde_json::Value> {
     // meta.json lives at {repo}/.postlane/posts/{folder}/meta.json — 4 levels up is repo root
     let repo_root = meta_path.parent()?.parent()?.parent()?.parent()?;
-    let config_path = repo_root.join(".postlane/config.json");
-    let content = std::fs::read_to_string(config_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
-    v.get("project_id").and_then(|p| p.as_str()).map(String::from)
+    let content = std::fs::read_to_string(repo_root.join(".postlane/config.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn project_id_for_meta(meta_path: &std::path::Path) -> Option<String> {
+    config_for_meta(meta_path)?.get("project_id").and_then(|p| p.as_str()).map(String::from)
+}
+
+fn llm_model_for_meta(meta_path: &std::path::Path) -> Option<String> {
+    config_for_meta(meta_path)?
+        .get("llm").and_then(|l| l.get("model")).and_then(|m| m.as_str()).map(String::from)
 }
 
 #[cfg(test)]
@@ -319,5 +338,56 @@ mod tests {
             let diff = (jittered - base).num_seconds().abs();
             assert!(diff <= 300, "seed '{}' jitter {} seconds exceeds ±5 min", seed, diff);
         }
+    }
+
+    fn setup_repo_meta(dir: &Path, config_json: &str, meta_json: &str) -> std::path::PathBuf {
+        let post_dir = dir.join(".postlane/posts/p");
+        fs::create_dir_all(&post_dir).unwrap();
+        fs::write(dir.join(".postlane/config.json"), config_json).unwrap();
+        let p = post_dir.join("meta.json");
+        fs::write(&p, meta_json).unwrap();
+        p
+    }
+
+    #[test]
+    fn test_pre_populate_sets_llm_model_from_config() {
+        let base = tempfile::TempDir::new().unwrap();
+        let meta_path = setup_repo_meta(base.path(),
+            r#"{"llm":{"model":"claude-sonnet-4-6","provider":"anthropic"}}"#,
+            r#"{"status":"ready","platforms":["x"]}"#);
+        let state = crate::app_state::AppStateFile::default();
+        pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| None).unwrap();
+        let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
+        assert_eq!(meta.llm_model.as_deref(), Some("claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn test_pre_populate_does_not_overwrite_llm_model_when_set() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"],"llm_model":"already-set"}"#);
+        let state = crate::app_state::AppStateFile::default();
+        pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| None).unwrap();
+        let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
+        assert_eq!(meta.llm_model.as_deref(), Some("already-set"), "must not overwrite existing llm_model");
+    }
+
+    #[test]
+    fn test_pre_populate_sets_created_at_from_now() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
+        let state = crate::app_state::AppStateFile::default();
+        pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| None).unwrap();
+        let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
+        assert_eq!(meta.created_at.as_deref(), Some("2026-05-05T08:00:00+00:00"));
+    }
+
+    #[test]
+    fn test_pre_populate_does_not_overwrite_created_at_when_set() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-01T00:00:00Z"}"#);
+        let state = crate::app_state::AppStateFile::default();
+        pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| None).unwrap();
+        let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
+        assert_eq!(meta.created_at.as_deref(), Some("2026-04-01T00:00:00Z"), "must not overwrite existing created_at");
     }
 }

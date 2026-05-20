@@ -107,9 +107,19 @@ pub fn connect_repo_from_desktop(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Repo, String> {
+    use tauri_plugin_keyring::KeyringExt;
     let home = dirs::home_dir();
     let repo = connect_repo_from_desktop_impl(&repo_path, &project_id, &state, home.as_deref())?;
-    crate::repo_mgmt::start_repo_watcher(&repo.id, &repo.path, &state, app_handle);
+    crate::repo_mgmt::start_repo_watcher(&repo.id, &repo.path, &state, app_handle.clone());
+    let repo_path_buf = std::path::Path::new(&repo.path);
+    for provider in crate::scheduler_credentials::VALID_PROVIDERS {
+        let key = crate::scheduler_credentials::get_credential_keyring_key(provider, &project_id);
+        if let Ok(Some(_)) = app_handle.keyring().get_password("postlane", &key) {
+            if let Err(e) = crate::config_merge::write_scheduler_provider_to_local_config(repo_path_buf, provider) {
+                log::warn!("[connect_repo] could not restore scheduler provider '{}': {}", provider, e);
+            }
+        }
+    }
     Ok(repo)
 }
 
@@ -154,6 +164,8 @@ mod tests {
             .expect("config.local.json must be written by connect_repo_from_desktop");
         let local: serde_json::Value = serde_json::from_str(&local_str).expect("valid JSON");
         assert!(local["scheduler"].is_object(), "config.local.json must have a scheduler block");
+        assert_eq!(local["scheduler"]["provider"].as_str(), Some(""),
+            "impl writes empty provider; Tauri command layer restores from keyring");
 
         // Repo registered in state
         let repos = state.repos.lock().expect("lock");
