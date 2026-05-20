@@ -368,6 +368,87 @@ mod tests {
         assert_eq!(posts[0].platform_post_id, "id1");
     }
 
+    #[tokio::test]
+    async fn test_post_snapshots_returns_zero_for_empty_slice() {
+        let client = build_client();
+        let result = post_snapshots(&[], "tok", &client, "http://localhost:1").await;
+        assert_eq!(result.unwrap(), 0, "empty slice must return 0 without any HTTP call");
+    }
+
+    #[tokio::test]
+    async fn test_post_snapshots_returns_err_on_network_failure() {
+        // Port 1 is not listening — connection refused = network error
+        let client = build_client();
+        let snap = EngagementSnapshot {
+            repo_uuid: "r1".into(), post_folder: "p1".into(),
+            provider: "zernio".into(), platform_post_id: "id1".into(),
+            platform: "x".into(), likes: 0, shares: 0, comments: 0, impressions: None,
+            fetched_at: Utc::now(),
+        };
+        let result = post_snapshots(&[snap], "tok", &client, "http://127.0.0.1:1").await;
+        assert!(result.is_err(), "connection refused must return Err");
+        assert!(result.unwrap_err().contains("Network error"), "error must say Network error");
+    }
+
+    #[test]
+    fn test_read_posts_for_sync_skips_missing_provider_field() {
+        let tmp = TempDir::new().unwrap();
+        let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "sent_at": recent,
+            "scheduler_ids": { "x": "id1" }
+            // no "provider" field
+        }).to_string();
+        write_post(&tmp, "no-provider-post", &meta);
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "missing provider must be skipped");
+    }
+
+    #[test]
+    fn test_read_posts_for_sync_skips_empty_platform_post_id() {
+        let tmp = TempDir::new().unwrap();
+        let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "provider": "zernio",
+            "sent_at": recent,
+            "scheduler_ids": { "x": "" }   // empty post ID
+        }).to_string();
+        write_post(&tmp, "empty-id-post", &meta);
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "empty platform_post_id must be skipped");
+    }
+
+    #[test]
+    fn test_read_posts_for_sync_skips_missing_scheduler_ids() {
+        let tmp = TempDir::new().unwrap();
+        let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "provider": "zernio",
+            "sent_at": recent
+            // no scheduler_ids field
+        }).to_string();
+        write_post(&tmp, "no-ids-post", &meta);
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "missing scheduler_ids must be skipped");
+    }
+
+    #[test]
+    fn test_read_posts_for_sync_skips_malformed_meta_json() {
+        let tmp = TempDir::new().unwrap();
+        let post_dir = tmp.path().join(".postlane").join("posts").join("bad-post");
+        std::fs::create_dir_all(&post_dir).unwrap();
+        std::fs::write(post_dir.join("meta.json"), "{ not json }").unwrap();
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "malformed meta.json must be skipped without panic");
+    }
+
     #[test]
     fn test_read_posts_for_sync_multi_platform_creates_one_entry_per_platform() {
         let tmp = TempDir::new().unwrap();

@@ -115,4 +115,18 @@ mod tests {
         let count = versions.keys().filter(|k| *k == "proj-dup").count();
         assert_eq!(count, 1, "expected exactly one entry for proj-dup, got {}", count);
     }
+
+    #[test]
+    fn test_write_versions_fails_on_bad_path() {
+        let bad_path = std::path::PathBuf::from("/nonexistent_dir/versions.json");
+        let versions = HashMap::new();
+        let result = write_versions_at(&bad_path, &versions);
+        assert!(result.is_err(), "write to non-existent dir must fail");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("nonexistent_dir") || msg.contains("versions.json"),
+            "error message must mention the path, got: {}",
+            msg
+        );
+    }
 }

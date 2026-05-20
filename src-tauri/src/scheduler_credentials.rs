@@ -410,4 +410,75 @@ mod tests {
         assert_eq!(v["scheduler"]["provider"].as_str(), Some(""), "non-matching repo must not be modified");
     }
 
+    #[test]
+    fn test_check_libsecret_before_save_returns_err_when_libsecret_unavailable() {
+        let result = check_libsecret_before_save(Some(false));
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("libsecret"), "error must mention libsecret");
+        assert!(msg.contains("apt"), "error must include install hint");
+    }
+
+    #[test]
+    fn test_check_libsecret_before_save_returns_ok_when_available() {
+        assert!(check_libsecret_before_save(Some(true)).is_ok());
+    }
+
+    #[test]
+    fn test_save_rejects_when_libsecret_unavailable() {
+        let result = save_scheduler_credential_impl("zernio", "key", Some(false));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("libsecret"));
+    }
+
+    #[test]
+    fn test_delete_rejects_unknown_provider() {
+        let result = delete_scheduler_credential_impl("not_a_real_provider");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("Unknown provider"), "got: {}", msg);
+    }
+
+    #[test]
+    fn test_collect_matching_repo_paths_returns_empty_when_no_repos() {
+        use crate::test_fixtures::make_state;
+        let state = make_state(vec![]);
+        let paths = collect_matching_repo_paths("proj-abc", &state);
+        assert!(paths.is_empty(), "no repos registered means no matching paths");
+    }
+
+    #[test]
+    fn test_collect_matching_repo_paths_returns_empty_when_config_missing() {
+        use crate::test_fixtures::make_repo;
+        use crate::test_fixtures::make_state;
+        // Repo registered but has no .postlane/config.json
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let paths = collect_matching_repo_paths("proj-abc", &state);
+        assert!(paths.is_empty(), "missing config.json must not match");
+    }
+
+    #[test]
+    fn test_collect_matching_repo_paths_returns_path_when_project_id_matches() {
+        use crate::test_fixtures::make_repo;
+        use crate::test_fixtures::make_state;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"my-proj"}"#)
+            .expect("write config.json");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let paths = collect_matching_repo_paths("my-proj", &state);
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], dir.path());
+    }
+
+    #[test]
+    fn test_write_provider_to_matching_repos_no_op_when_no_repos() {
+        use crate::test_fixtures::make_state;
+        // Must not panic when the state has no repos registered
+        let state = make_state(vec![]);
+        write_provider_to_matching_repos("proj-abc", "zernio", &state);
+    }
+
 }

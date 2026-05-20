@@ -490,4 +490,51 @@ mod tests {
     fn test_approve_confirm_plural() {
         assert_eq!(status(5, 0).approve_confirm_message(), "Send 5 posts to scheduler?");
     }
+
+    // ── compute_tray_status ───────────────────────────────────────────────────
+
+    fn write_md_and_meta(repo_dir: &std::path::Path, folder: &str, platform: &str, meta_json: Option<&str>) {
+        // .git dir marks this as a real git repo (not a workspace root)
+        std::fs::create_dir_all(repo_dir.join(".git")).expect("create .git");
+        let post_dir = repo_dir.join(".postlane/posts").join(folder);
+        std::fs::create_dir_all(&post_dir).expect("create post dir");
+        std::fs::write(post_dir.join(format!("{}.md", platform)), "content").expect("write md");
+        if let Some(json) = meta_json {
+            std::fs::write(post_dir.join("meta.json"), json).expect("write meta.json");
+        }
+    }
+
+    #[test]
+    fn test_compute_tray_status_counts_ready_and_failed() {
+        use crate::test_fixtures::{make_repo, make_state};
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // 2 ready posts (no meta.json → default status = ready)
+        write_md_and_meta(dir.path(), "post-ready-1", "x", None);
+        write_md_and_meta(dir.path(), "post-ready-2", "x", None);
+        // 1 failed post
+        write_md_and_meta(dir.path(), "post-failed-1", "x", Some(r#"{"status":"failed"}"#));
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = compute_tray_status(&state);
+        assert_eq!(result.ready_count, 2, "expected 2 ready");
+        assert_eq!(result.failed_count, 1, "expected 1 failed");
+    }
+
+    #[test]
+    fn test_compute_tray_status_returns_zeros_when_no_posts() {
+        use crate::test_fixtures::{make_repo, make_state};
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // .git marks as a real repo; no .postlane/posts dir
+        std::fs::create_dir_all(dir.path().join(".git")).expect("create .git");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = compute_tray_status(&state);
+        assert_eq!(result, TrayStatus { ready_count: 0, failed_count: 0 });
+    }
+
+    #[test]
+    fn test_compute_tray_status_returns_zeros_when_no_repos() {
+        use crate::test_fixtures::make_state;
+        let state = make_state(vec![]);
+        let result = compute_tray_status(&state);
+        assert_eq!(result, TrayStatus { ready_count: 0, failed_count: 0 });
+    }
 }

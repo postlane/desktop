@@ -266,6 +266,45 @@ mod tests {
     }
 
     #[test]
+    fn test_get_usage_returns_zero_when_year_differs() {
+        let (_dir, path) = temp_path("year_diff");
+        for _ in 0..5 {
+            record_post_at("publer", &path, 4, 2025).expect("record 2025");
+        }
+        // Reading with a different year returns zero
+        let u = get_usage_at("publer", &path, 4, 2026).expect("get 2026");
+        assert_eq!(u.count, 0, "stale year must return count=0");
+        assert_eq!(u.year, 2026, "returned record year must match requested year");
+    }
+
+    #[test]
+    fn test_is_near_limit_returns_false_when_file_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("does_not_exist.json");
+        assert!(!is_near_limit_at("publer", &path, 4, 2026), "absent file must not be near limit");
+    }
+
+    #[test]
+    fn test_is_at_limit_returns_false_for_unlimited_provider() {
+        let (_dir, path) = temp_path("unlimited_at_limit");
+        for _ in 0..1000 {
+            record_post_at("zernio", &path, 4, 2026).expect("record");
+        }
+        assert!(!is_at_limit_at("zernio", &path, 4, 2026), "zernio has no limit — must never be at-limit");
+    }
+
+    #[test]
+    fn test_read_store_returns_default_on_malformed_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("bad.json");
+        std::fs::write(&path, "{ invalid json }").expect("write");
+        // record_post_at calls read_store internally; corrupt file must be treated as empty
+        record_post_at("publer", &path, 4, 2026).expect("must not error on corrupt file");
+        let u = get_usage_at("publer", &path, 4, 2026).expect("get");
+        assert_eq!(u.count, 1, "after corrupt reset, first record must be 1");
+    }
+
+    #[test]
     fn test_multiple_providers_tracked_independently() {
         let (_dir, path) = temp_path("multi");
         for _ in 0..5 {

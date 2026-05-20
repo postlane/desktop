@@ -264,7 +264,50 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_profiles_to_repo_writes_account_id() {
+    fn test_save_account_id_errors_when_config_unparseable() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), "{ not valid json }");
+        let result = save_account_id_impl(&config_path, "x", "acc-123");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("parse") || msg.contains("Failed"),
+            "error must describe parse failure, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn apply_profiles_to_repo_is_no_op_for_empty_profiles_list() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        let empty: &[SchedulerProfile] = &[];
+        apply_profiles_to_repo(empty, &config_path);
+        // Config must be unchanged (no scheduler block written)
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert!(config["scheduler"]["account_ids"].is_null(), "no writes expected for empty profiles");
+    }
+
+    #[test]
+    fn apply_profiles_to_repo_overwrites_existing_account_id_for_same_platform() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1,"scheduler":{"account_ids":{"x":"old-id"}}}"#);
+        let profiles = vec![SchedulerProfile {
+            id: "new-id".to_string(),
+            name: "New".to_string(),
+            platforms: vec!["x".to_string()],
+        }];
+        apply_profiles_to_repo(&profiles, &config_path);
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("new-id"));
+    }
+
+    #[test]
+    fn apply_profiles_to_repo_writes_account_id() {
         use crate::providers::scheduling::SchedulerProfile;
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path(), r#"{"version": 1}"#);

@@ -55,17 +55,25 @@ pub fn write_wizard_state(step: u32, workspace_id: Option<String>, workspace_nam
         return Ok(());
     }
     let path = wizard_state_path()?;
+    write_wizard_state_at(&path, step, workspace_id, workspace_name, provider)
+}
+
+pub(crate) fn write_wizard_state_at(path: &Path, step: u32, workspace_id: Option<String>, workspace_name: Option<String>, provider: Option<String>) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create .postlane dir: {}", e))?;
     }
-    write_to_path(&path, step, workspace_id, workspace_name, provider)
+    write_to_path(path, step, workspace_id, workspace_name, provider)
 }
 
 #[tauri::command]
 pub fn clear_wizard_state() -> Result<(), String> {
     let path = wizard_state_path()?;
-    match std::fs::remove_file(&path) {
+    clear_wizard_state_at(&path)
+}
+
+pub(crate) fn clear_wizard_state_at(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("Failed to clear wizard state: {}", e)),
@@ -170,5 +178,41 @@ mod tests {
         fs::write(&path, "not json").unwrap();
         assert!(read_from_path(&path).is_err());
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_write_wizard_state_with_step_1_is_noop() {
+        // step < 2 must return Ok without writing anything
+        let result = write_wizard_state(1, None, None, None);
+        assert!(result.is_ok(), "step=1 must return Ok");
+    }
+
+    #[test]
+    fn test_clear_wizard_state_when_file_absent_returns_ok() {
+        let path = tmp_path("clear_absent");
+        // Ensure the file does not exist
+        let _ = fs::remove_file(&path);
+        let result = clear_wizard_state_at(&path);
+        assert!(result.is_ok(), "clearing absent file must return Ok");
+    }
+
+    #[test]
+    fn test_clear_wizard_state_when_file_exists_removes_it() {
+        let path = tmp_path("clear_present");
+        write_to_path(&path, 3, None, None, None).expect("write before clear");
+        assert!(path.exists(), "file must exist before clear");
+        let result = clear_wizard_state_at(&path);
+        assert!(result.is_ok(), "clear must succeed");
+        assert!(!path.exists(), "file must be gone after clear");
+    }
+
+    #[test]
+    fn test_write_wizard_state_creates_dir_if_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Place the target path inside a non-existent subdirectory
+        let path = dir.path().join("subdir_that_does_not_exist").join("wizard_state.json");
+        let result = write_wizard_state_at(&path, 3, None, None, None);
+        assert!(result.is_ok(), "must create missing parent dir");
+        assert!(path.exists(), "file must be created");
     }
 }

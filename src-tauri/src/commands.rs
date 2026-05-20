@@ -26,6 +26,10 @@ pub fn cancel_post_command(
     _platform: String,
     _state: State<AppState>,
 ) -> Result<(), String> {
+    cancel_post_impl()
+}
+
+pub(crate) fn cancel_post_impl() -> Result<(), String> {
     Err("Cancel not implemented in Milestone 3 (deferred to M4)".to_string())
 }
 
@@ -33,5 +37,33 @@ pub fn cancel_post_command(
 pub fn get_queue_command(
     _state: State<AppState>,
 ) -> Result<Vec<crate::types::QueuedPost>, String> {
+    get_queue_impl()
+}
+
+pub(crate) fn get_queue_impl() -> Result<Vec<crate::types::QueuedPost>, String> {
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cancel_post_impl_returns_not_implemented_error() {
+        let result = cancel_post_impl();
+        assert!(result.is_err(), "cancel must return Err");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("Cancel not implemented"),
+            "error message must contain 'Cancel not implemented', got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_get_queue_impl_returns_empty_vec() {
+        let result = get_queue_impl();
+        assert!(result.is_ok(), "get_queue must return Ok");
+        assert!(result.unwrap().is_empty(), "queue must be empty");
+    }
 }
