@@ -6,6 +6,7 @@ pub mod project_api;
 pub mod config_merge;
 pub mod instance_guard;
 pub mod connect_repo;
+pub mod credential_repo_sync;
 pub mod analytics;
 pub mod app_state;
 pub mod app_state_ops;

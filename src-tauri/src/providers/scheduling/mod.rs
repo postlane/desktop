@@ -2,6 +2,7 @@
 
 pub mod ayrshare;
 pub mod buffer;
+pub mod http_client;
 pub mod mastodon;
 pub mod outstand;
 pub mod publer;
@@ -9,6 +10,8 @@ pub mod substack_notes;
 pub mod upload_post;
 pub mod webhook;
 pub mod zernio;
+
+pub use http_client::{build_client, parse_retry_after, with_retry};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -144,82 +147,6 @@ pub trait SchedulingProvider: Send + Sync {
     fn post_url(&self, platform: &str, post_id: &str) -> Option<String>;
 }
 
-/// Parse a raw `Retry-After` header value string into seconds.
-///
-/// Falls back to 60 s if absent/unparseable. Caps at 3600 s.
-pub(crate) fn parse_retry_after_secs(header_value: Option<&str>) -> u64 {
-    header_value
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(60)
-        .min(3600)
-}
-
-/// Extract and parse the `Retry-After` header from an HTTP response as a `Duration`.
-pub fn parse_retry_after(response: &reqwest::Response) -> Duration {
-    let header = response
-        .headers()
-        .get("Retry-After")
-        .and_then(|v| v.to_str().ok());
-    Duration::from_secs(parse_retry_after_secs(header))
-}
-
-/// Build a shared reqwest::Client for provider HTTP requests
-///
-/// Creates a client with:
-/// - 10 second request timeout
-/// - 5 second connect timeout
-///
-/// Panics if client cannot be built (configuration error at startup)
-pub fn build_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .expect("Failed to build reqwest client")
-}
-
-/// Retry a function with exponential backoff
-///
-/// Retries up to max_retries times with exponential backoff:
-/// - Initial delay: 1 second
-/// - Doubles each attempt (1s → 2s → 4s)
-/// - On RateLimit error: uses the duration from Retry-After header instead
-/// - On final failure: returns the last error
-pub async fn with_retry<F, Fut, T>(
-    f: F,
-    max_retries: u32,
-) -> Result<T, ProviderError>
-where
-    F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<T, ProviderError>>,
-{
-    let mut attempt = 0;
-
-    loop {
-        match f().await {
-            Ok(result) => return Ok(result),
-            Err(e) => {
-                if !e.is_retryable() {
-                    return Err(e);
-                }
-
-                attempt += 1;
-
-                if attempt > max_retries {
-                    return Err(e);
-                }
-
-                let wait_duration = match &e {
-                    ProviderError::RateLimit(duration) => *duration,
-                    _ => Duration::from_secs(2u64.pow(attempt - 1)),
-                };
-
-                tokio::time::sleep(wait_duration).await;
-            }
-        }
-    }
-}
-
 /// Builds a scheduling provider from its name and API key.
 pub fn build_scheduling_provider(
     name: &str,
@@ -241,8 +168,6 @@ pub fn build_scheduling_provider(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
 
     // ── build_scheduling_provider ─────────────────────────────────────────────
 
@@ -319,159 +244,4 @@ mod tests {
         assert!(matches!(result, Err(ProviderError::AuthError(_))));
     }
 
-    #[test]
-    fn parse_retry_after_returns_header_value_as_seconds() {
-        assert_eq!(parse_retry_after_secs(Some("120")), 120);
-    }
-
-    #[test]
-    fn parse_retry_after_defaults_to_60s_when_header_missing() {
-        assert_eq!(parse_retry_after_secs(None), 60);
-    }
-
-    #[test]
-    fn parse_retry_after_defaults_to_60s_when_header_unparseable() {
-        assert_eq!(parse_retry_after_secs(Some("soon")), 60);
-    }
-
-    #[test]
-    fn parse_retry_after_caps_at_3600s() {
-        assert_eq!(parse_retry_after_secs(Some("9999")), 3600);
-    }
-
-    #[test]
-    fn test_build_client_creates_client_with_timeouts() {
-        // Test: build_client should create a reqwest::Client
-        // with 10s request timeout and 5s connect timeout
-        let client = build_client();
-
-        // Verify client was created (if this compiles and doesn't panic, it worked)
-        // The actual timeout values are internal to reqwest::Client and can't be
-        // easily inspected, but we can verify the function doesn't panic
-        assert!(std::any::type_name_of_val(&client).contains("Client"));
-    }
-
-    #[tokio::test]
-    async fn test_with_retry_succeeds_on_first_attempt() {
-        let result = with_retry(|| async { Ok::<i32, ProviderError>(42) }, 3).await;
-        assert_eq!(result.unwrap(), 42);
-    }
-
-    #[tokio::test]
-    async fn test_with_retry_succeeds_after_failures() {
-        let attempt = Arc::new(AtomicU32::new(0));
-        let attempt_clone = attempt.clone();
-
-        let result = with_retry(
-            || {
-                let attempt = attempt_clone.clone();
-                async move {
-                    let current = attempt.fetch_add(1, Ordering::SeqCst);
-                    if current < 2 {
-                        Err(ProviderError::NetworkError("Temporary failure".to_string()))
-                    } else {
-                        Ok(42)
-                    }
-                }
-            },
-            3,
-        )
-        .await;
-
-        assert_eq!(result.unwrap(), 42);
-        assert_eq!(attempt.load(Ordering::SeqCst), 3);
-    }
-
-    #[tokio::test]
-    async fn test_with_retry_returns_last_error_after_max_retries() {
-        let attempt = Arc::new(AtomicU32::new(0));
-        let attempt_clone = attempt.clone();
-
-        let result = with_retry(
-            || {
-                let attempt = attempt_clone.clone();
-                async move {
-                    attempt.fetch_add(1, Ordering::SeqCst);
-                    Err::<i32, ProviderError>(ProviderError::NetworkError(
-                        "Persistent failure".to_string(),
-                    ))
-                }
-            },
-            3,
-        )
-        .await;
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            ProviderError::NetworkError("Persistent failure".to_string())
-        );
-        // Should try: initial attempt + 3 retries = 4 total
-        assert_eq!(attempt.load(Ordering::SeqCst), 4);
-    }
-
-    #[tokio::test]
-    async fn test_with_retry_uses_rate_limit_duration() {
-        use std::time::Instant;
-
-        let attempt = Arc::new(AtomicU32::new(0));
-        let attempt_clone = attempt.clone();
-
-        let start = Instant::now();
-        let result = with_retry(
-            || {
-                let attempt = attempt_clone.clone();
-                async move {
-                    let current = attempt.fetch_add(1, Ordering::SeqCst);
-                    if current == 0 {
-                        // First attempt fails with rate limit - wait 1 second
-                        Err(ProviderError::RateLimit(Duration::from_secs(1)))
-                    } else {
-                        Ok(42)
-                    }
-                }
-            },
-            3,
-        )
-        .await;
-
-        let elapsed = start.elapsed();
-
-        assert_eq!(result.unwrap(), 42);
-        // Should have waited ~1 second (allow some tolerance)
-        assert!(elapsed >= Duration::from_millis(900));
-        assert!(elapsed < Duration::from_millis(1500));
-    }
-
-    #[tokio::test]
-    async fn test_with_retry_exponential_backoff() {
-        use std::time::Instant;
-
-        let attempt = Arc::new(AtomicU32::new(0));
-        let attempt_clone = attempt.clone();
-
-        let start = Instant::now();
-        let result = with_retry(
-            || {
-                let attempt = attempt_clone.clone();
-                async move {
-                    let current = attempt.fetch_add(1, Ordering::SeqCst);
-                    if current < 2 {
-                        Err(ProviderError::NetworkError("Temporary".to_string()))
-                    } else {
-                        Ok(42)
-                    }
-                }
-            },
-            3,
-        )
-        .await;
-
-        let elapsed = start.elapsed();
-
-        assert_eq!(result.unwrap(), 42);
-        // Should have waited 1s + 2s = 3s total (allow tolerance)
-        assert!(elapsed >= Duration::from_millis(2800));
-        assert!(elapsed < Duration::from_millis(3500));
-    }
 }
