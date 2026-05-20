@@ -39,18 +39,46 @@ pub async fn get_voice_guide_fields(
     get_voice_guide_fields_with_client(&project_id, &client, POSTLANE_API_BASE, &token).await
 }
 
-/// Writes `content` to `.postlane/voice_guide.md` in every repo whose `config.json`
-/// lists `project_id`. Uses an atomic write (`.tmp` → rename) per file-safety policy.
-fn write_voice_guide_to_matching_repos(project_id: &str, content: &str, state: &AppState) {
+/// Writes `voice_guide` to `.postlane/voice_guide.md` in every repo registered under
+/// `project_id`. Repos whose path no longer exists on disk are skipped with a warning.
+/// Returns the list of repo paths successfully written.
+pub(crate) fn sync_voice_guide_to_repos_impl(
+    project_id: &str,
+    voice_guide: &str,
+    state: &AppState,
+) -> Vec<String> {
+    let mut synced = Vec::new();
     for repo_path in crate::scheduler_credentials::collect_matching_repo_paths(project_id, state) {
+        if !repo_path.exists() {
+            log::warn!(
+                "[sync_voice_guide_to_repos] repo path no longer exists: {}",
+                repo_path.display()
+            );
+            continue;
+        }
         let target = repo_path.join(".postlane/voice_guide.md");
         let tmp = repo_path.join(".postlane/voice_guide.md.tmp");
-        if let Err(e) = std::fs::write(&tmp, content)
-            .and_then(|_| std::fs::rename(&tmp, &target))
-        {
-            log::warn!("[save_project_voice_guide] write voice_guide.md to {}: {}", repo_path.display(), e);
+        match std::fs::write(&tmp, voice_guide).and_then(|_| std::fs::rename(&tmp, &target)) {
+            Ok(_) => synced.push(repo_path.display().to_string()),
+            Err(e) => log::warn!(
+                "[sync_voice_guide_to_repos] write to {}: {}",
+                repo_path.display(),
+                e
+            ),
         }
     }
+    synced
+}
+
+/// Tauri command: syncs a voice guide to all repos registered under a project.
+/// Returns the list of repo paths successfully written.
+#[tauri::command]
+pub fn sync_voice_guide_to_repos(
+    project_id: String,
+    voice_guide: String,
+    state: tauri::State<'_, AppState>,
+) -> Vec<String> {
+    sync_voice_guide_to_repos_impl(&project_id, &voice_guide, &state)
 }
 
 #[cfg(test)]
@@ -69,8 +97,9 @@ mod tests {
         }])
     }
 
+    /// 21.3.10 — saves voice guide to all registered repos under the project
     #[test]
-    fn test_write_voice_guide_creates_file_when_project_matches() {
+    fn test_sync_writes_to_matching_repo_and_returns_path() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let postlane = dir.path().join(".postlane");
         std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
@@ -78,14 +107,16 @@ mod tests {
             .expect("write config.json");
 
         let state = make_state_with_repo(dir.path().to_str().unwrap());
-        write_voice_guide_to_matching_repos("proj-abc", "Write with clarity.", &state);
+        let synced = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
 
         let written = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
         assert_eq!(written, "Write with clarity.");
+        assert_eq!(synced.len(), 1);
+        assert!(synced[0].contains(dir.path().to_str().unwrap()));
     }
 
     #[test]
-    fn test_write_voice_guide_skips_non_matching_project() {
+    fn test_sync_skips_non_matching_project() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let postlane = dir.path().join(".postlane");
         std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
@@ -93,16 +124,15 @@ mod tests {
             .expect("write config.json");
 
         let state = make_state_with_repo(dir.path().to_str().unwrap());
-        write_voice_guide_to_matching_repos("proj-abc", "Write with clarity.", &state);
+        let synced = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
 
-        assert!(
-            !postlane.join("voice_guide.md").exists(),
-            "non-matching repo must not be written"
-        );
+        assert!(!postlane.join("voice_guide.md").exists(), "non-matching repo must not be written");
+        assert!(synced.is_empty());
     }
 
+    /// 21.3.13 — overwrites, does not append
     #[test]
-    fn test_write_voice_guide_overwrites_existing_file() {
+    fn test_sync_overwrites_existing_file() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let postlane = dir.path().join(".postlane");
         std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
@@ -111,21 +141,74 @@ mod tests {
         std::fs::write(postlane.join("voice_guide.md"), "old content").expect("write old");
 
         let state = make_state_with_repo(dir.path().to_str().unwrap());
-        write_voice_guide_to_matching_repos("proj-xyz", "new content", &state);
+        sync_voice_guide_to_repos_impl("proj-xyz", "new content", &state);
 
         let written = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
         assert_eq!(written, "new content");
     }
 
     #[test]
-    fn test_write_voice_guide_no_repos_is_noop() {
+    fn test_sync_no_repos_returns_empty_vec() {
         let state = make_state(vec![]);
-        // Should not panic with an empty repo list
-        write_voice_guide_to_matching_repos("proj-abc", "content", &state);
+        let synced = sync_voice_guide_to_repos_impl("proj-abc", "content", &state);
+        assert!(synced.is_empty());
+    }
+
+    /// 21.3.11 — missing path skipped; other repo still written
+    #[test]
+    fn test_sync_skips_nonexistent_path_but_writes_existing() {
+        let existing = tempfile::TempDir::new().expect("create existing dir");
+        let postlane = existing.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-multi"}"#)
+            .expect("write config.json");
+
+        let missing_path = "/tmp/postlane_nonexistent_repo_path_for_test_21_3_11";
+        // Ensure the path really doesn't exist
+        let _ = std::fs::remove_dir_all(missing_path);
+
+        let state = make_state(vec![
+            Repo {
+                id: "repo-missing".to_string(),
+                name: "missing".to_string(),
+                path: missing_path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+            Repo {
+                id: "repo-existing".to_string(),
+                name: "existing".to_string(),
+                path: existing.path().to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+        ]);
+
+        let synced = sync_voice_guide_to_repos_impl("proj-multi", "guide text", &state);
+
+        assert!(postlane.join("voice_guide.md").exists(), "existing repo must be written");
+        assert_eq!(synced.len(), 1, "only the existing repo path should be in synced list");
+    }
+
+    /// 21.3.12 — atomic write; no .tmp file left after success
+    #[test]
+    fn test_sync_no_tmp_file_after_successful_write() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-atomic"}"#)
+            .expect("write config.json");
+
+        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        sync_voice_guide_to_repos_impl("proj-atomic", "atomic content", &state);
+
+        assert!(!postlane.join("voice_guide.md.tmp").exists(), ".tmp file must not exist after write");
+        assert!(postlane.join("voice_guide.md").exists(), "final file must exist");
     }
 }
 
 /// Tauri command: saves the voice guide text and structured fields for a project.
+/// Returns the list of repo paths the voice guide was synced to.
 #[tauri::command]
 pub async fn save_project_voice_guide(
     project_id: String,
@@ -133,7 +216,7 @@ pub async fn save_project_voice_guide(
     voice_guide_fields: Option<serde_json::Value>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let token = require_license_token(
         app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
     )?;
@@ -148,6 +231,6 @@ pub async fn save_project_voice_guide(
     )
     .await?;
     let _ = crate::voice_guide_versions::record_version(&project_id);
-    write_voice_guide_to_matching_repos(&project_id, &voice_guide, &state);
-    Ok(())
+    let synced = sync_voice_guide_to_repos_impl(&project_id, &voice_guide, &state);
+    Ok(synced)
 }

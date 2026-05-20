@@ -353,7 +353,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         project_config_ops::write_project_id_to_config, project_config_ops::get_repo_remote_name,
         project_config_ops::read_project_id_from_path,
         project_voice_guide::save_project_voice_guide, project_voice_guide::get_project_voice_guide,
-        project_voice_guide::get_voice_guide_fields,
+        project_voice_guide::get_voice_guide_fields, project_voice_guide::sync_voice_guide_to_repos,
         connect_repo::connect_repo_from_desktop, draft_edits::save_post_draft,
         wizard_state::read_wizard_state, wizard_state::write_wizard_state, wizard_state::clear_wizard_state,
     ])
