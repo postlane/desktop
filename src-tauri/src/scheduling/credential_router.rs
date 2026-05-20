@@ -273,6 +273,36 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_read_fallback_order_empty_array_falls_back_to_provider() {
+        // fallback_order is present but empty → fall back to scheduler.provider
+        let config = serde_json::json!({"scheduler": {"provider": "zernio", "fallback_order": []}});
+        assert_eq!(read_fallback_order_from_value(&config), vec!["zernio"]);
+    }
+
+    #[test]
+    fn test_read_fallback_order_only_empty_strings_falls_back_to_provider() {
+        let config = serde_json::json!({"scheduler": {"provider": "zernio", "fallback_order": ["", ""]}});
+        assert_eq!(read_fallback_order_from_value(&config), vec!["zernio"]);
+    }
+
+    #[test]
+    fn test_read_fallback_order_no_scheduler_key_returns_empty() {
+        let config = serde_json::json!({"version": 1});
+        assert!(read_fallback_order_from_value(&config).is_empty());
+    }
+
+    #[test]
+    fn test_select_provider_returns_api_key_from_credential_fn() {
+        let (_dir, usage) = temp_usage("api_key_check");
+        let providers = vec!["zernio".to_string()];
+        let result = select_provider_with_fallback(&providers, &usage, 4, 2026, |_| {
+            Some("my-secret-key".to_string())
+        });
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().api_key, "my-secret-key");
+    }
+
     /// Broken config.local.json now propagates a meaningful error (via map_err + ?)
     /// rather than silently becoming an empty config that masquerades as "not configured".
     #[test]

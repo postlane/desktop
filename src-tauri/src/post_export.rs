@@ -74,3 +74,138 @@ pub fn export_history_csv(state: State<AppState>) -> Result<String, String> {
     let csv_content = export_history_csv_impl(&state)?;
     Ok(format!("{} bytes", csv_content.len()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_fixtures::make_state;
+
+    fn write_meta_json(dir: &std::path::Path, json: &str) {
+        fs::create_dir_all(dir).expect("create post dir");
+        fs::write(dir.join("meta.json"), json).expect("write meta.json");
+    }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_none_for_non_sent_post() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = tmp.path().join("my-post");
+        write_meta_json(
+            &post_dir,
+            r#"{"status":"ready","platforms":["x"],"schedule":null,"trigger":null,"scheduler_ids":null,"platform_results":null,"platform_urls":null,"error":null,"image_url":null,"image_source":null,"image_attribution":null,"llm_model":null,"created_at":null,"sent_at":null}"#,
+        );
+        let row = post_folder_csv_row("myrepo", &post_dir);
+        assert!(row.is_none(), "status=ready must yield None");
+    }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_none_for_directory_without_meta() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = tmp.path().join("no-meta");
+        fs::create_dir_all(&post_dir).expect("create dir");
+        // no meta.json written
+        let row = post_folder_csv_row("myrepo", &post_dir);
+        assert!(row.is_none(), "missing meta.json must yield None");
+    }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_csv_for_sent_post() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = tmp.path().join("sent-post");
+        write_meta_json(
+            &post_dir,
+            r#"{"status":"sent","platforms":["x","bluesky"],"schedule":null,"trigger":null,"scheduler_ids":null,"platform_results":null,"platform_urls":null,"error":null,"image_url":null,"image_source":null,"image_attribution":null,"llm_model":"claude-3-sonnet","created_at":null,"sent_at":"2024-06-01T10:00:00Z"}"#,
+        );
+        let row = post_folder_csv_row("myrepo", &post_dir);
+        assert!(row.is_some(), "status=sent must yield Some");
+        let line = row.unwrap();
+        assert!(line.starts_with("myrepo,"), "first field must be repo name");
+        assert!(line.contains("x+bluesky"), "platforms must be joined with +");
+        assert!(line.contains("claude-3-sonnet"), "model must appear");
+        assert!(line.contains("2024-06-01T10:00:00Z"), "sent_at must appear");
+    }
+
+    #[test]
+    fn test_export_history_csv_impl_returns_header_only_when_no_repos() {
+        let state = make_state(vec![]);
+        let result = export_history_csv_impl(&state);
+        assert!(result.is_ok(), "empty state must not error");
+        let csv = result.unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 1, "must have exactly one line (the header)");
+        assert!(
+            lines[0].starts_with("repo,slug,platforms"),
+            "header must start with repo,slug,platforms"
+        );
+    }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_none_for_path_not_dir() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        // Pass a plain file path — is_dir() returns false → None
+        let file_path = tmp.path().join("not-a-dir.json");
+        fs::write(&file_path, "{}").expect("write file");
+        let row = post_folder_csv_row("myrepo", &file_path);
+        assert!(row.is_none(), "non-directory path must yield None");
+    }
+
+    #[test]
+    fn test_post_folder_csv_row_returns_none_for_malformed_meta_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = tmp.path().join("bad-post");
+        fs::create_dir_all(&post_dir).expect("create dir");
+        fs::write(post_dir.join("meta.json"), "this is not json at all").expect("write bad json");
+        let row = post_folder_csv_row("myrepo", &post_dir);
+        assert!(row.is_none(), "malformed meta.json must yield None");
+    }
+
+    #[test]
+    fn test_export_history_csv_impl_skips_repo_with_no_posts_dir() {
+        use crate::storage::{Repo, ReposConfig};
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        // Repo directory exists but has no .postlane/posts
+        let state = crate::app_state::AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![Repo {
+                    id: "r1".to_string(),
+                    name: "my-repo".to_string(),
+                    path: tmp.path().to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            std::env::temp_dir().join("postlane_test_export_skip.json"),
+        );
+        let result = export_history_csv_impl(&state).expect("ok");
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 1, "only the header when posts dir is absent");
+    }
+
+    #[test]
+    fn test_export_history_csv_impl_includes_sent_posts() {
+        use crate::storage::{Repo, ReposConfig};
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        write_meta_json(
+            &tmp.path().join(".postlane/posts/sent-post"),
+            r#"{"status":"sent","platforms":["x"],"schedule":null,"trigger":null,"scheduler_ids":null,"platform_results":null,"platform_urls":null,"error":null,"image_url":null,"image_source":null,"image_attribution":null,"llm_model":"gpt-4","created_at":null,"sent_at":"2024-06-01T12:00:00Z"}"#,
+        );
+        let state = crate::app_state::AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![Repo {
+                    id: "r1".to_string(),
+                    name: "my-repo".to_string(),
+                    path: tmp.path().to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2024-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            std::env::temp_dir().join("postlane_test_export_sent.json"),
+        );
+        let result = export_history_csv_impl(&state).expect("ok");
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 2, "header + one data row");
+        assert!(lines[1].contains("my-repo"), "row must contain repo name");
+        assert!(lines[1].contains("gpt-4"), "row must contain model");
+    }
+}

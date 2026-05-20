@@ -307,4 +307,40 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not registered"));
     }
+
+    #[test]
+    fn test_dismiss_post_errors_when_meta_json_missing() {
+        // Registered path + post folder exists, but meta.json is absent.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/post-no-meta");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        // Deliberately do NOT write meta.json.
+        let state = make_dismiss_state(dir.path());
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
+        let result = dismiss_post_impl(canonical.to_str().unwrap(), "post-no-meta", &state, false);
+        assert!(result.is_err(), "must Err when meta.json is absent");
+        assert!(
+            result.unwrap_err().contains("meta.json not found"),
+            "error must mention meta.json not found"
+        );
+    }
+
+    #[test]
+    fn test_delete_post_errors_when_md_file_missing() {
+        // Registered path + post folder exists, but the platform .md file is absent.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_path = dir.path().join(".postlane/posts/post-no-md");
+        fs::create_dir_all(&post_path).expect("create post dir");
+        fs::write(post_path.join("meta.json"), "{}").expect("write meta");
+        // No x.md written.
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        let state = make_delete_state(&canonical_str);
+        let result = delete_post_impl(&canonical_str, "post-no-md", "x", &state);
+        assert!(result.is_err(), "must Err when .md file is absent");
+        assert!(
+            result.unwrap_err().contains("x.md not found"),
+            "error must name the missing file"
+        );
+    }
 }

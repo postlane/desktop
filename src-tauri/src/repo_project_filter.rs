@@ -194,6 +194,35 @@ mod tests {
     }
 
     #[test]
+    fn test_list_repos_for_project_returns_empty_when_no_config_json() {
+        // Repo exists inside $HOME but has no .postlane/config.json
+        let home = dirs::home_dir().expect("home dir");
+        let dir = home.join("postlane_test_lrfp_no_cfg");
+        fs::create_dir_all(&dir).expect("create dir");
+        // Deliberately do NOT write config.json
+
+        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let result = list_repos_for_project_impl("proj-abc", &state).expect("ok");
+        assert!(result.is_empty(), "repo without config.json must be excluded");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_list_repos_for_project_error_branch_skips_unreadable_config() {
+        // Create a .postlane/config.json that is a directory (unreadable as file)
+        let home = dirs::home_dir().expect("home dir");
+        let dir = home.join("postlane_test_lrfp_unreadable");
+        let cfg_path = dir.join(".postlane").join("config.json");
+        // Make config.json a directory so read_to_string fails
+        fs::create_dir_all(&cfg_path).expect("create config.json as directory");
+
+        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let result = list_repos_for_project_impl("proj-abc", &state).expect("ok");
+        assert!(result.is_empty(), "unreadable config.json must be skipped (Err branch)");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn test_unregister_repo_stops_watcher_for_repo() {
         let home = dirs::home_dir().expect("home dir");
         let dir = home.join("postlane_test_unreg_watcher");

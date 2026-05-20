@@ -448,4 +448,46 @@ mod tests {
         let result = get_all_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), MAX_DRAFT_PAGE, "result must be capped at MAX_DRAFT_PAGE");
     }
+
+    #[test]
+    fn test_get_all_drafts_repo_with_no_posts_dir_returns_empty() {
+        // posts_dir doesn't exist → drafts_from_repo_path returns vec![] early
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
+        // No .postlane/posts directory
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert!(result.is_empty(), "repo without posts dir must produce no drafts");
+    }
+
+    #[test]
+    fn test_get_all_drafts_post_folder_with_no_md_files() {
+        // Folder exists but contains no .md files → no drafts
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
+        let post_dir = dir.path().join(".postlane/posts/empty-folder");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        fs::write(post_dir.join("notes.txt"), "notes").expect("write non-md file");
+
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert!(result.is_empty(), "folder with only non-.md files must produce no drafts");
+    }
+
+    #[test]
+    fn test_get_all_drafts_failed_status_is_surfaced() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta(
+            dir.path(),
+            "fail-post",
+            r#"{"status":"failed","error":"oops"}"#,
+        );
+        write_md(dir.path(), "fail-post", "x", "Failed content");
+
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].status, "failed");
+        assert_eq!(result[0].error.as_deref(), Some("oops"));
+    }
 }

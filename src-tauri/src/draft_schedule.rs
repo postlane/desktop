@@ -390,4 +390,39 @@ mod tests {
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert_eq!(meta.created_at.as_deref(), Some("2026-04-01T00:00:00Z"), "must not overwrite existing created_at");
     }
+
+    #[test]
+    fn test_pre_populate_schedule_if_needed_returns_ok_when_meta_exists() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let meta_path = write_meta(dir.path(), r#"{"status":"ready","platforms":["x"]}"#);
+        // pre_populate_schedule_if_needed reads app state from disk — it will read whatever
+        // state is present on disk (may have no default_post_time), and should return Ok(()).
+        let result = pre_populate_schedule_if_needed(&meta_path);
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+    }
+
+    #[test]
+    fn test_pre_populate_skips_voice_guide_lookup_when_already_set() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let meta_path = write_meta(dir.path(),
+            r#"{"status":"ready","platforms":["x"],"voice_guide_version":"already-set"}"#);
+        let state = crate::app_state::AppStateFile::default();
+        // When voice_guide_version is already Some, the lookup closure must not be called.
+        let called = std::sync::atomic::AtomicBool::new(false);
+        pre_populate_with_version_lookup(&meta_path, &state, utc(2026, 5, 5, 8, 0), |_| {
+            called.store(true, std::sync::atomic::Ordering::SeqCst);
+            None
+        }).unwrap();
+        assert!(!called.load(std::sync::atomic::Ordering::SeqCst),
+            "lookup must not be called when voice_guide_version is already set");
+        let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
+        assert_eq!(meta.voice_guide_version.as_deref(), Some("already-set"));
+    }
+
+    #[test]
+    fn test_apply_schedule_jitter_returns_original_on_invalid_datetime() {
+        let bad = "not-a-datetime";
+        let result = apply_schedule_jitter(bad, "any-seed");
+        assert_eq!(result, bad, "invalid datetime string must be returned unchanged");
+    }
 }

@@ -316,6 +316,73 @@ mod tests {
         assert!(result.is_err(), "network failure must return Err");
     }
 
+    #[tokio::test]
+    async fn test_delete_project_returns_session_expired_error_on_401() {
+        let state = make_state_with_repos(vec![]);
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::DELETE).path("/v1/projects/proj-abc");
+            then.status(401);
+        });
+
+        let result = delete_project_with_client("proj-abc", &build_client(), &server.base_url(), "tok", &state).await;
+        assert!(result.is_err(), "401 must return Err");
+        assert_eq!(result.unwrap_err(), SESSION_EXPIRED_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_rejects_invalid_project_id() {
+        let state = make_state_with_repos(vec![]);
+        let result = delete_project_with_client("", &build_client(), "http://127.0.0.1:19993", "tok", &state).await;
+        assert!(result.is_err(), "empty project_id must return Err");
+    }
+
+    #[tokio::test]
+    async fn test_register_repo_returns_err_on_backend_error() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path_matches(regex::Regex::new(r"/v1/projects/.+/repos").unwrap());
+            then.status(500);
+        });
+
+        let result = register_repo_with_project_with_client(
+            "proj-abc", dir.path().to_str().unwrap(), "desc",
+            &build_client(), &server.base_url(), "tok", &repos,
+        ).await;
+        assert!(result.is_err(), "500 must return Err");
+        assert!(result.unwrap_err().contains("Backend returned"), "error must mention Backend returned");
+    }
+
+    #[tokio::test]
+    async fn test_register_repo_returns_err_on_401() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path_matches(regex::Regex::new(r"/v1/projects/.+/repos").unwrap());
+            then.status(401);
+        });
+
+        let result = register_repo_with_project_with_client(
+            "proj-abc", dir.path().to_str().unwrap(), "desc",
+            &build_client(), &server.base_url(), "tok", &repos,
+        ).await;
+        assert!(result.is_err(), "401 must return Err");
+        assert!(result.unwrap_err().contains("Backend returned"), "error must mention Backend returned");
+    }
+
+    #[tokio::test]
+    async fn test_register_repo_rejects_invalid_project_id() {
+        let repos = make_repos(&["/some/path"]);
+        let result = register_repo_with_project_with_client(
+            "", "/some/path", "desc",
+            &build_client(), "http://127.0.0.1:19993", "tok", &repos,
+        ).await;
+        assert!(result.is_err(), "empty project_id must return Err");
+    }
+
     // ── integration: full wizard path ─────────────────────────────────────────
 
     /// Exercises the full create → register → read_config chain in one test.

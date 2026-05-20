@@ -290,6 +290,38 @@ mod tests {
     }
 
     #[test]
+    fn test_post_meta_save_creates_parent_dir_when_absent() {
+        // Line 93: create_dir_all is called when the parent directory does not yet exist.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let nested = dir.path().join("a").join("b").join("meta.json");
+        let meta = PostMeta {
+            model_name: Some("claude-test".to_string()),
+            ..Default::default()
+        };
+        meta.save(&nested).expect("save should create parent dirs automatically");
+        assert!(nested.exists(), "meta.json must exist after save with missing parent");
+    }
+
+    #[test]
+    fn test_post_meta_save_merges_into_existing_file() {
+        // Lines 103-109: the merge branch runs when the existing file is a JSON object.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        // Write an initial file with a field PostMeta doesn't own.
+        fs::write(&path, r#"{"extra_field":"keep-me","model_name":"old-model"}"#)
+            .expect("write initial");
+        let meta = PostMeta {
+            model_name: Some("new-model".to_string()),
+            ..Default::default()
+        };
+        meta.save(&path).expect("save");
+        let raw = fs::read_to_string(&path).expect("read back");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("parse");
+        assert_eq!(v["extra_field"].as_str(), Some("keep-me"), "unknown fields must survive merge");
+        assert_eq!(v["model_name"].as_str(), Some("new-model"), "PostMeta field must overwrite old value");
+    }
+
+    #[test]
     fn test_post_status_sent_round_trips() {
         let json = r#"{"status": "sent"}"#;
         let meta: PostMeta = serde_json::from_str(json).expect("should parse");

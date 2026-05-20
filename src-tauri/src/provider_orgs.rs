@@ -44,7 +44,14 @@ pub async fn fetch_avatar_bytes_impl(
     if !url.starts_with("https://") {
         return Err(format!("URL '{}' must use https://", url));
     }
+    fetch_and_encode_avatar(url, client).await
+}
 
+/// Fetches the image at `url` (security checks already passed) and returns a base64 data URL.
+pub(crate) async fn fetch_and_encode_avatar(
+    url: &str,
+    client: &reqwest::Client,
+) -> Result<String, String> {
     let resp = client
         .get(url)
         .timeout(Duration::from_secs(5))
@@ -253,6 +260,45 @@ mod tests {
         let result = fetch_avatar_bytes_impl("https://169.254.169.254/latest/meta-data/", &client).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("SSRF_BLOCKED"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_avatar_returns_base64_data_url_on_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/avatar.png");
+            then.status(200)
+                .header("content-type", "image/png")
+                .body(b"fake_image_bytes" as &[u8]);
+        });
+        // Use fetch_and_encode_avatar to bypass SSRF check (server binds to 127.0.0.1).
+        // The SSRF check is independently tested in test_fetch_avatar_rejects_loopback.
+        let url = format!("{}/avatar.png", server.base_url());
+        let result = fetch_and_encode_avatar(&url, &build_test_client()).await;
+        let data_url = result.expect("fetch should succeed");
+        assert!(
+            data_url.starts_with("data:image/png;base64,"),
+            "expected data URL prefix, got: {}",
+            data_url
+        );
+        let expected_b64 = BASE64.encode(b"fake_image_bytes");
+        assert_eq!(data_url, format!("data:image/png;base64,{}", expected_b64));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_avatar_returns_err_on_non_200() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/avatar.png");
+            then.status(404);
+        });
+        let url = format!("{}/avatar.png", server.base_url());
+        let result = fetch_and_encode_avatar(&url, &build_test_client()).await;
+        assert!(result.is_err(), "non-200 status must return Err");
+        assert!(
+            result.unwrap_err().contains("404"),
+            "error must mention the 404 status"
+        );
     }
 
     // ── list_provider_orgs ────────────────────────────────────────────────

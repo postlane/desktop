@@ -68,7 +68,9 @@ pub async fn register_mastodon_app(
     let client_id = match (existing_id, existing_secret) {
         (Some(id), Some(_)) => id,
         _ => {
-            let (id, secret) = register_app_with_instance(&instance).await?;
+            let client = build_client();
+            let base_url = format!("https://{}", instance);
+            let (id, secret) = register_app_with_instance(&client, &base_url).await?;
             app.keyring().set_password(KEYRING_SERVICE, &client_id_key, &id)
                 .map_err(|e| format!("Failed to store client_id: {}", e))?;
             app.keyring().set_password(KEYRING_SERVICE, &client_secret_key, &secret)
@@ -102,7 +104,9 @@ pub async fn exchange_mastodon_code(
         .map_err(|e| format!("Keyring read error: {}", e))?
         .ok_or_else(|| "No client_secret found — run Connect first".to_string())?;
 
-    let access_token = fetch_access_token(&instance, &client_id, &client_secret, &code).await?;
+    let client = build_client();
+    let base_url = format!("https://{}", instance);
+    let access_token = fetch_access_token(&client, &base_url, &client_id, &client_secret, &code).await?;
 
     app.keyring()
         .set_password(KEYRING_SERVICE, &format!("mastodon/{}", instance), &access_token)
@@ -112,24 +116,14 @@ pub async fn exchange_mastodon_code(
         .set_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE, &instance)
         .map_err(|e| format!("Failed to store active instance: {}", e))?;
 
-    let acct = fetch_acct(&instance, &access_token).await?;
+    let acct = fetch_acct(&client, &base_url, &access_token).await?;
     Ok(acct)
 }
 
-/// Fetches the Mastodon instance character limit from `GET /api/v1/instance`.
-///
-/// Returns `configuration.statuses.max_characters`, or 500 on any failure.
-/// Performs SSRF validation on the instance domain before making any HTTP request.
-#[tauri::command]
-pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
-    validate_instance_format(&instance)?;
-
-    validate_instance_domain(&instance)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let client = build_client();
-    let url = format!("https://{}/api/v1/instance", instance);
+/// Core logic for fetching the character limit; accepts an injected client and base URL
+/// so it can be exercised in tests without the DNS-validation gate.
+async fn get_mastodon_char_limit_impl(client: &reqwest::Client, base_url: &str) -> Result<u32, String> {
+    let url = format!("{}/api/v1/instance", base_url);
 
     let response = match client.get(&url).send().await {
         Ok(r) => r,
@@ -149,6 +143,23 @@ pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
         .as_u64()
         .map(|v| v as u32)
         .unwrap_or(500))
+}
+
+/// Fetches the Mastodon instance character limit from `GET /api/v1/instance`.
+///
+/// Returns `configuration.statuses.max_characters`, or 500 on any failure.
+/// Performs SSRF validation on the instance domain before making any HTTP request.
+#[tauri::command]
+pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
+    validate_instance_format(&instance)?;
+
+    validate_instance_domain(&instance)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let client = build_client();
+    let base_url = format!("https://{}", instance);
+    get_mastodon_char_limit_impl(&client, &base_url).await
 }
 
 fn keys_for_disconnect(instance: &str, is_active: bool) -> Vec<String> {
@@ -198,10 +209,9 @@ fn format_api_error(operation: &str, status: u16, raw_body: &str) -> String {
     format!("{} (HTTP {})", operation, status)
 }
 
-/// POSTs to `POST https://{instance}/api/v1/apps` and returns `(client_id, client_secret)`.
-async fn register_app_with_instance(instance: &str) -> Result<(String, String), String> {
-    let client = build_client();
-    let url = format!("https://{}/api/v1/apps", instance);
+/// POSTs to `POST {base_url}/api/v1/apps` and returns `(client_id, client_secret)`.
+async fn register_app_with_instance(client: &reqwest::Client, base_url: &str) -> Result<(String, String), String> {
+    let url = format!("{}/api/v1/apps", base_url);
 
     let body = serde_json::json!({
         "client_name": "Postlane",
@@ -240,15 +250,15 @@ async fn register_app_with_instance(instance: &str) -> Result<(String, String), 
     Ok((client_id, client_secret))
 }
 
-/// Exchanges an authorization code for an access token via `POST /oauth/token`.
+/// Exchanges an authorization code for an access token via `POST {base_url}/oauth/token`.
 async fn fetch_access_token(
-    instance: &str,
+    client: &reqwest::Client,
+    base_url: &str,
     client_id: &str,
     client_secret: &str,
     code: &str,
 ) -> Result<String, String> {
-    let client = build_client();
-    let url = format!("https://{}/oauth/token", instance);
+    let url = format!("{}/oauth/token", base_url);
 
     let body = serde_json::json!({
         "client_id": client_id,
@@ -282,10 +292,9 @@ async fn fetch_access_token(
         .map(String::from)
 }
 
-/// Fetches the account handle via `GET /api/v1/accounts/verify_credentials`.
-async fn fetch_acct(instance: &str, access_token: &str) -> Result<String, String> {
-    let client = build_client();
-    let url = format!("https://{}/api/v1/accounts/verify_credentials", instance);
+/// Fetches the account handle via `GET {base_url}/api/v1/accounts/verify_credentials`.
+async fn fetch_acct(client: &reqwest::Client, base_url: &str, access_token: &str) -> Result<String, String> {
+    let url = format!("{}/api/v1/accounts/verify_credentials", base_url);
 
     let response = client
         .get(&url)
@@ -295,8 +304,9 @@ async fn fetch_acct(instance: &str, access_token: &str) -> Result<String, String
         .map_err(|e| format!("Network error fetching account: {}", e))?;
 
     if !response.status().is_success() {
-        let status = response.status();
-        return Err(format!("verify_credentials failed ({})", status));
+        let status = response.status().as_u16();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format_api_error("verify_credentials failed", status, &text));
     }
 
     let json: serde_json::Value = response
@@ -461,63 +471,232 @@ mod tests {
         assert!(err.starts_with("Token exchange failed"), "error must include operation context");
     }
 
+    // --- register_app_with_instance ---
+
     #[tokio::test]
-    async fn test_register_app_with_instance_success() {
+    async fn test_register_app_success() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
-            when.method(POST).path("/api/v1/apps")
-                .body_contains("Postlane");
+            when.method(POST).path("/api/v1/apps");
             then.status(200).json_body(serde_json::json!({
                 "client_id": "test-client-id",
                 "client_secret": "test-client-secret"
             }));
         });
 
-        // Build URL using mock server host — bypasses real DNS for this test
-        let instance = format!("127.0.0.1:{}", server.port());
         let client = build_client();
-        let url = format!("http://{}/api/v1/apps", instance);
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = register_app_with_instance(&client, &base_url).await;
 
-        let body = serde_json::json!({
-            "client_name": "Postlane",
-            "redirect_uris": "urn:ietf:wg:oauth:2.0:oob",
-            "scopes": "read write",
-            "website": "https://postlane.dev"
-        });
-
-        let response = client.post(&url).json(&body).send().await.unwrap();
-        let json: serde_json::Value = response.json().await.unwrap();
-
-        assert_eq!(json["client_id"], "test-client-id");
-        assert_eq!(json["client_secret"], "test-client-secret");
+        assert!(result.is_ok(), "expected Ok, got {:?}", result);
+        let (id, secret) = result.unwrap();
+        assert_eq!(id, "test-client-id");
+        assert_eq!(secret, "test-client-secret");
         mock.assert();
     }
+
+    #[tokio::test]
+    async fn test_register_app_error_response() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/apps");
+            then.status(422).body("Unprocessable Entity");
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = register_app_with_instance(&client, &base_url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("422"), "error must contain status code");
+    }
+
+    #[tokio::test]
+    async fn test_register_app_missing_client_id() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/apps");
+            then.status(200).json_body(serde_json::json!({ "client_secret": "sec" }));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = register_app_with_instance(&client, &base_url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing client_id"), "error must mention Missing client_id");
+    }
+
+    #[tokio::test]
+    async fn test_register_app_missing_client_secret() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/apps");
+            then.status(200).json_body(serde_json::json!({ "client_id": "cid" }));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = register_app_with_instance(&client, &base_url).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing client_secret"), "error must mention Missing client_secret");
+    }
+
+    // --- fetch_access_token ---
 
     #[tokio::test]
     async fn test_fetch_access_token_success() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(POST).path("/oauth/token");
+            then.status(200).json_body(serde_json::json!({ "access_token": "tok123" }));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = fetch_access_token(&client, &base_url, "cid", "csec", "authcode").await;
+
+        assert!(result.is_ok(), "expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), "tok123");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_fetch_access_token_error_response() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/oauth/token");
+            then.status(401).body("Unauthorized");
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = fetch_access_token(&client, &base_url, "cid", "csec", "badcode").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("401"), "error must contain status code");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_access_token_missing_access_token() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/oauth/token");
+            then.status(200).json_body(serde_json::json!({}));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = fetch_access_token(&client, &base_url, "cid", "csec", "authcode").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing access_token"), "error must mention Missing access_token");
+    }
+
+    // --- fetch_acct ---
+
+    #[tokio::test]
+    async fn test_fetch_acct_success() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v1/accounts/verify_credentials");
+            then.status(200).json_body(serde_json::json!({ "acct": "user@mastodon.social" }));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = fetch_acct(&client, &base_url, "mytoken").await;
+
+        assert!(result.is_ok(), "expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), "user@mastodon.social");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_fetch_acct_error_response() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/accounts/verify_credentials");
+            then.status(401).body("Unauthorized");
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = fetch_acct(&client, &base_url, "badtoken").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("401"), "error must contain status code");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_acct_missing_acct_field() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/accounts/verify_credentials");
+            then.status(200).json_body(serde_json::json!({}));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = fetch_acct(&client, &base_url, "mytoken").await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing acct"), "error must mention Missing acct");
+    }
+
+    // --- get_mastodon_char_limit_impl ---
+
+    #[tokio::test]
+    async fn test_char_limit_returns_max_characters_from_instance_api() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/api/v1/instance");
             then.status(200).json_body(serde_json::json!({
-                "access_token": "test-access-token",
-                "token_type": "Bearer"
+                "configuration": {
+                    "statuses": {
+                        "max_characters": 500
+                    }
+                }
             }));
         });
 
         let client = build_client();
-        let url = format!("http://127.0.0.1:{}/oauth/token", server.port());
-        let body = serde_json::json!({
-            "client_id": "cid",
-            "client_secret": "csec",
-            "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
-            "grant_type": "authorization_code",
-            "code": "abc"
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = get_mastodon_char_limit_impl(&client, &base_url).await;
+
+        assert!(result.is_ok(), "expected Ok, got {:?}", result);
+        assert_eq!(result.unwrap(), 500);
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_char_limit_returns_500_on_non_success() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/instance");
+            then.status(503).body("Service Unavailable");
         });
 
-        let response = client.post(&url).json(&body).send().await.unwrap();
-        let json: serde_json::Value = response.json().await.unwrap();
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = get_mastodon_char_limit_impl(&client, &base_url).await;
 
-        assert_eq!(json["access_token"], "test-access-token");
-        mock.assert();
+        assert_eq!(result, Ok(500), "degraded instance must return 500 gracefully");
+    }
+
+    #[tokio::test]
+    async fn test_char_limit_returns_500_when_field_missing() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/instance");
+            then.status(200).json_body(serde_json::json!({}));
+        });
+
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = get_mastodon_char_limit_impl(&client, &base_url).await;
+
+        assert_eq!(result, Ok(500), "missing field must fall back to 500");
     }
 }

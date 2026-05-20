@@ -147,6 +147,112 @@ pub fn update_post_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    // --- is_direct_image_url ---
+
+    #[test]
+    fn test_is_direct_image_url_cdn_hostname() {
+        assert!(is_direct_image_url("https://images.unsplash.com/photo-12345"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_pixabay() {
+        assert!(is_direct_image_url("https://cdn.pixabay.com/photo/xyz"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_jpg_extension() {
+        assert!(is_direct_image_url("https://example.com/photo.jpg"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_png_extension() {
+        assert!(is_direct_image_url("https://example.com/image.png"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_webp() {
+        assert!(is_direct_image_url("https://example.com/image.webp"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_html_page() {
+        assert!(!is_direct_image_url("https://example.com/page"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_extension_in_query_string_only() {
+        // Extension only in query string — path has no image extension, must return false.
+        assert!(!is_direct_image_url("https://example.com/page?file=photo.jpg"));
+    }
+
+    #[test]
+    fn test_is_direct_image_url_invalid_url() {
+        assert!(!is_direct_image_url("not a url"));
+    }
+
+    // --- update_post_content_impl: happy path ---
+
+    #[test]
+    fn test_update_content_writes_file_atomically() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        let result = update_post_content_impl(
+            dir.path().to_str().expect("valid path"),
+            "my-post",
+            "x",
+            "hello world",
+        );
+        assert!(result.is_ok(), "write should succeed: {:?}", result);
+        let written = fs::read_to_string(post_dir.join("x.md")).expect("x.md must exist");
+        assert_eq!(written, "hello world");
+    }
+
+    // --- update_post_image_impl: happy paths ---
+
+    #[test]
+    fn test_update_image_sets_image_url_in_meta() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        fs::write(post_dir.join("meta.json"), r#"{"status":"ready"}"#).expect("write meta");
+        let result = update_post_image_impl(
+            dir.path().to_str().expect("valid path"),
+            "my-post",
+            Some("https://images.unsplash.com/photo-12345"),
+        );
+        assert!(result.is_ok(), "update should succeed: {:?}", result);
+        let raw = fs::read_to_string(post_dir.join("meta.json")).expect("read meta");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("parse meta");
+        assert_eq!(
+            v["image_url"].as_str(),
+            Some("https://images.unsplash.com/photo-12345"),
+            "image_url must be set in meta.json"
+        );
+    }
+
+    #[test]
+    fn test_update_image_clears_image_url_when_none() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        fs::write(
+            post_dir.join("meta.json"),
+            r#"{"status":"ready","image_url":"https://images.unsplash.com/old"}"#,
+        )
+        .expect("write meta");
+        let result = update_post_image_impl(
+            dir.path().to_str().expect("valid path"),
+            "my-post",
+            None,
+        );
+        assert!(result.is_ok(), "clear should succeed: {:?}", result);
+        let raw = fs::read_to_string(post_dir.join("meta.json")).expect("read meta");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("parse meta");
+        assert!(v.get("image_url").is_none(), "image_url must be removed from meta.json");
+    }
 
     // --- update_post_content_impl: path traversal ---
 

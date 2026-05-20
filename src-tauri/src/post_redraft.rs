@@ -307,6 +307,37 @@ mod tests {
 
     /// Error messages for filesystem operations must include the repo path for debugging.
     #[test]
+    fn test_queue_redraft_rejects_registered_but_wrong_repo() {
+        // Path EXISTS and canonicalizes successfully, but it is not in the repos list.
+        // This exercises the is_registered check at line 24 (after canonicalize succeeds).
+        let registered = tempfile::TempDir::new().expect("registered dir");
+        let unregistered = tempfile::TempDir::new().expect("unregistered dir");
+        let repos = make_repos_canonical(&[registered.path()]);
+        let result = queue_redraft_impl(
+            unregistered.path().to_str().unwrap(),
+            "post-folder",
+            "make it shorter",
+            &repos,
+        );
+        assert!(result.is_err(), "must Err for existing but unregistered path");
+        let err = result.unwrap_err();
+        assert!(err.contains("403"), "error must contain 403, got: {}", err);
+    }
+
+    #[test]
+    fn test_cancel_redraft_rejects_existing_but_unregistered_path() {
+        // Path EXISTS and canonicalizes successfully, but is not in repos —
+        // exercises the is_registered check at line 89 inside cancel_redraft_impl.
+        let registered = tempfile::TempDir::new().expect("registered dir");
+        let unregistered = tempfile::TempDir::new().expect("unregistered dir");
+        let repos = make_repos_canonical(&[registered.path()]);
+        let result = cancel_redraft_impl(unregistered.path().to_str().unwrap(), &repos);
+        assert!(result.is_err(), "must Err for existing but unregistered path");
+        let err = result.unwrap_err();
+        assert!(err.contains("403"), "error must contain 403, got: {}", err);
+    }
+
+    #[test]
     fn test_queue_redraft_create_dir_error_includes_path() {
         let parent = tempfile::TempDir::new().expect("create temp dir");
         let base = parent.path().join("postlane_test_path_in_error");
