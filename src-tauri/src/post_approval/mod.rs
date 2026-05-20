@@ -6,8 +6,8 @@ use crate::app_state::AppState;
 use crate::post_meta::{PostMeta, PostStatus};
 use pipeline::{
     acquire_meta_lock, apply_scheduler_result, call_scheduler, is_platform_edited,
-    record_scheduler_failure, validate_char_limit, validate_platform, validate_post_folder,
-    validate_repo_path, InFlightGuard,
+    record_scheduler_failure, validate_platform, validate_post_folder, validate_repo_path,
+    InFlightGuard,
 };
 use tauri::State;
 
@@ -36,7 +36,6 @@ pub async fn approve_post_impl(
     if !post_path.exists() {
         return Err(format!("Post folder '{}' does not exist", post_folder));
     }
-    validate_char_limit(platform, &post_path)?;
     let sent_at = chrono::Utc::now().to_rfc3339();
     let is_edited = is_platform_edited(&meta, platform);
     if let Some(app_handle) = app {
@@ -112,40 +111,6 @@ mod tests {
         std::fs::create_dir_all(&post_path).expect("create post dir");
         std::fs::write(post_path.join("meta.json"), "{}").expect("write meta");
         std::fs::write(post_path.join("x.md"), "test content").expect("write x.md");
-    }
-
-    fn write_post_with_content(dir: &Path, post_folder: &str, platform: &str, content: &str) {
-        let post_path = dir.join(".postlane/posts").join(post_folder);
-        std::fs::create_dir_all(&post_path).expect("create post dir");
-        std::fs::write(post_path.join("meta.json"), "{}").expect("write meta");
-        std::fs::write(post_path.join(format!("{}.md", platform)), content).expect("write platform file");
-    }
-
-    // --- §validate_char_limit (integration) ---
-
-    #[tokio::test]
-    async fn test_approve_post_rejects_over_limit_bluesky_post() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        write_post_with_content(&canonical, "post-over-limit", "bluesky", &"a".repeat(301));
-        let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-over-limit", "bluesky", &state, None, false).await;
-        assert!(result.is_err());
-        let msg = result.unwrap_err();
-        assert!(msg.contains("301"), "error must mention actual count: {}", msg);
-        assert!(msg.contains("300"), "error must mention the limit: {}", msg);
-    }
-
-    #[tokio::test]
-    async fn test_approve_post_accepts_post_at_exact_limit() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
-        let canonical_str = canonical.to_str().unwrap().to_string();
-        write_post_with_content(&canonical, "post-at-limit", "bluesky", &"a".repeat(300));
-        let state = make_state(&canonical_str);
-        let result = approve_post_impl(&canonical_str, "post-at-limit", "bluesky", &state, None, false).await;
-        assert!(result.is_ok(), "post at exact limit must be accepted: {:?}", result);
     }
 
     // --- §validate_platform ---
