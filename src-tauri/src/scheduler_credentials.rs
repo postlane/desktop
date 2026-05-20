@@ -365,6 +365,29 @@ mod tests {
         assert_eq!(result, vec!["zernio"]);
     }
 
+    #[test]
+    fn test_list_connected_providers_impl_returns_empty_when_no_providers_have_credentials() {
+        let result = list_connected_providers_impl("repo-xyz", |_, _| false);
+        assert!(result.is_empty(), "closure returning false must yield empty vec");
+    }
+
+    #[test]
+    fn test_list_connected_providers_impl_returns_only_providers_with_credentials() {
+        let result = list_connected_providers_impl("repo-xyz", |p, _| p == "zernio");
+        assert_eq!(result, vec!["zernio"], "only zernio should be returned");
+        assert!(!result.contains(&"upload_post".to_string()));
+        assert!(!result.contains(&"buffer".to_string()));
+    }
+
+    #[test]
+    fn test_list_connected_providers_impl_returns_all_when_all_have_credentials() {
+        let result = list_connected_providers_impl("repo-xyz", |_, _| true);
+        assert_eq!(result.len(), VALID_PROVIDERS.len(), "all VALID_PROVIDERS must be returned");
+        for provider in VALID_PROVIDERS {
+            assert!(result.contains(&provider.to_string()), "missing provider: {}", provider);
+        }
+    }
+
     fn make_test_state_with_repo(repo_path: &str, project_id: &str) -> AppState {
         use crate::storage::Repo;
         use crate::test_fixtures::make_state;

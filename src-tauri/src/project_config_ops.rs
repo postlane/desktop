@@ -319,4 +319,38 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not in the registered repos list"));
     }
+
+    // ── write_project_id_to_config — missing config.json ────────────────────
+
+    #[test]
+    fn test_write_project_id_errors_when_config_json_missing() {
+        // Path is registered but .postlane/config.json does not exist yet.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let result = write_project_id_to_config_impl(dir.path().to_str().unwrap(), "proj-new", &repos);
+        assert!(result.is_err(), "must Err when config.json is absent");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("config.json not found"),
+            "error must mention config.json not found, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_write_project_id_errors_on_invalid_json() {
+        // config.json exists but contains invalid JSON — parse step must Err.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
+        std::fs::create_dir_all(&config_dir).expect("create .postlane");
+        std::fs::write(config_dir.join("config.json"), b"{ bad json }").expect("write bad config");
+
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let result = write_project_id_to_config_impl(dir.path().to_str().unwrap(), "proj-abc", &repos);
+        assert!(result.is_err(), "must Err on unparseable config.json");
+        assert!(
+            result.unwrap_err().contains("parse"),
+            "error must mention parse failure"
+        );
+    }
 }

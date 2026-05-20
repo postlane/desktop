@@ -439,6 +439,53 @@ mod tests {
     }
 
     #[test]
+    fn test_read_post_for_sync_skips_post_with_no_sent_at() {
+        let tmp = TempDir::new().unwrap();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "provider": "zernio",
+            "scheduler_ids": { "x": "id1" }
+            // no sent_at field
+        }).to_string();
+        write_post(&tmp, "no-sent-at-post", &meta);
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "missing sent_at must be skipped");
+    }
+
+    #[test]
+    fn test_read_post_for_sync_skips_post_with_invalid_sent_at() {
+        let tmp = TempDir::new().unwrap();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "provider": "zernio",
+            "sent_at": "not-a-date",
+            "scheduler_ids": { "x": "id1" }
+        }).to_string();
+        write_post(&tmp, "invalid-sent-at-post", &meta);
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "unparseable sent_at must be skipped");
+    }
+
+    #[test]
+    fn test_read_post_for_sync_skips_post_sent_before_cutoff() {
+        let tmp = TempDir::new().unwrap();
+        // 31 days ago is before a 30-day cutoff
+        let old_date = (Utc::now() - Duration::days(31)).to_rfc3339();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "provider": "zernio",
+            "sent_at": old_date,
+            "scheduler_ids": { "x": "id1" }
+        }).to_string();
+        write_post(&tmp, "before-cutoff-post", &meta);
+        let cutoff = Utc::now() - Duration::days(30);
+        let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+        assert!(posts.is_empty(), "post sent before cutoff must be excluded");
+    }
+
+    #[test]
     fn test_read_posts_for_sync_skips_malformed_meta_json() {
         let tmp = TempDir::new().unwrap();
         let post_dir = tmp.path().join(".postlane").join("posts").join("bad-post");
