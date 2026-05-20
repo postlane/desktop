@@ -175,13 +175,8 @@ pub fn check_repo_health(state: State<AppState>) -> Result<Vec<RepoHealthStatus>
     check_repo_health_impl(&state)
 }
 
-#[tauri::command]
-pub fn update_repo_path(
-    id: String,
-    new_path: String,
-    state: State<AppState>,
-) -> Result<(), String> {
-    let canonical_path = fs::canonicalize(&new_path)
+pub(crate) fn update_repo_path_impl(id: &str, new_path: &str, state: &AppState) -> Result<(), String> {
+    let canonical_path = fs::canonicalize(new_path)
         .map_err(|e| format!("Failed to canonicalize path: {}", e))?;
 
     let canonical_str = canonical_path.to_str().ok_or("Invalid path")?;
@@ -213,6 +208,15 @@ pub fn update_repo_path(
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_repo_path(
+    id: String,
+    new_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    update_repo_path_impl(&id, &new_path, &state)
 }
 
 pub fn start_repo_watcher(
@@ -337,6 +341,22 @@ mod tests {
         config_path
     }
 
+    /// Build a state whose repos.json lives in `dir`, seeded with the given repos.
+    fn make_state_at(dir: &std::path::Path, repos: Vec<crate::storage::Repo>) -> AppState {
+        AppState::new_with_path(
+            ReposConfig { version: 1, repos },
+            dir.join("repos.json"),
+        )
+    }
+
+    /// Create `.git/` and `.postlane/config.json` inside `dir`.
+    fn scaffold_git_repo(dir: &std::path::Path) {
+        std::fs::create_dir_all(dir.join(".git")).expect("create .git");
+        std::fs::create_dir_all(dir.join(".postlane")).expect("create .postlane");
+        std::fs::write(dir.join(".postlane/config.json"), r#"{"project":"test"}"#)
+            .expect("write config.json");
+    }
+
     #[test]
     fn test_update_scheduler_config_writes_single_provider() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
@@ -414,5 +434,273 @@ mod tests {
         let state = make_empty_state();
         record_repo_connected(&state, false, "my-repo");
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+    }
+
+    // --- add_repo_impl ---
+
+    #[test]
+    fn test_add_repo_impl_returns_err_when_path_does_not_exist() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl("/nonexistent/path/that/cannot/exist", &state);
+        assert!(result.is_err(), "must err on nonexistent path");
+    }
+
+    #[test]
+    fn test_add_repo_impl_returns_err_when_no_git_dir() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        // no .git created
+        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err without .git dir");
+        let err = result.unwrap_err();
+        assert!(err.contains("git"), "error should mention git, got: {}", err);
+    }
+
+    #[test]
+    fn test_add_repo_impl_returns_err_when_no_config_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(tmp.path().join(".git")).expect("create .git");
+        // no .postlane/config.json
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err without config.json");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("config.json"),
+            "error should mention config.json, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_add_repo_impl_succeeds_and_writes_repos_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        scaffold_git_repo(tmp.path());
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_ok(), "happy path must succeed: {:?}", result);
+        assert!(
+            tmp.path().join("repos.json").exists(),
+            "repos.json must be written"
+        );
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos.len(), 1, "state must contain exactly one repo");
+    }
+
+    #[test]
+    fn test_add_repo_impl_uses_folder_name_as_repo_name() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        scaffold_git_repo(tmp.path());
+        let state = make_state_at(tmp.path(), vec![]);
+        let repo = add_repo_impl(tmp.path().to_str().unwrap(), &state).expect("should succeed");
+        let folder_name = tmp
+            .path()
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("folder name");
+        assert_eq!(repo.name, folder_name, "repo name must match folder name");
+    }
+
+    // --- remove_repo_impl ---
+
+    #[test]
+    fn test_remove_repo_impl_returns_err_for_unknown_id() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = crate::storage::Repo {
+            id: "known-id".to_string(),
+            name: "r".to_string(),
+            path: tmp.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        let result = remove_repo_impl("different-id", &state);
+        assert!(result.is_err(), "must err for unknown id");
+    }
+
+    #[test]
+    fn test_remove_repo_impl_removes_repo_from_state() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: tmp.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        remove_repo_impl("r1", &state).expect("remove should succeed");
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos.len(), 0, "state must be empty after removal");
+    }
+
+    #[test]
+    fn test_remove_repo_impl_writes_repos_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: tmp.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        remove_repo_impl("r1", &state).expect("remove should succeed");
+        assert!(
+            tmp.path().join("repos.json").exists(),
+            "repos.json must be written after removal"
+        );
+    }
+
+    // --- set_repo_active_impl ---
+
+    #[test]
+    fn test_set_repo_active_returns_err_for_unknown_id() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = set_repo_active_impl("no-such-id", true, &state);
+        assert!(result.is_err(), "must err for unknown id");
+    }
+
+    #[test]
+    fn test_set_repo_active_sets_active_true() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: tmp.path().to_str().unwrap().to_string(),
+            active: false,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        set_repo_active_impl("r1", true, &state).expect("should succeed");
+        let repos = state.repos.lock().unwrap();
+        assert!(repos.repos[0].active, "repo must be active");
+    }
+
+    #[test]
+    fn test_set_repo_active_sets_active_false() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: tmp.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        set_repo_active_impl("r1", false, &state).expect("should succeed");
+        let repos = state.repos.lock().unwrap();
+        assert!(!repos.repos[0].active, "repo must be inactive");
+    }
+
+    // --- check_repo_health_impl ---
+
+    #[test]
+    fn test_check_repo_health_empty_state_returns_empty_vec() {
+        let state = make_empty_state();
+        let result = check_repo_health_impl(&state).expect("should not err");
+        assert!(result.is_empty(), "empty state must yield empty health vec");
+    }
+
+    #[test]
+    fn test_check_repo_health_reachable_when_config_json_exists() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
+        // create .postlane/config.json
+        std::fs::create_dir_all(canonical.join(".postlane")).expect("create .postlane");
+        std::fs::write(canonical.join(".postlane/config.json"), "{}").expect("write config");
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: canonical.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        let statuses = check_repo_health_impl(&state).expect("should not err");
+        assert_eq!(statuses.len(), 1);
+        assert!(statuses[0].reachable, "repo must be reachable when config.json exists");
+    }
+
+    #[test]
+    fn test_check_repo_health_unreachable_when_config_json_missing() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
+        // deliberately no .postlane/config.json
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: canonical.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        let statuses = check_repo_health_impl(&state).expect("should not err");
+        assert_eq!(statuses.len(), 1);
+        assert!(!statuses[0].reachable, "repo must be unreachable without config.json");
+    }
+
+    // --- update_repo_path_impl ---
+
+    #[test]
+    fn test_update_repo_path_returns_err_for_nonexistent_path() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = update_repo_path_impl("r1", "/nonexistent/path/xyz", &state);
+        assert!(result.is_err(), "must err for nonexistent path");
+    }
+
+    #[test]
+    fn test_update_repo_path_returns_err_when_no_git_dir() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        // no .git in tmp
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = update_repo_path_impl("r1", tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err without .git dir");
+    }
+
+    #[test]
+    fn test_update_repo_path_returns_err_when_no_config_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(tmp.path().join(".git")).expect("create .git");
+        // no .postlane/config.json
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = update_repo_path_impl("r1", tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err without config.json");
+    }
+
+    #[test]
+    fn test_update_repo_path_returns_err_for_unknown_repo_id() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        scaffold_git_repo(tmp.path());
+        // state has no repos
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = update_repo_path_impl("no-such-id", tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err for unknown repo id");
+    }
+
+    #[test]
+    fn test_update_repo_path_updates_path_in_state() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        scaffold_git_repo(tmp.path());
+        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
+        let repo = crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "r".to_string(),
+            path: "/old/path".to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let state = make_state_at(tmp.path(), vec![repo]);
+        update_repo_path_impl("r1", canonical.to_str().unwrap(), &state)
+            .expect("update should succeed");
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(
+            repos.repos[0].path,
+            canonical.to_str().unwrap(),
+            "path must be updated in state"
+        );
     }
 }
