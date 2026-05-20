@@ -1,72 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::post_io::{collect_posts_from_dir, collect_posts_from_repos, read_repo_config_provider, sort_by_status_priority_then_timestamp};
-use crate::post_meta::PostMeta;
+use crate::post_io::{collect_posts_from_dir, collect_posts_from_repos, parse_published_post, sort_by_status_priority_then_timestamp};
 use crate::types::Post;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::State;
-
-/// Parse a single post directory into a `Post` using the M19 `PostMeta` schema.
-/// Returns `None` if the post has no `sent_platforms` (sent) and no `scheduled_for` (queued).
-fn parse_published_post(
-    post_path: &Path,
-    repo_id: &str,
-    repo_name: &str,
-    repo_path: &str,
-) -> Option<Post> {
-    if !post_path.is_dir() {
-        return None;
-    }
-    let post_folder = post_path.file_name()?.to_str()?.to_string();
-    let meta_path = PostMeta::path_for(Path::new(repo_path), &post_folder);
-    let meta = PostMeta::load(&meta_path).ok()?;
-
-    let status = if !meta.sent_platforms.is_empty() {
-        "sent".to_string()
-    } else if meta.scheduled_for.is_some() {
-        "queued".to_string()
-    } else {
-        return None;
-    };
-
-    let mut platforms: Vec<String> = meta.sent_platforms.keys().cloned().collect();
-    platforms.sort();
-
-    // Use lexicographic minimum of ISO8601 timestamps as the post's primary sent_at.
-    let sent_at = meta.sent_platforms.values().min().cloned();
-
-    Some(Post {
-        repo_id: repo_id.to_string(),
-        repo_name: repo_name.to_string(),
-        repo_path: repo_path.to_string(),
-        post_folder,
-        status,
-        platforms,
-        platform_results: None,
-        schedule: meta.scheduled_for,
-        schedule_source: None,
-        scheduler_ids: Some(meta.scheduler_ids).filter(|m| !m.is_empty()),
-        platform_urls: Some(meta.platform_urls).filter(|m| !m.is_empty()),
-        provider: read_repo_config_provider(repo_path),
-        llm_model: meta.model_name.clone(),
-        sent_at,
-        created_at: None,
-        trigger: None,
-        error: meta.error,
-        image_url: None,
-        project_id: None,
-        model_name: meta.model_name,
-        scheduled_for: None,
-        edited_at: None,
-        platform: String::default(),
-        text: String::default(),
-    })
-}
-
-fn sort_published_by_status_then_sent_at(posts: &mut [Post]) {
-    sort_by_status_priority_then_timestamp(posts, "queued", "sent", |p| &p.status, |p| p.sent_at.as_deref());
-}
 
 pub fn get_repo_published_impl(
     repo_id: &str,
@@ -90,7 +28,7 @@ pub fn get_repo_published_impl(
     let mut posts = collect_posts_from_dir(&posts_dir, |p| {
         parse_published_post(p, &repo.id, &repo.name, &repo.path)
     });
-    sort_published_by_status_then_sent_at(&mut posts);
+    sort_by_status_priority_then_timestamp(&mut posts, "queued", "sent", |p| &p.status, |p| p.sent_at.as_deref());
     Ok(posts.into_iter().skip(offset).take(limit).collect())
 }
 
@@ -215,39 +153,6 @@ mod tests {
         let state = make_state(vec![]);
         let result = get_repo_published_impl("nonexistent", 0, 100, &state);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_read_repo_provider_returns_provider_from_config() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_dir = dir.path().join(".postlane");
-        fs::create_dir_all(&config_dir).expect("create config dir");
-        fs::write(
-            config_dir.join("config.json"),
-            r#"{"scheduler":{"provider":"zernio"}}"#,
-        )
-        .expect("write config");
-
-        let result = read_repo_config_provider(dir.path().to_str().unwrap());
-        assert_eq!(result, Some("zernio".to_string()));
-    }
-
-    #[test]
-    fn test_read_repo_provider_returns_none_when_config_missing() {
-        let result = read_repo_config_provider("/path/that/does/not/exist");
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_read_repo_provider_returns_none_when_field_absent() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_dir = dir.path().join(".postlane");
-        fs::create_dir_all(&config_dir).expect("create config dir");
-        fs::write(config_dir.join("config.json"), r#"{"other":"data"}"#)
-            .expect("write config");
-
-        let result = read_repo_config_provider(dir.path().to_str().unwrap());
-        assert_eq!(result, None);
     }
 
     #[test]

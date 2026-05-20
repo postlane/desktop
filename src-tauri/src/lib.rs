@@ -15,6 +15,7 @@ pub mod deep_link_routing;
 pub mod github_app;
 pub mod draft_edits;
 pub mod draft_output;
+pub mod draft_post_scanner;
 pub mod draft_queries;
 pub mod draft_schedule;
 pub mod engagement_cache;

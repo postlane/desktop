@@ -1,6 +1,63 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use crate::post_meta::PostMeta;
+use crate::types::Post;
 use std::{cmp::Ordering, fs, path::{Path, PathBuf}};
+
+/// Parse a single post directory into a published `Post`.
+/// Returns `None` if the post has neither sent platforms nor a scheduled time.
+pub(crate) fn parse_published_post(
+    post_path: &Path,
+    repo_id: &str,
+    repo_name: &str,
+    repo_path: &str,
+) -> Option<Post> {
+    if !post_path.is_dir() {
+        return None;
+    }
+    let post_folder = post_path.file_name()?.to_str()?.to_string();
+    let meta_path = PostMeta::path_for(Path::new(repo_path), &post_folder);
+    let meta = PostMeta::load(&meta_path).ok()?;
+
+    let status = if !meta.sent_platforms.is_empty() {
+        "sent".to_string()
+    } else if meta.scheduled_for.is_some() {
+        "queued".to_string()
+    } else {
+        return None;
+    };
+
+    let mut platforms: Vec<String> = meta.sent_platforms.keys().cloned().collect();
+    platforms.sort();
+    let sent_at = meta.sent_platforms.values().min().cloned();
+
+    Some(Post {
+        repo_id: repo_id.to_string(),
+        repo_name: repo_name.to_string(),
+        repo_path: repo_path.to_string(),
+        post_folder,
+        status,
+        platforms,
+        platform_results: None,
+        schedule: meta.scheduled_for,
+        schedule_source: None,
+        scheduler_ids: Some(meta.scheduler_ids).filter(|m| !m.is_empty()),
+        platform_urls: Some(meta.platform_urls).filter(|m| !m.is_empty()),
+        provider: read_repo_config_provider(repo_path),
+        llm_model: meta.model_name.clone(),
+        sent_at,
+        created_at: None,
+        trigger: None,
+        error: meta.error,
+        image_url: None,
+        project_id: None,
+        model_name: meta.model_name,
+        scheduled_for: None,
+        edited_at: None,
+        platform: String::default(),
+        text: String::default(),
+    })
+}
 
 /// Collect posts from a directory by applying `parse` to each entry path.
 /// Returns an empty vec if the directory cannot be read.
@@ -224,5 +281,14 @@ mod tests {
     #[test]
     fn read_repo_config_provider_returns_none_when_missing() {
         assert_eq!(read_repo_config_provider("/nonexistent/path"), None);
+    }
+
+    #[test]
+    fn read_repo_config_provider_returns_none_when_field_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_dir = dir.path().join(".postlane");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("config.json"), r#"{"other":"data"}"#).unwrap();
+        assert_eq!(read_repo_config_provider(dir.path().to_str().unwrap()), None);
     }
 }
