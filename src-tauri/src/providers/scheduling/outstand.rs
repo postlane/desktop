@@ -311,4 +311,57 @@ mod tests {
         assert_eq!(eng.reposts, 0);
         assert_eq!(eng.impressions, None);
     }
+
+    #[tokio::test]
+    async fn test_list_profiles_returns_profiles() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/social-accounts");
+            then.status(200).json_body(serde_json::json!({
+                "data": [{ "id": "p1", "name": "My X", "platform": "twitter" }]
+            }));
+        });
+        let provider = make_provider(&server);
+        let result = provider.list_profiles().await;
+        assert!(result.is_ok(), "{:?}", result);
+        let profiles = result.unwrap();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].id, "p1");
+        assert_eq!(profiles[0].name, "My X");
+        assert_eq!(profiles[0].platforms, vec!["twitter"]);
+    }
+
+    #[tokio::test]
+    async fn test_list_profiles_returns_err_on_401() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/social-accounts");
+            then.status(401);
+        });
+        let provider = make_provider(&server);
+        let result = provider.list_profiles().await;
+        assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_returns_empty_on_empty_response() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/posts").query_param("status", "scheduled");
+            then.status(200).json_body(serde_json::json!({ "data": [] }));
+        });
+        let provider = make_provider(&server);
+        let result = provider.get_queue().await;
+        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_returns_err_on_network_failure() {
+        // Port 1 is reserved and never listening, so this will fail at the TCP level.
+        let mut provider = OutstandProvider::new("test-key".to_string());
+        provider.base_url = "http://127.0.0.1:1".to_string();
+        let result = provider.get_queue().await;
+        assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+    }
 }

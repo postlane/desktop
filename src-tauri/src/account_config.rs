@@ -64,6 +64,29 @@ pub fn save_account_id(
     save_account_id_impl(&config_path, &platform, &account_id)
 }
 
+pub(crate) fn get_account_ids_impl(
+    config_path: &std::path::Path,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    if !config_path.exists() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let content = fs::read_to_string(config_path)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+    let config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+
+    let account_ids = match config["scheduler"]["account_ids"].as_object() {
+        Some(obj) => obj
+            .iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect(),
+        None => std::collections::HashMap::new(),
+    };
+
+    Ok(account_ids)
+}
+
 #[tauri::command]
 pub fn get_account_ids(
     repo_id: String,
@@ -81,24 +104,7 @@ pub fn get_account_ids(
         .ok_or_else(|| format!("Repo '{}' not found", repo_id))?;
 
     let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
-    if !config_path.exists() {
-        return Ok(std::collections::HashMap::new());
-    }
-
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
-
-    let account_ids = match config["scheduler"]["account_ids"].as_object() {
-        Some(obj) => obj
-            .iter()
-            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-            .collect(),
-        None => std::collections::HashMap::new(),
-    };
-
-    Ok(account_ids)
+    get_account_ids_impl(&config_path)
 }
 
 
@@ -341,6 +347,64 @@ mod tests {
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-x"));
         assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("acc-bs"));
+    }
+
+    #[test]
+    fn test_get_account_ids_impl_returns_empty_when_file_absent() {
+        let result = get_account_ids_impl(
+            std::path::Path::new("/nonexistent/path/.postlane/config.json"),
+        );
+        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_account_ids_impl_returns_empty_when_no_account_ids_key() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"scheduler":{}}"#);
+        let result = get_account_ids_impl(&config_path);
+        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_get_account_ids_impl_returns_map_when_present() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{
+            "scheduler": {
+                "account_ids": { "x": "acc123", "bluesky": "bsky456" }
+            }
+        }"#);
+        let result = get_account_ids_impl(&config_path);
+        assert!(result.is_ok(), "{:?}", result);
+        let map = result.unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get("x").map(String::as_str), Some("acc123"));
+        assert_eq!(map.get("bluesky").map(String::as_str), Some("bsky456"));
+    }
+
+    #[test]
+    fn test_get_account_ids_impl_returns_err_on_corrupt_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), "not json");
+        let result = get_account_ids_impl(&config_path);
+        assert!(result.is_err(), "expected Err for corrupt JSON");
+    }
+
+    #[test]
+    fn test_get_account_ids_impl_ignores_non_string_values() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{
+            "scheduler": {
+                "account_ids": { "x": "acc", "bad": 123 }
+            }
+        }"#);
+        let result = get_account_ids_impl(&config_path);
+        assert!(result.is_ok(), "{:?}", result);
+        let map = result.unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get("x").map(String::as_str), Some("acc"));
+        assert!(!map.contains_key("bad"));
     }
 
 }
