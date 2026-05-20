@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::init::read_json_file;
 use crate::storage::{write_repos, Repo};
 use crate::types::RepoHealthStatus;
 use std::fs;
@@ -118,10 +117,7 @@ pub fn set_repo_active(
 
     if active {
         let repo_path = {
-            let repos = state
-                .repos
-                .lock()
-                .map_err(|e| format!("Failed to lock repos: {}", e))?;
+            let repos = state.lock_repos()?;
             repos
                 .repos
                 .iter()
@@ -138,10 +134,7 @@ pub fn set_repo_active(
 }
 
 pub fn check_repo_health_impl(state: &AppState) -> Result<Vec<RepoHealthStatus>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let mut statuses = Vec::new();
 
@@ -249,51 +242,6 @@ pub fn start_repo_watcher(
     }
 }
 
-/// Updates `scheduler.provider` and `scheduler.fallback_order` in a repo's config.json.
-/// `fallback_order` must be non-empty; the first entry becomes `scheduler.provider`.
-pub fn update_scheduler_config_impl(
-    repo_id: &str,
-    fallback_order: &[String],
-    state: &AppState,
-) -> Result<(), String> {
-    if fallback_order.is_empty() {
-        return Err("fallback_order must contain at least one provider".to_string());
-    }
-    for provider in fallback_order {
-        if !crate::scheduler_credentials::VALID_PROVIDERS.contains(&provider.as_str()) {
-            return Err(format!("Unknown provider in fallback_order: '{}'", provider));
-        }
-    }
-    let repo_path = {
-        let repos = state.lock_repos()?;
-        repos
-            .repos
-            .iter()
-            .find(|r| r.id == repo_id)
-            .ok_or_else(|| format!("Repo {} not found", repo_id))?
-            .path
-            .clone()
-    };
-    let config_path = std::path::PathBuf::from(&repo_path).join(".postlane/config.json");
-    let mut config: serde_json::Value = read_json_file(&config_path)?;
-    config["scheduler"]["provider"] = serde_json::json!(fallback_order[0]);
-    config["scheduler"]["fallback_order"] = serde_json::json!(fallback_order);
-    let tmp = config_path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("Failed to write config.json.tmp: {}", e))?;
-    fs::rename(&tmp, &config_path)
-        .map_err(|e| format!("Failed to rename config.json: {}", e))?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn update_scheduler_config(
-    repo_id: String,
-    fallback_order: Vec<String>,
-    state: State<AppState>,
-) -> Result<(), String> {
-    update_scheduler_config_impl(&repo_id, &fallback_order, &state)
-}
 
 #[cfg(test)]
 mod tests {
@@ -303,25 +251,6 @@ mod tests {
 
     fn make_empty_state() -> AppState {
         AppState::new(ReposConfig { version: 1, repos: vec![] })
-    }
-
-    fn make_test_state_with_dir(dir: &std::path::Path) -> AppState {
-        let canonical = std::fs::canonicalize(dir).expect("canonicalize");
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
-                id: "r99".to_string(), name: "test".to_string(),
-                path: canonical.to_str().unwrap().to_string(),
-                active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
-    }
-
-    fn write_test_config(dir: &std::path::Path) -> std::path::PathBuf {
-        let config_path = dir.join(".postlane/config.json");
-        std::fs::create_dir_all(dir.join(".postlane")).expect("create dir");
-        std::fs::write(&config_path, r#"{"scheduler":{"provider":"old"}}"#).expect("write");
-        config_path
     }
 
     /// Build a state whose repos.json lives in `dir`, seeded with the given repos.
@@ -341,71 +270,6 @@ mod tests {
     }
 
     #[test]
-    fn test_update_scheduler_config_writes_single_provider() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_test_config(dir.path());
-        let state = make_test_state_with_dir(dir.path());
-        let result = update_scheduler_config_impl("r99", &["zernio".to_string()], &state);
-        assert!(result.is_ok(), "{:?}", result);
-        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(config["scheduler"]["provider"].as_str().unwrap(), "zernio");
-        let order: Vec<&str> = config["scheduler"]["fallback_order"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
-        assert_eq!(order, vec!["zernio"]);
-    }
-
-    #[test]
-    fn test_update_scheduler_config_writes_full_fallback_order() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_test_config(dir.path());
-        let state = make_test_state_with_dir(dir.path());
-        let order_in = ["zernio".to_string(), "publer".to_string(), "outstand".to_string()];
-        let result = update_scheduler_config_impl("r99", &order_in, &state);
-        assert!(result.is_ok(), "{:?}", result);
-        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(config["scheduler"]["provider"].as_str().unwrap(), "zernio");
-        let order: Vec<&str> = config["scheduler"]["fallback_order"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
-        assert_eq!(order, vec!["zernio", "publer", "outstand"]);
-    }
-
-    #[test]
-    fn test_update_scheduler_config_rejects_empty_list() {
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        let result = update_scheduler_config_impl("r99", &[], &state);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_update_scheduler_config_rejects_unknown_provider() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_test_config(dir.path());
-        let state = make_test_state_with_dir(dir.path());
-        let result = update_scheduler_config_impl("r99", &["unknown_xyz".to_string()], &state);
-        assert!(result.is_err(), "unknown provider must be rejected");
-        let err = result.unwrap_err();
-        assert!(err.contains("unknown_xyz"), "error must identify the bad provider, got: {}", err);
-    }
-
-    #[test]
-    fn test_update_scheduler_config_rejects_provider_in_mixed_list() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_test_config(dir.path());
-        let state = make_test_state_with_dir(dir.path());
-        let result = update_scheduler_config_impl(
-            "r99",
-            &["zernio".to_string(), "bad_provider".to_string()],
-            &state,
-        );
-        assert!(result.is_err(), "list with unknown provider must be rejected");
-    }
-
-    #[test]
-    fn test_update_scheduler_config_errors_on_missing_repo() {
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
-        let result = update_scheduler_config_impl("nonexistent", &["zernio".to_string()], &state);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_record_repo_connected_queues_when_consent_given() {
         let state = make_empty_state();
         record_repo_connected(&state, true, "my-repo");
@@ -417,212 +281,6 @@ mod tests {
         let state = make_empty_state();
         record_repo_connected(&state, false, "my-repo");
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
-    }
-
-    // --- add_repo_impl ---
-
-    #[test]
-    fn test_add_repo_impl_returns_err_when_path_does_not_exist() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let state = make_state_at(tmp.path(), vec![]);
-        let result = add_repo_impl("/nonexistent/path/that/cannot/exist", &state);
-        assert!(result.is_err(), "must err on nonexistent path");
-    }
-
-    #[test]
-    fn test_add_repo_impl_returns_err_when_no_git_dir() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let state = make_state_at(tmp.path(), vec![]);
-        // no .git created
-        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
-        assert!(result.is_err(), "must err without .git dir");
-        let err = result.unwrap_err();
-        assert!(err.contains("git"), "error should mention git, got: {}", err);
-    }
-
-    #[test]
-    fn test_add_repo_impl_returns_err_when_no_config_json() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        std::fs::create_dir_all(tmp.path().join(".git")).expect("create .git");
-        // no .postlane/config.json
-        let state = make_state_at(tmp.path(), vec![]);
-        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
-        assert!(result.is_err(), "must err without config.json");
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("config.json"),
-            "error should mention config.json, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_add_repo_impl_succeeds_and_writes_repos_json() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        scaffold_git_repo(tmp.path());
-        let state = make_state_at(tmp.path(), vec![]);
-        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
-        assert!(result.is_ok(), "happy path must succeed: {:?}", result);
-        assert!(
-            tmp.path().join("repos.json").exists(),
-            "repos.json must be written"
-        );
-        let repos = state.repos.lock().unwrap();
-        assert_eq!(repos.repos.len(), 1, "state must contain exactly one repo");
-    }
-
-    #[test]
-    fn test_add_repo_impl_uses_folder_name_as_repo_name() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        scaffold_git_repo(tmp.path());
-        let state = make_state_at(tmp.path(), vec![]);
-        let repo = add_repo_impl(tmp.path().to_str().unwrap(), &state).expect("should succeed");
-        let folder_name = tmp
-            .path()
-            .file_name()
-            .and_then(|n| n.to_str())
-            .expect("folder name");
-        assert_eq!(repo.name, folder_name, "repo name must match folder name");
-    }
-
-    // --- remove_repo_impl ---
-
-    #[test]
-    fn test_remove_repo_impl_returns_err_for_unknown_id() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repo = crate::storage::Repo {
-            id: "known-id".to_string(),
-            name: "r".to_string(),
-            path: tmp.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        let result = remove_repo_impl("different-id", &state);
-        assert!(result.is_err(), "must err for unknown id");
-    }
-
-    #[test]
-    fn test_remove_repo_impl_removes_repo_from_state() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repo = crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "r".to_string(),
-            path: tmp.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        remove_repo_impl("r1", &state).expect("remove should succeed");
-        let repos = state.repos.lock().unwrap();
-        assert_eq!(repos.repos.len(), 0, "state must be empty after removal");
-    }
-
-    #[test]
-    fn test_remove_repo_impl_writes_repos_json() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repo = crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "r".to_string(),
-            path: tmp.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        remove_repo_impl("r1", &state).expect("remove should succeed");
-        assert!(
-            tmp.path().join("repos.json").exists(),
-            "repos.json must be written after removal"
-        );
-    }
-
-    // --- set_repo_active_impl ---
-
-    #[test]
-    fn test_set_repo_active_returns_err_for_unknown_id() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let state = make_state_at(tmp.path(), vec![]);
-        let result = set_repo_active_impl("no-such-id", true, &state);
-        assert!(result.is_err(), "must err for unknown id");
-    }
-
-    #[test]
-    fn test_set_repo_active_sets_active_true() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repo = crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "r".to_string(),
-            path: tmp.path().to_str().unwrap().to_string(),
-            active: false,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        set_repo_active_impl("r1", true, &state).expect("should succeed");
-        let repos = state.repos.lock().unwrap();
-        assert!(repos.repos[0].active, "repo must be active");
-    }
-
-    #[test]
-    fn test_set_repo_active_sets_active_false() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repo = crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "r".to_string(),
-            path: tmp.path().to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        set_repo_active_impl("r1", false, &state).expect("should succeed");
-        let repos = state.repos.lock().unwrap();
-        assert!(!repos.repos[0].active, "repo must be inactive");
-    }
-
-    // --- check_repo_health_impl ---
-
-    #[test]
-    fn test_check_repo_health_empty_state_returns_empty_vec() {
-        let state = make_empty_state();
-        let result = check_repo_health_impl(&state).expect("should not err");
-        assert!(result.is_empty(), "empty state must yield empty health vec");
-    }
-
-    #[test]
-    fn test_check_repo_health_reachable_when_config_json_exists() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
-        // create .postlane/config.json
-        std::fs::create_dir_all(canonical.join(".postlane")).expect("create .postlane");
-        std::fs::write(canonical.join(".postlane/config.json"), "{}").expect("write config");
-        let repo = crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "r".to_string(),
-            path: canonical.to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        let statuses = check_repo_health_impl(&state).expect("should not err");
-        assert_eq!(statuses.len(), 1);
-        assert!(statuses[0].reachable, "repo must be reachable when config.json exists");
-    }
-
-    #[test]
-    fn test_check_repo_health_unreachable_when_config_json_missing() {
-        let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
-        // deliberately no .postlane/config.json
-        let repo = crate::storage::Repo {
-            id: "r1".to_string(),
-            name: "r".to_string(),
-            path: canonical.to_str().unwrap().to_string(),
-            active: true,
-            added_at: "2026-01-01T00:00:00Z".to_string(),
-        };
-        let state = make_state_at(tmp.path(), vec![repo]);
-        let statuses = check_repo_health_impl(&state).expect("should not err");
-        assert_eq!(statuses.len(), 1);
-        assert!(!statuses[0].reachable, "repo must be unreachable without config.json");
     }
 
     // --- update_repo_path_impl ---
