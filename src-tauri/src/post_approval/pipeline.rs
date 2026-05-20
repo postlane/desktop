@@ -143,22 +143,6 @@ pub(super) fn record_scheduler_failure(meta: &mut PostMeta, error: &str) {
     meta.error = Some(error.to_string());
 }
 
-/// Returns Err if the platform content exceeds its character limit.
-/// Silently passes for platforms that have no defined limit (e.g. webhook).
-pub(super) fn validate_char_limit(platform: &str, post_path: &Path) -> Result<(), String> {
-    let content = read_platform_content(post_path, platform)?;
-    let count = crate::parser::count_chars(&content, platform);
-    if let Ok(limit) = crate::parser::char_limit(platform) {
-        if count > limit {
-            return Err(format!(
-                "Post exceeds the {} character limit for {} ({}/{}). Edit the post to shorten it.",
-                limit, platform, count, limit
-            ));
-        }
-    }
-    Ok(())
-}
-
 pub(super) async fn call_scheduler(
     app: &tauri::AppHandle,
     platform: &str,
@@ -322,50 +306,6 @@ mod tests {
         record_scheduler_failure(&mut meta, "HTTP 500 from scheduler");
         assert_eq!(meta.status, Some(PostStatus::Failed));
         assert_eq!(meta.error.as_deref(), Some("HTTP 500 from scheduler"));
-    }
-
-    // --- §validate_char_limit ---
-
-    fn write_platform_file(dir: &std::path::Path, platform: &str, content: &str) {
-        std::fs::write(dir.join(format!("{}.md", platform)), content).expect("write platform file");
-    }
-
-    #[test]
-    fn test_validate_char_limit_accepts_post_within_limit() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_platform_file(dir.path(), "bluesky", &"a".repeat(300));
-        assert!(validate_char_limit("bluesky", dir.path()).is_ok());
-    }
-
-    #[test]
-    fn test_validate_char_limit_rejects_post_over_limit() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_platform_file(dir.path(), "bluesky", &"a".repeat(301));
-        let err = validate_char_limit("bluesky", dir.path()).unwrap_err();
-        assert!(err.contains("301"), "error must mention actual count");
-        assert!(err.contains("300"), "error must mention the limit");
-        assert!(err.contains("bluesky"), "error must name the platform");
-    }
-
-    #[test]
-    fn test_validate_char_limit_passes_for_platform_without_limit() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_platform_file(dir.path(), "webhook", &"x".repeat(9999));
-        assert!(validate_char_limit("webhook", dir.path()).is_ok());
-    }
-
-    #[test]
-    fn test_validate_char_limit_rejects_x_post_over_280() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_platform_file(dir.path(), "x", &"a".repeat(281));
-        assert!(validate_char_limit("x", dir.path()).is_err());
-    }
-
-    #[test]
-    fn test_validate_char_limit_errors_when_platform_file_missing() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let err = validate_char_limit("bluesky", dir.path()).unwrap_err();
-        assert!(err.contains("bluesky.md"), "error must name the missing file");
     }
 
 }

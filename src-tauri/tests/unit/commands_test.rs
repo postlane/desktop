@@ -302,7 +302,6 @@ mod approve_post_tests {
 
         let post_folder = canonical.join(".postlane/posts/post1");
         fs::create_dir_all(&post_folder).unwrap();
-        fs::write(post_folder.join("x.md"), "short content").unwrap();
 
         let repos_config = ReposConfig {
             version: 1,
