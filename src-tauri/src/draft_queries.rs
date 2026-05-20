@@ -86,8 +86,7 @@ fn drafts_from_folder(
 }
 
 fn project_id_from_config(config_path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(config_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let v: serde_json::Value = crate::init::read_json_file(config_path).ok()?;
     v["project_id"].as_str().map(str::to_string)
 }
 

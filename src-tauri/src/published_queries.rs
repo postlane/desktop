@@ -74,10 +74,7 @@ pub fn get_repo_published_impl(
     limit: usize,
     state: &AppState,
 ) -> Result<Vec<Post>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let repo = repos
         .repos
