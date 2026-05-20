@@ -31,6 +31,7 @@ pub mod mastodon_token_exchange;
 pub mod model_stats;
 pub mod nav_commands;
 pub mod og_image;
+pub mod org_avatar;
 pub mod org_published;
 pub mod parser;
 pub mod platform_constants;
@@ -47,6 +48,7 @@ pub mod post_redraft;
 pub mod post_retry;
 pub mod project_billing;
 pub mod project_cache;
+pub mod project_delete;
 pub mod project_config_ops;
 pub mod project_lifecycle;
 pub mod project_registry;
@@ -343,7 +345,8 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
         og_image::fetch_og_image, og_image::validate_url_safe,
-        provider_orgs::fetch_avatar_bytes, provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
+        org_avatar::fetch_avatar_bytes,
+        provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
         github_app::check_github_app_installed, github_app::backfill_project_org_login,
         post_schedule::update_post_schedule,
         mastodon_connection::get_mastodon_char_limit, mastodon_connection::get_mastodon_connected_instance,
@@ -358,7 +361,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         project_billing::check_project_status, project_billing::check_billing_gate,
         project_lifecycle::create_project, project_lifecycle::update_project_org_login,
         project_lifecycle::register_repo_with_project, project_lifecycle::list_projects,
-        project_lifecycle::delete_project,
+        project_delete::delete_project,
         project_config_ops::write_project_id_to_config, project_config_ops::get_repo_remote_name,
         project_config_ops::read_project_id_from_path,
         project_voice_guide::save_project_voice_guide, project_voice_guide::get_project_voice_guide,
