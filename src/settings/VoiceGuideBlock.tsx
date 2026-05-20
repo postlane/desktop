@@ -14,7 +14,7 @@ function useVoiceGuideFields(projectId: string) {
   const [fields, setFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [loadedFields, setLoadedFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [loadError, setLoadError] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [syncedCount, setSyncedCount] = useState<number | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -36,26 +36,26 @@ function useVoiceGuideFields(projectId: string) {
   const save = useCallback(async (current: VoiceGuideFields, projectName: string) => {
     setSaveLoading(true);
     try {
-      await invoke('save_project_voice_guide', {
+      const synced = await invoke<string[]>('save_project_voice_guide', {
         projectId,
         voiceGuide: buildVoiceGuide(current, projectName),
         voiceGuideFields: current,
       });
       setLoadedFields(current);
-      setSaveSuccess(true);
+      setSyncedCount((synced ?? []).length);
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setSaveSuccess(false), 2000);
+      timerRef.current = setTimeout(() => setSyncedCount(null), 2000);
     } finally {
       setSaveLoading(false);
     }
   }, [projectId]);
 
   const isDirty = JSON.stringify(fields) !== JSON.stringify(loadedFields);
-  return { fields, setFields, loadError, saveSuccess, saveLoading, load, save, isDirty };
+  return { fields, setFields, loadError, syncedCount, saveLoading, load, save, isDirty };
 }
 
 export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Props) {
-  const { fields, setFields, loadError, saveSuccess, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
+  const { fields, setFields, loadError, syncedCount, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
 
   function handleChange(key: keyof VoiceGuideFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -74,7 +74,11 @@ export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Pro
         <>
           <VoiceGuideForm fields={fields} onChange={handleChange} onApplyTemplate={setFields} />
           <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
-            {saveSuccess && <p className="is-size-7 has-text-success">Voice guide saved.</p>}
+            {syncedCount !== null && (
+              syncedCount > 0
+                ? <p className="is-size-7 has-text-success">Voice guide saved and synced to {syncedCount} repo(s).</p>
+                : <p className="is-size-7 has-text-success">Voice guide saved. Connect a repository to sync it there.</p>
+            )}
             <button className="button is-small is-primary ml-auto"
               onClick={() => save(fields, projectName)} disabled={!isDirty || saveLoading}>
               {saveLoading ? 'Saving…' : 'Save'}
