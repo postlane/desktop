@@ -167,6 +167,26 @@ mod tests {
     }
 
     #[test]
+    fn test_discover_child_repos_returns_empty_for_nonexistent_path() {
+        let path = std::path::Path::new("/nonexistent/workspace/path/that/does/not/exist");
+        let found = discover_child_repos(path);
+        assert!(found.is_empty(), "nonexistent path must return empty vec");
+    }
+
+    #[test]
+    fn test_discover_child_repos_skips_files_not_dirs() {
+        let ws = setup_dir("discover_files");
+        // Create a regular file in the workspace — must be skipped
+        fs::write(ws.join("not-a-dir.txt"), "content").expect("write file");
+        // Also create a real git repo so the result is non-trivially exercised
+        make_git_repo(&ws.join("real-repo"));
+        let found = discover_child_repos(&ws);
+        assert_eq!(found.len(), 1, "only directories should be returned, not files");
+        assert!(found[0].ends_with("real-repo"));
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
     fn test_effective_config_path_falls_back_to_workspace_config() {
         let ws = setup_dir("eff_cfg_ws");
         let child = ws.join("repo-a");

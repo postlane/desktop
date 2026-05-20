@@ -168,6 +168,38 @@ mod tests {
     }
 
     #[test]
+    fn test_set_default_post_time_command_delegates_to_impl() {
+        let _guard = AppStateGuard::acquire();
+
+        let initial = AppStateFile {
+            default_post_time: None,
+            ..AppStateFile::default()
+        };
+        write_app_state(&initial).expect("write initial");
+
+        set_default_post_time(Some(DefaultPostTime { hour: 10, minute: 15, timezone: String::new() }))
+            .expect("set_default_post_time command should succeed");
+
+        let result = read_app_state();
+        let dpt = result.default_post_time.expect("default_post_time must be set");
+        assert_eq!(dpt.hour, 10);
+        assert_eq!(dpt.minute, 15);
+    }
+
+    #[test]
+    fn test_set_wizard_completed_command_delegates_to_impl() {
+        let _guard = AppStateGuard::acquire();
+
+        let initial = AppStateFile { wizard_completed: false, ..AppStateFile::default() };
+        write_app_state(&initial).expect("write initial");
+
+        set_wizard_completed().expect("set_wizard_completed command should succeed");
+
+        let result = read_app_state();
+        assert!(result.wizard_completed, "wizard_completed must be true after command call");
+    }
+
+    #[test]
     fn test_set_default_post_time_clear_sets_none() {
         let _guard = AppStateGuard::acquire();
 
