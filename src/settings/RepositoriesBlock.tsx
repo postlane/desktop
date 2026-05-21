@@ -79,6 +79,24 @@ function GitHubAppRepoRow({ repo, folderLinked }: { repo: GitHubAppRepo; folderL
   );
 }
 
+function DisconnectConfirm({ onConfirm, onCancel, loading }: {
+  onConfirm: () => void; onCancel: () => void; loading: boolean;
+}) {
+  return (
+    <div className="mt-2 p-3 has-background-warning-light" style={{ borderRadius: 4 }}>
+      <p className="is-size-7">
+        This will remove Postlane&apos;s access to your GitHub organisation. Existing drafts are not deleted, but no new events will be received until the App is reinstalled.
+      </p>
+      <div className="is-flex mt-2" style={{ gap: '0.5rem' }}>
+        <button className="button is-small is-danger" onClick={onConfirm} disabled={loading}>
+          Confirm disconnect
+        </button>
+        <button className="button is-small" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // ── State hooks ───────────────────────────────────────────────────────────────
 
 function useRepoActions(refresh: () => void) {
@@ -114,20 +132,41 @@ function useGitHubAppRepos(projectId: string) {
       .catch(() => {});
   }, [projectId]);
 
-  return appRepos;
+  return { appRepos, clearAppRepos: () => setAppRepos([]) };
+}
+
+function useDisconnect(projectId: string, clearAppRepos: () => void) {
+  const [pending, setPending] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function confirm() {
+    setLoading(true);
+    try {
+      await invoke('disconnect_github_app', { projectId });
+      clearAppRepos();
+      window.open('https://github.com/settings/installations', '_blank');
+    } finally {
+      setLoading(false);
+      setPending(false);
+    }
+  }
+
+  return { pending, setPending, loading, confirm };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
   const { repos, refresh } = useProjectRepos(projectId);
-  const appRepos = useGitHubAppRepos(projectId);
+  const { appRepos, clearAppRepos } = useGitHubAppRepos(projectId);
 
   const {
     pendingRemoveId, setPendingRemoveId, removeLoading,
     showAddModal, setShowAddModal,
     handleConfirmRemove,
   } = useRepoActions(refresh);
+
+  const disconnect = useDisconnect(projectId, clearAppRepos);
 
   const appRepoNames = new Set(appRepos.map((r) => r.name));
   const folderOnlyRepos = repos.filter((r) => !appRepoNames.has(r.name));
@@ -144,6 +183,14 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
           {appRepos.map((repo) => (
             <GitHubAppRepoRow key={repo.id} repo={repo} folderLinked={folderLinkedNames.has(repo.name)} />
           ))}
+          {isOwner && !disconnect.pending && (
+            <button className="button is-small is-ghost has-text-danger mt-2" onClick={() => disconnect.setPending(true)}>
+              Disconnect GitHub App
+            </button>
+          )}
+          {isOwner && disconnect.pending && (
+            <DisconnectConfirm onConfirm={disconnect.confirm} onCancel={() => disconnect.setPending(false)} loading={disconnect.loading} />
+          )}
         </div>
       )}
 

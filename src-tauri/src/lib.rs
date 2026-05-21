@@ -362,7 +362,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         org_avatar::fetch_avatar_bytes,
         provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
         github_app::check_github_app_installed, github_app::backfill_project_org_login,
-        github_app::list_github_app_repos,
+        github_app::list_github_app_repos, github_app::disconnect_github_app,
         post_schedule::update_post_schedule,
         mastodon_connection::get_mastodon_char_limit, mastodon_connection::get_mastodon_connected_instance,
         mastodon_connection::disconnect_mastodon,
