@@ -72,6 +72,10 @@ pub struct AppStateFile {
     /// Uses serde default so pre-v1.2 app_state.json files deserialise as false (banner shown).
     #[serde(default)]
     pub org_upgrade_banner_dismissed_v1_2: bool,
+    /// Set to true after the v1 credential migration (bare → project-scoped keys) completes.
+    /// Uses serde default so pre-v1.3 app_state.json files deserialise as false (not yet migrated).
+    #[serde(default)]
+    pub credential_migration_v1: bool,
 }
 
 fn default_notifications_enabled() -> bool { true }
@@ -101,6 +105,7 @@ impl Default for AppStateFile {
             notifications_enabled: true,
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
+            credential_migration_v1: false,
         }
     }
 }
@@ -197,5 +202,20 @@ mod tests {
         let json = serde_json::to_string(&state).expect("serialize");
         let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
         assert!(loaded.org_upgrade_banner_dismissed_v1_2, "must survive round-trip");
+    }
+
+    #[test]
+    fn test_credential_migration_v1_absent_field_defaults_to_false() {
+        let json = r#"{"version":1,"window":{"width":1100,"height":700,"x":0,"y":0},"nav":{"last_view":"all_repos","last_repo_id":null,"last_section":"drafts","expanded_repos":[]},"wizard_completed":true,"timezone":"","telemetry_consent":false,"consent_asked":true}"#;
+        let loaded: AppStateFile = serde_json::from_str(json).expect("should parse");
+        assert!(!loaded.credential_migration_v1, "missing field must default to false");
+    }
+
+    #[test]
+    fn test_credential_migration_v1_round_trips() {
+        let state = AppStateFile { credential_migration_v1: true, ..AppStateFile::default() };
+        let json = serde_json::to_string(&state).expect("serialize");
+        let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
+        assert!(loaded.credential_migration_v1, "must survive round-trip");
     }
 }
