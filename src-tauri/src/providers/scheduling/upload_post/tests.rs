@@ -194,3 +194,109 @@ async fn test_get_engagement_without_views() {
     let eng = provider.get_engagement("req-789", "x").await.unwrap();
     assert_eq!(eng.impressions, None);
 }
+
+#[tokio::test]
+async fn test_validate_profile_valid_username_returns_platforms() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/uploadposts/users/myhandle")
+            .header("Authorization", "Apikey test-key");
+        then.status(200).json_body(serde_json::json!({
+            "username": "myhandle",
+            "social_accounts": [
+                {"platform": "bluesky"},
+                {"platform": "x"}
+            ]
+        }));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let platforms = provider.validate_profile("myhandle").await.unwrap();
+    assert_eq!(platforms, vec!["bluesky", "x"]);
+}
+
+#[tokio::test]
+async fn test_validate_profile_not_found_returns_404_with_case_hint() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/uploadposts/users/NoSuchUser");
+        then.status(404);
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let err = provider.validate_profile("NoSuchUser").await.unwrap_err();
+    match err {
+        ProviderError::HttpError { status, body } => {
+            assert_eq!(status, 404);
+            assert!(
+                body.contains("case-sensitive"),
+                "error must mention case-sensitivity, got: {}",
+                body
+            );
+        }
+        other => panic!("Expected HttpError(404), got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_validate_profile_auth_error() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/uploadposts/users/anyuser");
+        then.status(401);
+    });
+
+    let mut provider = UploadPostProvider::new("bad-key".to_string());
+    provider.base_url = server.base_url();
+
+    let err = provider.validate_profile("anyuser").await.unwrap_err();
+    assert!(matches!(err, ProviderError::AuthError(_)));
+}
+
+#[tokio::test]
+async fn test_validate_profile_returns_empty_when_no_social_accounts() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/uploadposts/users/bare");
+        then.status(200).json_body(serde_json::json!({"username": "bare"}));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let platforms = provider.validate_profile("bare").await.unwrap();
+    assert!(platforms.is_empty());
+}
+
+#[tokio::test]
+async fn test_validate_profile_parses_flat_platforms_array() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/uploadposts/users/handle2");
+        then.status(200).json_body(serde_json::json!({
+            "username": "handle2",
+            "platforms": ["linkedin", "bluesky"]
+        }));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let platforms = provider.validate_profile("handle2").await.unwrap();
+    assert_eq!(platforms, vec!["linkedin", "bluesky"]);
+}

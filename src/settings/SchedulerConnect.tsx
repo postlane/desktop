@@ -66,6 +66,44 @@ function KeyEntry({ provider, apiKey, saving, error, onKeyChange, onConnect, onC
   );
 }
 
+interface UsernameEntryProps {
+  workspaceId: string;
+  saving: boolean;
+  error: string | null;
+  username: string;
+  onUsernameChange: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}
+
+function UploadPostUsernameEntry({
+  saving, error, username, onUsernameChange, onSave, onCancel,
+}: UsernameEntryProps) {
+  return (
+    <div>
+      {error && <div role="alert" className="notification is-danger is-light py-2 px-3 is-size-7 mb-3">{error}</div>}
+      <div className="field">
+        <label className="label is-small">Upload Post username</label>
+        <div className="control">
+          <input className="input is-small" type="text" value={username}
+            onChange={(e) => onUsernameChange(e.target.value)}
+            placeholder="Your Upload Post username (case-sensitive)" />
+        </div>
+        <p className="is-size-7 has-text-grey mt-2">
+          Enter the username for your Upload Post connected account. Usernames are case-sensitive.
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="button is-primary is-small" onClick={onSave}
+          disabled={saving || username.trim().length === 0}>
+          {saving ? 'Validating…' : 'Save username'}
+        </button>
+        <button className="button is-light is-small" onClick={onCancel} disabled={saving}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   workspaceId: string;
   provider: Provider;
@@ -73,21 +111,59 @@ interface Props {
   onCancel: () => void;
 }
 
+type UploadPostStep = 'api_key' | 'username';
+
 export default function SchedulerConnect({ workspaceId, provider, onSuccess, onCancel }: Props) {
   const [apiKey, setApiKey] = useState('');
+  const [username, setUsername] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadPostStep, setUploadPostStep] = useState<UploadPostStep>('api_key');
 
   async function handleConnect() {
     setError(null);
     setSaving(true);
     try {
       await invoke('save_scheduler_credential', { provider, apiKey, repoId: workspaceId });
+      if (provider === 'upload_post') {
+        setUploadPostStep('username');
+        setSaving(false);
+      } else {
+        onSuccess(provider);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveUsername() {
+    setError(null);
+    setSaving(true);
+    try {
+      await invoke<string[]>('validate_upload_post_username', {
+        repoId: workspaceId,
+        username,
+      });
       onSuccess(provider);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSaving(false);
     }
+  }
+
+  if (provider === 'upload_post' && uploadPostStep === 'username') {
+    return (
+      <UploadPostUsernameEntry
+        workspaceId={workspaceId}
+        saving={saving}
+        error={error}
+        username={username}
+        onUsernameChange={setUsername}
+        onSave={handleSaveUsername}
+        onCancel={onCancel}
+      />
+    );
   }
 
   return (

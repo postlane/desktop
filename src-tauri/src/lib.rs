@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod account_config;
+pub mod upload_post_account;
 pub mod app_lifecycle;
 pub mod config_local_write;
 pub mod project_api;
@@ -341,6 +342,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         model_stats::get_model_stats, nav_commands::get_app_version, nav_commands::get_autostart_enabled,
         nav_commands::get_attribution, nav_commands::set_attribution, nav_commands::get_watcher_status,
         account_config::save_account_id, account_config::get_account_ids,
+        upload_post_account::validate_upload_post_username,
         nav_commands::read_app_state_command, nav_commands::save_app_state_command, nav_commands::get_app_state,
         app_state_ops::set_wizard_completed, app_state_ops::set_default_post_time,
         post_queries::get_drafts, post_approval::approve_post, post_queries::get_post_content,

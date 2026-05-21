@@ -42,7 +42,7 @@ Each security rule must have a corresponding test.
 
 ---
 
-## Testing (TDD — non-negotiable)
+## Testing (Strict TDD — non-negotiable)
 
 1. Write failing test → confirm RED
 2. Write minimum code to pass → confirm GREEN
