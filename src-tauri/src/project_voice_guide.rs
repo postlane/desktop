@@ -39,6 +39,25 @@ pub async fn get_voice_guide_fields(
     get_voice_guide_fields_with_client(&project_id, &client, POSTLANE_API_BASE, &token).await
 }
 
+// 21.3.0 — Decision: `.postlane/voice_guide.md` is COMMITTED to the repo.
+// Rationale: team members who clone the repo get the voice guide automatically.
+// Every app-side save creates an uncommitted change the user must notice and push,
+// which is acceptable — they would want to share the update with their team.
+
+/// Writes `voice_guide` to `{repo_path}/.postlane/voice_guide.md` atomically.
+/// Creates `.postlane/` if it does not exist (21.3.3).
+pub(crate) fn write_voice_guide_to_repo(
+    repo_path: &std::path::Path,
+    voice_guide: &str,
+) -> std::io::Result<()> {
+    let postlane_dir = repo_path.join(".postlane");
+    std::fs::create_dir_all(&postlane_dir)?;
+    let target = postlane_dir.join("voice_guide.md");
+    let tmp = postlane_dir.join("voice_guide.md.tmp");
+    std::fs::write(&tmp, voice_guide)?;
+    std::fs::rename(&tmp, &target)
+}
+
 /// Writes `voice_guide` to `.postlane/voice_guide.md` in every repo registered under
 /// `project_id`. Repos whose path no longer exists on disk are skipped with a warning.
 /// Returns the list of repo paths successfully written.
@@ -47,6 +66,9 @@ pub(crate) fn sync_voice_guide_to_repos_impl(
     voice_guide: &str,
     state: &AppState,
 ) -> Vec<String> {
+    if voice_guide.trim().is_empty() {
+        return Vec::new();
+    }
     let mut synced = Vec::new();
     for repo_path in crate::credential_repo_sync::collect_matching_repo_paths(project_id, state) {
         if !repo_path.exists() {
@@ -56,9 +78,7 @@ pub(crate) fn sync_voice_guide_to_repos_impl(
             );
             continue;
         }
-        let target = repo_path.join(".postlane/voice_guide.md");
-        let tmp = repo_path.join(".postlane/voice_guide.md.tmp");
-        match std::fs::write(&tmp, voice_guide).and_then(|_| std::fs::rename(&tmp, &target)) {
+        match write_voice_guide_to_repo(&repo_path, voice_guide) {
             Ok(_) => synced.push(repo_path.display().to_string()),
             Err(e) => log::warn!(
                 "[sync_voice_guide_to_repos] write to {}: {}",
@@ -204,6 +224,48 @@ mod tests {
 
         assert!(!postlane.join("voice_guide.md.tmp").exists(), ".tmp file must not exist after write");
         assert!(postlane.join("voice_guide.md").exists(), "final file must exist");
+    }
+
+    /// 21.3.17 — write_voice_guide_to_repo creates .postlane/ when it does not exist
+    #[test]
+    fn test_write_creates_postlane_dir_and_file() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // No .postlane/ directory pre-created — exercises the create_dir_all path
+        write_voice_guide_to_repo(dir.path(), "Be direct.").expect("write should succeed");
+        assert!(dir.path().join(".postlane").is_dir(), ".postlane/ must be created");
+        let content = std::fs::read_to_string(dir.path().join(".postlane/voice_guide.md"))
+            .expect("read voice_guide.md");
+        assert_eq!(content, "Be direct.");
+    }
+
+    /// 21.3.14 — on-disk content exactly matches the input string
+    #[test]
+    fn test_sync_content_readback_matches_input() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-readback"}"#)
+            .expect("write config.json");
+        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let input = "Voice guide content.\nLine two.\n";
+        let synced = sync_voice_guide_to_repos_impl("proj-readback", input, &state);
+        assert_eq!(synced.len(), 1);
+        let on_disk = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
+        assert_eq!(on_disk, input, "on-disk bytes must exactly match input");
+    }
+
+    /// 21.3.16 — whitespace-only voice guide does not write a file
+    #[test]
+    fn test_sync_skips_whitespace_only_voice_guide() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-ws"}"#)
+            .expect("write config.json");
+        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let synced = sync_voice_guide_to_repos_impl("proj-ws", "   \n  ", &state);
+        assert!(synced.is_empty(), "whitespace-only guide must return empty vec");
+        assert!(!postlane.join("voice_guide.md").exists(), "no file must be written for whitespace input");
     }
 }
 
