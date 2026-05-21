@@ -394,4 +394,14 @@ mod tests {
         assert!(msg.contains("Unknown provider"), "got: {}", msg);
     }
 
+    // 21.5.9 — two different project IDs produce distinct keyring keys (credential isolation)
+    #[test]
+    fn test_credential_key_is_scoped_per_project() {
+        let key_a = get_credential_keyring_key("zernio", "proj-alpha");
+        let key_b = get_credential_keyring_key("zernio", "proj-beta");
+        assert_ne!(key_a, key_b, "different projects must produce different keyring keys");
+        assert!(key_a.contains("proj-alpha"), "key must embed the project id");
+        assert!(key_b.contains("proj-beta"), "key must embed the project id");
+    }
+
 }

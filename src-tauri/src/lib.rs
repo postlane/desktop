@@ -8,6 +8,7 @@ pub mod config_merge;
 pub mod schedule_time;
 pub mod instance_guard;
 pub mod connect_repo;
+pub mod credential_migration;
 pub mod credential_repo_sync;
 pub mod analytics;
 pub mod app_state;
@@ -126,6 +127,15 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         *flag = Some(libsecret_available);
     }
     app.manage(app_state);
+
+    // Run one-time credential migration (bare → project-scoped keyring keys).
+    // Runs silently; errors are logged but never surfaced to the user.
+    {
+        let migration_state = app.state::<AppState>();
+        if let Err(e) = credential_migration::run_v1(app.handle(), &migration_state) {
+            log::warn!("[setup] credential migration failed: {}", e);
+        }
+    }
 
     if repos_was_corrupted {
         use tauri::Emitter;

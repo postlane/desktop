@@ -150,6 +150,7 @@ mod tests {
             dismissed_unassigned_draft_warning: false,
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
+            credential_migration_v1: false,
         };
 
         let path = dir.path().join("app_state.json");
@@ -219,6 +220,7 @@ mod tests {
             dismissed_unassigned_draft_warning: false,
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
+            credential_migration_v1: false,
         };
 
         write_app_state(&state).expect("Failed to write app_state");
@@ -282,6 +284,7 @@ mod tests {
             dismissed_unassigned_draft_warning: false,
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
+            credential_migration_v1: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
