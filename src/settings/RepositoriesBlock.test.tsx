@@ -265,3 +265,56 @@ describe('RepositoriesBlock — AddRepoModal', () => {
     expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-name', 'my-workspace')
   })
 })
+
+// ── Disconnect GitHub App (21.9.21) ───────────────────────────────────────────
+
+describe('RepositoriesBlock — Disconnect GitHub App (21.9.21)', () => {
+  it('shows Disconnect button for owner when app repos are present', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /Disconnect GitHub App/i })).toBeInTheDocument()
+  })
+
+  it('does not show Disconnect button for non-owners', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Disconnect GitHub App/i })).not.toBeInTheDocument()
+  })
+
+  it('does not show Disconnect button when no app repos', async () => {
+    mockInvoke.mockImplementation(async () => [])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.queryByText('GitHub App')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Disconnect GitHub App/i })).not.toBeInTheDocument()
+  })
+
+  it('shows confirmation prompt after clicking Disconnect', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i }))
+    expect(screen.getByText(/This will remove Postlane/i)).toBeInTheDocument()
+  })
+
+  it('hides confirmation on Cancel', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
+    expect(screen.queryByText(/This will remove Postlane/i)).not.toBeInTheDocument()
+  })
+
+  it('calls disconnect_github_app with projectId on confirm', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^Confirm disconnect$/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('disconnect_github_app', { projectId: 'proj-42' })
+    )
+  })
+})
