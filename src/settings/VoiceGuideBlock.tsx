@@ -10,11 +10,22 @@ interface Props {
   isOwner: boolean;
 }
 
+interface SyncStatus {
+  synced: string[];
+  registered: number;
+}
+
+type SyncState =
+  | null
+  | { kind: 'synced'; count: number }
+  | { kind: 'no-repos' }
+  | { kind: 'paths-missing' };
+
 function useVoiceGuideFields(projectId: string) {
   const [fields, setFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [loadedFields, setLoadedFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [loadError, setLoadError] = useState(false);
-  const [syncedCount, setSyncedCount] = useState<number | null>(null);
+  const [syncState, setSyncState] = useState<SyncState>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -36,26 +47,32 @@ function useVoiceGuideFields(projectId: string) {
   const save = useCallback(async (current: VoiceGuideFields, projectName: string) => {
     setSaveLoading(true);
     try {
-      const synced = await invoke<string[]>('save_project_voice_guide', {
+      const status = await invoke<SyncStatus>('save_project_voice_guide', {
         projectId,
         voiceGuide: buildVoiceGuide(current, projectName),
         voiceGuideFields: current,
       });
       setLoadedFields(current);
-      setSyncedCount((synced ?? []).length);
+      const synced = status?.synced ?? [];
+      const registered = status?.registered ?? 0;
+      const next: SyncState =
+        synced.length > 0 ? { kind: 'synced', count: synced.length }
+        : registered > 0 ? { kind: 'paths-missing' }
+        : { kind: 'no-repos' };
+      setSyncState(next);
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setSyncedCount(null), 2000);
+      timerRef.current = setTimeout(() => setSyncState(null), 2000);
     } finally {
       setSaveLoading(false);
     }
   }, [projectId]);
 
   const isDirty = JSON.stringify(fields) !== JSON.stringify(loadedFields);
-  return { fields, setFields, loadError, syncedCount, saveLoading, load, save, isDirty };
+  return { fields, setFields, loadError, syncState, saveLoading, load, save, isDirty };
 }
 
 export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Props) {
-  const { fields, setFields, loadError, syncedCount, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
+  const { fields, setFields, loadError, syncState, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
 
   function handleChange(key: keyof VoiceGuideFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -74,9 +91,11 @@ export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Pro
         <>
           <VoiceGuideForm fields={fields} onChange={handleChange} onApplyTemplate={setFields} />
           <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
-            {syncedCount !== null && (
-              syncedCount > 0
-                ? <p className="is-size-7 has-text-success">Voice guide saved and synced to {syncedCount} repo(s).</p>
+            {syncState !== null && (
+              syncState.kind === 'synced'
+                ? <p className="is-size-7 has-text-success">Voice guide saved and synced to {syncState.count} repo(s).</p>
+                : syncState.kind === 'paths-missing'
+                ? <p className="is-size-7 has-text-warning">Voice guide saved, but your connected repo paths could not be found on disk. Check Repositories in Settings.</p>
                 : <p className="is-size-7 has-text-success">Voice guide saved. Connect a repository to sync it there.</p>
             )}
             <button className="button is-small is-primary ml-auto"

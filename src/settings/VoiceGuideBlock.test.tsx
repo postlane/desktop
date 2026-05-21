@@ -15,6 +15,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockInvoke.mockImplementation(async (cmd) => {
     if (cmd === 'get_voice_guide_fields') return null
+    if (cmd === 'save_project_voice_guide') return { synced: [], registered: 0 }
     return null
   })
 })
@@ -183,6 +184,55 @@ describe('VoiceGuideBlock — save', () => {
     fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
     fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
     await waitFor(() => expect(screen.getByText(/Voice guide saved/i)).toBeInTheDocument())
+  })
+})
+
+// ── Sync confirmation (21.3.7 / 21.3.8) ───────────────────────────────────────
+
+describe('VoiceGuideBlock — sync confirmation', () => {
+  it('shows "synced to N repo(s)" when at least one repo was written (21.3.7)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') return { synced: ['/repos/my-repo'], registered: 1 }
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() =>
+      expect(screen.getByText(/synced to 1 repo/i)).toBeInTheDocument()
+    )
+  })
+
+  it('shows "Connect a repository" when no repos are registered (21.3.8a)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') return { synced: [], registered: 0 }
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() =>
+      expect(screen.getByText(/Connect a repository to sync it there/i)).toBeInTheDocument()
+    )
+  })
+
+  it('shows disk-path warning when repos are registered but all paths missing (21.3.8b)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') return { synced: [], registered: 2 }
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() =>
+      expect(screen.getByText(/repo paths could not be found on disk/i)).toBeInTheDocument()
+    )
   })
 })
 
