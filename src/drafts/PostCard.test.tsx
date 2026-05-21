@@ -84,6 +84,40 @@ describe('PostCard — collapsed state', () => {
     render(<PostCard post={makePost({ llm_model: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
     expect(screen.queryByLabelText(/model/i)).not.toBeInTheDocument();
   });
+
+  // §21.11.9 — only connected platforms shown in meta
+  it('shows only connected platforms when connectedPlatforms filters out some (§21.11.9)', () => {
+    const post = makePost({ platforms: ['x', 'bluesky', 'mastodon'] });
+    render(<PostCard post={post} connectedPlatforms={['bluesky']} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    const meta = screen.getByTestId('platform-meta');
+    expect(meta).toHaveTextContent('bluesky');
+    expect(meta).not.toHaveTextContent('x ·');
+    expect(meta).not.toHaveTextContent('mastodon');
+  });
+
+  // §21.11.10 — single connected platform shown
+  it('shows single connected platform (§21.11.10)', () => {
+    const post = makePost({ platforms: ['x'] });
+    render(<PostCard post={post} connectedPlatforms={['x']} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    const meta = screen.getByTestId('platform-meta');
+    expect(meta).toHaveTextContent('x');
+  });
+
+  // §21.11.11 — no connected platforms shows prompt
+  it('shows "Connect a platform" prompt when no platforms connected (§21.11.11)', () => {
+    const post = makePost({ platforms: ['mastodon'] });
+    render(<PostCard post={post} connectedPlatforms={[]} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    expect(screen.getByText(/connect a platform/i)).toBeInTheDocument();
+  });
+
+  // connectedPlatforms undefined = not yet loaded → show all platforms (backward compat)
+  it('shows all platforms when connectedPlatforms is undefined (loading state)', () => {
+    const post = makePost({ platforms: ['x', 'bluesky'] });
+    render(<PostCard post={post} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    const meta = screen.getByTestId('platform-meta');
+    expect(meta).toHaveTextContent('x');
+    expect(meta).toHaveTextContent('bluesky');
+  });
 });
 
 describe('PostCard — expanded state', () => {

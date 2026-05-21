@@ -2,7 +2,7 @@
 
 use crate::app_state::AppState;
 use crate::credential_repo_sync::{collect_matching_repo_paths, write_provider_to_matching_repos};
-use tauri::State;
+use tauri::{Emitter, State};
 use tauri_plugin_keyring::KeyringExt;
 
 pub fn get_credential_keyring_key(provider: &str, id: &str) -> String {
@@ -111,6 +111,7 @@ pub async fn save_scheduler_credential(
     let matching_paths = collect_matching_repo_paths(&repo_id, &state);
     crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths).await;
 
+    let _ = app.emit("platform-connected", ());
     Ok(())
 }
 

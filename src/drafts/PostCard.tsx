@@ -20,6 +20,8 @@ interface Props {
   onApproved: () => void;
   onDismissed: () => void;
   isFocused?: boolean;
+  /** Platform slugs with a working connection. Undefined = not yet loaded (show all). */
+  connectedPlatforms?: string[];
 }
 
 function isPlatform(val: unknown): val is Platform {
@@ -191,11 +193,18 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
   );
 }
 
-function PostCardMeta({ post, localSchedule }: { post: DraftPost; localSchedule: string | null }) {
+function PostCardMeta({ post, localSchedule, connectedPlatforms }: { post: DraftPost; localSchedule: string | null; connectedPlatforms: string[] | undefined }) {
   const tz = useTimezone();
+  const visible = connectedPlatforms === undefined
+    ? post.platforms
+    : post.platforms.filter((p) => connectedPlatforms.includes(p));
   return (
-    <p className="has-text-grey is-size-7 mt-1">
-      {post.platforms.join(' · ')}
+    <p data-testid="platform-meta" className="has-text-grey is-size-7 mt-1">
+      {visible.length > 0
+        ? visible.join(' · ')
+        : connectedPlatforms !== undefined
+          ? <span className="has-text-grey-light">Connect a platform to approve this post</span>
+          : null}
       {localSchedule && <> · {formatTimestamp(localSchedule, tz)} {getTimezoneOffsetLabel(tz)}</>}
       {post.schedule_source === 'default' && <> · <span className="tag is-light is-size-7">auto</span></>}
       {post.llm_model && <> · <span className="tag is-light is-size-7">{post.llm_model}</span></>}
@@ -222,7 +231,7 @@ function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: 
   );
 }
 
-export default function PostCard({ post, onApproved, onDismissed, isFocused = false }: Props) {
+export default function PostCard({ post, onApproved, onDismissed, isFocused = false, connectedPlatforms }: Props) {
   const isFailed = post.status === 'failed';
   const [expanded, setExpanded] = useState(isFailed);
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
@@ -241,7 +250,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
             {isFailed && <span className="tag is-danger is-light">Failed</span>}
           </div>
           <p className="has-text-weight-medium is-size-7" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{triggerText(post)}</p>
-          <PostCardMeta post={post} localSchedule={localSchedule} />
+          <PostCardMeta post={post} localSchedule={localSchedule} connectedPlatforms={connectedPlatforms} />
         </div>
         <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', flexShrink: 0 }}>
           <button className="button is-info is-small" onClick={() => setExpanded((v) => !v)} aria-label="Preview" aria-expanded={expanded}>
