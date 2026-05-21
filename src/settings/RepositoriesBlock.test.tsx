@@ -47,49 +47,21 @@ describe('RepositoriesBlock — empty state', () => {
     expect(screen.getByRole('button', { name: /Add repository/i })).toBeInTheDocument()
   })
 
-  it('shows GitHub App note when app is installed and no repos are folder-connected', async () => {
+  it('shows standard empty-state message when no GitHub App repos and no folder repos', async () => {
     mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true
-      return null
-    })
+    // list_github_app_repos returns null (unknown command) → treated as empty
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
     await waitFor(() =>
-      expect(screen.getByText(/monitored via your github app/i)).toBeInTheDocument()
+      expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
     )
-    expect(screen.queryByText(/No repositories connected/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
   })
 
-  it('still shows standard message when GitHub App check returns false', async () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return false
-      return null
-    })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() =>
-      expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
-    )
-    expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
-  })
-
-  it('does not show GitHub App note when repos are present even if app is installed', async () => {
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'check_github_app_installed') return true
-      return null
-    })
-    // repos is non-empty (beforeEach default)
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() =>
-      expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
-    )
-  })
-
-  it('calls check_github_app_installed with the correct projectId', async () => {
+  it('calls list_github_app_repos with the correct projectId', async () => {
     mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
     render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('check_github_app_installed', { projectId: 'proj-42' })
+      expect(mockInvoke).toHaveBeenCalledWith('list_github_app_repos', { projectId: 'proj-42' })
     )
   })
 })
@@ -152,6 +124,104 @@ describe('RepositoriesBlock — owner-only', () => {
   it('hides Add repository button for non-owners', () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
     expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
+  })
+})
+
+// ── GitHub App repos section (21.9.5–21.9.9, 21.9.13–21.9.16) ────────────────
+
+function makeGitHubAppRepo(overrides = {}) {
+  return { id: 1, name: 'org-repo', full_name: 'org/org-repo', private: false, html_url: 'https://github.com/org/org-repo', ...overrides }
+}
+
+function withAppRepo(overrides = {}) {
+  return async (cmd: string) => {
+    if (cmd === 'list_github_app_repos') return [makeGitHubAppRepo(overrides)]
+    return null
+  }
+}
+
+describe('RepositoriesBlock — GitHub App repos rendering', () => {
+  it('renders a read-only GitHub App section when app-repos are returned', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+  })
+
+  it('shows repo name and full_name in the GitHub App section', async () => {
+    mockInvoke.mockImplementation(withAppRepo({ name: 'my-repo', full_name: 'myorg/my-repo' }))
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('myorg/my-repo')).toBeInTheDocument())
+  })
+
+  it('renders a link to html_url for each GitHub App repo', async () => {
+    mockInvoke.mockImplementation(withAppRepo({ html_url: 'https://github.com/org/org-repo' }))
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => {
+      const link = screen.getByRole('link', { name: /github\.com\/org\/org-repo/i })
+      expect(link).toHaveAttribute('href', 'https://github.com/org/org-repo')
+    })
+  })
+
+  it('shows folder repos section alongside GitHub App repos section', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.getByText('MyRepo')).toBeInTheDocument()
+  })
+
+  it('suppresses old stopgap "monitored via" text when GitHub App repos are shown', async () => {
+    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
+  })
+
+  it('shows Add repository button even when GitHub App repos are present', async () => {
+    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /Add repository/i })).toBeInTheDocument()
+  })
+
+  it('does not render GitHub App section when no app repos are returned', async () => {
+    mockInvoke.mockImplementation(async () => [])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.queryByText('GitHub App')).not.toBeInTheDocument())
+  })
+})
+
+describe('RepositoriesBlock — GitHub App deduplication', () => {
+  function withDedupedRepo() {
+    return async (cmd: string) => {
+      if (cmd === 'list_github_app_repos') return [makeGitHubAppRepo({ name: 'org-repo', full_name: 'org/org-repo' })]
+      return null
+    }
+  }
+
+  it('shows local folder linked indicator when repo appears in both lists', async () => {
+    mockUseProjectRepos.mockReturnValue({
+      repos: [makeRepo({ name: 'org-repo', path: '/repos/org-repo' })],
+      loadError: null,
+      refresh: mockRefresh,
+    })
+    mockInvoke.mockImplementation(withDedupedRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('org/org-repo')).toBeInTheDocument())
+    expect(screen.getByText(/local folder linked/i)).toBeInTheDocument()
+  })
+
+  it('suppresses deduplicated repo from the folder section', async () => {
+    mockUseProjectRepos.mockReturnValue({
+      repos: [makeRepo({ name: 'org-repo', path: '/repos/org-repo' })],
+      loadError: null,
+      refresh: mockRefresh,
+    })
+    mockInvoke.mockImplementation(withDedupedRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('org/org-repo')).toBeInTheDocument())
+    expect(screen.getAllByText('org-repo')).toHaveLength(1)
   })
 })
 
