@@ -8,6 +8,7 @@ use crate::account_config::save_account_id_impl;
 use crate::app_state::AppState;
 use crate::providers::scheduling::upload_post::UploadPostProvider;
 use crate::scheduler_credentials::get_credential_keyring_key;
+use tauri::Emitter;
 use std::path::{Path, PathBuf};
 use tauri::State;
 use tauri_plugin_keyring::KeyringExt;
@@ -59,7 +60,9 @@ pub async fn validate_upload_post_username(
         .ok_or_else(|| {
             "No Upload Post API key configured. Save your API key in Settings first.".to_string()
         })?;
-    validate_and_save_username(&api_key, &username, &config_path).await
+    let result = validate_and_save_username(&api_key, &username, &config_path).await?;
+    let _ = app.emit("platform-connected", ());
+    Ok(result)
 }
 
 #[cfg(test)]

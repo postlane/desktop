@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { invoke } from '../ipc/invoke';
 import { listen } from '@tauri-apps/api/event';
 import PostCard from './PostCard';
 import type { DraftPost, MetaChangedPayload } from '../types';
 import { isDraftPost } from '../ipc-guards';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useConnectedPlatforms } from '../hooks/useConnectedPlatforms';
 
 interface Props {
   postWizardNudge: boolean;
@@ -164,6 +165,7 @@ function EmptyDraftsState() {
 
 export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }: Props) {
   const { posts, loading, error, refresh } = useAllReposDrafts();
+  const connectedPlatformsByRepo = useConnectedPlatforms(useMemo(() => [...new Set(posts.map((p) => p.repo_id))], [posts]));
   const [approveAllOpen, setApproveAllOpen] = useState(false);
   const [approveAllResults, setApproveAllResults] = useState<Map<string, 'ok' | 'error'>>(new Map());
   const [approveAllRunning, setApproveAllRunning] = useState(false);
@@ -216,7 +218,7 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
             <h2 className="has-text-grey is-size-7 has-text-weight-semibold mb-3" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>{group.repoName}</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {group.posts.map((post) => (
-                <PostCard key={`${post.repo_id}-${post.post_folder}`} post={post} isFocused={posts.indexOf(post) === 0} onApproved={refresh} onDismissed={refresh} />
+                <PostCard key={`${post.repo_id}-${post.post_folder}`} post={post} isFocused={posts.indexOf(post) === 0} connectedPlatforms={connectedPlatformsByRepo[group.repoId]} onApproved={refresh} onDismissed={refresh} />
               ))}
             </div>
           </section>

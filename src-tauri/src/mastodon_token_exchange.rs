@@ -6,6 +6,7 @@ use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_SERVICE};
 use crate::providers::scheduling::build_client;
 use crate::security::api_error::format_api_error;
 use crate::security::instance_url::validate_instance_hostname;
+use tauri::{Emitter};
 use tauri_plugin_keyring::KeyringExt;
 
 /// Exchanges an OAuth authorization code for an access token.
@@ -43,7 +44,9 @@ pub async fn exchange_mastodon_code(
         .set_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE, &instance)
         .map_err(|e| format!("Failed to store active instance: {}", e))?;
 
-    fetch_acct(&client, &base_url, &access_token).await
+    let acct = fetch_acct(&client, &base_url, &access_token).await?;
+    let _ = app.emit("platform-connected", ());
+    Ok(acct)
 }
 
 /// Exchanges an authorization code for an access token via `POST {base_url}/oauth/token`.
