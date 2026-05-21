@@ -39,6 +39,17 @@ pub async fn get_voice_guide_fields(
     get_voice_guide_fields_with_client(&project_id, &client, POSTLANE_API_BASE, &token).await
 }
 
+/// Result returned by `save_project_voice_guide` and `sync_voice_guide_to_repos`.
+/// `synced` lists the paths that were written; `registered` is the total number of
+/// repos matched to this project (including those whose paths no longer exist on disk).
+/// The frontend uses these two counts to distinguish the two "0 repos synced" states
+/// (21.3.8): no repos configured at all vs repos configured but paths missing.
+#[derive(serde::Serialize)]
+pub struct SyncStatus {
+    pub synced: Vec<String>,
+    pub registered: usize,
+}
+
 // 21.3.0 — Decision: `.postlane/voice_guide.md` is COMMITTED to the repo.
 // Rationale: team members who clone the repo get the voice guide automatically.
 // Every app-side save creates an uncommitted change the user must notice and push,
@@ -60,17 +71,20 @@ pub(crate) fn write_voice_guide_to_repo(
 
 /// Writes `voice_guide` to `.postlane/voice_guide.md` in every repo registered under
 /// `project_id`. Repos whose path no longer exists on disk are skipped with a warning.
-/// Returns the list of repo paths successfully written.
+/// Returns a `SyncStatus` with the successfully-written paths and the total registered count.
 pub(crate) fn sync_voice_guide_to_repos_impl(
     project_id: &str,
     voice_guide: &str,
     state: &AppState,
-) -> Vec<String> {
+) -> SyncStatus {
+    let repo_paths =
+        crate::credential_repo_sync::collect_matching_repo_paths(project_id, state);
+    let registered = repo_paths.len();
     if voice_guide.trim().is_empty() {
-        return Vec::new();
+        return SyncStatus { synced: Vec::new(), registered };
     }
     let mut synced = Vec::new();
-    for repo_path in crate::credential_repo_sync::collect_matching_repo_paths(project_id, state) {
+    for repo_path in repo_paths {
         if !repo_path.exists() {
             log::warn!(
                 "[sync_voice_guide_to_repos] repo path no longer exists: {}",
@@ -87,17 +101,17 @@ pub(crate) fn sync_voice_guide_to_repos_impl(
             ),
         }
     }
-    synced
+    SyncStatus { synced, registered }
 }
 
 /// Tauri command: syncs a voice guide to all repos registered under a project.
-/// Returns the list of repo paths successfully written.
+/// Returns a `SyncStatus` with synced paths and total registered count.
 #[tauri::command]
 pub fn sync_voice_guide_to_repos(
     project_id: String,
     voice_guide: String,
     state: tauri::State<'_, AppState>,
-) -> Vec<String> {
+) -> SyncStatus {
     sync_voice_guide_to_repos_impl(&project_id, &voice_guide, &state)
 }
 
@@ -127,12 +141,13 @@ mod tests {
             .expect("write config.json");
 
         let state = make_state_with_repo(dir.path().to_str().unwrap());
-        let synced = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
+        let result = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
 
         let written = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
         assert_eq!(written, "Write with clarity.");
-        assert_eq!(synced.len(), 1);
-        assert!(synced[0].contains(dir.path().to_str().unwrap()));
+        assert_eq!(result.synced.len(), 1);
+        assert_eq!(result.registered, 1);
+        assert!(result.synced[0].contains(dir.path().to_str().unwrap()));
     }
 
     #[test]
@@ -144,10 +159,11 @@ mod tests {
             .expect("write config.json");
 
         let state = make_state_with_repo(dir.path().to_str().unwrap());
-        let synced = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
+        let result = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
 
         assert!(!postlane.join("voice_guide.md").exists(), "non-matching repo must not be written");
-        assert!(synced.is_empty());
+        assert!(result.synced.is_empty());
+        assert_eq!(result.registered, 0);
     }
 
     /// 21.3.13 — overwrites, does not append
@@ -170,8 +186,9 @@ mod tests {
     #[test]
     fn test_sync_no_repos_returns_empty_vec() {
         let state = make_state(vec![]);
-        let synced = sync_voice_guide_to_repos_impl("proj-abc", "content", &state);
-        assert!(synced.is_empty());
+        let result = sync_voice_guide_to_repos_impl("proj-abc", "content", &state);
+        assert!(result.synced.is_empty());
+        assert_eq!(result.registered, 0);
     }
 
     /// 21.3.11 — missing path skipped; other repo still written
@@ -204,10 +221,11 @@ mod tests {
             },
         ]);
 
-        let synced = sync_voice_guide_to_repos_impl("proj-multi", "guide text", &state);
+        let result = sync_voice_guide_to_repos_impl("proj-multi", "guide text", &state);
 
         assert!(postlane.join("voice_guide.md").exists(), "existing repo must be written");
-        assert_eq!(synced.len(), 1, "only the existing repo path should be in synced list");
+        assert_eq!(result.synced.len(), 1, "only the existing repo path should be in synced list");
+        assert_eq!(result.registered, 1, "only the repo with config.json counts as registered");
     }
 
     /// 21.3.12 — atomic write; no .tmp file left after success
@@ -248,8 +266,8 @@ mod tests {
             .expect("write config.json");
         let state = make_state_with_repo(dir.path().to_str().unwrap());
         let input = "Voice guide content.\nLine two.\n";
-        let synced = sync_voice_guide_to_repos_impl("proj-readback", input, &state);
-        assert_eq!(synced.len(), 1);
+        let result = sync_voice_guide_to_repos_impl("proj-readback", input, &state);
+        assert_eq!(result.synced.len(), 1);
         let on_disk = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
         assert_eq!(on_disk, input, "on-disk bytes must exactly match input");
     }
@@ -263,14 +281,15 @@ mod tests {
         std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-ws"}"#)
             .expect("write config.json");
         let state = make_state_with_repo(dir.path().to_str().unwrap());
-        let synced = sync_voice_guide_to_repos_impl("proj-ws", "   \n  ", &state);
-        assert!(synced.is_empty(), "whitespace-only guide must return empty vec");
+        let result = sync_voice_guide_to_repos_impl("proj-ws", "   \n  ", &state);
+        assert!(result.synced.is_empty(), "whitespace-only guide must return empty vec");
+        assert_eq!(result.registered, 1, "repo is still registered even when guide is blank");
         assert!(!postlane.join("voice_guide.md").exists(), "no file must be written for whitespace input");
     }
 }
 
 /// Tauri command: saves the voice guide text and structured fields for a project.
-/// Returns the list of repo paths the voice guide was synced to.
+/// Returns a `SyncStatus` with synced repo paths and the total registered count.
 #[tauri::command]
 pub async fn save_project_voice_guide(
     project_id: String,
@@ -278,7 +297,7 @@ pub async fn save_project_voice_guide(
     voice_guide_fields: Option<serde_json::Value>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
+) -> Result<SyncStatus, String> {
     let token = require_license_token(
         app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
     )?;
@@ -293,6 +312,5 @@ pub async fn save_project_voice_guide(
     )
     .await?;
     let _ = crate::voice_guide_versions::record_version(&project_id);
-    let synced = sync_voice_guide_to_repos_impl(&project_id, &voice_guide, &state);
-    Ok(synced)
+    Ok(sync_voice_guide_to_repos_impl(&project_id, &voice_guide, &state))
 }
