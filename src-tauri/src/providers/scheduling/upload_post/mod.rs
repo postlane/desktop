@@ -1,4 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
+//
+// Upload-Post provider (https://upload-post.com)
+//
+// Auth:     Authorization: Apikey {key}  (NOT Bearer)
+// Schedule: POST https://api.upload-post.com/api/upload_text
+//           Required body fields: user (username), platform[] (array), title (content)
+//           Optional: scheduled_date (ISO-8601 UTC), timezone (IANA)
+// 202 response (scheduled): { "success": true, "job_id": "..." }
+// 200 response (immediate): { "success": true, "request_id": "...", "results": {...} }
+// 429: monthly quota exceeded (free tier = 10/month) — not a per-hour rate limit
+// The `user` field is the Upload-Post connected-account username, resolved via
+// list_profiles() → GET /api/uploadposts/users; never entered manually by the user.
 
 use super::{
     build_client, parse_retry_after, with_retry, Engagement, PostScheduleResult, ProviderError,
@@ -13,7 +25,7 @@ pub struct UploadPostProvider {
     client: reqwest::Client,
     api_key: String,
     #[cfg(test)]
-    base_url: String,
+    pub(crate) base_url: String,
 }
 
 impl UploadPostProvider {
@@ -59,6 +71,51 @@ impl UploadPostProvider {
                     json
                 ))
             })
+    }
+
+    fn parse_platform_list(json: &serde_json::Value) -> Vec<String> {
+        if let Some(arr) = json["social_accounts"].as_array() {
+            return arr
+                .iter()
+                .filter_map(|a| a["platform"].as_str().map(str::to_string))
+                .collect();
+        }
+        json["platforms"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+            .unwrap_or_default()
+    }
+
+    pub async fn validate_profile(&self, username: &str) -> Result<Vec<String>, ProviderError> {
+        let url = format!("{}/uploadposts/users/{}", self.base_url(), username);
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+        Self::check_status(&resp)?;
+        if resp.status().as_u16() == 404 {
+            return Err(ProviderError::HttpError {
+                status: 404,
+                body: format!(
+                    "Username '{}' not found. Usernames are case-sensitive.",
+                    username
+                ),
+            });
+        }
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::HttpError { status, body });
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
+        log::debug!("UploadPost validate_profile response: {}", json);
+        Ok(Self::parse_platform_list(&json))
     }
 
     fn parse_profiles(json: &serde_json::Value) -> Result<Vec<SchedulerProfile>, ProviderError> {
