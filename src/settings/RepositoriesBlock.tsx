@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+// Deduplication policy (2026-05-21): a repo present in both the GitHub App list and
+// the folder-connected list is shown once, in the GitHub App section, with a
+// "local folder linked" indicator. It is suppressed from the folder section entirely.
+// The folder connection remains in the data model; deduplication is display-only.
+
 import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useProjectRepos } from '../hooks/useRepoData';
@@ -12,6 +17,14 @@ interface Props {
   projectId: string;
   projectName: string;
   isOwner: boolean;
+}
+
+interface GitHubAppRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  html_url: string;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -51,7 +64,22 @@ function RepoRow({ repo, isOwner, onRemoveStart }: {
   );
 }
 
-// ── State hook ────────────────────────────────────────────────────────────────
+function GitHubAppRepoRow({ repo, folderLinked }: { repo: GitHubAppRepo; folderLinked: boolean }) {
+  return (
+    <div className="is-flex is-align-items-center py-2" style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
+      <span className="is-size-7" style={{ flex: 1 }}>
+        {repo.name}
+        <span className="has-text-grey ml-2">{repo.full_name}</span>
+      </span>
+      {folderLinked && <span className="is-size-7 has-text-grey">local folder linked</span>}
+      <a className="is-size-7 has-text-grey" href={repo.html_url} target="_blank" rel="noopener noreferrer">
+        {repo.html_url}
+      </a>
+    </div>
+  );
+}
+
+// ── State hooks ───────────────────────────────────────────────────────────────
 
 function useRepoActions(refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -77,17 +105,23 @@ function useRepoActions(refresh: () => void) {
   };
 }
 
+function useGitHubAppRepos(projectId: string) {
+  const [appRepos, setAppRepos] = useState<GitHubAppRepo[]>([]);
+
+  useEffect(() => {
+    invoke<GitHubAppRepo[]>('list_github_app_repos', { projectId })
+      .then((repos) => setAppRepos(Array.isArray(repos) ? repos : []))
+      .catch(() => {});
+  }, [projectId]);
+
+  return appRepos;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
   const { repos, refresh } = useProjectRepos(projectId);
-  const [githubAppInstalled, setGithubAppInstalled] = useState(false);
-
-  useEffect(() => {
-    invoke<boolean>('check_github_app_installed', { projectId })
-      .then((installed) => setGithubAppInstalled(installed))
-      .catch(() => {});
-  }, [projectId]);
+  const appRepos = useGitHubAppRepos(projectId);
 
   const {
     pendingRemoveId, setPendingRemoveId, removeLoading,
@@ -95,21 +129,33 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
     handleConfirmRemove,
   } = useRepoActions(refresh);
 
+  const appRepoNames = new Set(appRepos.map((r) => r.name));
+  const folderOnlyRepos = repos.filter((r) => !appRepoNames.has(r.name));
   const pendingRepo = repos.find((r) => r.id === pendingRemoveId) ?? null;
+  const folderLinkedNames = new Set(repos.map((r) => r.name));
 
   return (
     <div>
       <p className="is-size-6 has-text-weight-medium mb-3">Repositories</p>
-      {repos.length === 0 && (
+
+      {appRepos.length > 0 && (
+        <div className="mb-4">
+          <p className="is-size-7 has-text-weight-semibold has-text-grey mb-2">GitHub App</p>
+          {appRepos.map((repo) => (
+            <GitHubAppRepoRow key={repo.id} repo={repo} folderLinked={folderLinkedNames.has(repo.name)} />
+          ))}
+        </div>
+      )}
+
+      {folderOnlyRepos.length === 0 && appRepos.length === 0 && (
         <p className="is-size-7 has-text-grey mb-3">
-          {githubAppInstalled
-            ? 'Repos are monitored via your GitHub App installation. You can also add individual repos using the folder picker below.'
-            : isOwner
-              ? 'No repositories connected. Add one to start detecting drafts.'
-              : 'No repositories connected. Ask a workspace owner to add a repository.'}
+          {isOwner
+            ? 'No repositories connected. Add one to start detecting drafts.'
+            : 'No repositories connected. Ask a workspace owner to add a repository.'}
         </p>
       )}
-      {repos.map((repo) => (
+
+      {folderOnlyRepos.map((repo) => (
         <div key={repo.id}>
           <RepoRow repo={repo} isOwner={isOwner} onRemoveStart={setPendingRemoveId} />
           {pendingRemoveId === repo.id && pendingRepo && (
@@ -118,6 +164,7 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
           )}
         </div>
       ))}
+
       {isOwner && (
         <button className="button is-small is-light mt-3" onClick={() => setShowAddModal(true)}>
           Add repository
