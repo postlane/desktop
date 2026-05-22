@@ -10,6 +10,10 @@ permissions:
 
 jobs:
   build:
+    permissions:
+      contents: read
+      id-token: write  # required for cosign keyless signing
+
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +90,38 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Staple notarization ticket to DMG
+        if: matrix.platform == 'macos-latest'
+        run: |
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" \
+            -exec xcrun stapler staple {} \;
+
+      - name: Install cosign
+        if: matrix.platform == 'ubuntu-latest'
+        uses: sigstore/cosign-installer@v3
+
+      - name: GPG-sign Linux artifacts
+        if: matrix.platform == 'ubuntu-latest'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          find src-tauri/target/${{ matrix.target }}/release/bundle \
+            \( -name "*.AppImage" -o -name "*.deb" \) | \
+            while IFS= read -r f; do
+              gpg --batch --yes --detach-sign --armor "$f"
+            done
+
+      - name: Cosign sign Linux AppImage
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.AppImage" | \
+            while IFS= read -r f; do
+              cosign sign-blob --yes "$f" --bundle "${f}.cosign.bundle"
+            done
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -100,6 +135,8 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*setup.exe.sig
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.asc
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.cosign.bundle
           if-no-files-found: error
 
   release:
@@ -169,6 +206,8 @@ jobs:
             artifacts/**/*setup.exe.sig
             artifacts/**/*.AppImage
             artifacts/**/*.AppImage.sig
+            artifacts/**/*.asc
+            artifacts/**/*.cosign.bundle
             latest.json
           generate_release_notes: true
         env:
