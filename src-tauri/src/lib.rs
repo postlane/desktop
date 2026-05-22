@@ -42,6 +42,7 @@ pub mod platform_constants;
 pub mod post_approval;
 pub mod post_meta;
 pub mod post_editor;
+pub mod post_image_unsplash;
 pub mod post_io;
 pub mod post_mutations;
 pub mod post_schedule;
@@ -360,6 +361,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         scheduler_credentials::save_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
         commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
+        post_image_unsplash::update_post_image_unsplash,
         og_image::fetch_og_image, og_image::validate_url_safe,
         org_avatar::fetch_avatar_bytes,
         provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
