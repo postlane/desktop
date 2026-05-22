@@ -163,8 +163,17 @@ function EmptyDraftsState() {
   );
 }
 
+function useHasUnsplashKey() {
+  const [hasUnsplashKey, setHasUnsplashKey] = useState(false);
+  useEffect(() => {
+    invoke<boolean>('has_unsplash_key').then(setHasUnsplashKey).catch(() => setHasUnsplashKey(false));
+  }, []);
+  return hasUnsplashKey;
+}
+
 export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }: Props) {
   const { posts, loading, error, refresh } = useAllReposDrafts();
+  const hasUnsplashKey = useHasUnsplashKey();
   const connectedPlatformsByRepo = useConnectedPlatforms(useMemo(() => [...new Set(posts.map((p) => p.repo_id))], [posts]));
   const [approveAllOpen, setApproveAllOpen] = useState(false);
   const [approveAllResults, setApproveAllResults] = useState<Map<string, 'ok' | 'error'>>(new Map());
@@ -195,7 +204,6 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
   }
 
   const readyCount = posts.filter((p) => p.status === 'ready').length;
-  const groups = groupAndSort(posts);
 
   if (postWizardNudge) return <WizardNudge onDismiss={onNudgeDismissed} />;
   if (loading) return (
@@ -213,12 +221,12 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
         {readyCount >= 2 && <button className="button is-success is-small" onClick={() => setApproveAllOpen(true)}>Approve all ready ({readyCount})</button>}
       </div>
       <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        {groups.map((group) => (
+        {groupAndSort(posts).map((group) => (
           <section key={group.repoId}>
             <h2 className="has-text-grey is-size-7 has-text-weight-semibold mb-3" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>{group.repoName}</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {group.posts.map((post) => (
-                <PostCard key={`${post.repo_id}-${post.post_folder}`} post={post} isFocused={posts.indexOf(post) === 0} connectedPlatforms={connectedPlatformsByRepo[group.repoId]} onApproved={refresh} onDismissed={refresh} />
+                <PostCard key={`${post.repo_id}-${post.post_folder}`} post={post} isFocused={posts.indexOf(post) === 0} connectedPlatforms={connectedPlatformsByRepo[group.repoId]} hasUnsplashKey={hasUnsplashKey} onApproved={refresh} onDismissed={refresh} />
               ))}
             </div>
           </section>

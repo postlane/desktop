@@ -19,7 +19,6 @@ beforeEach(() => {
   mockInvoke.mockImplementation((cmd: string) => {
     if (cmd === 'get_post_content') return Promise.resolve('Draft text here');
     if (cmd === 'get_attribution') return Promise.resolve(true);
-    if (cmd === 'has_unsplash_key') return Promise.resolve(true);
     return Promise.resolve(null);
   });
   mockConfirm.mockResolvedValue(true);
@@ -47,69 +46,53 @@ function makePost(overrides: Partial<DraftPost> = {}): DraftPost {
   };
 }
 
-async function openUrlMode() {
-  // Expand card
+async function openImagePanel() {
   fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-  // Click Image button in CardActions
   const imageBtn = await screen.findByRole('button', { name: /^image$/i });
   fireEvent.click(imageBtn);
-  // Switch to URL mode tab
-  const urlTab = await screen.findByRole('button', { name: /^url$/i });
-  fireEvent.click(urlTab);
 }
 
-// 21.8.3, 21.8.13: pasting images.unsplash.com URL in URL mode shows blocking warning
+// 21.8.3, 21.8.13: pasting images.unsplash.com URL in URL input shows blocking warning
 describe('PostCard — URL blocking for Unsplash direct paste', () => {
-  it('shows blocking warning when images.unsplash.com URL is entered in URL mode', async () => {
-    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    await openUrlMode();
+  it('shows blocking warning when images.unsplash.com URL is entered', async () => {
+    render(<PostCard post={makePost()} hasUnsplashKey onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    await openImagePanel();
     const urlInput = await screen.findByRole('textbox', { name: /image url/i });
     fireEvent.change(urlInput, { target: { value: 'https://images.unsplash.com/photo-abc' } });
-    expect(screen.getByText(/compliance requires selecting via search/i)).toBeInTheDocument();
+    expect(screen.getByText(/use the search above/i)).toBeInTheDocument();
   });
 
   // 21.8.14: pasting plus.unsplash.com URL shows blocking warning
-  it('shows blocking warning when plus.unsplash.com URL is entered in URL mode', async () => {
-    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    await openUrlMode();
+  it('shows blocking warning when plus.unsplash.com URL is entered', async () => {
+    render(<PostCard post={makePost()} hasUnsplashKey onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    await openImagePanel();
     const urlInput = await screen.findByRole('textbox', { name: /image url/i });
     fireEvent.change(urlInput, { target: { value: 'https://plus.unsplash.com/photo-abc' } });
-    expect(screen.getByText(/compliance requires selecting via search/i)).toBeInTheDocument();
+    expect(screen.getByText(/use the search above/i)).toBeInTheDocument();
   });
 
   // 21.8.3: Save button is disabled when Unsplash URL detected
   it('Save button is disabled when Unsplash URL is in URL input', async () => {
-    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    await openUrlMode();
+    render(<PostCard post={makePost()} hasUnsplashKey onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    await openImagePanel();
     const urlInput = await screen.findByRole('textbox', { name: /image url/i });
     fireEvent.change(urlInput, { target: { value: 'https://images.unsplash.com/photo-abc' } });
-    const saveBtn = screen.getByRole('button', { name: /save image/i });
-    expect(saveBtn).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save image/i })).toBeDisabled();
   });
 
-  // Non-Unsplash URL should not show blocking warning
   it('does not show blocking warning for a normal image URL', async () => {
-    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    await openUrlMode();
+    render(<PostCard post={makePost()} hasUnsplashKey onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    await openImagePanel();
     const urlInput = await screen.findByRole('textbox', { name: /image url/i });
     fireEvent.change(urlInput, { target: { value: 'https://example.com/image.png' } });
-    expect(screen.queryByText(/compliance requires selecting via search/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/use the search above/i)).not.toBeInTheDocument();
   });
 
-  // 21.8.12: Search tab hidden when no Unsplash key configured
-  it('shows URL mode directly when no Unsplash key is configured', async () => {
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_post_content') return Promise.resolve('Draft text here');
-      if (cmd === 'get_attribution') return Promise.resolve(true);
-      if (cmd === 'has_unsplash_key') return Promise.resolve(false);
-      return Promise.resolve(null);
-    });
-    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-    const imageBtn = await screen.findByRole('button', { name: /^image$/i });
-    fireEvent.click(imageBtn);
-    // No search tab should be visible — URL input should be directly available
-    expect(screen.queryByRole('button', { name: /^search$/i })).not.toBeInTheDocument();
+  // 21.8.12: Search section always shown (feature-flagged by keyring key at ship time)
+  it('shows Unsplash search section regardless of hasUnsplashKey prop', async () => {
+    render(<PostCard post={makePost()} hasUnsplashKey={false} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    await openImagePanel();
+    expect(await screen.findByRole('searchbox', { name: /search unsplash/i })).toBeInTheDocument();
     expect(await screen.findByRole('textbox', { name: /image url/i })).toBeInTheDocument();
   });
 });

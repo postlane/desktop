@@ -390,6 +390,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         wizard_state::read_wizard_state, wizard_state::write_wizard_state, wizard_state::clear_wizard_state,
         unsplash_search::save_unsplash_key, unsplash_search::delete_unsplash_key,
         unsplash_search::has_unsplash_key, unsplash_search::search_unsplash,
+        unsplash_search::trigger_unsplash_download,
     ])
 }
 

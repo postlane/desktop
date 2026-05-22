@@ -24,6 +24,8 @@ interface Props {
   isFocused?: boolean;
   /** Platform slugs with a working connection. Undefined = not yet loaded (show all). */
   connectedPlatforms?: string[];
+  /** Whether the org has an Unsplash API key configured. Checked once at the queue level. */
+  hasUnsplashKey?: boolean;
 }
 
 function isPlatform(val: unknown): val is Platform {
@@ -109,10 +111,10 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
   );
 }
 
-function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, schedule, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; schedule: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
+function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, schedule, hasUnsplashKey: _hasUnsplashKey, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; schedule: string | null; hasUnsplashKey?: boolean; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError, hasUnsplashKey,
+  const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError,
     openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, handleSelectUnsplash, onInputChange } = usePostCardImage(post);
   const { postContent, setPostContent, contentLoadError, attributionEnabled } = usePostCardContent(post, activeTab);
   const { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
@@ -138,7 +140,7 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
       {addingImage && (
         <PostCardImageInput
           imageUrl={imageUrl} imageInput={imageInput} fetchingOg={fetchingOg}
-          ogFetchError={ogFetchError} hasUnsplashKey={hasUnsplashKey}
+          ogFetchError={ogFetchError}
           onInputChange={onInputChange} onSave={handleSaveImage} onRemove={handleRemoveImage}
           onCancel={closeImageInput}
           onSelectUnsplash={(url, dl, attr) => { handleSelectUnsplash(url, dl, attr); closeImageInput(); }}
@@ -198,7 +200,7 @@ function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: 
   );
 }
 
-export default function PostCard({ post, onApproved, onDismissed, isFocused = false, connectedPlatforms }: Props) {
+export default function PostCard({ post, onApproved, onDismissed, isFocused = false, connectedPlatforms, hasUnsplashKey }: Props) {
   const isFailed = post.status === 'failed';
   const [expanded, setExpanded] = useState(isFailed);
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
@@ -232,7 +234,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (
-        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} schedule={localSchedule} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
+        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} schedule={localSchedule} hasUnsplashKey={hasUnsplashKey} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
       )}
     </article>
   );

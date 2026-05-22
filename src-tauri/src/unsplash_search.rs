@@ -79,9 +79,10 @@ pub async fn search_unsplash_impl(
     query: &str,
     access_key: &str,
     base_url: &str,
+    page: u32,
 ) -> Result<Vec<UnsplashPhoto>, String> {
     let encoded_query: String = url::form_urlencoded::byte_serialize(query.as_bytes()).collect();
-    let url = format!("{}/search/photos?query={}&per_page=20", base_url, encoded_query);
+    let url = format!("{}/search/photos?query={}&per_page=20&page={}", base_url, encoded_query, page);
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
@@ -129,21 +130,68 @@ pub async fn has_unsplash_key(
     Ok(has_unsplash_key_impl(&app))
 }
 
+pub async fn trigger_unsplash_download_impl(
+    download_location: &str,
+    access_key: &str,
+    allowed_base: &str,
+) -> Result<(), String> {
+    let prefix = format!("{}/", allowed_base);
+    if !download_location.starts_with(&prefix) {
+        return Err(format!(
+            "Invalid download_location: must start with {} (got: {})",
+            prefix, download_location
+        ));
+    }
+    reqwest::Client::new()
+        .get(download_location)
+        .header("Authorization", format!("Client-ID {}", access_key))
+        .send()
+        .await
+        .map_err(|e| format!("trigger_unsplash_download failed: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn trigger_unsplash_download(
+    download_location: String,
+    app: tauri::AppHandle,
+    _state: State<'_, AppState>,
+) -> Result<(), String> {
+    let key = get_unsplash_key_impl(&app)
+        .ok_or_else(|| "No Unsplash API key configured".to_string())?;
+    trigger_unsplash_download_impl(&download_location, &key, UNSPLASH_API_BASE).await
+}
+
 #[tauri::command]
 pub async fn search_unsplash(
     query: String,
+    page: Option<u32>,
     app: tauri::AppHandle,
     _state: State<'_, AppState>,
 ) -> Result<Vec<UnsplashPhoto>, String> {
     let key = get_unsplash_key_impl(&app)
         .ok_or_else(|| "No Unsplash API key configured".to_string())?;
-    search_unsplash_impl(&query, &key, UNSPLASH_API_BASE).await
+    search_unsplash_impl(&query, &key, UNSPLASH_API_BASE, page.unwrap_or(1)).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use httpmock::prelude::*;
+
+    #[tokio::test]
+    async fn test_search_unsplash_sends_page_parameter() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/search/photos").query_param("page", "3");
+            then.status(200).json_body(serde_json::json!({
+                "results": [], "total": 0, "total_pages": 0
+            }));
+        });
+        let result = search_unsplash_impl("rust", "key", &server.base_url(), 3).await;
+        mock.assert();
+        assert!(result.is_ok(), "should send page=3: {:?}", result);
+    }
 
     // 21.8.27: search request must use Authorization: Client-ID {key} (not Bearer).
     #[tokio::test]
@@ -160,7 +208,7 @@ mod tests {
                 "total_pages": 0
             }));
         });
-        let result = search_unsplash_impl("rust programming", "test-key-123", &server.base_url()).await;
+        let result = search_unsplash_impl("rust programming", "test-key-123", &server.base_url(), 1).await;
         mock.assert();
         assert!(result.is_ok(), "should succeed with correct header: {:?}", result);
     }
@@ -173,7 +221,7 @@ mod tests {
             when.method(GET).path("/search/photos").header("Authorization", "Bearer test-key-123");
             then.status(401);
         });
-        let result = search_unsplash_impl("test", "test-key-123", &server.base_url()).await;
+        let result = search_unsplash_impl("test", "test-key-123", &server.base_url(), 1).await;
         // The mock for Bearer should not have been called.
         assert_eq!(mock.hits(), 0, "Authorization: Bearer must not be sent");
         // The request may fail (no matching mock for Client-ID), but must not succeed via Bearer.
@@ -187,7 +235,7 @@ mod tests {
             when.method(GET).path("/search/photos");
             then.status(429);
         });
-        let result = search_unsplash_impl("test", "key", &server.base_url()).await;
+        let result = search_unsplash_impl("test", "key", &server.base_url(), 1).await;
         assert_eq!(result, Err("rate_limit".to_string()));
     }
 
@@ -198,8 +246,54 @@ mod tests {
             when.method(GET).path("/search/photos");
             then.status(401);
         });
-        let result = search_unsplash_impl("test", "key", &server.base_url()).await;
+        let result = search_unsplash_impl("test", "key", &server.base_url(), 1).await;
         assert_eq!(result, Err("unauthorized".to_string()));
+    }
+
+    // 21.8.29 — trigger_unsplash_download
+
+    #[tokio::test]
+    async fn test_trigger_download_rejects_non_unsplash_url() {
+        let result = trigger_unsplash_download_impl(
+            "https://evil.com/photos/abc/download",
+            "key",
+            "https://api.unsplash.com",
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("api.unsplash.com"),
+            "error must name the required prefix"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_trigger_download_sends_client_id_header() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/photos/abc/download")
+                .header("Authorization", "Client-ID demo-key");
+            then.status(200)
+                .json_body(serde_json::json!({ "url": "https://images.unsplash.com/photo-abc" }));
+        });
+        let url = format!("{}/photos/abc/download", server.base_url());
+        let result = trigger_unsplash_download_impl(&url, "demo-key", &server.base_url()).await;
+        mock.assert();
+        assert!(result.is_ok(), "should succeed: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_trigger_download_succeeds_on_200() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/photos/abc/download");
+            then.status(200)
+                .json_body(serde_json::json!({ "url": "https://images.unsplash.com/photo-abc" }));
+        });
+        let url = format!("{}/photos/abc/download", server.base_url());
+        let result = trigger_unsplash_download_impl(&url, "key", &server.base_url()).await;
+        assert!(result.is_ok(), "200 should return Ok: {:?}", result);
     }
 
     #[tokio::test]
@@ -230,7 +324,7 @@ mod tests {
                 "total_pages": 1
             }));
         });
-        let result = search_unsplash_impl("test", "key", &server.base_url()).await;
+        let result = search_unsplash_impl("test", "key", &server.base_url(), 1).await;
         assert!(result.is_ok(), "should parse results: {:?}", result);
         let photos = result.unwrap();
         assert_eq!(photos.len(), 1);

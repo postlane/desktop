@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { invoke } from '../ipc/invoke';
 import type { DraftPost } from '../types';
 import { isDirectImageUrl } from '../drafts/imageUrlUtils';
@@ -13,11 +13,6 @@ export function usePostCardImage(post: DraftPost) {
   const [imageInput, setImageInput] = useState('');
   const [fetchingOg, setFetchingOg] = useState(false);
   const [ogFetchError, setOgFetchError] = useState<string | null>(null);
-  const [hasUnsplashKey, setHasUnsplashKey] = useState(false);
-
-  useEffect(() => {
-    invoke<boolean>('has_unsplash_key').then(setHasUnsplashKey).catch(() => setHasUnsplashKey(false));
-  }, []);
 
   const openImageInput = useCallback(() => { setImageInput(imageUrl ?? ''); setAddingImage(true); setOgFetchError(null); }, [imageUrl]);
   const closeImageInput = useCallback(() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }, []);
@@ -62,7 +57,7 @@ export function usePostCardImage(post: DraftPost) {
   }, [post]);
 
   return {
-    imageUrl, addingImage, imageInput, fetchingOg, ogFetchError, hasUnsplashKey,
+    imageUrl, addingImage, imageInput, fetchingOg, ogFetchError,
     openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, handleSelectUnsplash,
     onInputChange: (v: string) => { setImageInput(v); setOgFetchError(null); },
   };

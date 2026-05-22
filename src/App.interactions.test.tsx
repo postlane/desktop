@@ -26,18 +26,23 @@ vi.mock('./wizard/ReSignInScreen', () => ({
   ),
 }))
 vi.mock('./nav/LeftNav', () => ({
-  default: ({ onNavigate, onAddWorkspace, onSettingsOpen }: {
-    onNavigate?: (_v: { view: string }) => void;
+  default: ({ onNavigate, onAddWorkspace, onSettingsOpen, currentView }: {
+    onNavigate?: (_v: { view: string; projectId?: string }) => void;
     onAddWorkspace?: () => void;
     onSettingsOpen?: () => void;
-  }) => (
-    <>
-      <div>LeftNav</div>
-      <button data-testid="leftnav-nav" onClick={() => onNavigate?.({ view: 'no_orgs' })} />
-      <button data-testid="leftnav-add-org" onClick={() => onAddWorkspace?.()} />
-      <button data-testid="leftnav-settings" onClick={() => onSettingsOpen?.()} />
-    </>
-  ),
+    currentView?: { view: string; projectId?: string };
+  }) => {
+    const projectId = currentView?.projectId ?? 'p1';
+    return (
+      <>
+        <div>LeftNav</div>
+        <button data-testid="leftnav-nav" onClick={() => onNavigate?.({ view: 'no_orgs' })} />
+        <button data-testid="leftnav-queue" onClick={() => onNavigate?.({ view: 'org_queue', projectId })} />
+        <button data-testid="leftnav-add-org" onClick={() => onAddWorkspace?.()} />
+        <button data-testid="leftnav-settings" onClick={() => onSettingsOpen?.()} />
+      </>
+    );
+  },
 }))
 vi.mock('./telemetry/TelemetryConsentModal', () => ({
   default: ({ onAccept, onDecline }: { onAccept?: () => void; onDecline?: () => void }) => (
@@ -402,5 +407,40 @@ describe('App — init error from string rejection', () => {
     render(<App />)
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByRole('alert').textContent).toMatch(/disk full/i)
+  })
+})
+
+// ── Same-view Queue navigation ────────────────────────────────────────────────
+
+describe('App — clicking Queue while a post is open', () => {
+  async function setupOnPost() {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'list_projects') return Promise.resolve([MOCK_PROJECT])
+      if (cmd === 'get_all_drafts') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => screen.getByTestId('select-post'))
+    await userEvent.setup().click(screen.getByTestId('select-post'))
+    await waitFor(() => screen.getByTestId('edit-post-view'))
+  }
+
+  it('returns to the queue list (clean post)', async () => {
+    await setupOnPost()
+    fireEvent.click(screen.getByTestId('leftnav-queue'))
+    await waitFor(() => expect(screen.queryByTestId('edit-post-view')).not.toBeInTheDocument())
+    expect(screen.getByTestId('select-post')).toBeInTheDocument()
+  })
+
+  it('shows discard modal when dirty; confirming returns to queue list', async () => {
+    await setupOnPost()
+    fireEvent.click(screen.getByTestId('set-dirty'))
+    fireEvent.click(screen.getByTestId('leftnav-queue'))
+    expect(screen.getByRole('button', { name: /discard/i })).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: /discard/i }))
+    await waitFor(() => expect(screen.queryByTestId('edit-post-view')).not.toBeInTheDocument())
+    expect(screen.getByTestId('select-post')).toBeInTheDocument()
   })
 })

@@ -142,7 +142,7 @@ export default function LeftNav({ onNavigate, onSettingsOpen, currentView, onAdd
 
   return (
     <nav role="navigation" aria-label="Main navigation"
-      className="has-background-white" style={{ width: 256, height: '100vh', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--bulma-border-weak)' }}>
+      className="has-background-white" style={{ width: 200, height: '100vh', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--bulma-border-weak)' }}>
       <NavBrand />
       <div style={{ flex: 1, overflowY: 'auto', paddingBlock: '0.5rem' }}>
         {loading && <p className="is-size-7 has-text-grey px-4 py-2">Loading…</p>}
