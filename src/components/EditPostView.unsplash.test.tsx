@@ -59,7 +59,7 @@ describe('EditPostView — Unsplash URL blocking in custom URL field', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
       target: { value: 'https://images.unsplash.com/photo-abc' },
     })
-    expect(screen.getByText(/use the search above/i)).toBeInTheDocument()
+    expect(screen.getByText(/use the "search unsplash" above/i)).toBeInTheDocument()
   })
 
   it('shows blocking message when plus.unsplash.com URL is typed', () => {
@@ -67,7 +67,7 @@ describe('EditPostView — Unsplash URL blocking in custom URL field', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
       target: { value: 'https://plus.unsplash.com/photo-abc' },
     })
-    expect(screen.getByText(/use the search above/i)).toBeInTheDocument()
+    expect(screen.getByText(/use the "search unsplash" above/i)).toBeInTheDocument()
   })
 
   it('does not invoke update_post_image when Set image is clicked with an Unsplash URL', async () => {
@@ -86,7 +86,7 @@ describe('EditPostView — Unsplash URL blocking in custom URL field', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
       target: { value: 'https://example.com/photo.jpg' },
     })
-    expect(screen.queryByText(/use the search above/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/use the "search unsplash" above/i)).not.toBeInTheDocument()
   })
 })
 

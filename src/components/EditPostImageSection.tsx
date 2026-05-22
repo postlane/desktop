@@ -75,7 +75,7 @@ export function ImagePickers({ imageState, onCustomSet, onUnsplashSelect, onRemo
         </div>
         {unsplashBlocked && (
           <p className="is-size-7 has-text-danger mt-1">
-            Use the search above to find Unsplash photos.
+            Use the &quot;Search Unsplash&quot; above to find Unsplash photos.
           </p>
         )}
         {imageState.status === 'loaded' && (
