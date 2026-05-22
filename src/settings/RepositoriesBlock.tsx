@@ -27,6 +27,13 @@ interface GitHubAppRepo {
   html_url: string;
 }
 
+interface DiscoveryResult {
+  added: string[];
+  already_registered: string[];
+  not_found_on_disk: string[];
+  failed_to_register: [string, string][];
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function RemoveConfirm({ repo, onConfirm, onCancel, loading }: {
@@ -97,6 +104,57 @@ function DisconnectConfirm({ onConfirm, onCancel, loading }: {
   );
 }
 
+function ScanResult({ result, onAddManually }: { result: DiscoveryResult; onAddManually: () => void }) {
+  return (
+    <div className="mt-3 is-size-7">
+      {result.added.length > 0 && (
+        <p className="has-text-success">Added: {result.added.join(', ')}</p>
+      )}
+      {result.not_found_on_disk.length > 0 && (
+        <div>
+          <p className="has-text-grey">Not found on disk: {result.not_found_on_disk.join(', ')}</p>
+          <button className="button is-small is-light mt-1" onClick={onAddManually}>Add folder manually</button>
+        </div>
+      )}
+      {result.failed_to_register.map(([, err], i) => (
+        <p key={i} className="has-text-danger">{err}</p>
+      ))}
+    </div>
+  );
+}
+
+function GitHubAppSection({ appRepos, folderLinkedNames, isOwner, disconnect, scan, onAddManually }: {
+  appRepos: GitHubAppRepo[];
+  folderLinkedNames: Set<string>;
+  isOwner: boolean;
+  disconnect: { pending: boolean; setPending: (_v: boolean) => void; confirm: () => void; loading: boolean };
+  scan: { scanning: boolean; result: DiscoveryResult | null; scan: () => void };
+  onAddManually: () => void;
+}) {
+  return (
+    <div className="mb-4">
+      <p className="is-size-7 has-text-weight-semibold has-text-grey mb-2">GitHub App</p>
+      {appRepos.map((repo) => (
+        <GitHubAppRepoRow key={repo.id} repo={repo} folderLinked={folderLinkedNames.has(repo.name)} />
+      ))}
+      {isOwner && !disconnect.pending && (
+        <div className="is-flex mt-2" style={{ gap: '0.5rem' }}>
+          <button className="button is-small is-light" onClick={scan.scan} disabled={scan.scanning}>
+            Scan for repos
+          </button>
+          <button className="button is-small is-ghost has-text-danger" onClick={() => disconnect.setPending(true)}>
+            Disconnect GitHub App
+          </button>
+        </div>
+      )}
+      {isOwner && disconnect.pending && (
+        <DisconnectConfirm onConfirm={disconnect.confirm} onCancel={() => disconnect.setPending(false)} loading={disconnect.loading} />
+      )}
+      {isOwner && scan.result && <ScanResult result={scan.result} onAddManually={onAddManually} />}
+    </div>
+  );
+}
+
 // ── State hooks ───────────────────────────────────────────────────────────────
 
 function useRepoActions(refresh: () => void) {
@@ -154,6 +212,23 @@ function useDisconnect(projectId: string, clearAppRepos: () => void) {
   return { pending, setPending, loading, confirm };
 }
 
+function useScan(projectId: string) {
+  const [scanning, setScanning] = useState(false);
+  const [result, setResult] = useState<DiscoveryResult | null>(null);
+
+  async function scan() {
+    setScanning(true);
+    try {
+      const r = await invoke<DiscoveryResult>('discover_repos', { projectId });
+      setResult(r);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  return { scanning, result, scan };
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
@@ -167,6 +242,7 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
   } = useRepoActions(refresh);
 
   const disconnect = useDisconnect(projectId, clearAppRepos);
+  const scan = useScan(projectId);
 
   const appRepoNames = new Set(appRepos.map((r) => r.name));
   const folderOnlyRepos = repos.filter((r) => !appRepoNames.has(r.name));
@@ -178,20 +254,8 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
       <p className="is-size-6 has-text-weight-medium mb-3">Repositories</p>
 
       {appRepos.length > 0 && (
-        <div className="mb-4">
-          <p className="is-size-7 has-text-weight-semibold has-text-grey mb-2">GitHub App</p>
-          {appRepos.map((repo) => (
-            <GitHubAppRepoRow key={repo.id} repo={repo} folderLinked={folderLinkedNames.has(repo.name)} />
-          ))}
-          {isOwner && !disconnect.pending && (
-            <button className="button is-small is-ghost has-text-danger mt-2" onClick={() => disconnect.setPending(true)}>
-              Disconnect GitHub App
-            </button>
-          )}
-          {isOwner && disconnect.pending && (
-            <DisconnectConfirm onConfirm={disconnect.confirm} onCancel={() => disconnect.setPending(false)} loading={disconnect.loading} />
-          )}
-        </div>
+        <GitHubAppSection appRepos={appRepos} folderLinkedNames={folderLinkedNames} isOwner={isOwner}
+          disconnect={disconnect} scan={scan} onAddManually={() => setShowAddModal(true)} />
       )}
 
       {folderOnlyRepos.length === 0 && appRepos.length === 0 && (

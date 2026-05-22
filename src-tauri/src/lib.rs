@@ -19,6 +19,7 @@ pub mod app_state_types;
 pub mod commands;
 pub mod deep_link_routing;
 pub mod github_app;
+pub mod repo_discovery;
 pub mod draft_edits;
 pub mod draft_output;
 pub mod draft_post_scanner;
@@ -363,6 +364,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
         github_app::check_github_app_installed, github_app::backfill_project_org_login,
         github_app::list_github_app_repos, github_app::disconnect_github_app,
+        repo_discovery::discover_repos,
         post_schedule::update_post_schedule,
         mastodon_connection::get_mastodon_char_limit, mastodon_connection::get_mastodon_connected_instance,
         mastodon_connection::disconnect_mastodon,
