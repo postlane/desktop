@@ -51,6 +51,45 @@ beforeEach(() => {
   mockInvoke.mockResolvedValue(null)
 })
 
+// ── Unsplash URL blocking in the custom URL field ─────────────────────────────
+
+describe('EditPostView — Unsplash URL blocking in custom URL field', () => {
+  it('shows blocking message when images.unsplash.com URL is typed', () => {
+    renderEdit({ post: makeDraft({ image_url: null }) })
+    fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
+      target: { value: 'https://images.unsplash.com/photo-abc' },
+    })
+    expect(screen.getByText(/use the search above/i)).toBeInTheDocument()
+  })
+
+  it('shows blocking message when plus.unsplash.com URL is typed', () => {
+    renderEdit({ post: makeDraft({ image_url: null }) })
+    fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
+      target: { value: 'https://plus.unsplash.com/photo-abc' },
+    })
+    expect(screen.getByText(/use the search above/i)).toBeInTheDocument()
+  })
+
+  it('does not invoke update_post_image when Set image is clicked with an Unsplash URL', async () => {
+    renderEdit({ post: makeDraft({ image_url: null }) })
+    fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
+      target: { value: 'https://images.unsplash.com/photo-abc' },
+    })
+    fireEvent.click(screen.getByTestId('set-custom-image'))
+    await new Promise((r) => setTimeout(r, 50))
+    const imageCalls = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'update_post_image')
+    expect(imageCalls).toHaveLength(0)
+  })
+
+  it('does not show blocking message for a normal image URL', () => {
+    renderEdit({ post: makeDraft({ image_url: null }) })
+    fireEvent.change(screen.getByRole('textbox', { name: /add an image from a url/i }), {
+      target: { value: 'https://example.com/photo.jpg' },
+    })
+    expect(screen.queryByText(/use the search above/i)).not.toBeInTheDocument()
+  })
+})
+
 // ── Unsplash attribution display ───────────────────────────────────────────────
 
 describe('EditPostView — Unsplash attribution display', () => {

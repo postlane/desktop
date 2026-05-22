@@ -5,6 +5,12 @@ import { invoke } from '../ipc/invoke';
 import { UnsplashSearch } from '../drafts/PostCardImageInput';
 import type { ImageState, ImageAttribution } from '../types';
 
+const UNSPLASH_BLOCKED = new Set(['images.unsplash.com', 'plus.unsplash.com']);
+
+function isUnsplashDirectUrl(url: string): boolean {
+  try { return UNSPLASH_BLOCKED.has(new URL(url).hostname); } catch { return false; }
+}
+
 function AttributionLine({ attribution }: { attribution: ImageAttribution }) {
   return (
     <p className="is-size-7 has-text-grey mt-1">
@@ -39,9 +45,11 @@ export function ImagePickers({ imageState, onCustomSet, onUnsplashSelect, onRemo
   const [customError, setCustomError] = useState<string | null>(null);
   const [customLoading, setCustomLoading] = useState(false);
   const [searchClearSignal, setSearchClearSignal] = useState(0);
+  const unsplashBlocked = isUnsplashDirectUrl(customUrl);
   async function handleSet() {
     setSearchClearSignal((s) => s + 1);
     setCustomError(null);
+    if (unsplashBlocked) return;
     if (!customUrl.startsWith('https://')) { setCustomError('URL must start with https://'); return; }
     setCustomLoading(true);
     try {
@@ -62,9 +70,14 @@ export function ImagePickers({ imageState, onCustomSet, onUnsplashSelect, onRemo
           <input type="url" aria-label="Add an image from a URL" value={customUrl}
             onChange={(e) => { setCustomUrl(e.target.value); setCustomError(null); }} placeholder="https://…"
             className="input is-small" style={{ flex: 1 }} />
-          <button className="button is-small is-light" onClick={handleSet} disabled={customLoading}
+          <button className="button is-small is-light" onClick={handleSet} disabled={customLoading || unsplashBlocked}
             data-testid="set-custom-image" style={{ width: '5.5rem' }}>Set image</button>
         </div>
+        {unsplashBlocked && (
+          <p className="is-size-7 has-text-danger mt-1">
+            Use the search above to find Unsplash photos.
+          </p>
+        )}
         {imageState.status === 'loaded' && (
           <div className="mt-2" style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button className="button is-small has-background-danger has-text-white"
