@@ -21,4 +21,5 @@ export const PLATFORM_CFG: Record<string, { label: string; color: string }> = {
   x:        { label: 'X',        color: 'hsl(0, 0%, 10%)'    },
   linkedin:  { label: 'LinkedIn', color: 'hsl(211, 69%, 40%)' },
   bluesky:   { label: 'Bluesky',  color: 'hsl(211, 80%, 55%)' },
+  mastodon:  { label: 'Mastodon', color: 'hsl(252, 60%, 50%)' },
 };

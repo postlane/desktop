@@ -35,6 +35,7 @@ interface OrgQueueViewProps {
   onDirtyChange: (_dirty: boolean) => void;
   pendingNavSel?: ViewSelection | null;
   onNavCancelled?: () => void;
+  resetSignal?: number;
 }
 
 export interface MainContentProps {
@@ -49,11 +50,13 @@ export interface MainContentProps {
   onNavCancelled?: () => void;
   wizardNudgePending?: boolean;
   onWizardNudgeHandled?: () => void;
+  resetSignal?: number;
 }
 
 
-function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNavSel, onNavCancelled }: OrgQueueViewProps) {
+function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNavSel, onNavCancelled, resetSignal }: OrgQueueViewProps) {
   const [selectedPost, setSelectedPost] = useState<DraftPost | null>(null);
+  useEffect(() => { setSelectedPost(null); }, [resetSignal]);
   const [showOrgLink, setShowOrgLink] = useState(false);
   const tz = useTimezone();
   const { drafts, loading, error, refresh } = useDraftPostsContext();
@@ -140,7 +143,7 @@ function GlobalSettingsDispatch({ section, onTimezoneChange, onSignedOut }: {
 
 export function MainContent({
   view, onNavigate, onToast, onDirtyChange, onTimezoneChange, onRepoChange: _onRepoChange,
-  onSignedOut, pendingNavSel, onNavCancelled, wizardNudgePending, onWizardNudgeHandled,
+  onSignedOut, pendingNavSel, onNavCancelled, wizardNudgePending, onWizardNudgeHandled, resetSignal,
 }: MainContentProps) {
   const { projects, loading: projectsLoading } = useProjectsContext();
 
@@ -160,6 +163,7 @@ export function MainContent({
       <OrgQueueView projectId={view.projectId} onNavigate={onNavigate}
         onToast={onToast} onDirtyChange={onDirtyChange}
         pendingNavSel={pendingNavSel} onNavCancelled={onNavCancelled}
+        resetSignal={resetSignal}
       />
     );
   }
@@ -227,33 +231,50 @@ function useToast() {
 
 // ── Dirty nav guard ───────────────────────────────────────────────────────────
 
-function useDirtyNavGuard(setCurrentView: (_sel: ViewSelection) => void) {
+function isSameView(a: ViewSelection, b: ViewSelection): boolean {
+  if (a.view !== b.view) return false;
+  if (a.view === 'org_queue' && b.view === 'org_queue') return a.projectId === b.projectId;
+  if (a.view === 'org_history' && b.view === 'org_history') return a.projectId === b.projectId;
+  if (a.view === 'org_settings' && b.view === 'org_settings') return a.projectId === b.projectId;
+  return true;
+}
+
+function useDirtyNavGuard(setCurrentView: (_sel: ViewSelection) => void, currentView: ViewSelection) {
   const editPostViewDirtyRef = useRef(false);
   const [pendingNavigation, setPendingNavigation] = useState<ViewSelection | null>(null);
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
+  const [resetSignal, setResetSignal] = useState(0);
 
   const handleNavClick = useCallback((sel: ViewSelection) => {
     if (editPostViewDirtyRef.current) {
       setPendingNavigation(sel);
       setDiscardModalOpen(true);
+    } else if (isSameView(sel, currentView)) {
+      setResetSignal((s) => s + 1);
     } else {
       setCurrentView(sel);
     }
-  }, [setCurrentView]);
+  }, [setCurrentView, currentView]);
 
   const confirmDiscard = useCallback(() => {
-    if (pendingNavigation) setCurrentView(pendingNavigation);
+    if (pendingNavigation) {
+      if (isSameView(pendingNavigation, currentView)) {
+        setResetSignal((s) => s + 1);
+      } else {
+        setCurrentView(pendingNavigation);
+      }
+    }
     setPendingNavigation(null);
     setDiscardModalOpen(false);
     editPostViewDirtyRef.current = false;
-  }, [pendingNavigation, setCurrentView]);
+  }, [pendingNavigation, setCurrentView, currentView]);
 
   const cancelDiscard = useCallback(() => {
     setPendingNavigation(null);
     setDiscardModalOpen(false);
   }, []);
 
-  return { editPostViewDirtyRef, discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard };
+  return { editPostViewDirtyRef, discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, resetSignal };
 }
 
 // ── App state ─────────────────────────────────────────────────────────────────
@@ -317,7 +338,7 @@ function AppShell({
   const { currentView, showConsentModal, handleAddOrg,
     setRepoVersion, wizardNudgePending,
     handleConsentChoice, handleWizardNudgeHandled, handleSignedOut, setTimezone } = appState;
-  const { discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, editPostViewDirtyRef } = guard;
+  const { discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, editPostViewDirtyRef, resetSignal } = guard;
   return (
     <div className="is-flex" style={{ height: '100vh', overflow: 'hidden', background: 'white' }}>
       <LeftNav currentView={currentView} onNavigate={handleNavClick}
@@ -347,7 +368,7 @@ function AppShell({
           onDirtyChange={(dirty) => { editPostViewDirtyRef.current = dirty; }}
           onTimezoneChange={setTimezone} onRepoChange={() => setRepoVersion((v) => v + 1)}
           onSignedOut={handleSignedOut} wizardNudgePending={wizardNudgePending}
-          onWizardNudgeHandled={handleWizardNudgeHandled}
+          onWizardNudgeHandled={handleWizardNudgeHandled} resetSignal={resetSignal}
         />
       </main>
     </div>
@@ -359,7 +380,7 @@ function AppShell({
 export default function App() {
   const appState = useAppState();
   const { toastMessage, showToast } = useToast();
-  const guard = useDirtyNavGuard(appState.setCurrentView);
+  const guard = useDirtyNavGuard(appState.setCurrentView, appState.currentView);
   const { handleNavClick } = guard;
   const cmdHCallback = useCallback(() => {
     const view = appState.currentView;

@@ -14,6 +14,8 @@ import { usePostCardRedraft } from '../hooks/usePostCardRedraft';
 import { useMastodonCharLimit } from '../hooks/useMastodonCharLimit';
 import { usePostCardKeyboard } from '../hooks/usePostCardKeyboard';
 import { ScheduleRow } from './ScheduleRow';
+import PostCardImageInput from './PostCardImageInput';
+import { usePostCardImage } from '../hooks/usePostCardImage';
 
 interface Props {
   post: DraftPost;
@@ -22,6 +24,8 @@ interface Props {
   isFocused?: boolean;
   /** Platform slugs with a working connection. Undefined = not yet loaded (show all). */
   connectedPlatforms?: string[];
+  /** Whether the org has an Unsplash API key configured. Checked once at the queue level. */
+  hasUnsplashKey?: boolean;
 }
 
 function isPlatform(val: unknown): val is Platform {
@@ -30,19 +34,6 @@ function isPlatform(val: unknown): val is Platform {
     || val === 'product_hunt' || val === 'show_hn' || val === 'changelog';
 }
 
-const IMAGE_CDN_HOSTNAMES = new Set([
-  'images.unsplash.com', 'cdn.pixabay.com', 'images.pexels.com',
-  'lh3.googleusercontent.com', 'pbs.twimg.com', 'media.giphy.com',
-]);
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'];
-
-function isDirectImageUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (IMAGE_CDN_HOSTNAMES.has(parsed.hostname)) return true;
-    return IMAGE_EXTENSIONS.some((ext) => parsed.pathname.toLowerCase().endsWith(`.${ext}`));
-  } catch { return false; }
-}
 
 function triggerText(post: DraftPost): string {
   return post.trigger ? post.trigger : post.post_folder.slice(0, 80);
@@ -104,19 +95,6 @@ function PostCardErrors({ contentLoadError, attributionEnabled, approveError, sa
   );
 }
 
-function PostCardImageInput({ imageUrl, imageInput, fetchingOg, ogFetchError, onInputChange, onSave, onRemove, onCancel }: { imageUrl: string | null; imageInput: string; fetchingOg: boolean; ogFetchError: string | null; onInputChange: (_v: string) => void; onSave: (_url: string) => void; onRemove: () => void; onCancel: () => void }) {
-  return (
-    <div className="mt-3" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
-        <input type="url" aria-label="Image URL" placeholder="https://example.com/image.png or paste a page URL" value={imageInput} onChange={(e) => onInputChange(e.target.value)} className="input is-small" style={{ flex: 1 }} />
-        {imageUrl && <button className="button is-ghost is-small has-text-danger" onClick={onRemove}>Remove</button>}
-        <button className="button is-small" onClick={() => onSave(imageInput)} disabled={!imageInput.startsWith('https://') || fetchingOg} aria-label="Save image">{fetchingOg ? 'Resolving…' : 'Save image'}</button>
-        <button className="button is-ghost is-small" onClick={onCancel}>Cancel</button>
-      </div>
-      {ogFetchError && <span className="has-text-warning-dark is-size-7">{ogFetchError}</span>}
-    </div>
-  );
-}
 
 function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError, onInstructionChange, onQueue, onCancel }: { post: DraftPost; redraftInstruction: string; redraftQueued: boolean; redraftError: string | null; onInstructionChange: (_v: string) => void; onQueue: () => void; onCancel: () => void }) {
   return (
@@ -133,45 +111,20 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
   );
 }
 
-function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, schedule, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; schedule: string | null; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
+function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, schedule, hasUnsplashKey: _hasUnsplashKey, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; schedule: string | null; hasUnsplashKey?: boolean; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
   const [mobileView, setMobileView] = useState(true);
-  const [imageUrl, setImageUrl] = useState<string | null>(post.image_url ?? null);
-  const [addingImage, setAddingImage] = useState(false);
-  const [imageInput, setImageInput] = useState('');
-  const [fetchingOg, setFetchingOg] = useState(false);
-  const [ogFetchError, setOgFetchError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError,
+    openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, handleSelectUnsplash, onInputChange } = usePostCardImage(post);
   const { postContent, setPostContent, contentLoadError, attributionEnabled } = usePostCardContent(post, activeTab);
   const { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
   const mastodonCharLimit = useMastodonCharLimit(activeTab);
+  const approveLabel = isFailed ? (retrying ? 'Retrying…' : 'Retry') : (approving ? 'Approving…' : 'Approve');
 
   const handleSave = useCallback(async (newContent: string) => {
     try { await invoke('update_post_content', { repoPath: post.repo_path, postFolder: post.post_folder, platform: activeTab, newContent }); setPostContent(newContent); setSaveError(null); }
     catch (e) { setSaveError('Failed to save changes. Try again.'); console.error('update_post_content failed:', e); }
   }, [post, activeTab, setPostContent]);
-
-  const handleSaveImage = useCallback(async (url: string) => {
-    let resolvedUrl = url;
-    if (!isDirectImageUrl(url)) {
-      setFetchingOg(true); setOgFetchError(null);
-      try { const found = await invoke<string | null>('fetch_og_image', { url }); if (found) { resolvedUrl = found; } else { setOgFetchError('No image found on that page. Paste a direct image URL instead.'); setFetchingOg(false); return; } }
-      catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setOgFetchError(msg.startsWith('unreachable:') ? 'Could not reach this URL. Check the page is publicly accessible.' : msg);
-        setFetchingOg(false); return;
-      }
-      setFetchingOg(false);
-    }
-    try { await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: resolvedUrl }); setImageUrl(resolvedUrl); setAddingImage(false); setImageInput(''); setOgFetchError(null); }
-    catch (e) { console.error('update_post_image failed:', e); }
-  }, [post]);
-
-  const handleRemoveImage = useCallback(async () => {
-    try { await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: null }); setImageUrl(null); }
-    catch (e) { console.error('update_post_image failed:', e); }
-  }, [post]);
-
-  const approveLabel = isFailed ? (retrying ? 'Retrying…' : 'Retry') : (approving ? 'Approving…' : 'Approve');
 
   return (
     <div className="mt-4">
@@ -182,10 +135,26 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
       <div data-testid="preview-container" data-mobile={mobileView ? 'true' : 'false'} className="mt-3" style={{ maxWidth: mobileView ? 375 : 600, background: 'var(--bulma-scheme-main-bis)', borderRadius: '0.5rem', padding: '0.75rem' }}>
         <PostPreview content={postContent} platform={activeTab} imageUrl={imageUrl ?? undefined}
           charLimit={mastodonCharLimit} onSave={handleSave}
-          onImageClick={() => { setImageInput(imageUrl ?? ''); setAddingImage(true); setOgFetchError(null); }}
-          onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete} />
+          onImageClick={openImageInput} onApprove={onApprove} approveLabel={approveLabel} onDelete={onDelete} />
       </div>
-      {addingImage && <PostCardImageInput imageUrl={imageUrl} imageInput={imageInput} fetchingOg={fetchingOg} ogFetchError={ogFetchError} onInputChange={(v) => { setImageInput(v); setOgFetchError(null); }} onSave={handleSaveImage} onRemove={handleRemoveImage} onCancel={() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }} />}
+      {addingImage && (
+        <PostCardImageInput
+          imageUrl={imageUrl} imageInput={imageInput} fetchingOg={fetchingOg}
+          ogFetchError={ogFetchError}
+          onInputChange={onInputChange} onSave={handleSaveImage} onRemove={handleRemoveImage}
+          onCancel={closeImageInput}
+          onSelectUnsplash={(url, dl, attr) => { handleSelectUnsplash(url, dl, attr); closeImageInput(); }}
+        />
+      )}
+      {post.image_attribution && (
+        <p className="is-size-7 has-text-grey mt-2">
+          Photo by{' '}
+          <a href={post.image_attribution.photographer_url} target="_blank" rel="noopener noreferrer">
+            {post.image_attribution.photographer_name}
+          </a>
+          {' '}on Unsplash
+        </p>
+      )}
       <ScheduleRow repoPath={post.repo_path} postFolder={post.post_folder} schedule={schedule} onScheduleChange={onScheduleChange} />
       <PostCardErrors contentLoadError={contentLoadError} attributionEnabled={attributionEnabled} approveError={approveError} saveError={saveError} retryError={retryError} />
       <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} redraftError={redraftError} onInstructionChange={handleInstructionChange} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
@@ -231,7 +200,7 @@ function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: 
   );
 }
 
-export default function PostCard({ post, onApproved, onDismissed, isFocused = false, connectedPlatforms }: Props) {
+export default function PostCard({ post, onApproved, onDismissed, isFocused = false, connectedPlatforms, hasUnsplashKey }: Props) {
   const isFailed = post.status === 'failed';
   const [expanded, setExpanded] = useState(isFailed);
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
@@ -265,7 +234,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (
-        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} schedule={localSchedule} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
+        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} schedule={localSchedule} hasUnsplashKey={hasUnsplashKey} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
       )}
     </article>
   );

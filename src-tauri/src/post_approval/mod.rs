@@ -11,6 +11,42 @@ use pipeline::{
 };
 use tauri::State;
 
+/// Fires the Unsplash download trigger if applicable, then writes `image_download_triggered_at`.
+/// Only fires when `image_download_location` is set, `image_download_triggered_at` is null,
+/// and `download_location` starts with `https://api.unsplash.com/`.
+/// Skips silently (with a warning log) if the URL fails validation — approval must not be blocked.
+fn fire_unsplash_download_trigger(
+    meta: &mut PostMeta,
+    meta_path: &std::path::Path,
+    app: Option<&tauri::AppHandle>,
+) {
+    let Some(ref location) = meta.image_download_location.clone() else {
+        return;
+    };
+    if meta.image_download_triggered_at.is_some() {
+        return;
+    }
+    if !location.starts_with("https://api.unsplash.com/") {
+        log::warn!(
+            "[approve_post] image_download_location rejected (must start with https://api.unsplash.com/): {}",
+            location
+        );
+        return;
+    }
+    meta.image_download_triggered_at = Some(chrono::Utc::now().to_rfc3339());
+    if let Err(e) = meta.save(meta_path) {
+        log::error!("[approve_post] failed to write image_download_triggered_at: {}", e);
+    }
+    if app.is_some() {
+        let loc = location.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = reqwest::get(&loc).await {
+                log::warn!("[approve_post] Unsplash download trigger failed (non-fatal): {}", e);
+            }
+        });
+    }
+}
+
 /// Core implementation, injectable for testing (no real HTTP call when `app` is None).
 pub async fn approve_post_impl(
     repo_path: &str,
@@ -37,6 +73,10 @@ pub async fn approve_post_impl(
         return Err(format!("Post folder '{}' does not exist", post_folder));
     }
     validate_char_limit(platform, &post_path)?;
+    // 21.8.8: fire Unsplash download trigger if not yet triggered.
+    // Validates download_location starts with https://api.unsplash.com/ before any network call.
+    // meta.json is a local writable file — always validate the URL (SSRF prevention).
+    fire_unsplash_download_trigger(&mut meta, &meta_path, app);
     let sent_at = chrono::Utc::now().to_rfc3339();
     let is_edited = is_platform_edited(&meta, platform);
     if let Some(app_handle) = app {
@@ -319,6 +359,145 @@ mod tests {
         assert!(result.is_ok(), "retry after failure must succeed: {:?}", result);
         let final_meta = PostMeta::load(&meta_path).unwrap();
         assert!(final_meta.sent_platforms.contains_key("x"));
+    }
+
+    // --- §image download trigger (21.8.8) ---
+
+    #[tokio::test]
+    async fn test_approve_post_writes_download_triggered_at_when_location_set() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-dl");
+        let meta_path = PostMeta::path_for(&canonical, "post-dl");
+        let mut meta = PostMeta::load(&meta_path).expect("load");
+        meta.image_download_location = Some("https://api.unsplash.com/photos/abc/download".to_string());
+        meta.save(&meta_path).expect("save");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-dl", "x", &state, None, false).await;
+        assert!(result.is_ok(), "approval must succeed: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load after approval");
+        assert!(
+            final_meta.image_download_triggered_at.is_some(),
+            "image_download_triggered_at must be written after approval"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_skips_download_when_triggered_at_already_set() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-dl-skip");
+        let meta_path = PostMeta::path_for(&canonical, "post-dl-skip");
+        let mut meta = PostMeta::load(&meta_path).expect("load");
+        meta.image_download_location = Some("https://api.unsplash.com/photos/abc/download".to_string());
+        meta.image_download_triggered_at = Some("2026-05-01T09:00:00Z".to_string());
+        meta.save(&meta_path).expect("save");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-dl-skip", "x", &state, None, false).await;
+        assert!(result.is_ok(), "approval must succeed: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load after approval");
+        assert_eq!(
+            final_meta.image_download_triggered_at.as_deref(),
+            Some("2026-05-01T09:00:00Z"),
+            "original triggered_at must be unchanged (21.8.25)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_legacy_image_url_no_download_trigger() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-legacy");
+        let meta_path = PostMeta::path_for(&canonical, "post-legacy");
+        std::fs::write(
+            &meta_path,
+            r#"{"image_url":"https://images.unsplash.com/photo-old"}"#,
+        )
+        .expect("write legacy meta");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-legacy", "x", &state, None, false).await;
+        assert!(result.is_ok(), "legacy post must approve without error: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load after approval");
+        assert!(
+            final_meta.image_download_triggered_at.is_none(),
+            "no download trigger for legacy post without image_download_location"
+        );
+    }
+
+    // --- §download_location SSRF validation (21.8.22) ---
+
+    #[tokio::test]
+    async fn test_approve_post_download_location_private_ip_does_not_trigger() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-ssrf-ip");
+        let meta_path = PostMeta::path_for(&canonical, "post-ssrf-ip");
+        let mut meta = PostMeta::load(&meta_path).expect("load");
+        meta.image_download_location = Some("https://192.168.1.1/download".to_string());
+        meta.save(&meta_path).expect("save");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-ssrf-ip", "x", &state, None, false).await;
+        assert!(result.is_ok(), "approval must not be blocked: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load");
+        assert!(final_meta.image_download_triggered_at.is_none(), "private IP must be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_download_location_localhost_does_not_trigger() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-ssrf-localhost");
+        let meta_path = PostMeta::path_for(&canonical, "post-ssrf-localhost");
+        let mut meta = PostMeta::load(&meta_path).expect("load");
+        meta.image_download_location = Some("https://localhost/download".to_string());
+        meta.save(&meta_path).expect("save");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-ssrf-localhost", "x", &state, None, false).await;
+        assert!(result.is_ok(), "approval must not be blocked: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load");
+        assert!(final_meta.image_download_triggered_at.is_none(), "localhost must be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_download_location_loopback_ip_does_not_trigger() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-ssrf-loopback");
+        let meta_path = PostMeta::path_for(&canonical, "post-ssrf-loopback");
+        let mut meta = PostMeta::load(&meta_path).expect("load");
+        meta.image_download_location = Some("https://127.0.0.1/download".to_string());
+        meta.save(&meta_path).expect("save");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-ssrf-loopback", "x", &state, None, false).await;
+        assert!(result.is_ok(), "approval must not be blocked: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load");
+        assert!(final_meta.image_download_triggered_at.is_none(), "loopback IP must be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_approve_post_invalid_download_location_does_not_block_approval() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-bad-dl");
+        let meta_path = PostMeta::path_for(&canonical, "post-bad-dl");
+        let mut meta = PostMeta::load(&meta_path).expect("load");
+        meta.image_download_location = Some("https://evil.example.com/download".to_string());
+        meta.save(&meta_path).expect("save");
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-bad-dl", "x", &state, None, false).await;
+        assert!(result.is_ok(), "approval must still succeed with invalid download_location: {:?}", result);
+        let final_meta = PostMeta::load(&meta_path).expect("load after approval");
+        assert!(
+            final_meta.image_download_triggered_at.is_none(),
+            "triggered_at must not be written when location failed validation"
+        );
     }
 
     // --- §telemetry ---

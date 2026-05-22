@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use crate::post_meta::ImageAttribution;
+
 /// Canonical post type used for both draft and published queries.
 /// `status` discriminates: 'ready'/'failed' for drafts, 'sent'/'queued' for published.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -46,6 +48,9 @@ pub struct Post {
     /// ISO8601 timestamp of most recent user edit; `None` if post has never been edited.
     #[serde(default)]
     pub edited_at: Option<String>,
+    /// Unsplash photographer attribution; `None` for non-Unsplash images.
+    #[serde(default)]
+    pub image_attribution: Option<ImageAttribution>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -68,7 +73,7 @@ pub struct PostMeta {
     pub error: Option<String>,
     pub image_url: Option<String>,
     pub image_source: Option<String>,
-    pub image_attribution: Option<String>,
+    pub image_attribution: Option<ImageAttribution>,
     pub llm_model: Option<String>,
     pub created_at: Option<String>,
     pub sent_at: Option<String>,
@@ -170,6 +175,33 @@ mod tests {
         assert_eq!(deserialized.platforms.len(), 2);
     }
 
+    // 21.8.7: image_attribution must be a struct, not Option<String>
+    #[test]
+    fn test_post_meta_image_attribution_is_struct() {
+        let json = r#"{
+            "status": "ready",
+            "platforms": ["x"],
+            "schedule": null,
+            "trigger": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "error": null,
+            "image_url": "https://images.unsplash.com/photo-abc",
+            "image_source": "unsplash",
+            "image_attribution": {
+                "photographer_name": "Jane Doe",
+                "photographer_url": "https://unsplash.com/@janedoe"
+            },
+            "llm_model": null,
+            "created_at": null,
+            "sent_at": null
+        }"#;
+        let meta: PostMeta = serde_json::from_str(json).expect("must deserialize attribution struct");
+        let attr = meta.image_attribution.expect("image_attribution must be Some");
+        assert_eq!(attr.photographer_name, "Jane Doe");
+        assert_eq!(attr.photographer_url, "https://unsplash.com/@janedoe");
+    }
+
     #[test]
     fn test_partial_platform_results_deserializes() {
         let json = r#"{
@@ -203,6 +235,7 @@ mod tests {
             scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
             project_id: None, model_name: None, scheduled_for: None,
             platform: String::default(), text: String::default(), edited_at: None,
+            image_attribution: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
@@ -225,6 +258,7 @@ mod tests {
             provider: Some("zernio".to_string()), sent_at: Some("2024-01-01T00:00:00Z".to_string()),
             project_id: None, model_name: None, scheduled_for: None,
             platform: String::default(), text: String::default(), edited_at: None,
+            image_attribution: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
@@ -245,6 +279,7 @@ mod tests {
             scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
             project_id: Some("proj-abc".to_string()), scheduled_for: None,
             platform: String::default(), text: String::default(), edited_at: None,
+            image_attribution: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
@@ -270,6 +305,7 @@ mod tests {
             scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
             project_id: None, scheduled_for: None,
             platform: String::default(), text: String::default(), edited_at: None,
+            image_attribution: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
@@ -344,6 +380,7 @@ mod tests {
             scheduler_ids: None, platform_urls: None, provider: None, sent_at: None,
             project_id: None, scheduled_for: Some("2026-06-01T10:00:00Z".to_string()),
             platform: String::default(), text: String::default(), edited_at: None,
+            image_attribution: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");
@@ -370,6 +407,7 @@ mod tests {
             project_id: None, scheduled_for: None,
             edited_at: Some("2026-05-10T12:00:00Z".to_string()),
             platform: String::default(), text: String::default(),
+            image_attribution: None,
         };
         let json = serde_json::to_string(&post).expect("serializes");
         let back: Post = serde_json::from_str(&json).expect("deserializes");

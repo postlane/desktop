@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useCallback, useEffect, useRef, type MutableRefObject } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
-import { CHAR_LIMITS, CharCount } from './PreviewModal';
+import { CHAR_LIMITS } from './PreviewModal';
 import { PLATFORM_CFG } from '../constants/platformConfig';
-import PreviewModal from './PreviewModal';
 import { countCharsX, countCharsBluesky, countCharsMastodon, countLinkedInChars } from './charCount';
-import type { DraftPost, PublishedPost, Project, ViewSelection, ImageState } from '../types';
+import type { DraftPost, PublishedPost, Project, ViewSelection, ImageState, ImageAttribution } from '../types';
+import EditPostDraftColumn from './EditPostDraftColumn';
+import EditPostPreviewColumn from './EditPostPreviewColumn';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,18 +38,8 @@ function countChars(platform: string, text: string): number {
   return [...text].length;
 }
 
-function isDraft(post: DraftPost | PublishedPost): post is DraftPost {
+function isDraftPost(post: DraftPost | PublishedPost): post is DraftPost {
   return post.status === 'ready' || post.status === 'failed';
-}
-
-function approveTooltip(
-  isDirty: boolean, billingInactive: boolean, isOverLimit: boolean,
-  label: string, count: number, limit: number,
-): string | null {
-  if (isDirty) return 'Save your changes before approving.';
-  if (billingInactive) return 'Billing inactive — update payment at postlane.dev/billing';
-  if (isOverLimit) return `Post exceeds the ${label} character limit (${count}/${limit})`;
-  return null;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -93,92 +84,6 @@ function DeleteModal({ platform, onConfirm, onCancel, loading, error }: {
   );
 }
 
-function ActionBar({ platform, isDirty, isOverLimit, isHistory, project, isFailed, doSave,
-  saveLoading, doApprove, approveLoading, onDelete, onPreview, charCount, charLimit }: {
-  platform: string; isDirty: boolean; isOverLimit: boolean; isHistory: boolean;
-  project: Project; isFailed: boolean; doSave: () => void; saveLoading: boolean;
-  doApprove: () => void; approveLoading: boolean; onDelete: () => void;
-  onPreview: () => void; charCount: number; charLimit: number;
-}) {
-  const label = PLATFORM_CFG[platform]?.label ?? platform;
-  const tip = approveTooltip(isDirty, !project.billing_active, isOverLimit, label, charCount, charLimit);
-  if (isHistory) {
-    return (
-      <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', padding: '0.75rem' }}>
-        <button className="button is-small" disabled title="Re-run /draft-post to create a new draft.">Repost</button>
-        <span className="is-size-7 has-text-grey">Post analytics — coming in v2.</span>
-        <button className="button is-small has-background-link has-text-white" onClick={onPreview}>Preview</button>
-      </div>
-    );
-  }
-  return (
-    <div className="is-flex is-align-items-center" style={{ gap: '0.5rem', padding: '0.75rem' }}>
-      <button className="button is-small has-background-link has-text-white" onClick={onPreview}>Preview</button>
-      <button className="button is-small has-background-danger has-text-white" onClick={onDelete} aria-label="Delete">Delete</button>
-      <button className={`button is-small ${isDirty ? 'has-background-warning has-text-white' : 'has-background-white-ter has-text-grey'}`}
-        onClick={doSave} disabled={saveLoading}>Save</button>
-      <button className="button is-small has-background-success has-text-white" disabled={!!tip || approveLoading}
-        title={tip ?? undefined} onClick={doApprove} aria-label={isFailed ? 'Retry' : 'Approve'}>
-        {isFailed ? 'Retry' : 'Approve'}
-      </button>
-    </div>
-  );
-}
-
-function ImageSection({ imageState, onCustomSet }: {
-  imageState: ImageState; onCustomSet: (_url: string) => Promise<void>;
-}) {
-  const [customUrl, setCustomUrl] = useState('');
-  const [customError, setCustomError] = useState<string | null>(null);
-  const [customLoading, setCustomLoading] = useState(false);
-  async function handleSet() {
-    setCustomError(null);
-    if (!customUrl.startsWith('https://')) { setCustomError('URL must start with https://'); return; }
-    setCustomLoading(true);
-    try {
-      await invoke('validate_url_safe', { url: customUrl });
-      await onCustomSet(customUrl);
-    } catch (e: unknown) {
-      setCustomError(String(e));
-    } finally {
-      setCustomLoading(false);
-    }
-  }
-  return (
-    <div className="px-4 py-2">
-      {imageState.status === 'loaded' && (
-        <img data-testid="og-image" src={imageState.url} alt="Post image"
-          style={{ maxWidth: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 4, marginBottom: '0.5rem' }} />
-      )}
-      {imageState.status === 'loading' && <span className="is-size-7 has-text-grey">Loading image…</span>}
-      <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
-        <input type="url" aria-label="Custom image URL" value={customUrl}
-          onChange={(e) => setCustomUrl(e.target.value)} placeholder="https://…"
-          className="input is-small" style={{ flex: 1 }} />
-        <button className="button is-small is-light" onClick={handleSet} disabled={customLoading}
-          data-testid="set-custom-image">Set image</button>
-      </div>
-      {customError && <p role="alert" className="is-size-7 has-text-danger mt-1">{customError}</p>}
-    </div>
-  );
-}
-
-function PostBody({ isHistory, text, setText, post, saveError, approveError }: {
-  isHistory: boolean; text: string; setText: (_v: string) => void;
-  post: DraftPost | PublishedPost; saveError: string | null; approveError: string | null;
-}) {
-  return (
-    <div className="px-4 py-3" style={{ flex: 1 }}>
-      {isHistory
-        ? <div data-testid="post-text" className="is-size-7">{text}</div>
-        : <textarea className="textarea is-size-7" aria-label="Post content" rows={10} value={text} onChange={(e) => setText(e.target.value)} />}
-      {isDraft(post) && post.status === 'failed' && post.error && <p role="alert" className="is-size-7 has-text-danger mt-2">{post.error}</p>}
-      {saveError && <p role="alert" className="is-size-7 has-text-danger mt-1">{saveError}</p>}
-      {approveError && <p role="alert" className="is-size-7 has-text-danger mt-1">{approveError}</p>}
-    </div>
-  );
-}
-
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
 function useOgDetection(text: string, disabled: boolean): ImageState {
@@ -201,26 +106,48 @@ function useOgDetection(text: string, disabled: boolean): ImageState {
 
 function usePostImage(
   post: DraftPost | PublishedPost, text: string, isHistory: boolean,
-  onToast: (_msg: string, _ms: number) => void,
+  refresh: () => void, doSave: () => Promise<void>,
 ) {
   const initialUrl = 'image_url' in post ? (post.image_url ?? null) : null;
+  const initialAttribution = 'image_attribution' in post ? (post.image_attribution ?? null) : null;
   const [customImageUrl, setCustomImageUrl] = useState<string | null>(initialUrl);
+  const [customAttribution, setCustomAttribution] = useState<ImageAttribution | null>(initialAttribution);
   const ogState = useOgDetection(text, !!customImageUrl || isHistory);
-  const imageState: ImageState = customImageUrl ? { status: 'loaded', url: customImageUrl } : ogState;
-
+  const imageState: ImageState = customImageUrl
+    ? { status: 'loaded', url: customImageUrl, attribution: customAttribution }
+    : ogState;
   const handleSetImage = useCallback(async (url: string) => {
     await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: url });
     setCustomImageUrl(url);
-    onToast('Image saved.', 2000);
-  }, [post.repo_path, post.post_folder, onToast]);
-
-  return { imageState, handleSetImage };
+    setCustomAttribution(null);
+    refresh();
+  }, [post.repo_path, post.post_folder, refresh]);
+  const handleUnsplashSelect = useCallback(async (url: string, downloadLocation: string, attr: ImageAttribution) => {
+    await invoke('update_post_image_unsplash', {
+      repoPath: post.repo_path, postFolder: post.post_folder,
+      imageUrl: url, downloadLocation,
+      photographerName: attr.photographer_name, photographerUrl: attr.photographer_url,
+    });
+    setCustomImageUrl(url);
+    setCustomAttribution(attr);
+    invoke('trigger_unsplash_download', { downloadLocation }).catch(console.error);
+    await doSave();
+    refresh();
+  }, [post.repo_path, post.post_folder, doSave, refresh]);
+  const handleRemoveImage = useCallback(async () => {
+    await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: null });
+    setCustomImageUrl(null);
+    setCustomAttribution(null);
+    refresh();
+  }, [post.repo_path, post.post_folder, refresh]);
+  return { imageState, handleSetImage, handleUnsplashSelect, handleRemoveImage };
 }
 
 function useSavePost(
   post: DraftPost | PublishedPost,
   text: string,
   originalTextRef: MutableRefObject<string>,
+  refresh: () => void,
 ) {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -233,40 +160,47 @@ function useSavePost(
         platform: post.platform ?? '', text,
       });
       originalTextRef.current = text;
+      refresh();
     } catch (e: unknown) {
       setSaveError(String(e));
     } finally {
       setSaveLoading(false);
     }
-  }, [post, text, originalTextRef]);
+  }, [post, text, originalTextRef, refresh]);
   return { doSave, saveLoading, saveError };
 }
 
-function useApprovePost(
+function useApproveHandlers(
   post: DraftPost | PublishedPost,
-  _project: Project,
+  siblings: DraftPost[],
+  selectedPlatform: string,
   refresh: () => void,
   onApproved: () => void,
   onToast: (_msg: string, _ms: number) => void,
+  setSelectedPlatform: (_p: string) => void,
+  setText: (_t: string) => void,
+  originalTextRef: MutableRefObject<string>,
 ) {
   const [approveLoading, setApproveLoading] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const doApprove = useCallback(async () => {
-    setApproveLoading(true);
-    setApproveError(null);
+    setApproveLoading(true); setApproveError(null);
     try {
       await invoke('approve_post', {
         repoPath: post.repo_path, postFolder: post.post_folder, platform: post.platform ?? '',
       });
+      const remaining = siblings.filter(s => s.platform !== selectedPlatform);
       refresh();
-      onApproved();
+      if (remaining.length > 0) {
+        const next = remaining[0];
+        setSelectedPlatform(next.platform ?? '');
+        originalTextRef.current = next.text ?? '';
+        setText(next.text ?? '');
+      } else { onApproved(); }
       onToast('Post approved.', 3000);
-    } catch (e: unknown) {
-      setApproveError(String(e));
-    } finally {
-      setApproveLoading(false);
-    }
-  }, [post, refresh, onApproved, onToast]);
+    } catch (e: unknown) { setApproveError(String(e)); }
+    finally { setApproveLoading(false); }
+  }, [post, siblings, selectedPlatform, refresh, onApproved, onToast, setSelectedPlatform, setText, originalTextRef]);
   return { doApprove, approveLoading, approveError };
 }
 
@@ -341,20 +275,35 @@ function useEditKeyboard(
   }, [isDirty, isHistory, isOverLimit, doSave, doApprove]);
 }
 
-function EditPostDialogs({ del, guard, previewOpen, onClosePreview, platform, text, imageState }: {
-  del: ReturnType<typeof useDeletePost>;
-  guard: ReturnType<typeof useDiscardGuard>;
-  previewOpen: boolean; onClosePreview: () => void;
-  platform: string; text: string; imageState: ImageState;
-}) {
-  return (
-    <>
-      {del.deleteConfirm && <DeleteModal platform={platform} onConfirm={del.confirmDelete}
-        onCancel={del.cancelDelete} loading={del.deleteLoading} error={del.deleteError} />}
-      {guard.pendingDiscard && <DiscardModal onDiscard={guard.handleDiscardConfirm} onCancel={guard.handleDiscardCancel} />}
-      {previewOpen && <PreviewModal platform={platform} text={text} imageState={imageState} onClose={onClosePreview} />}
-    </>
+function usePlatformTabs(post: DraftPost | PublishedPost, drafts: (DraftPost | PublishedPost)[]) {
+  const siblings = useMemo(
+    () => isDraftPost(post)
+      ? (drafts.filter(d => d.post_folder === post.post_folder && d.repo_id === post.repo_id && isDraftPost(d)) as DraftPost[])
+      : [],
+    [drafts, post],
   );
+  const platformList = useMemo(
+    () => siblings.length > 0
+      ? siblings.map(s => s.platform ?? '').filter(p => p !== '')
+      : (post.platforms ?? []),
+    [siblings, post],
+  );
+  const [selectedPlatform, setSelectedPlatform] = useState(post.platform ?? '');
+  const currentPost: DraftPost | PublishedPost = useMemo(
+    () => siblings.find(d => d.platform === selectedPlatform) ?? post,
+    [siblings, selectedPlatform, post],
+  );
+  return { siblings, platformList, selectedPlatform, setSelectedPlatform, currentPost };
+}
+
+function useTextState(post: DraftPost | PublishedPost, onDirtyChange: ((_d: boolean) => void) | undefined) {
+  const initialText = post.text ?? '';
+  const [text, setText] = useState(initialText);
+  const originalTextRef = useRef(initialText);
+  const isDirty = text !== originalTextRef.current;
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
+  useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
+  return { text, setText, originalTextRef, isDirty };
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -362,49 +311,62 @@ function EditPostDialogs({ del, guard, previewOpen, onClosePreview, platform, te
 export default function EditPostView({
   post, project, isHistory, onBack, onApproved, onToast, onNavigate, onDirtyChange, pendingNavSel, onNavCancelled,
 }: EditPostViewProps) {
-  const { refresh } = useDraftPostsContext();
-  const initialText = post.text ?? '';
-  const [text, setText] = useState(initialText);
-  const originalTextRef = useRef(initialText);
-  const isDirty = text !== originalTextRef.current;
-  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
-  useEffect(() => () => { onDirtyChange?.(false); }, [onDirtyChange]);
-  const platform = post.platform ?? '';
-  const platformCfg = PLATFORM_CFG[platform];
-  const platformColor = platformCfg?.color ?? 'hsl(0,0%,50%)';
-  const platformLabel = platformCfg?.label ?? platform;
-  const limit = CHAR_LIMITS[platform] ?? 0;
-  const count = countChars(platform, text);
+  const { drafts, refresh } = useDraftPostsContext();
+  const { siblings, platformList, selectedPlatform, setSelectedPlatform, currentPost } = usePlatformTabs(post, drafts);
+  const { text, setText, originalTextRef, isDirty } = useTextState(post, onDirtyChange);
+
+  const limit = CHAR_LIMITS[selectedPlatform] ?? 0;
+  const count = countChars(selectedPlatform, text);
   const isOverLimit = limit > 0 && count > limit;
-  const isFailed = post.status === 'failed';
-  const save = useSavePost(post, text, originalTextRef);
-  const approve = useApprovePost(post, project, refresh, onApproved, onToast);
-  const del = useDeletePost(post, platform, onBack);
+  const isFailed = currentPost.status === 'failed';
+
+  const handleTabSwitch = useCallback(async (newPlatform: string) => {
+    if (isDirty) {
+      await invoke('save_post_draft', {
+        repoPath: post.repo_path, postFolder: post.post_folder, platform: selectedPlatform, text,
+      });
+    }
+    const sibling = siblings.find(d => d.platform === newPlatform);
+    const newText = sibling?.text ?? '';
+    originalTextRef.current = newText;
+    setText(newText);
+    setSelectedPlatform(newPlatform);
+  }, [isDirty, post.repo_path, post.post_folder, selectedPlatform, text, siblings]);
+
+  const save = useSavePost(currentPost, text, originalTextRef, refresh);
+  const approve = useApproveHandlers(
+    currentPost, siblings, selectedPlatform, refresh, onApproved, onToast,
+    setSelectedPlatform, setText, originalTextRef);
+  const del = useDeletePost(currentPost, selectedPlatform, onBack);
   const guard = useDiscardGuard(isDirty, onBack, onNavigate, pendingNavSel, onNavCancelled);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const { imageState, handleSetImage } = usePostImage(post, text, isHistory, onToast);
+  const { imageState, handleSetImage, handleUnsplashSelect, handleRemoveImage } = usePostImage(post, text, isHistory, refresh, save.doSave);
   useEditKeyboard(isDirty, isHistory, isOverLimit, save.doSave, approve.doApprove);
+
   return (
     <div className="is-flex" style={{ flexDirection: 'column', height: '100%' }}>
-      <div className="is-flex is-align-items-center px-4 py-3" style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)' }}>
+      <div className="is-flex is-align-items-center px-4 py-3" style={{ gap: '0.75rem', borderBottom: '1px solid var(--bulma-border-weak)', flexShrink: 0 }}>
         <button className="button is-small is-ghost" onClick={guard.handleBack} aria-label="Back">Back</button>
-        <span className="tag is-rounded is-small" data-testid="platform-badge"
-          style={{ background: platformColor, color: '#fff', flexShrink: 0 }}>
-          {platformLabel}
-        </span>
         <span className="is-size-7 has-text-grey">{post.post_folder}</span>
-        <CharCount platform={platform} text={text} />
       </div>
-      <PostBody isHistory={isHistory} text={text} setText={setText} post={post}
-        saveError={save.saveError} approveError={approve.approveError} />
-      {!isHistory && <ImageSection imageState={imageState} onCustomSet={handleSetImage} />}
-      <ActionBar platform={platform} isDirty={isDirty} isOverLimit={isOverLimit} isHistory={isHistory}
-        project={project} isFailed={isFailed} doSave={save.doSave} saveLoading={save.saveLoading}
-        doApprove={approve.doApprove} approveLoading={approve.approveLoading}
-        onDelete={del.requestDelete} onPreview={() => setPreviewOpen(true)}
-        charCount={count} charLimit={limit} />
-      <EditPostDialogs del={del} guard={guard} previewOpen={previewOpen} onClosePreview={() => setPreviewOpen(false)}
-        platform={platform} text={text} imageState={imageState} />
+      <div className="is-flex" style={{ flex: 1, overflow: 'hidden' }}>
+        <EditPostDraftColumn
+          post={currentPost} platforms={platformList} selectedPlatform={selectedPlatform}
+          text={text} isHistory={isHistory} imageState={imageState} isDirty={isDirty}
+          saveLoading={save.saveLoading} saveError={save.saveError}
+          onTextChange={setText} onTabSwitch={handleTabSwitch}
+          onCustomSet={handleSetImage} onUnsplashSelect={handleUnsplashSelect} onRemove={handleRemoveImage}
+          doSave={save.doSave} onDelete={del.requestDelete}
+        />
+        <EditPostPreviewColumn
+          post={currentPost} text={text} imageState={imageState} isHistory={isHistory}
+          project={project} isDirty={isDirty} isOverLimit={isOverLimit}
+          charCount={count} charLimit={limit} isFailed={isFailed}
+          approveLoading={approve.approveLoading} approveError={approve.approveError} doApprove={approve.doApprove}
+        />
+      </div>
+      {del.deleteConfirm && <DeleteModal platform={selectedPlatform} onConfirm={del.confirmDelete}
+        onCancel={del.cancelDelete} loading={del.deleteLoading} error={del.deleteError} />}
+      {guard.pendingDiscard && <DiscardModal onDiscard={guard.handleDiscardConfirm} onCancel={guard.handleDiscardCancel} />}
     </div>
   );
 }

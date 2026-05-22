@@ -30,6 +30,14 @@ pub enum PostStatus {
     Unknown,
 }
 
+/// Unsplash photographer attribution required by Unsplash API Terms of Service.
+/// Written to meta.json when a photo is selected via search; null for non-Unsplash images.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct ImageAttribution {
+    pub photographer_name: String,
+    pub photographer_url: String,
+}
+
 /// Canonical representation of `.postlane/posts/{folder}/meta.json`.
 /// All five commands that read or write meta.json must use this struct —
 /// no command may hand-roll JSON keys or construct the meta path independently.
@@ -65,6 +73,20 @@ pub struct PostMeta {
     /// PostMeta::save() does not overwrite an existing image_url with null when this is None.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// Unsplash `download_location` URL — must be called once per Unsplash API ToS.
+    /// Absent for non-Unsplash images.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_download_location: Option<String>,
+    /// ISO 8601 UTC timestamp of when the download trigger was fired.
+    /// Null means the trigger has not been fired yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_download_triggered_at: Option<String>,
+    /// Image provider identifier (e.g. "unsplash"). Null for manually pasted URLs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_source: Option<String>,
+    /// Photographer attribution required by Unsplash ToS. Null for non-Unsplash images.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_attribution: Option<ImageAttribution>,
 }
 
 impl PostMeta {
@@ -328,5 +350,56 @@ mod tests {
         assert_eq!(meta.status, Some(PostStatus::Sent), "\"sent\" must deserialise as PostStatus::Sent");
         let serialised = serde_json::to_string(&meta).expect("serialise");
         assert!(serialised.contains("\"sent\""), "PostStatus::Sent must serialise as \"sent\"");
+    }
+
+    // --- 21.8.7: image attribution fields ---
+
+    #[test]
+    fn test_post_meta_image_attribution_round_trips() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        let meta = PostMeta {
+            image_download_location: Some("https://api.unsplash.com/photos/abc123/download".to_string()),
+            image_download_triggered_at: Some("2026-05-21T10:00:00Z".to_string()),
+            image_source: Some("unsplash".to_string()),
+            image_attribution: Some(ImageAttribution {
+                photographer_name: "Jane Doe".to_string(),
+                photographer_url: "https://unsplash.com/@janedoe".to_string(),
+            }),
+            ..Default::default()
+        };
+        meta.save(&path).expect("save");
+        let loaded = PostMeta::load(&path).expect("load");
+        assert_eq!(
+            loaded.image_download_location.as_deref(),
+            Some("https://api.unsplash.com/photos/abc123/download")
+        );
+        assert_eq!(loaded.image_download_triggered_at.as_deref(), Some("2026-05-21T10:00:00Z"));
+        assert_eq!(loaded.image_source.as_deref(), Some("unsplash"));
+        let attr = loaded.image_attribution.expect("image_attribution must be present");
+        assert_eq!(attr.photographer_name, "Jane Doe");
+        assert_eq!(attr.photographer_url, "https://unsplash.com/@janedoe");
+    }
+
+    #[test]
+    fn test_post_meta_image_attribution_none_when_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        fs::write(&path, r#"{"status":"ready"}"#).expect("write");
+        let meta = PostMeta::load(&path).expect("load");
+        assert!(meta.image_attribution.is_none(), "absent image_attribution must be None");
+        assert!(meta.image_download_location.is_none());
+        assert!(meta.image_download_triggered_at.is_none());
+        assert!(meta.image_source.is_none());
+    }
+
+    #[test]
+    fn test_post_meta_image_fields_omitted_when_none() {
+        let meta = PostMeta::default();
+        let json = serde_json::to_string(&meta).expect("serialise");
+        assert!(!json.contains("image_download_location"), "absent field must not appear in JSON");
+        assert!(!json.contains("image_attribution"), "absent field must not appear in JSON");
+        assert!(!json.contains("image_download_triggered_at"), "absent field must not appear in JSON");
+        assert!(!json.contains("image_source"), "absent field must not appear in JSON");
     }
 }

@@ -19,6 +19,7 @@ pub mod app_state_types;
 pub mod commands;
 pub mod deep_link_routing;
 pub mod github_app;
+pub mod repo_discovery;
 pub mod draft_edits;
 pub mod draft_output;
 pub mod draft_post_scanner;
@@ -41,6 +42,7 @@ pub mod platform_constants;
 pub mod post_approval;
 pub mod post_meta;
 pub mod post_editor;
+pub mod post_image_unsplash;
 pub mod post_io;
 pub mod post_mutations;
 pub mod post_schedule;
@@ -78,6 +80,7 @@ pub mod wizard_state;
 pub mod poll_routing;
 pub mod webhook_poller;
 pub mod workspace;
+pub mod unsplash_search;
 
 #[cfg(test)]
 pub mod test_fixtures;
@@ -358,11 +361,13 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         scheduler_credentials::save_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
         commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
+        post_image_unsplash::update_post_image_unsplash,
         og_image::fetch_og_image, og_image::validate_url_safe,
         org_avatar::fetch_avatar_bytes,
         provider_orgs::list_provider_orgs, provider_orgs::list_linked_providers,
         github_app::check_github_app_installed, github_app::backfill_project_org_login,
         github_app::list_github_app_repos, github_app::disconnect_github_app,
+        repo_discovery::discover_repos,
         post_schedule::update_post_schedule,
         mastodon_connection::get_mastodon_char_limit, mastodon_connection::get_mastodon_connected_instance,
         mastodon_connection::disconnect_mastodon,
@@ -383,6 +388,9 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         project_voice_guide::get_voice_guide_fields, project_voice_guide::sync_voice_guide_to_repos,
         connect_repo::connect_repo_from_desktop, draft_edits::save_post_draft,
         wizard_state::read_wizard_state, wizard_state::write_wizard_state, wizard_state::clear_wizard_state,
+        unsplash_search::save_unsplash_key, unsplash_search::delete_unsplash_key,
+        unsplash_search::has_unsplash_key, unsplash_search::search_unsplash,
+        unsplash_search::trigger_unsplash_download,
     ])
 }
 

@@ -318,3 +318,72 @@ describe('RepositoriesBlock — Disconnect GitHub App (21.9.21)', () => {
     )
   })
 })
+
+// ── Scan for repos (21.10.14 / 21.10.26) ─────────────────────────────────────
+
+function withDiscoveryResult(result: Record<string, unknown>) {
+  return async (cmd: string) => {
+    if (cmd === 'list_github_app_repos') return [makeGitHubAppRepo()]
+    if (cmd === 'discover_repos') return result
+    return null
+  }
+}
+
+describe('RepositoriesBlock — Scan for repos (21.10.14)', () => {
+  it('shows Scan for repos button when GitHub App repos are present and user is owner', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /Scan for repos/i })).toBeInTheDocument()
+  })
+
+  it('does not show Scan for repos button for non-owners', async () => {
+    mockInvoke.mockImplementation(withAppRepo())
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Scan for repos/i })).not.toBeInTheDocument()
+  })
+
+  it('does not show Scan for repos when no GitHub App repos', async () => {
+    mockInvoke.mockImplementation(async () => [])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.queryByText('GitHub App')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Scan for repos/i })).not.toBeInTheDocument()
+  })
+
+  it('calls discover_repos with projectId when button clicked (21.10.26)', async () => {
+    mockInvoke.mockImplementation(withDiscoveryResult({ added: [], already_registered: [], not_found_on_disk: [], failed_to_register: [] }))
+    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('discover_repos', { projectId: 'proj-42' })
+    )
+  })
+
+  it('shows added repos in result (21.10.26)', async () => {
+    mockInvoke.mockImplementation(withDiscoveryResult({ added: ['my-repo', 'other-repo'], already_registered: [], not_found_on_disk: [], failed_to_register: [] }))
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
+    await waitFor(() => expect(screen.getByText(/my-repo/)).toBeInTheDocument())
+    expect(screen.getByText(/other-repo/)).toBeInTheDocument()
+  })
+
+  it('shows not_found_on_disk repos with "Add folder manually" link (21.10.26)', async () => {
+    mockInvoke.mockImplementation(withDiscoveryResult({ added: [], already_registered: [], not_found_on_disk: ['org/missing-repo'], failed_to_register: [] }))
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
+    await waitFor(() => expect(screen.getByText(/org\/missing-repo/)).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /Add folder manually/i })).toBeInTheDocument()
+  })
+
+  it('shows failed_to_register repos with error message (21.10.26)', async () => {
+    mockInvoke.mockImplementation(withDiscoveryResult({ added: [], already_registered: [], not_found_on_disk: [], failed_to_register: [['/some/path', 'permission denied']] }))
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
+    await waitFor(() => expect(screen.getByText(/permission denied/)).toBeInTheDocument())
+  })
+})

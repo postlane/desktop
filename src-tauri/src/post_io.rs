@@ -50,6 +50,7 @@ pub(crate) fn parse_published_post(
         trigger: None,
         error: meta.error,
         image_url: None,
+        image_attribution: None,
         project_id: None,
         model_name: meta.model_name,
         scheduled_for: None,

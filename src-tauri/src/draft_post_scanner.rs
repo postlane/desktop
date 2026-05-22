@@ -45,6 +45,7 @@ pub(crate) fn build_draft(
         trigger: None,
         platform_results: None,
         image_url: meta.image_url.clone(),
+        image_attribution: meta.image_attribution.clone(),
         created_at: None,
         scheduler_ids: None,
         platform_urls: None,

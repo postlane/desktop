@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, message } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
@@ -196,6 +196,24 @@ function CliSection() {
   );
 }
 
+interface DiscoveryResult {
+  added: string[];
+  failed_to_register: [string, string][];
+}
+
+function triggerAutoDiscover(workspaceId: string): void {
+  invoke<DiscoveryResult>('discover_repos', { projectId: workspaceId })
+    .then((result) => {
+      if (result.added.length > 0) {
+        message(`Found and registered ${result.added.length} repo(s) on your machine.`).catch(() => {});
+      }
+      if (result.failed_to_register.length > 0) {
+        message(`${result.failed_to_register.length} repo(s) could not be registered — open Repositories to see details`).catch(() => {});
+      }
+    })
+    .catch(() => {});
+}
+
 interface InstallHookResult {
   appInstalled: boolean;
   appInstallError: string | null;
@@ -241,7 +259,8 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
     advancedRef.current = true;
     onRepoConnected();
     onNext();
-  }, [onNext, onRepoConnected]);
+    triggerAutoDiscover(workspaceId);
+  }, [onNext, onRepoConnected, workspaceId]);
 
   const advanceFnRef = useRef(advance);
   advanceFnRef.current = advance;

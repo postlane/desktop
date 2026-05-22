@@ -1,8 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faXTwitter, faBluesky, faMastodon, faLinkedinIn } from '@fortawesome/free-brands-svg-icons';
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { PLATFORM_CFG } from '../constants/platformConfig';
 import { formatRelativeTime, formatScheduled } from '../formatting/timeFormat';
 import type { DraftPost, PublishedPost } from '../types';
+
+const PLATFORM_ICONS: Record<string, IconDefinition> = {
+  x: faXTwitter,
+  bluesky: faBluesky,
+  mastodon: faMastodon,
+  linkedin: faLinkedinIn,
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,13 +85,15 @@ function GroupCard({ group, onSelect }: {
           const color = cfg?.color ?? 'hsl(0,0%,50%)';
           const name = cfg?.label ?? post.platform;
           const isFailed = post.status === 'failed';
+          const icon = PLATFORM_ICONS[post.platform ?? ''];
           return (
             <button key={post.platform} data-testid="post-row"
-              aria-label={`Edit ${name} post`}
+              aria-label={`Edit ${name} post`} title={name}
               onClick={() => onSelect(post)}
-              className={'button is-small is-rounded' + (isFailed ? ' has-text-danger' : '')}
-              style={{ background: isFailed ? undefined : color, color: isFailed ? undefined : '#fff', border: 'none' }}>
-              {name}
+              className={'button is-small' + (isFailed ? ' has-text-danger' : '')}
+              style={{ width: '2rem', height: '2rem', padding: 0, borderRadius: '50%', flexShrink: 0, border: 'none',
+                background: isFailed ? undefined : color, color: isFailed ? undefined : '#fff' }}>
+              {icon ? <FontAwesomeIcon icon={icon} /> : name}
             </button>
           );
         })}
