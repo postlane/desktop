@@ -331,7 +331,7 @@ export default function EditPostView({
     originalTextRef.current = newText;
     setText(newText);
     setSelectedPlatform(newPlatform);
-  }, [isDirty, post.repo_path, post.post_folder, selectedPlatform, text, siblings]);
+  }, [isDirty, post.repo_path, post.post_folder, selectedPlatform, text, siblings, originalTextRef, setSelectedPlatform, setText]);
 
   const save = useSavePost(currentPost, text, originalTextRef, refresh);
   const approve = useApproveHandlers(
