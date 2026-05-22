@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use crate::post_meta::ImageAttribution;
+
 /// Canonical post type used for both draft and published queries.
 /// `status` discriminates: 'ready'/'failed' for drafts, 'sent'/'queued' for published.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -68,7 +70,7 @@ pub struct PostMeta {
     pub error: Option<String>,
     pub image_url: Option<String>,
     pub image_source: Option<String>,
-    pub image_attribution: Option<String>,
+    pub image_attribution: Option<ImageAttribution>,
     pub llm_model: Option<String>,
     pub created_at: Option<String>,
     pub sent_at: Option<String>,
@@ -168,6 +170,33 @@ mod tests {
 
         assert_eq!(deserialized.status, "draft");
         assert_eq!(deserialized.platforms.len(), 2);
+    }
+
+    // 21.8.7: image_attribution must be a struct, not Option<String>
+    #[test]
+    fn test_post_meta_image_attribution_is_struct() {
+        let json = r#"{
+            "status": "ready",
+            "platforms": ["x"],
+            "schedule": null,
+            "trigger": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "error": null,
+            "image_url": "https://images.unsplash.com/photo-abc",
+            "image_source": "unsplash",
+            "image_attribution": {
+                "photographer_name": "Jane Doe",
+                "photographer_url": "https://unsplash.com/@janedoe"
+            },
+            "llm_model": null,
+            "created_at": null,
+            "sent_at": null
+        }"#;
+        let meta: PostMeta = serde_json::from_str(json).expect("must deserialize attribution struct");
+        let attr = meta.image_attribution.expect("image_attribution must be Some");
+        assert_eq!(attr.photographer_name, "Jane Doe");
+        assert_eq!(attr.photographer_url, "https://unsplash.com/@janedoe");
     }
 
     #[test]

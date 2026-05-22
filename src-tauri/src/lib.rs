@@ -79,6 +79,7 @@ pub mod wizard_state;
 pub mod poll_routing;
 pub mod webhook_poller;
 pub mod workspace;
+pub mod unsplash_search;
 
 #[cfg(test)]
 pub mod test_fixtures;
@@ -385,6 +386,8 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         project_voice_guide::get_voice_guide_fields, project_voice_guide::sync_voice_guide_to_repos,
         connect_repo::connect_repo_from_desktop, draft_edits::save_post_draft,
         wizard_state::read_wizard_state, wizard_state::write_wizard_state, wizard_state::clear_wizard_state,
+        unsplash_search::save_unsplash_key, unsplash_search::delete_unsplash_key,
+        unsplash_search::has_unsplash_key, unsplash_search::search_unsplash,
     ])
 }
 
