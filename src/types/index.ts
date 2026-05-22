@@ -88,10 +88,12 @@ export interface Project {
   provider_org_login?: string | null;
 }
 
+export type ImageAttribution = { photographer_name: string; photographer_url: string }
+
 export type ImageState =
   | { status: 'none' }
   | { status: 'loading' }
-  | { status: 'loaded'; url: string }
+  | { status: 'loaded'; url: string; attribution?: ImageAttribution | null }
   | { status: 'error'; message: string }
 
 export type StatusIndicatorType =

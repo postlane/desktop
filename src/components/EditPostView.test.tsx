@@ -176,6 +176,15 @@ describe('EditPostView — Save', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save/i }))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
   })
+
+  it('calls refresh after a successful save so navigate-back shows saved text', async () => {
+    mockInvoke.mockImplementation(async (cmd) => { if (cmd === 'save_post_draft') return undefined; return null })
+    renderEdit()
+    fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'updated' } })
+    fireEvent.click(screen.getByRole('button', { name: /Save/i }))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('save_post_draft', expect.anything()))
+    expect(mockRefresh).toHaveBeenCalled()
+  })
 })
 
 // ── Delete ─────────────────────────────────────────────────────────────────────
@@ -288,27 +297,10 @@ describe('EditPostView — history mode', () => {
     expect(screen.queryByRole('textbox', { name: /post content/i })).not.toBeInTheDocument()
   })
 
-  it('shows Repost button disabled with a title in history mode', () => {
-    renderEdit({ post: makePublished(), isHistory: true })
-    const btn = screen.getByRole('button', { name: /Repost/i })
-    expect(btn).toBeDisabled()
-    expect(btn).toHaveAttribute('title')
-  })
-
   it('shows analytics placeholder in history mode', () => {
     renderEdit({ post: makePublished(), isHistory: true })
     expect(screen.getByText(/analytics/i)).toBeInTheDocument()
     expect(screen.getByText(/v2/i)).toBeInTheDocument()
-  })
-})
-
-// ── Preview ────────────────────────────────────────────────────────────────────
-
-describe('EditPostView — Preview', () => {
-  it('opens PreviewModal when Preview is clicked', () => {
-    renderEdit()
-    fireEvent.click(screen.getByRole('button', { name: /Preview/i }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 })
 
@@ -343,7 +335,7 @@ describe('EditPostView — custom image URL', () => {
   it('calls validate_url_safe for a valid https URL', async () => {
     mockInvoke.mockImplementation(async (cmd) => { if (cmd === 'validate_url_safe') return undefined; return null })
     renderEdit()
-    fireEvent.change(screen.getByLabelText(/custom image url/i), { target: { value: 'https://example.com/img.png' } })
+    fireEvent.change(screen.getByLabelText(/add an image from a url/i), { target: { value: 'https://example.com/img.png' } })
     fireEvent.click(screen.getByTestId('set-custom-image'))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('validate_url_safe', { url: 'https://example.com/img.png' }))
   })
@@ -351,7 +343,7 @@ describe('EditPostView — custom image URL', () => {
   it('shows inline error when validate_url_safe rejects', async () => {
     mockInvoke.mockImplementation(async (cmd) => { if (cmd === 'validate_url_safe') throw new Error('SSRF'); return null })
     renderEdit()
-    fireEvent.change(screen.getByLabelText(/custom image url/i), { target: { value: 'https://internal.corp/img.png' } })
+    fireEvent.change(screen.getByLabelText(/add an image from a url/i), { target: { value: 'https://internal.corp/img.png' } })
     fireEvent.click(screen.getByTestId('set-custom-image'))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(mockInvoke).toHaveBeenCalledWith('validate_url_safe', expect.anything())
@@ -359,10 +351,75 @@ describe('EditPostView — custom image URL', () => {
 
   it('rejects http:// URL without calling validate_url_safe', async () => {
     renderEdit()
-    fireEvent.change(screen.getByLabelText(/custom image url/i), { target: { value: 'http://bad.com/img.png' } })
+    fireEvent.change(screen.getByLabelText(/add an image from a url/i), { target: { value: 'http://bad.com/img.png' } })
     fireEvent.click(screen.getByTestId('set-custom-image'))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(mockInvoke).not.toHaveBeenCalledWith('validate_url_safe', expect.anything())
+  })
+
+  it('clears the URL error when the URL input changes', async () => {
+    renderEdit()
+    fireEvent.change(screen.getByLabelText(/add an image from a url/i), { target: { value: 'http://bad.com/img.png' } })
+    fireEvent.click(screen.getByTestId('set-custom-image'))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText(/add an image from a url/i), { target: { value: 'https://good.com/img.png' } })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('clears the URL error when the user types in the Unsplash search box', async () => {
+    renderEdit()
+    fireEvent.change(screen.getByLabelText(/add an image from a url/i), { target: { value: 'http://bad.com/img.png' } })
+    fireEvent.click(screen.getByTestId('set-custom-image'))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    fireEvent.change(screen.getByRole('searchbox', { name: /search unsplash/i }), { target: { value: 'sunset' } })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('clears the URL error when the Search button is clicked', async () => {
+    renderEdit()
+    fireEvent.click(screen.getByTestId('set-custom-image'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/https/i))
+    fireEvent.click(screen.getByRole('button', { name: /search images/i }))
+    expect(screen.queryByRole('alert')).not.toHaveTextContent(/https/i)
+  })
+
+  it('clears the Unsplash error when the Set image button is clicked', async () => {
+    renderEdit()
+    fireEvent.click(screen.getByRole('button', { name: /search images/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/search term/i))
+    fireEvent.click(screen.getByTestId('set-custom-image'))
+    expect(screen.queryByRole('alert')).not.toHaveTextContent(/search term/i)
+  })
+})
+
+// ── Image delete button ────────────────────────────────────────────────────────
+
+describe('EditPostView — image delete button', () => {
+  it('shows a trash button when an image is already set on the post', () => {
+    renderEdit({ post: makeDraft({ image_url: 'https://example.com/img.png' }) })
+    expect(screen.getByRole('button', { name: /remove image/i })).toBeInTheDocument()
+  })
+
+  it('does not show a trash button when no image is set', () => {
+    renderEdit({ post: makeDraft({ image_url: null }) })
+    expect(screen.queryByRole('button', { name: /remove image/i })).not.toBeInTheDocument()
+  })
+
+  it('calls update_post_image with imageUrl null when the trash button is clicked', async () => {
+    renderEdit({ post: makeDraft({ image_url: 'https://example.com/img.png' }) })
+    fireEvent.click(screen.getByRole('button', { name: /remove image/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('update_post_image', {
+        repoPath: '/repo1', postFolder: 'post-001', imageUrl: null,
+      })
+    )
+  })
+
+  it('hides the image and trash button after removing', async () => {
+    renderEdit({ post: makeDraft({ image_url: 'https://example.com/img.png' }) })
+    fireEvent.click(screen.getByRole('button', { name: /remove image/i }))
+    await waitFor(() => expect(screen.queryByTestId('og-image')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /remove image/i })).not.toBeInTheDocument()
   })
 })
 
@@ -385,4 +442,5 @@ describe('EditPostView — Cmd+Enter', () => {
     await waitFor(() => expect(onApproved).toHaveBeenCalled())
   })
 })
+
 

@@ -114,25 +114,12 @@ describe('EditPostView — nav guard clean navigation', () => {
   })
 })
 
-// ── Preview close ──────────────────────────────────────────────────────────────
-
-describe('EditPostView — Preview close', () => {
-  it('closes PreviewModal when the close button is clicked', async () => {
-    renderEdit()
-    fireEvent.click(screen.getByRole('button', { name: /Preview/i }))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    const closeBtn = screen.getByRole('button', { name: /close preview/i })
-    fireEvent.click(closeBtn)
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-})
-
 // ── Platform-specific char counting ───────────────────────────────────────────
 
 describe('EditPostView — bluesky char counting', () => {
-  it('renders the platform badge for bluesky', () => {
-    renderEdit({ post: makeDraft({ platform: 'bluesky', text: 'Hello' }) })
-    expect(screen.getByTestId('platform-badge')).toHaveTextContent('Bluesky')
+  it('shows Bluesky tab as selected for bluesky platform', () => {
+    renderEdit({ post: makeDraft({ platforms: ['bluesky'], platform: 'bluesky', text: 'Hello' }) })
+    expect(screen.getByRole('tab', { name: /bluesky/i })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('shows correct char count for bluesky (full URL length, 300 limit)', () => {
@@ -143,10 +130,10 @@ describe('EditPostView — bluesky char counting', () => {
 })
 
 describe('EditPostView — mastodon char counting', () => {
-  it('renders the platform badge for mastodon', () => {
-    const draft = makeDraft({ platform: 'mastodon', text: 'Hello' })
+  it('shows mastodon tab as selected for mastodon platform', () => {
+    const draft = makeDraft({ platforms: ['mastodon'], platform: 'mastodon', text: 'Hello' })
     renderEdit({ post: draft })
-    expect(screen.getByTestId('platform-badge')).toHaveTextContent('mastodon')
+    expect(screen.getByRole('tab', { name: /mastodon/i })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('shows correct char count for mastodon (500 limit)', () => {
@@ -165,10 +152,10 @@ describe('EditPostView — linkedin char counting', () => {
 })
 
 describe('EditPostView — unknown platform char counting', () => {
-  it('falls back to Unicode scalar count for unknown platform', () => {
-    const draft = makeDraft({ platform: 'unknown_platform', text: 'abc' })
+  it('falls back to Unicode scalar count for unknown platform (no char limit shown)', () => {
+    const draft = makeDraft({ platforms: ['unknown_platform'], platform: 'unknown_platform', text: 'abc' })
     renderEdit({ post: draft })
-    expect(screen.getByTestId('platform-badge')).toHaveTextContent('unknown_platform')
+    expect(screen.getByRole('tab', { name: /unknown_platform/i })).toBeInTheDocument()
   })
 })
 

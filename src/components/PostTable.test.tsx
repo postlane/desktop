@@ -102,6 +102,13 @@ describe('PostTable — queue mode — badge layout', () => {
     expect(screen.getByRole('button', { name: /edit x post/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /edit bluesky post/i })).toBeInTheDocument()
   })
+
+  it('renders a brand icon not a text label inside each platform button', () => {
+    render(<PostTable posts={[makeDraft({ platform: 'bluesky' })]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    const btn = screen.getByRole('button', { name: /edit bluesky post/i })
+    expect(btn).not.toHaveTextContent('Bluesky')
+    expect(btn.querySelector('svg')).toBeTruthy()
+  })
 })
 
 describe('PostTable — queue mode — interactions', () => {

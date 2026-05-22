@@ -101,6 +101,23 @@ mod tests {
     }
 
     #[test]
+    fn test_get_all_drafts_includes_image_attribution() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_meta(
+            dir.path(),
+            "my-post",
+            r#"{"image_url":"https://images.unsplash.com/photo-abc","image_attribution":{"photographer_name":"Jane Doe","photographer_url":"https://unsplash.com/@janedoe"}}"#,
+        );
+        write_md(dir.path(), "my-post", "x", "Hello");
+        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1);
+        let attr = result[0].image_attribution.as_ref().expect("image_attribution must be Some");
+        assert_eq!(attr.photographer_name, "Jane Doe");
+        assert_eq!(attr.photographer_url, "https://unsplash.com/@janedoe");
+    }
+
+    #[test]
     fn test_get_all_drafts_empty() {
         let state = make_state(vec![]);
         let result = get_all_drafts_impl(&state).expect("ok");
