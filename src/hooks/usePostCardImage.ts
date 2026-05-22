@@ -16,10 +16,8 @@ export function usePostCardImage(post: DraftPost) {
   const [hasUnsplashKey, setHasUnsplashKey] = useState(false);
 
   useEffect(() => {
-    if (addingImage) {
-      invoke<boolean>('has_unsplash_key').then(setHasUnsplashKey).catch(() => setHasUnsplashKey(false));
-    }
-  }, [addingImage]);
+    invoke<boolean>('has_unsplash_key').then(setHasUnsplashKey).catch(() => setHasUnsplashKey(false));
+  }, []);
 
   const openImageInput = useCallback(() => { setImageInput(imageUrl ?? ''); setAddingImage(true); setOgFetchError(null); }, [imageUrl]);
   const closeImageInput = useCallback(() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }, []);
