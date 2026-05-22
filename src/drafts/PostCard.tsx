@@ -113,7 +113,7 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
   const [mobileView, setMobileView] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError, hasUnsplashKey,
-    openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, onInputChange } = usePostCardImage(post);
+    openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, handleSelectUnsplash, onInputChange } = usePostCardImage(post);
   const { postContent, setPostContent, contentLoadError, attributionEnabled } = usePostCardContent(post, activeTab);
   const { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
   const mastodonCharLimit = useMastodonCharLimit(activeTab);
@@ -141,7 +141,7 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
           ogFetchError={ogFetchError} hasUnsplashKey={hasUnsplashKey}
           onInputChange={onInputChange} onSave={handleSaveImage} onRemove={handleRemoveImage}
           onCancel={closeImageInput}
-          onSelectUnsplash={(_url, _dl, _attr) => { closeImageInput(); }}
+          onSelectUnsplash={(url, dl, attr) => { handleSelectUnsplash(url, dl, attr); closeImageInput(); }}
         />
       )}
       {post.image_attribution && (
