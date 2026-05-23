@@ -370,7 +370,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         repo_discovery::discover_repos,
         post_schedule::update_post_schedule,
         mastodon_connection::get_mastodon_char_limit, mastodon_connection::get_mastodon_connected_instance,
-        mastodon_connection::disconnect_mastodon,
+        mastodon_connection::get_mastodon_connected_account, mastodon_connection::disconnect_mastodon,
         mastodon_app_registration::register_mastodon_app,
         mastodon_token_exchange::exchange_mastodon_code,
         analytics::client::get_site_token, analytics::client::get_post_analytics,

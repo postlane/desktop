@@ -2,7 +2,7 @@
 
 //! Mastodon OAuth token exchange and account handle verification.
 
-use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_SERVICE};
+use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_ACTIVE_USERNAME, KEYRING_SERVICE};
 use crate::providers::scheduling::build_client;
 use crate::security::api_error::format_api_error;
 use crate::security::instance_url::validate_instance_hostname;
@@ -45,6 +45,11 @@ pub async fn exchange_mastodon_code(
         .map_err(|e| format!("Failed to store active instance: {}", e))?;
 
     let acct = fetch_acct(&client, &base_url, &access_token).await?;
+
+    app.keyring()
+        .set_password(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME, &acct)
+        .map_err(|e| format!("Failed to store active username: {}", e))?;
+
     let _ = app.emit("platform-connected", ());
     Ok(acct)
 }
