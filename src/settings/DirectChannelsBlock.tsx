@@ -5,7 +5,6 @@ import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 type Step = 'loading' | 'idle' | 'instance-form' | 'code-form' | 'connected';
-type ValidationState = 'unvalidated' | 'valid' | 'invalid';
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -24,26 +23,17 @@ function useMastodonRow() {
   const [step, setStep] = useState<Step>('loading');
   const [connectedInstance, setConnectedInstance] = useState('');
   const [instanceInput, setInstanceInput] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [validation, setValidation] = useState<ValidationState>('unvalidated');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useConnectionCheck(setConnectedInstance, setStep);
-  function handleInstanceChange(value: string) {
-    setInstanceInput(value); setValidation('unvalidated'); setError(null);
-  }
-  async function handleTestInstance() {
+  function handleInstanceChange(value: string) { setInstanceInput(value); setError(null); }
+  async function handleConnect() {
     if (instanceInput.includes('://')) { setError('Enter a hostname only, e.g. mastodon.social'); return; }
-    setValidating(true); setError(null);
+    setBusy(true); setError(null);
     try {
       await invoke('get_mastodon_char_limit', { instance: instanceInput });
-      setValidation('valid');
-    } catch { setValidation('invalid'); setError('Instance not found'); }
-    finally { setValidating(false); }
-  }
-  async function handleConnectToMastodon() {
-    setBusy(true); setError(null);
+    } catch { setError('Instance not found'); setBusy(false); return; }
     try {
       const url = await invoke<string>('register_mastodon_app', { instance: instanceInput });
       await openUrl(url);
@@ -64,44 +54,41 @@ function useMastodonRow() {
     setBusy(true);
     try {
       await invoke('disconnect_mastodon', { instance: connectedInstance });
-      setConnectedInstance(''); setInstanceInput(''); setValidation('unvalidated'); setStep('idle');
+      setConnectedInstance(''); setInstanceInput(''); setStep('idle');
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   }
   return {
-    step, connectedInstance, instanceInput, validating, validation, code, error, busy,
-    handleInstanceChange, handleTestInstance, handleConnectToMastodon, handleSave,
+    step, connectedInstance, instanceInput, code, error, busy,
+    handleInstanceChange, handleConnect, handleSave,
     handleDisconnect, setCode,
     openForm: () => { setError(null); setStep('instance-form'); },
-    cancel: () => { setError(null); setValidation('unvalidated'); setInstanceInput(''); setStep('idle'); },
+    cancel: () => { setError(null); setInstanceInput(''); setStep('idle'); },
   };
 }
 
 // ── Instance form ─────────────────────────────────────────────────────────────
 
-function MastodonInstanceForm({ instanceInput, validating, validation, error, busy,
-  onInstanceChange, onTest, onConnect, onCancel }: {
-  instanceInput: string; validating: boolean; validation: ValidationState;
-  error: string | null; busy: boolean;
-  onInstanceChange: (_v: string) => void; onTest: () => void;
-  onConnect: () => void; onCancel: () => void;
+function MastodonInstanceForm({ instanceInput, error, busy,
+  onInstanceChange, onConnect, onCancel }: {
+  instanceInput: string; error: string | null; busy: boolean;
+  onInstanceChange: (_v: string) => void; onConnect: () => void; onCancel: () => void;
 }) {
   return (
     <div className="pb-2" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
-      <div className="is-flex mt-2" style={{ gap: '0.5rem' }}>
+      <p className="is-size-7 has-text-grey mt-2 mb-2">
+        Enter your instance hostname. You will sign in with your account in the browser.
+      </p>
+      <div className="is-flex" style={{ gap: '0.5rem' }}>
         <input type="text" className="input is-small" style={{ flex: 1 }}
           placeholder="mastodon.social" value={instanceInput}
           onChange={(e) => onInstanceChange(e.target.value)} />
-        <button className="button is-small is-ghost" onClick={onTest} disabled={validating || !instanceInput}>
-          {validating ? 'Testing…' : 'Test instance'}
-        </button>
         <button className="button is-small is-primary" onClick={onConnect}
-          disabled={busy || validation !== 'valid'}>
-          Connect to Mastodon
+          disabled={busy || !instanceInput}>
+          {busy ? 'Connecting…' : 'Connect to Mastodon'}
         </button>
         <button className="button is-small is-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
-      {validation === 'valid' && !error && <p className="is-size-7 has-text-success mt-1">✓ Valid</p>}
       {error && <p className="is-size-7 has-text-danger mt-1">{error}</p>}
     </div>
   );
@@ -157,10 +144,8 @@ export default function DirectChannelsBlock() {
       </div>
       {row.step === 'instance-form' && (
         <MastodonInstanceForm
-          instanceInput={row.instanceInput} validating={row.validating}
-          validation={row.validation} error={row.error} busy={row.busy}
-          onInstanceChange={row.handleInstanceChange} onTest={row.handleTestInstance}
-          onConnect={row.handleConnectToMastodon} onCancel={row.cancel}
+          instanceInput={row.instanceInput} error={row.error} busy={row.busy}
+          onInstanceChange={row.handleInstanceChange} onConnect={row.handleConnect} onCancel={row.cancel}
         />
       )}
       {row.step === 'code-form' && (

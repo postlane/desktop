@@ -100,7 +100,7 @@ describe('DirectChannelsBlock — expand and cancel', () => {
   })
 })
 
-// ── Instance validation (input) ───────────────────────────────────────────────
+// ── Instance validation ───────────────────────────────────────────────────────
 
 describe('DirectChannelsBlock — instance validation', () => {
   it('shows error when instance contains "://"', async () => {
@@ -109,52 +109,20 @@ describe('DirectChannelsBlock — instance validation', () => {
     fireEvent.change(await screen.findByPlaceholderText(/mastodon\.social/i), {
       target: { value: 'https://mastodon.social' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /test instance/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
     expect(screen.getByText(/hostname only/i)).toBeInTheDocument()
   })
 
-  it('Connect button disabled until instance validated', async () => {
-    render(<DirectChannelsBlock />)
-    fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
-    await screen.findByPlaceholderText(/mastodon\.social/i)
-    expect(screen.getByRole('button', { name: /^connect to mastodon$/i })).toBeDisabled()
-  })
-})
-
-// ── Instance validation (API calls) ──────────────────────────────────────────
-
-describe('DirectChannelsBlock — instance validation (API calls)', () => {
-  beforeEach(() => {
-    mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === 'get_mastodon_connected_instance') return null
-      if (cmd === 'get_mastodon_char_limit') return 500
-      return null
-    })
-  })
-
-  it('calls get_mastodon_char_limit on Test instance', async () => {
+  it('Connect to Mastodon button enabled when input has text', async () => {
     render(<DirectChannelsBlock />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     fireEvent.change(await screen.findByPlaceholderText(/mastodon\.social/i), {
       target: { value: 'mastodon.social' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /test instance/i }))
-    await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('get_mastodon_char_limit', { instance: 'mastodon.social' })
-    )
+    expect(screen.getByRole('button', { name: /^connect to mastodon$/i })).toBeEnabled()
   })
 
-  it('enables Connect to Mastodon after successful test', async () => {
-    render(<DirectChannelsBlock />)
-    fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
-    fireEvent.change(await screen.findByPlaceholderText(/mastodon\.social/i), {
-      target: { value: 'mastodon.social' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: /test instance/i }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /^connect to mastodon$/i })).toBeEnabled())
-  })
-
-  it('shows "Instance not found" when test fails', async () => {
+  it('shows "Instance not found" when instance check fails', async () => {
     mockInvoke.mockImplementation(async (cmd) => {
       if (cmd === 'get_mastodon_connected_instance') return null
       if (cmd === 'get_mastodon_char_limit') throw new Error('unreachable')
@@ -165,35 +133,26 @@ describe('DirectChannelsBlock — instance validation (API calls)', () => {
     fireEvent.change(await screen.findByPlaceholderText(/mastodon\.social/i), {
       target: { value: 'bad.instance' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /test instance/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
     await waitFor(() => expect(screen.getByText(/instance not found/i)).toBeInTheDocument())
   })
 })
 
 // ── OAuth flow ────────────────────────────────────────────────────────────────
 
-async function openAndValidate(instance = 'mastodon.social') {
-  mockInvoke.mockImplementation(async (cmd) => {
-    if (cmd === 'get_mastodon_connected_instance') return null
-    if (cmd === 'get_mastodon_char_limit') return 500
-    if (cmd === 'register_mastodon_app') return `https://${instance}/oauth/authorize?client_id=abc`
-    return null
-  })
+async function openAndConnect(instance = 'mastodon.social') {
   render(<DirectChannelsBlock />)
   fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
   fireEvent.change(await screen.findByPlaceholderText(/mastodon\.social/i), {
     target: { value: instance },
   })
-  fireEvent.click(screen.getByRole('button', { name: /test instance/i }))
-  await waitFor(() => expect(screen.getByRole('button', { name: /^connect to mastodon$/i })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
 }
 
 async function saveConnectionFlow() {
   render(<DirectChannelsBlock />)
   fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
   fireEvent.change(await screen.findByPlaceholderText(/mastodon\.social/i), { target: { value: 'mastodon.social' } })
-  fireEvent.click(screen.getByRole('button', { name: /test instance/i }))
-  await waitFor(() => screen.getByRole('button', { name: /^connect to mastodon$/i }))
   fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
   await screen.findByPlaceholderText(/paste the code/i)
   fireEvent.change(screen.getByPlaceholderText(/paste the code/i), { target: { value: 'abc123' } })
@@ -212,24 +171,21 @@ describe('DirectChannelsBlock — OAuth flow', () => {
   })
 
   it('calls register_mastodon_app on Connect to Mastodon', async () => {
-    await openAndValidate()
-    fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
+    await openAndConnect()
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('register_mastodon_app', { instance: 'mastodon.social' })
     )
   })
 
   it('opens auth URL in browser after Connect to Mastodon', async () => {
-    await openAndValidate()
-    fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
+    await openAndConnect()
     await waitFor(() =>
       expect(mockOpen).toHaveBeenCalledWith('https://mastodon.social/oauth/authorize?client_id=abc')
     )
   })
 
   it('shows code entry form after Connect to Mastodon succeeds', async () => {
-    await openAndValidate()
-    fireEvent.click(screen.getByRole('button', { name: /^connect to mastodon$/i }))
+    await openAndConnect()
     expect(await screen.findByPlaceholderText(/paste the code/i)).toBeInTheDocument()
   })
 
