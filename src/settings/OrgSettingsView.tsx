@@ -6,7 +6,7 @@ import VoiceGuideBlock from './VoiceGuideBlock';
 import MembersBlock from './MembersBlock';
 import BillingBlock from './BillingBlock';
 import ImageSearchBlock from './ImageSearchBlock';
-import MastodonOAuthPanel from './MastodonOAuthPanel';
+import DirectChannelsBlock from './DirectChannelsBlock';
 import type { Project } from '../types';
 
 interface Props {
@@ -21,7 +21,7 @@ export default function OrgSettingsView({ org }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
         <RepositoriesBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <SchedulerBlock projectId={org.id} isOwner={isOwner} />
-        <MastodonOAuthPanel />
+        <DirectChannelsBlock />
         <ImageSearchBlock />
         <VoiceGuideBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <MembersBlock />
