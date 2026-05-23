@@ -8,6 +8,14 @@ use tauri_plugin_keyring::KeyringExt;
 
 pub(crate) const KEYRING_SERVICE: &str = "postlane";
 pub(crate) const KEYRING_ACTIVE_INSTANCE: &str = "mastodon_active_instance";
+pub(crate) const KEYRING_ACTIVE_USERNAME: &str = "mastodon_active_username";
+
+/// Connected Mastodon account — instance hostname plus the account handle.
+#[derive(serde::Serialize)]
+pub struct MastodonAccount {
+    pub instance: String,
+    pub username: String,
+}
 
 /// Returns the hostname of the currently connected Mastodon instance, or `None`.
 #[tauri::command]
@@ -15,6 +23,21 @@ pub fn get_mastodon_connected_instance(app: tauri::AppHandle) -> Result<Option<S
     app.keyring()
         .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
         .map_err(|e| format!("Keyring read error: {}", e))
+}
+
+/// Returns the connected Mastodon account (instance + username), or `None`.
+#[tauri::command]
+pub fn get_mastodon_connected_account(app: tauri::AppHandle) -> Result<Option<MastodonAccount>, String> {
+    let instance = app.keyring()
+        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .map_err(|e| format!("Keyring read error: {}", e))?;
+    let username = app.keyring()
+        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME)
+        .map_err(|e| format!("Keyring read error: {}", e))?;
+    match (instance, username) {
+        (Some(instance), Some(username)) => Ok(Some(MastodonAccount { instance, username })),
+        _ => Ok(None),
+    }
 }
 
 /// Fetches `configuration.statuses.max_characters` from `GET /api/v1/instance`.
@@ -61,6 +84,7 @@ fn keys_for_disconnect(instance: &str, is_active: bool) -> Vec<String> {
     ];
     if is_active {
         keys.push(KEYRING_ACTIVE_INSTANCE.to_string());
+        keys.push(KEYRING_ACTIVE_USERNAME.to_string());
     }
     keys
 }
@@ -131,6 +155,29 @@ mod tests {
         assert!(
             !keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
             "disconnect must NOT delete active_instance key when the disconnected instance is not the active one"
+        );
+    }
+
+    #[test]
+    fn test_active_username_key_is_constant() {
+        assert_eq!(KEYRING_ACTIVE_USERNAME, "mastodon_active_username");
+    }
+
+    #[test]
+    fn test_disconnect_deletes_username_key_when_active() {
+        let keys = keys_for_disconnect("mastodon.social", true);
+        assert!(
+            keys.contains(&KEYRING_ACTIVE_USERNAME.to_string()),
+            "disconnect must delete the active_username key when disconnecting the active instance"
+        );
+    }
+
+    #[test]
+    fn test_disconnect_spares_username_key_when_not_active() {
+        let keys = keys_for_disconnect("fosstodon.org", false);
+        assert!(
+            !keys.contains(&KEYRING_ACTIVE_USERNAME.to_string()),
+            "disconnect must NOT delete active_username key when the disconnected instance is not the active one"
         );
     }
 

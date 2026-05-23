@@ -121,16 +121,16 @@ describe('ModalOrgPicker — selection and creation', () => {
     });
   });
 
-  it('create_project called without providerOrgLogin for personal account', async () => {
+  it('create_project called with providerOrgLogin for personal account', async () => {
     render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('hugoelliott')).toBeDefined());
     await userEvent.click(screen.getByRole('option', { name: /hugoelliott/i }));
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     await waitFor(() => {
-      const call = mockInvoke.mock.calls.find(([c]) => c === 'create_project');
-      if (!call) throw new Error('create_project not called');
-      expect(call[1]).not.toHaveProperty('providerOrgLogin');
-      expect(call[1]).toMatchObject({ workspaceType: 'personal' });
+      expect(mockInvoke).toHaveBeenCalledWith('create_project', expect.objectContaining({
+        providerOrgLogin: 'hugoelliott',
+        workspaceType: 'personal',
+      }));
     });
   });
 });
@@ -301,7 +301,7 @@ describe('ModalOrgPicker — provider badges on org rows', () => {
   });
 });
 
-describe('ModalOrgPicker — backfill provider_org_login for existing org workspaces', () => {
+describe('ModalOrgPicker — backfill provider_org_login for existing workspaces', () => {
   it('calls backfill_project_org_login with project_id and org login when selecting existing org', async () => {
     const onNext = vi.fn();
     render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
@@ -329,23 +329,6 @@ describe('ModalOrgPicker — backfill provider_org_login for existing org worksp
     await waitFor(() => expect(onNext).toHaveBeenCalledWith('existing-proj-456', expect.any(String)));
   });
 
-  it('does not call backfill_project_org_login for personal account existing workspaces', async () => {
-    const personalWithProject = [
-      { login: 'hugoelliott', display_name: 'Hugo Elliott', avatar_url: 'https://avatars.githubusercontent.com/u/1', is_personal: true, has_project: true, project_id: 'personal-proj-789' },
-    ];
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'list_provider_orgs') return personalWithProject;
-      return null;
-    });
-    const onNext = vi.fn();
-    render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
-    await waitFor(() => screen.getByText('hugoelliott'));
-    await userEvent.click(screen.getByRole('option', { name: /hugoelliott/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
-    expect(mockInvoke).not.toHaveBeenCalledWith('backfill_project_org_login', expect.anything());
-  });
-
   it('does not call backfill_project_org_login when creating a new org workspace', async () => {
     const onNext = vi.fn();
     mockInvoke.mockImplementation(async (cmd: string) => {
@@ -362,5 +345,27 @@ describe('ModalOrgPicker — backfill provider_org_login for existing org worksp
     await userEvent.click(screen.getByRole('button', { name: /next/i }));
     await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
     expect(mockInvoke).not.toHaveBeenCalledWith('backfill_project_org_login', expect.anything());
+  });
+});
+
+describe('ModalOrgPicker — backfill provider_org_login for personal accounts', () => {
+  it('calls backfill_project_org_login for personal account existing workspaces', async () => {
+    const personalWithProject = [
+      { login: 'hugoelliott', display_name: 'Hugo Elliott', avatar_url: 'https://avatars.githubusercontent.com/u/1', is_personal: true, has_project: true, project_id: 'personal-proj-789' },
+    ];
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_provider_orgs') return personalWithProject;
+      return null;
+    });
+    const onNext = vi.fn();
+    render(<ModalOrgPicker onNext={onNext} onBack={vi.fn()} onPricingGate={vi.fn()} />);
+    await waitFor(() => screen.getByText('hugoelliott'));
+    await userEvent.click(screen.getByRole('option', { name: /hugoelliott/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await waitFor(() => expect(onNext).toHaveBeenCalledOnce());
+    expect(mockInvoke).toHaveBeenCalledWith('backfill_project_org_login', {
+      projectId: 'personal-proj-789',
+      orgLogin: 'hugoelliott',
+    });
   });
 });

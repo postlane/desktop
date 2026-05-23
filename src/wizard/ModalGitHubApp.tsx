@@ -12,6 +12,7 @@ const CLI_COMMAND = 'npx @postlane/cli init';
 const POLL_INTERVAL_MS = 3000;
 export const MAX_POLL_ATTEMPTS = 120; // 6 minutes
 export const POLL_SLOW_THRESHOLD = 10; // 30 seconds — show "still checking" notice
+export const MOUNT_CHECK_ATTEMPTS = 5; // 15 seconds of mount-time polling before giving up
 
 function repoConnectError(err: unknown, workspaceName?: string): string {
   const raw = typeof err === 'string' ? err : '';
@@ -240,6 +241,29 @@ function useGitHubAppEvents(
   }, [isGitHub, advance, onError]);
 }
 
+// Polls check_github_app_installed on mount, up to MOUNT_CHECK_ATTEMPTS times.
+// Shows the Connected badge without auto-advancing — the user clicks Next explicitly.
+function useMountInstallCheck(isGitHub: boolean, workspaceId: string, setInstalled: (v: boolean) => void): void {
+  useEffect(() => {
+    if (!isGitHub) return;
+    let cancelled = false;
+    let attempt = 0;
+    function check() {
+      if (cancelled || attempt >= MOUNT_CHECK_ATTEMPTS) return;
+      attempt++;
+      invoke<boolean>('check_github_app_installed', { projectId: workspaceId })
+        .then((installed) => {
+          if (cancelled) return;
+          if (installed) { setInstalled(true); return; }
+          setTimeout(check, POLL_INTERVAL_MS);
+        })
+        .catch(() => { if (!cancelled) setTimeout(check, POLL_INTERVAL_MS); });
+    }
+    check();
+    return () => { cancelled = true; };
+  }, [isGitHub, workspaceId, setInstalled]);
+}
+
 function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () => void, onRepoConnected: () => void): InstallHookResult {
   const [appInstalled, setAppInstalled] = useState(false);
   const [appInstallError, setAppInstallError] = useState<string | null>(null);
@@ -265,17 +289,7 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   const advanceFnRef = useRef(advance);
   advanceFnRef.current = advance;
 
-  // Check on mount — if app was installed before this session, show Connected badge.
-  // Do NOT auto-advance: let the user explicitly click Next.
-  useEffect(() => {
-    if (!isGitHub) return;
-    let cancelled = false;
-    invoke<boolean>('check_github_app_installed', { projectId: workspaceId })
-      .then((installed) => { if (!cancelled && installed) setAppInstalled(true); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [isGitHub, workspaceId]);
-
+  useMountInstallCheck(isGitHub, workspaceId, setAppInstalled);
   useGitHubAppEvents(isGitHub, advance, setAppInstallError);
 
   async function handleInstall() {

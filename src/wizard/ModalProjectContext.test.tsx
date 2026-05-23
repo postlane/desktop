@@ -183,39 +183,6 @@ describe('ModalProjectContext — load on mount', () => {
     });
   });
 
-  it('test_pre_populates_form_when_fields_exist', async () => {
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_voice_guide_fields') {
-        return Promise.resolve({ description: 'My startup', tone: 'Casual', audience: 'Founders', avoid: '', examples: '' });
-      }
-      return Promise.resolve(undefined);
-    });
-    render(<ModalProjectContext {...defaultProps} />);
-    await waitFor(() => {
-      expect((screen.getByLabelText(/identity/i) as HTMLInputElement).value).toBe('My startup');
-    });
-    expect((screen.getByLabelText(/tone/i) as HTMLTextAreaElement).value).toBe('Casual');
-  });
-
-  it('test_does_not_fail_when_fields_fetch_returns_malformed_object', async () => {
-    // IPC may return objects with non-string values; the typed wrapper must
-    // ignore malformed fields and keep the defaults rather than crashing.
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_voice_guide_fields') {
-        // description is a number (unexpected type from IPC boundary)
-        return Promise.resolve({ description: 42, tone: 'Casual', audience: null, avoid: '', examples: '' });
-      }
-      return Promise.resolve(undefined);
-    });
-    render(<ModalProjectContext {...defaultProps} />);
-    await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', expect.anything());
-    });
-    // description field should fall back to empty default, tone should be applied
-    const descInput = screen.getByLabelText(/identity/i) as HTMLInputElement;
-    expect(descInput.value).toBe('');
-  });
-
   it('test_does_not_fail_when_fields_fetch_returns_null', async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_voice_guide_fields') return Promise.resolve(null);
@@ -238,6 +205,56 @@ describe('ModalProjectContext — load on mount', () => {
       expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', expect.anything());
     });
     expect(screen.getByLabelText(/identity/i)).toBeDefined();
+  });
+});
+
+// ── field pre-population ──────────────────────────────────────────────────────
+
+describe('ModalProjectContext — field pre-population', () => {
+  it('test_pre_populates_form_when_fields_exist', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') {
+        return Promise.resolve({ description: 'My startup', tone: 'Casual', audience: 'Founders', avoid: '', examples: '' });
+      }
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect((screen.getByLabelText(/identity/i) as HTMLInputElement).value).toBe('My startup');
+    });
+    expect((screen.getByLabelText(/tone/i) as HTMLTextAreaElement).value).toBe('Casual');
+  });
+
+  it('test_does_not_fail_when_fields_fetch_returns_malformed_object', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') {
+        return Promise.resolve({ description: 42, tone: 'Casual', audience: null, avoid: '', examples: '' });
+      }
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_voice_guide_fields', expect.anything());
+    });
+    const descInput = screen.getByLabelText(/identity/i) as HTMLInputElement;
+    expect(descInput.value).toBe('');
+  });
+
+  it('test_avoid_default_retained_when_api_returns_empty_avoid_string', async () => {
+    // voice_guide_fields may have been saved with avoid:'' during a failed or
+    // partial wizard run. AVOID_DEFAULT must still appear — empty avoid is treated
+    // as "not set" so the standard forbidden-phrases list is always shown.
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_voice_guide_fields') {
+        return Promise.resolve({ description: 'My project', audience: '', tone: '', avoid: '', examples: '' });
+      }
+      return Promise.resolve(undefined);
+    });
+    render(<ModalProjectContext {...defaultProps} />);
+    await waitFor(() => {
+      expect((screen.getByLabelText(/identity/i) as HTMLInputElement).value).toBe('My project');
+    });
+    expect((screen.getByLabelText(/avoid/i) as HTMLTextAreaElement).value).toContain('Excited to share');
   });
 });
 
