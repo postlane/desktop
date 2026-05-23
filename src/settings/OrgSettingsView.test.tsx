@@ -60,6 +60,11 @@ describe('OrgSettingsView', () => {
     expect(screen.getByText('Billing')).toBeInTheDocument()
   })
 
+  it('renders MastodonOAuthPanel', () => {
+    render(<OrgSettingsView org={makeProject()} />)
+    expect(screen.getByText('Mastodon')).toBeInTheDocument()
+  })
+
   it('derives isOwner from org.is_owner', () => {
     render(<OrgSettingsView org={makeProject({ is_owner: false })} />)
     expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
