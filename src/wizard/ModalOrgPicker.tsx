@@ -229,7 +229,7 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
     // Existing workspace — backfill org login if missing, then route
     if (selectedOrg.has_project) {
       if (selectedOrg.project_id) {
-        if (!selectedOrg.is_personal && selectedOrg.login) {
+        if (selectedOrg.login) {
           invoke('backfill_project_org_login', {
             projectId: selectedOrg.project_id,
             orgLogin: selectedOrg.login,
@@ -247,7 +247,7 @@ export default function ModalOrgPicker({ onNext, onBack, onPricingGate, onSkipTo
       const params = {
         name: name.trim(),
         workspaceType: selectedOrg.is_personal ? 'personal' : 'organization',
-        ...(selectedOrg.is_personal ? {} : { providerOrgLogin: selectedOrg.login }),
+        providerOrgLogin: selectedOrg.login,
       };
       const result = await invoke<CreateProjectResult>('create_project', params);
       onNext(result.project_id, result.name);

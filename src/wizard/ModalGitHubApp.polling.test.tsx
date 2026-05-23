@@ -13,7 +13,7 @@ vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }));
 import { listen } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '../ipc/invoke';
-import ModalGitHubApp, { MAX_POLL_ATTEMPTS, POLL_SLOW_THRESHOLD } from './ModalGitHubApp';
+import ModalGitHubApp, { MAX_POLL_ATTEMPTS, POLL_SLOW_THRESHOLD, MOUNT_CHECK_ATTEMPTS } from './ModalGitHubApp';
 
 const mockListen = vi.mocked(listen);
 const mockOpenDialog = vi.mocked(openDialog);
@@ -408,6 +408,51 @@ describe('ModalConnectRepos — mount-time check — basic', () => {
     render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onNext).not.toHaveBeenCalled();
+  });
+});
+
+describe('ModalConnectRepos — mount-time check — retry', () => {
+  it('retries mount check when first attempt returns false and shows Connected badge on retry success', async () => {
+    vi.useFakeTimers();
+    const onNext = vi.fn();
+    let callCount = 0;
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') {
+        callCount++;
+        return callCount >= 2; // false on attempt 1, true on attempt 2
+      }
+      if (cmd === 'list_repos_for_project') return [];
+      return { name: 'repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} onNext={onNext} />);
+    await Promise.resolve(); // let attempt 1 run (false)
+    await vi.advanceTimersByTimeAsync(3000); // trigger attempt 2
+    await Promise.resolve(); // let attempt 2 resolve (true)
+    expect(screen.getByText(/github app connected/i)).toBeInTheDocument();
+    expect(onNext).not.toHaveBeenCalled(); // never auto-advances from mount poll
+    vi.useRealTimers();
+  });
+
+  it('stops retrying mount check after MOUNT_CHECK_ATTEMPTS failed attempts', async () => {
+    vi.useFakeTimers();
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'check_github_app_installed') return false;
+      if (cmd === 'list_repos_for_project') return [];
+      return { name: 'repo' };
+    });
+    render(<ModalGitHubApp {...defaultProps} />);
+    // Run through all mount check attempts
+    for (let i = 0; i < MOUNT_CHECK_ATTEMPTS; i++) {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(3000);
+    }
+    await Promise.resolve();
+    const callsBefore = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
+    await vi.advanceTimersByTimeAsync(3000 * 5);
+    await Promise.resolve();
+    const callsAfter = mockInvoke.mock.calls.filter(([c]: [string, ...unknown[]]) => c === 'check_github_app_installed').length;
+    expect(callsAfter).toBe(callsBefore);
+    vi.useRealTimers();
   });
 });
 

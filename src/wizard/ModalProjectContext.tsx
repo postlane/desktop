@@ -23,13 +23,16 @@ function extractStringField(obj: Record<string, unknown>, key: string): string |
 function parseVoiceGuideFields(data: unknown): Partial<VoiceGuideFields> | null {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) return null;
   const obj = data as Record<string, unknown>;
-  return {
+  const result: Partial<VoiceGuideFields> = {
     description: extractStringField(obj, 'description'),
     audience: extractStringField(obj, 'audience'),
     tone: extractStringField(obj, 'tone'),
-    avoid: extractStringField(obj, 'avoid'),
     examples: extractStringField(obj, 'examples'),
   };
+  // Empty avoid is treated as "not set" so AVOID_DEFAULT is preserved on spread.
+  const avoid = extractStringField(obj, 'avoid');
+  if (avoid) result.avoid = avoid;
+  return result;
 }
 
 export default function ModalProjectContext({ workspaceId, workspaceName, onNext, onBack }: Props) {
