@@ -191,6 +191,21 @@ fn test_validate_platform_rejects_unknown() {
     assert!(err.contains("Unknown platform"), "error must say 'Unknown platform', got: {}", err);
 }
 
+#[test]
+fn test_validate_platform_accepts_mastodon() {
+    assert!(validate_platform("mastodon").is_ok());
+}
+
+#[test]
+fn test_validate_platform_accepts_substack_notes() {
+    assert!(validate_platform("substack_notes").is_ok());
+}
+
+#[test]
+fn test_validate_platform_accepts_linkedin() {
+    assert!(validate_platform("linkedin").is_ok());
+}
+
 // --- §validate_post_folder ---
 
 #[test]

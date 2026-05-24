@@ -20,6 +20,10 @@ pub async fn register_mastodon_app(
     validate_instance_hostname(&instance)?;
     validate_instance_domain(&instance).await.map_err(|e| e.to_string())?;
 
+    let client = build_client();
+    let base_url = format!("https://{}", instance);
+    probe_mastodon_instance(&client, &base_url).await?;
+
     let client_id_key = format!("mastodon_client_id/{}", instance);
     let client_secret_key = format!("mastodon_client_secret/{}", instance);
 
@@ -31,8 +35,6 @@ pub async fn register_mastodon_app(
     let client_id = match (existing_id, existing_secret) {
         (Some(id), Some(_)) => id,
         _ => {
-            let client = build_client();
-            let base_url = format!("https://{}", instance);
             let (id, secret) = register_app_with_instance(&client, &base_url).await?;
             app.keyring().set_password(KEYRING_SERVICE, &client_id_key, &id)
                 .map_err(|e| format!("Failed to store client_id: {}", e))?;
@@ -43,6 +45,36 @@ pub async fn register_mastodon_app(
     };
 
     build_auth_url(&instance, &client_id)
+}
+
+/// Verifies that `base_url` is a real Mastodon server by probing `GET /api/v1/instance`.
+/// Returns `Ok(())` if the instance responds with valid JSON, `Err` with a user-friendly
+/// message otherwise.
+pub(crate) async fn probe_mastodon_instance(
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/v1/instance", base_url);
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach '{}': {}", base_url, e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "'{}' doesn't appear to be a Mastodon server — it returned status {}. Check the instance address for typos and try again.",
+            base_url,
+            response.status().as_u16()
+        ));
+    }
+    response
+        .json::<serde_json::Value>()
+        .await
+        .map(|_| ())
+        .map_err(|_| format!(
+            "'{}' doesn't appear to be a Mastodon server. Check the instance address for typos and try again.",
+            base_url
+        ))
 }
 
 /// POSTs to `POST {base_url}/api/v1/apps` and returns `(client_id, client_secret)`.
@@ -75,7 +107,10 @@ pub(crate) async fn register_app_with_instance(
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse registration response: {}", e))?;
+        .map_err(|_| format!(
+            "'{}' doesn't appear to be a Mastodon server — it returned an unexpected response. Check the instance address for typos and try again.",
+            base_url
+        ))?;
 
     let client_id = json["client_id"]
         .as_str()
@@ -205,5 +240,77 @@ mod tests {
             result.unwrap_err().contains("Missing client_secret"),
             "error must mention Missing client_secret"
         );
+    }
+
+    #[tokio::test]
+    async fn test_register_app_non_json_response_gives_user_friendly_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST).path("/api/v1/apps");
+            then.status(200)
+                .header("content-type", "text/html")
+                .body("<html>Not a Mastodon server</html>");
+        });
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = register_app_with_instance(&client, &base_url).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            !err.contains("error decoding response body"),
+            "must not expose internal reqwest error to user: {}", err
+        );
+        assert!(
+            err.to_lowercase().contains("mastodon") || err.to_lowercase().contains("check"),
+            "error must be user-friendly: {}", err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_probe_mastodon_instance_ok_when_valid_response() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/instance");
+            then.status(200).json_body(serde_json::json!({
+                "uri": "mastodon.social",
+                "title": "Mastodon",
+                "version": "4.2.0"
+            }));
+        });
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        assert!(probe_mastodon_instance(&client, &base_url).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_probe_mastodon_instance_err_when_html_response() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/instance");
+            then.status(200)
+                .header("content-type", "text/html")
+                .body("<html>Not Mastodon</html>");
+        });
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        let result = probe_mastodon_instance(&client, &base_url).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_lowercase().contains("mastodon") || err.to_lowercase().contains("check"),
+            "must give user-friendly error: {}", err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_probe_mastodon_instance_err_when_404() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/api/v1/instance");
+            then.status(404).body("Not Found");
+        });
+        let client = build_client();
+        let base_url = format!("http://127.0.0.1:{}", server.port());
+        assert!(probe_mastodon_instance(&client, &base_url).await.is_err());
     }
 }

@@ -3,11 +3,6 @@
 use dashmap::DashMap;
 use std::sync::{Arc, LazyLock};
 
-/// Social platform identifiers accepted by approve_post and get_org_published.
-/// Social platforms and scheduler providers are distinct namespaces:
-/// one scheduler account publishes to all platforms.
-pub const KNOWN_SOCIAL_PLATFORMS: &[&str] = &["x", "linkedin", "bluesky"];
-
 /// Denominator unit for ModelStatsResponse — each sent platform counts as one post.
 /// Use this constant in all callers so a typo is a compile error, not a silent mismatch.
 pub const DENOMINATOR_UNIT_PLATFORM_APPROVAL: &str = "platform_approval";
