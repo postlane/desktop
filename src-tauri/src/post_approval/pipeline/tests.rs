@@ -313,6 +313,39 @@ fn test_apply_scheduler_result_stores_https_url() {
     assert_eq!(meta.platform_urls.get("x").map(String::as_str), Some("https://x.com/post/99"));
 }
 
+// --- §resolve_mastodon_credential ---
+
+#[test]
+fn test_resolve_mastodon_credential_ok_when_both_present() {
+    let result = resolve_mastodon_credential(
+        Some("mastodon.social".to_string()),
+        Some("tok123".to_string()),
+    );
+    assert_eq!(result.unwrap(), ("mastodon.social".to_string(), "tok123".to_string()));
+}
+
+#[test]
+fn test_resolve_mastodon_credential_err_when_instance_missing() {
+    let result = resolve_mastodon_credential(None, Some("tok123".to_string()));
+    assert!(result.is_err());
+    let msg = result.unwrap_err();
+    assert!(
+        msg.to_lowercase().contains("mastodon") || msg.to_lowercase().contains("connect"),
+        "error must guide user to connect Mastodon, got: {}", msg
+    );
+}
+
+#[test]
+fn test_resolve_mastodon_credential_err_when_token_missing() {
+    let result = resolve_mastodon_credential(Some("mastodon.social".to_string()), None);
+    assert!(result.is_err());
+    let msg = result.unwrap_err();
+    assert!(
+        msg.to_lowercase().contains("mastodon") || msg.to_lowercase().contains("reconnect"),
+        "error must guide user to reconnect, got: {}", msg
+    );
+}
+
 // --- §record_scheduler_failure (split assertions) ---
 
 #[test]
