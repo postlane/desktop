@@ -111,16 +111,48 @@ pub fn connect_repo_from_desktop(
     let home = dirs::home_dir();
     let repo = connect_repo_from_desktop_impl(&repo_path, &project_id, &state, home.as_deref())?;
     crate::repo_mgmt::start_repo_watcher(&repo.id, &repo.path, &state, app_handle.clone());
-    let repo_path_buf = std::path::Path::new(&repo.path);
-    for provider in crate::scheduler_credentials::VALID_PROVIDERS {
-        let key = crate::scheduler_credentials::get_credential_keyring_key(provider, &project_id);
-        if let Ok(Some(_)) = app_handle.keyring().get_password("postlane", &key) {
-            if let Err(e) = crate::config_merge::write_scheduler_provider_to_local_config(repo_path_buf, provider) {
-                log::warn!("[connect_repo] could not restore scheduler provider '{}': {}", provider, e);
-            }
-        }
+    let repo_path_buf = std::path::PathBuf::from(&repo.path);
+    let pairs = restore_scheduler_for_new_repo(
+        &repo_path_buf,
+        &crate::scheduler_credentials::VALID_PROVIDERS,
+        |provider| {
+            let key = crate::scheduler_credentials::get_credential_keyring_key(provider, &project_id);
+            app_handle.keyring().get_password("postlane", &key).ok().flatten()
+        },
+    );
+    for (provider, api_key) in pairs {
+        let path = repo_path_buf.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::account_config::sync_accounts_for_provider(&provider, &api_key, vec![path]).await;
+        });
     }
     Ok(repo)
+}
+
+/// Checks each provider in `providers` via `get_api_key`, writes its name to
+/// `config.local.json`, and returns `(provider, api_key)` pairs so the caller
+/// can spawn async account-id sync without needing keyring access here.
+pub(crate) fn restore_scheduler_for_new_repo(
+    repo_path: &Path,
+    providers: &[&str],
+    get_api_key: impl Fn(&str) -> Option<String>,
+) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    for &provider in providers {
+        if let Some(api_key) = get_api_key(provider) {
+            if let Err(e) =
+                crate::config_merge::write_scheduler_provider_to_local_config(repo_path, provider)
+            {
+                log::warn!(
+                    "[connect_repo] restore scheduler provider '{}': {}",
+                    provider,
+                    e
+                );
+            }
+            pairs.push((provider.to_string(), api_key));
+        }
+    }
+    pairs
 }
 
 // ── tests ──────────────────────────────────────────────────────────────────
@@ -265,6 +297,53 @@ mod tests {
         assert!(result.is_err(), "should reject symlink on config.local.json");
         assert!(result.unwrap_err().contains("symlink"), "error must mention symlink");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // --- §restore_scheduler_for_new_repo ---
+
+    #[test]
+    fn test_restore_scheduler_writes_provider_to_config_local_json() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::create_dir_all(dir.path().join(".postlane")).expect("mkdir");
+
+        restore_scheduler_for_new_repo(dir.path(), &["zernio"], |p| {
+            if p == "zernio" { Some("my-key".to_string()) } else { None }
+        });
+
+        let local_str = fs::read_to_string(dir.path().join(".postlane/config.local.json"))
+            .expect("config.local.json must be written");
+        let local: serde_json::Value = serde_json::from_str(&local_str).expect("valid JSON");
+        assert_eq!(
+            local["scheduler"]["provider"].as_str(),
+            Some("zernio"),
+            "provider must be written to config.local.json"
+        );
+    }
+
+    #[test]
+    fn test_restore_scheduler_returns_pairs_for_async_sync() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::create_dir_all(dir.path().join(".postlane")).expect("mkdir");
+
+        let pairs = restore_scheduler_for_new_repo(dir.path(), &["zernio", "buffer"], |p| {
+            if p == "zernio" { Some("zernio-key".to_string()) } else { None }
+        });
+
+        assert_eq!(pairs, vec![("zernio".to_string(), "zernio-key".to_string())]);
+    }
+
+    #[test]
+    fn test_restore_scheduler_skips_providers_without_credentials() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        fs::create_dir_all(dir.path().join(".postlane")).expect("mkdir");
+
+        let pairs = restore_scheduler_for_new_repo(dir.path(), &["zernio", "buffer"], |_| None);
+
+        assert!(pairs.is_empty(), "no credential → no pairs returned");
+        assert!(
+            !dir.path().join(".postlane/config.local.json").exists(),
+            "config.local.json must not be created when no credentials found"
+        );
     }
 
     #[test]
