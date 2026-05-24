@@ -1,31 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::init::atomic_write;
-use crate::project_validation::{reject_if_symlink, validate_project_id};
+use crate::project_config_ops::write_initial_config_files;
+use crate::project_validation::validate_project_id;
 use crate::storage::{write_repos, Repo};
 use std::fs;
 use std::path::Path;
 use tauri::State;
 use uuid::Uuid;
-
-const BASE_URL: &str = "https://postlane.dev";
-const DEFAULT_LLM_MODEL: &str = "claude-sonnet-4-6";
-
-fn build_config_json(project_id: &str) -> serde_json::Value {
-    serde_json::json!({
-        "version": 1,
-        "project_id": project_id,
-        "base_url": BASE_URL,
-        "llm": { "provider": "anthropic", "model": DEFAULT_LLM_MODEL }
-    })
-}
-
-fn build_config_local_json() -> serde_json::Value {
-    serde_json::json!({
-        "scheduler": { "provider": "" }
-    })
-}
 
 fn is_already_registered(canonical_path: &str, state: &AppState) -> Result<bool, String> {
     let repos = state.lock_repos()?;
@@ -76,20 +58,7 @@ pub fn connect_repo_from_desktop_impl(
         return Err(format!("RepoAlreadyRegistered: '{}' is already registered", canonical_str));
     }
 
-    let config_path = canonical_path.join(".postlane").join("config.json");
-    reject_if_symlink(&config_path)?;
-
-    let config_bytes = serde_json::to_vec_pretty(&build_config_json(project_id))
-        .map_err(|e| format!("Failed to serialise config: {}", e))?;
-    atomic_write(&config_path, &config_bytes)
-        .map_err(|e| format!("Failed to write config.json: {}", e))?;
-
-    let local_config_path = canonical_path.join(".postlane").join("config.local.json");
-    reject_if_symlink(&local_config_path)?;
-    let local_config_bytes = serde_json::to_vec_pretty(&build_config_local_json())
-        .map_err(|e| format!("Failed to serialise config.local.json: {}", e))?;
-    atomic_write(&local_config_path, &local_config_bytes)
-        .map_err(|e| format!("Failed to write config.local.json: {}", e))?;
+    write_initial_config_files(&canonical_path, project_id)?;
 
     let name = canonical_path
         .file_name()
@@ -160,6 +129,7 @@ pub(crate) fn restore_scheduler_for_new_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project_config_ops::{BASE_URL, DEFAULT_LLM_MODEL};
     use crate::test_fixtures::{home_tmp, make_state};
     use std::fs;
 
