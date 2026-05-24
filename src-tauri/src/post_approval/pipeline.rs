@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::platform_constants::KNOWN_SOCIAL_PLATFORMS;
 use crate::post_meta::{PostMeta, PostStatus};
 use std::path::Path;
 use std::sync::Arc;
@@ -25,13 +24,12 @@ impl Drop for InFlightGuard {
 }
 
 pub(super) fn validate_platform(platform: &str) -> Result<(), String> {
-    if !KNOWN_SOCIAL_PLATFORMS.contains(&platform) {
-        return Err(format!(
-            "Unknown platform '{}': must be one of {:?}",
-            platform, KNOWN_SOCIAL_PLATFORMS
-        ));
-    }
-    Ok(())
+    crate::parser::char_limit(platform)
+        .map(|_| ())
+        .map_err(|e| match e {
+            crate::parser::ValidationError::ParseError(msg) => msg,
+            _ => format!("Unknown platform '{}'", platform),
+        })
 }
 
 pub(super) fn validate_post_folder(post_folder: &str) -> Result<(), String> {
