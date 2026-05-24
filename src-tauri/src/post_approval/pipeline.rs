@@ -157,6 +157,63 @@ pub(super) fn validate_char_limit(platform: &str, post_path: &Path) -> Result<()
     Ok(())
 }
 
+/// Validates that both the active Mastodon instance and access token are present.
+/// Takes the already-fetched Option values so this function is pure and testable.
+pub(super) fn resolve_mastodon_credential(
+    instance: Option<String>,
+    access_token: Option<String>,
+) -> Result<(String, String), String> {
+    let instance = instance.ok_or_else(|| {
+        "No Mastodon account connected. Connect one in Settings \u{2192} Channels.".to_string()
+    })?;
+    let access_token = access_token.ok_or_else(|| {
+        format!(
+            "Mastodon access token missing for '{}'. Reconnect in Settings \u{2192} Channels.",
+            instance
+        )
+    })?;
+    Ok((instance, access_token))
+}
+
+async fn call_mastodon_direct(
+    app: &tauri::AppHandle,
+    post_path: &Path,
+    meta: &PostMeta,
+) -> Result<(String, Option<String>), String> {
+    use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_SERVICE};
+    use crate::providers::scheduling::SchedulingProvider;
+    use tauri_plugin_keyring::KeyringExt;
+
+    let instance = app
+        .keyring()
+        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .map_err(|e| format!("Keyring error reading Mastodon instance: {}", e))?;
+    let access_token = instance.as_deref().and_then(|inst| {
+        let key = format!("mastodon/{}", inst);
+        app.keyring().get_password(KEYRING_SERVICE, &key).ok().flatten()
+    });
+
+    let (instance, access_token) = resolve_mastodon_credential(instance, access_token)?;
+
+    let provider =
+        crate::providers::scheduling::mastodon::MastodonProvider::create(&instance, access_token)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    let content = read_platform_content(post_path, "mastodon")?;
+    let scheduled_for = meta
+        .scheduled_for
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    let result = provider
+        .schedule_post(&content, "mastodon", scheduled_for, None, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((result.scheduler_id, result.platform_url))
+}
+
 pub(super) async fn call_scheduler(
     app: &tauri::AppHandle,
     platform: &str,
@@ -164,6 +221,9 @@ pub(super) async fn call_scheduler(
     meta: &PostMeta,
     canonical_path: &Path,
 ) -> Result<(String, Option<String>), String> {
+    if platform == "mastodon" {
+        return call_mastodon_direct(app, post_path, meta).await;
+    }
     let config_path = canonical_path.join(".postlane/config.json");
     let project_id = read_project_id_from_config(&config_path)?;
     let cred = crate::scheduling::credential_router::get_scheduler_credential_with_fallback(
