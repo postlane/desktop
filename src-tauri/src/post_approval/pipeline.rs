@@ -214,6 +214,26 @@ async fn call_mastodon_direct(
     Ok((result.scheduler_id, result.platform_url))
 }
 
+/// Fetches the account_id for `platform` from the provider when it is missing
+/// from config.json, then caches it for future approvals.
+pub(super) async fn fetch_and_cache_account_id(
+    platform: &str,
+    provider: &dyn crate::providers::scheduling::SchedulingProvider,
+    canonical_path: &Path,
+) -> Option<String> {
+    let profiles = match provider.list_profiles().await {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("[call_scheduler] could not fetch account_id for {}: {}", platform, e);
+            return None;
+        }
+    };
+    let profile = profiles.iter().find(|p| p.platforms.contains(&platform.to_string()))?;
+    let config_path = canonical_path.join(".postlane/config.json");
+    let _ = crate::account_config::save_account_id_impl(&config_path, platform, &profile.id);
+    Some(profile.id.clone())
+}
+
 pub(super) async fn call_scheduler(
     app: &tauri::AppHandle,
     platform: &str,
@@ -234,18 +254,18 @@ pub(super) async fn call_scheduler(
     .await?;
     let content = read_platform_content(post_path, platform)?;
     let account_ids = load_account_ids(canonical_path).unwrap_or_default();
-    let account_id = account_ids
-        .get(platform)
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty());
     let scheduled_for = meta
         .scheduled_for
         .as_deref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc));
     let provider = crate::scheduling::credential_router::build_provider(&cred.provider, cred.api_key)?;
+    let resolved_id = match account_ids.get(platform).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+        Some(id) => Some(id.to_string()),
+        None => fetch_and_cache_account_id(platform, &*provider, canonical_path).await,
+    };
     let result = provider
-        .schedule_post(&content, platform, scheduled_for, None, account_id)
+        .schedule_post(&content, platform, scheduled_for, None, resolved_id.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     Ok((result.scheduler_id, result.platform_url))
