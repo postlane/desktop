@@ -129,6 +129,21 @@ impl SchedulingProvider for ZernioProvider {
 
                 Self::check_response_status(&response)?;
 
+                if response.status() == 409 {
+                    let body_json: serde_json::Value = response
+                        .json()
+                        .await
+                        .map_err(|e| ProviderError::Unknown(format!("Failed to parse 409 response: {}", e)))?;
+                    let existing_id = body_json["details"]["existingPostId"]
+                        .as_str()
+                        .ok_or_else(|| ProviderError::Unknown(
+                            format!("409 response missing details.existingPostId. Full response: {}", body_json)
+                        ))?
+                        .to_string();
+                    log::info!("[schedule_post] 409 already-posted: treating as sent, existingPostId={}", existing_id);
+                    return Ok(PostScheduleResult { scheduler_id: existing_id, platform_url: None });
+                }
+
                 if !response.status().is_success() {
                     let status = response.status().as_u16();
                     let body_text = response

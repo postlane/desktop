@@ -291,3 +291,62 @@ async fn test_schedule_post_429_returns_rate_limit_error_with_retry_after() {
         other => panic!("Expected RateLimit error, got {:?}", other),
     }
 }
+
+#[tokio::test]
+async fn test_schedule_post_409_already_posted_returns_existing_id() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/posts");
+        then.status(409)
+            .json_body(serde_json::json!({
+                "error": "This exact content is already scheduled, publishing, or was posted to this account within the last 24 hours.",
+                "details": {
+                    "accountId": "6a123a802b2567671a2630fc",
+                    "platform": "bluesky",
+                    "existingPostId": "6a131ad0f3552164aa324dcf"
+                }
+            }));
+    });
+
+    let mut provider = ZernioProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let result = provider.schedule_post("Already posted content", "bluesky", None, None, Some("6a123a802b2567671a2630fc")).await;
+
+    assert!(result.is_ok(), "409 already-posted must resolve as success, got: {:?}", result);
+    let schedule_result = result.unwrap();
+    assert_eq!(schedule_result.scheduler_id, "6a131ad0f3552164aa324dcf");
+    assert!(schedule_result.platform_url.is_none());
+}
+
+#[tokio::test]
+async fn test_schedule_post_409_missing_existing_post_id_returns_error() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/posts");
+        then.status(409)
+            .json_body(serde_json::json!({
+                "error": "Conflict",
+                "details": {}
+            }));
+    });
+
+    let mut provider = ZernioProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let result = provider.schedule_post("Some content", "bluesky", None, None, Some("acc-123")).await;
+
+    assert!(result.is_err(), "409 without existingPostId must be an error");
+    match result.unwrap_err() {
+        ProviderError::Unknown(msg) => {
+            assert!(msg.contains("existingPostId"), "error must name the missing field: {}", msg);
+        }
+        other => panic!("Expected Unknown error, got {:?}", other),
+    }
+}
