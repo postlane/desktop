@@ -10,24 +10,25 @@ type MastodonAccount = { instance: string; username: string };
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 function useConnectionCheck(
+  projectId: string,
   setConnectedAccount: (_a: MastodonAccount | null) => void,
   setStep: (_s: Step) => void,
 ) {
   useEffect(() => {
-    invoke<MastodonAccount | null>('get_mastodon_connected_account')
+    invoke<MastodonAccount | null>('get_mastodon_connected_account', { projectId })
       .then((a) => { if (a) { setConnectedAccount(a); setStep('connected'); } else setStep('idle'); })
       .catch(() => setStep('idle'));
-  }, [setConnectedAccount, setStep]);
+  }, [projectId, setConnectedAccount, setStep]);
 }
 
-function useMastodonRow() {
+function useMastodonRow(projectId: string) {
   const [step, setStep] = useState<Step>('loading');
   const [connectedAccount, setConnectedAccount] = useState<MastodonAccount | null>(null);
   const [instanceInput, setInstanceInput] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useConnectionCheck(setConnectedAccount, setStep);
+  useConnectionCheck(projectId, setConnectedAccount, setStep);
   function handleInstanceChange(value: string) { setInstanceInput(value); setError(null); }
   function handleCodeChange(value: string) { setCode(value); }
   async function handleConnect() {
@@ -46,7 +47,7 @@ function useMastodonRow() {
   async function handleSave() {
     setBusy(true); setError(null);
     try {
-      const username = await invoke<string>('exchange_mastodon_code', { instance: instanceInput, code });
+      const username = await invoke<string>('exchange_mastodon_code', { instance: instanceInput, code, projectId });
       setConnectedAccount({ instance: instanceInput, username });
       setStep('connected'); setCode('');
     } catch (e) { setError(String(e)); }
@@ -56,7 +57,7 @@ function useMastodonRow() {
     if (!window.confirm('Disconnect this Mastodon account?')) return;
     setBusy(true);
     try {
-      await invoke('disconnect_mastodon', { instance: connectedAccount?.instance ?? '' });
+      await invoke('disconnect_mastodon', { instance: connectedAccount?.instance ?? '', projectId });
       setConnectedAccount(null); setInstanceInput(''); setStep('idle');
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
@@ -97,8 +98,8 @@ function MastodonConnectForm({ value, mode, error, busy, onChange, onSubmit, onC
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export default function DirectChannelsBlock() {
-  const row = useMastodonRow();
+export default function DirectChannelsBlock({ projectId }: { projectId: string }) {
+  const row = useMastodonRow(projectId);
   const isExpanded = row.step === 'instance-form' || row.step === 'code-form';
   return (
     <div>

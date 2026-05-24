@@ -179,18 +179,18 @@ async fn call_mastodon_direct(
     app: &tauri::AppHandle,
     post_path: &Path,
     meta: &PostMeta,
+    project_id: &str,
 ) -> Result<(String, Option<String>), String> {
-    use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_SERVICE};
+    use crate::mastodon_connection::{access_token_key, active_instance_key, KEYRING_SERVICE};
     use crate::providers::scheduling::SchedulingProvider;
     use tauri_plugin_keyring::KeyringExt;
 
     let instance = app
         .keyring()
-        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .get_password(KEYRING_SERVICE, &active_instance_key(project_id))
         .map_err(|e| format!("Keyring error reading Mastodon instance: {}", e))?;
     let access_token = instance.as_deref().and_then(|inst| {
-        let key = format!("mastodon/{}", inst);
-        app.keyring().get_password(KEYRING_SERVICE, &key).ok().flatten()
+        app.keyring().get_password(KEYRING_SERVICE, &access_token_key(project_id, inst)).ok().flatten()
     });
 
     let (instance, access_token) = resolve_mastodon_credential(instance, access_token)?;
@@ -241,11 +241,11 @@ pub(super) async fn call_scheduler(
     meta: &PostMeta,
     canonical_path: &Path,
 ) -> Result<(String, Option<String>), String> {
-    if platform == "mastodon" {
-        return call_mastodon_direct(app, post_path, meta).await;
-    }
     let config_path = canonical_path.join(".postlane/config.json");
     let project_id = read_project_id_from_config(&config_path)?;
+    if platform == "mastodon" {
+        return call_mastodon_direct(app, post_path, meta, &project_id).await;
+    }
     let cred = crate::scheduling::credential_router::get_scheduler_credential_with_fallback(
         canonical_path,
         &project_id,

@@ -2,7 +2,7 @@
 
 //! Mastodon OAuth token exchange and account handle verification.
 
-use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_ACTIVE_USERNAME, KEYRING_SERVICE};
+use crate::mastodon_connection::{access_token_key, active_instance_key, active_username_key, KEYRING_SERVICE};
 use crate::providers::scheduling::build_client;
 use crate::security::api_error::format_api_error;
 use crate::security::instance_url::validate_instance_hostname;
@@ -12,11 +12,12 @@ use tauri_plugin_keyring::KeyringExt;
 /// Exchanges an OAuth authorization code for an access token.
 ///
 /// Reads client credentials from the OS keyring, exchanges the code with the
-/// Mastodon instance, stores the resulting access token, and returns the account handle.
+/// Mastodon instance, stores the resulting access token scoped to the project, and returns the account handle.
 #[tauri::command]
 pub async fn exchange_mastodon_code(
     instance: String,
     code: String,
+    project_id: String,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     validate_instance_hostname(&instance)?;
@@ -37,17 +38,17 @@ pub async fn exchange_mastodon_code(
         fetch_access_token(&client, &base_url, &client_id, &client_secret, &code).await?;
 
     app.keyring()
-        .set_password(KEYRING_SERVICE, &format!("mastodon/{}", instance), &access_token)
+        .set_password(KEYRING_SERVICE, &access_token_key(&project_id, &instance), &access_token)
         .map_err(|e| format!("Failed to store access token: {}", e))?;
 
     app.keyring()
-        .set_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE, &instance)
+        .set_password(KEYRING_SERVICE, &active_instance_key(&project_id), &instance)
         .map_err(|e| format!("Failed to store active instance: {}", e))?;
 
     let acct = fetch_acct(&client, &base_url, &access_token).await?;
 
     app.keyring()
-        .set_password(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME, &acct)
+        .set_password(KEYRING_SERVICE, &active_username_key(&project_id), &acct)
         .map_err(|e| format!("Failed to store active username: {}", e))?;
 
     let _ = app.emit("platform-connected", ());
@@ -131,8 +132,33 @@ pub(crate) async fn fetch_acct(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mastodon_connection::{access_token_key, active_instance_key, active_username_key};
     use crate::providers::scheduling::build_client;
     use httpmock::prelude::*;
+
+    // ── Key format (§ mastodon-scope) ─────────────────────────────────────────
+
+    #[test]
+    fn test_exchange_writes_project_scoped_access_token_key() {
+        let key = access_token_key("proj-1", "mastodon.social");
+        assert_eq!(key, "mastodon/proj-1/mastodon.social");
+        assert_ne!(key, access_token_key("proj-2", "mastodon.social"),
+            "exchange must write to a project-scoped key, not a global one");
+    }
+
+    #[test]
+    fn test_exchange_writes_project_scoped_active_instance_key() {
+        let key = active_instance_key("proj-1");
+        assert_eq!(key, "mastodon_active_instance/proj-1");
+        assert_ne!(key, active_instance_key("proj-2"));
+    }
+
+    #[test]
+    fn test_exchange_writes_project_scoped_active_username_key() {
+        let key = active_username_key("proj-1");
+        assert_eq!(key, "mastodon_active_username/proj-1");
+        assert_ne!(key, active_username_key("proj-2"));
+    }
 
     #[tokio::test]
     async fn test_fetch_access_token_success() {
