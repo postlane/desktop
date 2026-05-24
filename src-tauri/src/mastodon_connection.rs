@@ -7,8 +7,18 @@ use crate::security::instance_url::validate_instance_hostname;
 use tauri_plugin_keyring::KeyringExt;
 
 pub(crate) const KEYRING_SERVICE: &str = "postlane";
-pub(crate) const KEYRING_ACTIVE_INSTANCE: &str = "mastodon_active_instance";
-pub(crate) const KEYRING_ACTIVE_USERNAME: &str = "mastodon_active_username";
+
+pub(crate) fn active_instance_key(project_id: &str) -> String {
+    format!("mastodon_active_instance/{}", project_id)
+}
+
+pub(crate) fn active_username_key(project_id: &str) -> String {
+    format!("mastodon_active_username/{}", project_id)
+}
+
+pub(crate) fn access_token_key(project_id: &str, instance: &str) -> String {
+    format!("mastodon/{}/{}", project_id, instance)
+}
 
 /// Connected Mastodon account — instance hostname plus the account handle.
 #[derive(serde::Serialize)]
@@ -17,22 +27,22 @@ pub struct MastodonAccount {
     pub username: String,
 }
 
-/// Returns the hostname of the currently connected Mastodon instance, or `None`.
+/// Returns the hostname of the currently connected Mastodon instance for the given project, or `None`.
 #[tauri::command]
-pub fn get_mastodon_connected_instance(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub fn get_mastodon_connected_instance(project_id: String, app: tauri::AppHandle) -> Result<Option<String>, String> {
     app.keyring()
-        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .get_password(KEYRING_SERVICE, &active_instance_key(&project_id))
         .map_err(|e| format!("Keyring read error: {}", e))
 }
 
-/// Returns the connected Mastodon account (instance + username), or `None`.
+/// Returns the connected Mastodon account (instance + username) for the given project, or `None`.
 #[tauri::command]
-pub fn get_mastodon_connected_account(app: tauri::AppHandle) -> Result<Option<MastodonAccount>, String> {
+pub fn get_mastodon_connected_account(project_id: String, app: tauri::AppHandle) -> Result<Option<MastodonAccount>, String> {
     let instance = app.keyring()
-        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .get_password(KEYRING_SERVICE, &active_instance_key(&project_id))
         .map_err(|e| format!("Keyring read error: {}", e))?;
     let username = app.keyring()
-        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_USERNAME)
+        .get_password(KEYRING_SERVICE, &active_username_key(&project_id))
         .map_err(|e| format!("Keyring read error: {}", e))?;
     match (instance, username) {
         (Some(instance), Some(username)) => Ok(Some(MastodonAccount { instance, username })),
@@ -76,33 +86,33 @@ pub async fn get_mastodon_char_limit(instance: String) -> Result<u32, String> {
     get_mastodon_char_limit_impl(&client, &base_url).await
 }
 
-fn keys_for_disconnect(instance: &str, is_active: bool) -> Vec<String> {
+fn keys_for_disconnect(project_id: &str, instance: &str, is_active: bool) -> Vec<String> {
     let mut keys = vec![
-        format!("mastodon/{}", instance),
+        access_token_key(project_id, instance),
         format!("mastodon_client_id/{}", instance),
         format!("mastodon_client_secret/{}", instance),
     ];
     if is_active {
-        keys.push(KEYRING_ACTIVE_INSTANCE.to_string());
-        keys.push(KEYRING_ACTIVE_USERNAME.to_string());
+        keys.push(active_instance_key(project_id));
+        keys.push(active_username_key(project_id));
     }
     keys
 }
 
-/// Removes all Mastodon credentials from the OS keyring for the given instance.
+/// Removes all Mastodon credentials from the OS keyring for the given instance and project.
 /// Only clears the active-instance pointer if this instance is currently active.
 #[tauri::command]
-pub fn disconnect_mastodon(instance: String, app: tauri::AppHandle) -> Result<(), String> {
+pub fn disconnect_mastodon(project_id: String, instance: String, app: tauri::AppHandle) -> Result<(), String> {
     validate_instance_hostname(&instance)?;
 
     let active = app
         .keyring()
-        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
+        .get_password(KEYRING_SERVICE, &active_instance_key(&project_id))
         .unwrap_or(None);
     let is_active = active.as_deref() == Some(instance.as_str());
 
     let mut errors = Vec::new();
-    for key in keys_for_disconnect(&instance, is_active) {
+    for key in keys_for_disconnect(&project_id, &instance, is_active) {
         if let Err(e) = app.keyring().delete_password(KEYRING_SERVICE, &key) {
             errors.push(format!("Failed to delete {}: {}", key, e));
         }
@@ -116,70 +126,81 @@ mod tests {
     use super::*;
     use httpmock::prelude::*;
 
+    // ── Project-scoped key format (§ mastodon-scope) ──────────────────────────
+
     #[test]
-    fn test_access_token_key_is_instance_specific() {
-        let key_a = format!("mastodon/{}", "mastodon.social");
-        let key_b = format!("mastodon/{}", "fosstodon.org");
-        assert_ne!(key_a, key_b, "Different instances must produce different keyring keys");
-        assert_eq!(key_a, "mastodon/mastodon.social");
-        assert_eq!(key_b, "mastodon/fosstodon.org");
-        assert_ne!(key_a, "mastodon");
-        assert_ne!(key_b, "mastodon");
+    fn test_active_instance_key_is_project_scoped() {
+        assert_eq!(active_instance_key("proj-1"), "mastodon_active_instance/proj-1");
     }
 
     #[test]
-    fn test_disconnect_key_matches_exchange_key() {
+    fn test_active_username_key_is_project_scoped() {
+        assert_eq!(active_username_key("proj-1"), "mastodon_active_username/proj-1");
+    }
+
+    #[test]
+    fn test_access_token_key_is_project_and_instance_scoped() {
+        assert_eq!(access_token_key("proj-1", "mastodon.social"), "mastodon/proj-1/mastodon.social");
+    }
+
+    #[test]
+    fn test_different_projects_have_different_active_instance_keys() {
+        assert_ne!(active_instance_key("proj-1"), active_instance_key("proj-2"));
+    }
+
+    #[test]
+    fn test_access_token_keys_isolated_across_projects() {
+        assert_ne!(
+            access_token_key("proj-1", "mastodon.social"),
+            access_token_key("proj-2", "mastodon.social"),
+        );
+    }
+
+    #[test]
+    fn test_access_token_keys_differ_across_instances_within_same_project() {
+        assert_ne!(
+            access_token_key("proj-1", "mastodon.social"),
+            access_token_key("proj-1", "fosstodon.org"),
+        );
+    }
+
+    // ── Disconnect key sets ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_disconnect_active_keys_are_project_scoped() {
+        let keys = keys_for_disconnect("proj-1", "mastodon.social", true);
+        assert!(keys.contains(&active_instance_key("proj-1")));
+        assert!(keys.contains(&active_username_key("proj-1")));
+        assert!(!keys.contains(&active_instance_key("proj-2")),
+            "disconnect must not touch other projects' active-instance key");
+    }
+
+    #[test]
+    fn test_disconnect_access_token_key_is_project_scoped() {
+        let keys = keys_for_disconnect("proj-1", "mastodon.social", false);
+        assert!(keys.contains(&access_token_key("proj-1", "mastodon.social")));
+        assert!(!keys.contains(&access_token_key("proj-2", "mastodon.social")),
+            "disconnect must not touch other projects' access token");
+    }
+
+    #[test]
+    fn test_disconnect_spares_active_keys_when_not_active_instance() {
+        let keys = keys_for_disconnect("proj-1", "fosstodon.org", false);
+        assert!(!keys.contains(&active_instance_key("proj-1")));
+        assert!(!keys.contains(&active_username_key("proj-1")));
+    }
+
+    #[test]
+    fn test_disconnect_access_token_key_matches_exchange_key() {
+        let project_id = "proj-1";
         let instance = "mastodon.social";
-        let exchange_key = format!("mastodon/{}", instance);
-        let disconnect_key = format!("mastodon/{}", instance);
-        assert_eq!(exchange_key, disconnect_key, "exchange and disconnect must use identical keyring keys");
+        let exchange_key = access_token_key(project_id, instance);
+        let disconnect_keys = keys_for_disconnect(project_id, instance, false);
+        assert!(disconnect_keys.contains(&exchange_key),
+            "disconnect must delete the same key that exchange_mastodon_code writes");
     }
 
-    #[test]
-    fn test_active_instance_key_is_constant() {
-        assert_eq!(KEYRING_ACTIVE_INSTANCE, "mastodon_active_instance");
-    }
-
-    #[test]
-    fn test_disconnect_deletes_active_instance_key_when_active() {
-        let keys = keys_for_disconnect("mastodon.social", true);
-        assert!(
-            keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
-            "disconnect must delete the active_instance key when disconnecting the active instance"
-        );
-    }
-
-    #[test]
-    fn test_disconnect_spares_active_instance_key_when_not_active() {
-        let keys = keys_for_disconnect("fosstodon.org", false);
-        assert!(
-            !keys.contains(&KEYRING_ACTIVE_INSTANCE.to_string()),
-            "disconnect must NOT delete active_instance key when the disconnected instance is not the active one"
-        );
-    }
-
-    #[test]
-    fn test_active_username_key_is_constant() {
-        assert_eq!(KEYRING_ACTIVE_USERNAME, "mastodon_active_username");
-    }
-
-    #[test]
-    fn test_disconnect_deletes_username_key_when_active() {
-        let keys = keys_for_disconnect("mastodon.social", true);
-        assert!(
-            keys.contains(&KEYRING_ACTIVE_USERNAME.to_string()),
-            "disconnect must delete the active_username key when disconnecting the active instance"
-        );
-    }
-
-    #[test]
-    fn test_disconnect_spares_username_key_when_not_active() {
-        let keys = keys_for_disconnect("fosstodon.org", false);
-        assert!(
-            !keys.contains(&KEYRING_ACTIVE_USERNAME.to_string()),
-            "disconnect must NOT delete active_username key when the disconnected instance is not the active one"
-        );
-    }
+    // ── char limit HTTP ───────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_char_limit_returns_max_characters_from_instance_api() {

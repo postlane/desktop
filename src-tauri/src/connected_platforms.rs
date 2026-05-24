@@ -2,7 +2,7 @@
 
 use crate::account_config::get_account_ids_impl;
 use crate::app_state::AppState;
-use crate::mastodon_connection::{KEYRING_ACTIVE_INSTANCE, KEYRING_SERVICE};
+use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
 use crate::scheduler_credentials::{get_credential_keyring_key, VALID_PROVIDERS};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -53,6 +53,12 @@ fn repo_config_path(repo_id: &str, state: &AppState) -> Result<PathBuf, String> 
     Ok(PathBuf::from(&repo.path).join(".postlane/config.json"))
 }
 
+fn read_project_id_from_config(config_path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(config_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json["project_id"].as_str().map(str::to_string)
+}
+
 /// Returns the platform slugs for which a connection exists for the given repo.
 /// Called once per repo group when the queue loads (not per post card).
 #[tauri::command]
@@ -62,11 +68,14 @@ pub fn list_connected_platforms(
     app: tauri::AppHandle,
 ) -> Result<Vec<String>, String> {
     let config_path = repo_config_path(&repo_id, &state)?;
-    let mastodon_active = app
-        .keyring()
-        .get_password(KEYRING_SERVICE, KEYRING_ACTIVE_INSTANCE)
-        .unwrap_or(None)
-        .is_some();
+    let mastodon_active = read_project_id_from_config(&config_path)
+        .map(|project_id| {
+            app.keyring()
+                .get_password(KEYRING_SERVICE, &active_instance_key(&project_id))
+                .unwrap_or(None)
+                .is_some()
+        })
+        .unwrap_or(false);
     Ok(list_connected_platforms_impl(
         &config_path,
         &repo_id,
@@ -92,6 +101,19 @@ mod tests {
         let path = config_dir.join("config.json");
         fs::write(&path, json).expect("write config.json");
         path
+    }
+
+    // ── Project-scoped mastodon key (§ mastodon-scope) ────────────────────────
+
+    #[test]
+    fn test_mastodon_active_key_differs_across_projects() {
+        use crate::mastodon_connection::active_instance_key;
+        let key_p1 = active_instance_key("proj-1");
+        let key_p2 = active_instance_key("proj-2");
+        assert_ne!(key_p1, key_p2,
+            "list_connected_platforms must check a project-scoped mastodon key to prevent cross-project bleed");
+        assert!(key_p1.contains("proj-1"));
+        assert!(key_p2.contains("proj-2"));
     }
 
     // §21.11.12 — mastodon direct connection (KEYRING_ACTIVE_INSTANCE present)

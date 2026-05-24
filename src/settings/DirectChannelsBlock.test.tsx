@@ -23,26 +23,79 @@ beforeEach(() => {
   })
 })
 
+// ── Project scoping (§ mastodon-scope) ───────────────────────────────────────
+
+describe('DirectChannelsBlock — project scoping', () => {
+  it('passes projectId to get_mastodon_connected_account on mount', async () => {
+    render(<DirectChannelsBlock projectId="proj-abc" />)
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('get_mastodon_connected_account', { projectId: 'proj-abc' })
+    )
+  })
+
+  it('passes projectId to exchange_mastodon_code when saving', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_mastodon_connected_account') return null
+      if (cmd === 'get_mastodon_char_limit') return 500
+      if (cmd === 'register_mastodon_app') return 'https://mastodon.social/oauth/authorize?client_id=abc'
+      if (cmd === 'exchange_mastodon_code') return 'alice'
+      return null
+    })
+    render(<DirectChannelsBlock projectId="proj-abc" />)
+    fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
+    fireEvent.change(await screen.findByPlaceholderText(/mastodon instance/i), { target: { value: 'mastodon.social' } })
+    fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
+    await screen.findByPlaceholderText(/one time code/i)
+    fireEvent.change(screen.getByPlaceholderText(/one time code/i), { target: { value: 'abc123' } })
+    fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('exchange_mastodon_code', {
+        instance: 'mastodon.social',
+        code: 'abc123',
+        projectId: 'proj-abc',
+      })
+    )
+  })
+
+  it('passes projectId to disconnect_mastodon when disconnecting', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_mastodon_connected_account')
+        return { instance: 'mastodon.social', username: 'postlane' }
+      if (cmd === 'disconnect_mastodon') return null
+      return null
+    })
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    render(<DirectChannelsBlock projectId="proj-abc" />)
+    fireEvent.click(await screen.findByRole('button', { name: /disconnect/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('disconnect_mastodon', {
+        instance: 'mastodon.social',
+        projectId: 'proj-abc',
+      })
+    )
+  })
+})
+
 // ── Section structure ─────────────────────────────────────────────────────────
 
 describe('DirectChannelsBlock — section structure', () => {
   it('renders "Direct social channels" heading', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     expect(await screen.findByText('Direct social channels')).toBeInTheDocument()
   })
 
   it('renders Mastodon row', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     expect(await screen.findByText('Mastodon')).toBeInTheDocument()
   })
 
   it('shows Connect button when not connected', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     expect(await screen.findByRole('button', { name: /connect/i })).toBeInTheDocument()
   })
 
   it('does not show the instance form on initial render', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     await screen.findByRole('button', { name: /connect/i })
     expect(screen.queryByPlaceholderText(/mastodon/i)).not.toBeInTheDocument()
   })
@@ -60,22 +113,22 @@ describe('DirectChannelsBlock — connected on mount', () => {
   })
 
   it('shows the connected instance name', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     expect(await screen.findByText('mastodon.social')).toBeInTheDocument()
   })
 
   it('shows the connected username', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     expect(await screen.findByText('@postlane')).toBeInTheDocument()
   })
 
   it('shows Disconnect button when connected', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     expect(await screen.findByRole('button', { name: /disconnect/i })).toBeInTheDocument()
   })
 
   it('does not show Connect button when already connected', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     await screen.findByRole('button', { name: /disconnect/i })
     expect(screen.queryByRole('button', { name: /^connect$/i })).not.toBeInTheDocument()
   })
@@ -85,13 +138,13 @@ describe('DirectChannelsBlock — connected on mount', () => {
 
 describe('DirectChannelsBlock — expand and cancel', () => {
   it('clicking Connect expands the instance form', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     expect(await screen.findByPlaceholderText(/mastodon instance/i)).toBeInTheDocument()
   })
 
   it('clicking Cancel collapses the form', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     await screen.findByPlaceholderText(/mastodon instance/i)
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
@@ -99,7 +152,7 @@ describe('DirectChannelsBlock — expand and cancel', () => {
   })
 
   it('Connect button hidden while form is expanded', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     await screen.findByPlaceholderText(/mastodon instance/i)
     expect(screen.queryByRole('button', { name: /^connect$/i })).not.toBeInTheDocument()
@@ -110,7 +163,7 @@ describe('DirectChannelsBlock — expand and cancel', () => {
 
 describe('DirectChannelsBlock — instance validation', () => {
   it('shows error when instance contains "://"', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     fireEvent.change(await screen.findByPlaceholderText(/mastodon instance/i), {
       target: { value: 'https://mastodon.social' },
@@ -120,7 +173,7 @@ describe('DirectChannelsBlock — instance validation', () => {
   })
 
   it('Submit button enabled when input has text', async () => {
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     fireEvent.change(await screen.findByPlaceholderText(/mastodon instance/i), {
       target: { value: 'mastodon.social' },
@@ -134,7 +187,7 @@ describe('DirectChannelsBlock — instance validation', () => {
       if (cmd === 'get_mastodon_char_limit') throw new Error('unreachable')
       return null
     })
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
     fireEvent.change(await screen.findByPlaceholderText(/mastodon instance/i), {
       target: { value: 'bad.instance' },
@@ -147,7 +200,7 @@ describe('DirectChannelsBlock — instance validation', () => {
 // ── OAuth flow ────────────────────────────────────────────────────────────────
 
 async function openAndConnect(instance = 'mastodon.social') {
-  render(<DirectChannelsBlock />)
+  render(<DirectChannelsBlock projectId="proj-test" />)
   fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
   fireEvent.change(await screen.findByPlaceholderText(/mastodon instance/i), {
     target: { value: instance },
@@ -156,7 +209,7 @@ async function openAndConnect(instance = 'mastodon.social') {
 }
 
 async function saveConnectionFlow() {
-  render(<DirectChannelsBlock />)
+  render(<DirectChannelsBlock projectId="proj-test" />)
   fireEvent.click(await screen.findByRole('button', { name: /^connect$/i }))
   fireEvent.change(await screen.findByPlaceholderText(/mastodon instance/i), { target: { value: 'mastodon.social' } })
   fireEvent.click(screen.getByRole('button', { name: /^submit$/i }))
@@ -195,10 +248,10 @@ describe('DirectChannelsBlock — OAuth flow', () => {
     expect(await screen.findByPlaceholderText(/one time code/i)).toBeInTheDocument()
   })
 
-  it('calls exchange_mastodon_code with instance and code on Save', async () => {
+  it('calls exchange_mastodon_code with instance, code, and projectId on Save', async () => {
     await saveConnectionFlow()
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('exchange_mastodon_code', { instance: 'mastodon.social', code: 'abc123' })
+      expect(mockInvoke).toHaveBeenCalledWith('exchange_mastodon_code', { instance: 'mastodon.social', code: 'abc123', projectId: 'proj-test' })
     )
   })
 
@@ -224,30 +277,30 @@ describe('DirectChannelsBlock — Disconnect', () => {
 
   it('shows confirmation dialog before disconnecting', async () => {
     const spy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /disconnect/i }))
     expect(spy).toHaveBeenCalled()
   })
 
   it('calls disconnect_mastodon when confirmed', async () => {
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /disconnect/i }))
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('disconnect_mastodon', { instance: 'mastodon.social' })
+      expect(mockInvoke).toHaveBeenCalledWith('disconnect_mastodon', { instance: 'mastodon.social', projectId: 'proj-test' })
     )
   })
 
   it('resets to Connect button after disconnect', async () => {
     vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /disconnect/i }))
     expect(await screen.findByRole('button', { name: /^connect$/i })).toBeInTheDocument()
   })
 
   it('does not call disconnect_mastodon when cancelled', async () => {
     vi.spyOn(window, 'confirm').mockReturnValueOnce(false)
-    render(<DirectChannelsBlock />)
+    render(<DirectChannelsBlock projectId="proj-test" />)
     fireEvent.click(await screen.findByRole('button', { name: /disconnect/i }))
     expect(mockInvoke).not.toHaveBeenCalledWith('disconnect_mastodon', expect.anything())
   })
