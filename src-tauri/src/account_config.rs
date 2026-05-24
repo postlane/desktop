@@ -312,13 +312,24 @@ mod tests {
         assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-1"));
     }
 
+    // §defensive: apply_profiles_to_repo must not panic or create files when config is absent.
+    // This documents the log-and-skip contract so callers of sync_accounts_for_provider
+    // know what to expect when a repo's config.json doesn't exist yet.
     #[test]
     fn test_apply_profiles_to_repo_skips_missing_config() {
         use crate::providers::scheduling::SchedulerProfile;
         let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = dir.path().join("nonexistent/config.json");
-        let profiles = vec![SchedulerProfile { id: "acc-1".to_string(), name: "Hugo".to_string(), platforms: vec!["x".to_string()] }];
+        let config_path = dir.path().join(".postlane/config.json"); // does NOT exist
+        let profiles = vec![SchedulerProfile {
+            id: "acc-1".to_string(),
+            name: "Hugo".to_string(),
+            platforms: vec!["bluesky".to_string()],
+        }];
         apply_profiles_to_repo(&profiles, &config_path); // must not panic
+        assert!(
+            !config_path.exists(),
+            "apply_profiles_to_repo must not create config.json when it is absent"
+        );
     }
 
     #[test]
