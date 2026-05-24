@@ -129,12 +129,7 @@ fn register_discovered_repo(repos_path: &Path, dir: &Path, project_id: &str) -> 
         .and_then(|n| n.to_str())
         .ok_or("invalid folder name")?
         .to_string();
-    let postlane_dir = canonical.join(".postlane");
-    std::fs::create_dir_all(&postlane_dir)
-        .map_err(|e| format!("create .postlane: {e}"))?;
-    let config = serde_json::json!({ "project": project_id }).to_string();
-    crate::init::atomic_write(&postlane_dir.join("config.json"), config.as_bytes())
-        .map_err(|e| format!("write config.json: {e:?}"))?;
+    crate::project_config_ops::write_initial_config_files(&canonical, project_id)?;
     let path_str = canonical.to_str().ok_or("invalid path")?.to_string();
     let mut cfg = crate::storage::read_repos_with_recovery(repos_path)
         .unwrap_or_else(|_| ReposConfig { version: 1, repos: vec![] });
@@ -481,5 +476,47 @@ mod tests {
         let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
         assert_eq!(result.failed_to_register.len(), 1, "one failed registration");
         assert!(result.added.is_empty());
+    }
+
+    #[test]
+    fn test_discovered_repo_config_json_has_correct_schema() {
+        let tmp = TempDir::new().unwrap();
+        let repo_dir = tmp.path().join("my-repo");
+        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
+        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
+        let repos_path = tmp.path().join("repos.json");
+        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-xyz");
+        assert_eq!(result.added, vec!["my-repo"]);
+
+        let config_str = std::fs::read_to_string(repo_dir.join(".postlane/config.json"))
+            .expect("config.json must exist after discovery");
+        let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
+        assert_eq!(config["version"].as_u64(), Some(1), "version must be 1");
+        assert_eq!(
+            config["project_id"].as_str(),
+            Some("proj-xyz"),
+            "field must be 'project_id', not 'project'"
+        );
+        assert_eq!(config["base_url"].as_str(), Some("https://postlane.dev"));
+        assert!(config["llm"].is_object(), "llm block must be present");
+        assert_eq!(config["llm"]["provider"].as_str(), Some("anthropic"));
+    }
+
+    #[test]
+    fn test_discovered_repo_writes_config_local_json() {
+        let tmp = TempDir::new().unwrap();
+        let repo_dir = tmp.path().join("my-repo");
+        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
+        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
+        let repos_path = tmp.path().join("repos.json");
+        discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-xyz");
+
+        assert!(
+            repo_dir.join(".postlane/config.local.json").exists(),
+            "config.local.json must be written alongside config.json"
+        );
+        let local_str = std::fs::read_to_string(repo_dir.join(".postlane/config.local.json")).unwrap();
+        let local: serde_json::Value = serde_json::from_str(&local_str).unwrap();
+        assert!(local["scheduler"].is_object(), "config.local.json must have a scheduler block");
     }
 }
