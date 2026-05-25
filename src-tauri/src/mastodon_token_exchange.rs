@@ -2,11 +2,12 @@
 
 //! Mastodon OAuth token exchange and account handle verification.
 
+use crate::app_state::AppState;
 use crate::mastodon_connection::{access_token_key, active_instance_key, active_username_key, KEYRING_SERVICE};
 use crate::providers::scheduling::build_client;
 use crate::security::api_error::format_api_error;
 use crate::security::instance_url::validate_instance_hostname;
-use tauri::{Emitter};
+use tauri::{Emitter, State};
 use tauri_plugin_keyring::KeyringExt;
 
 /// Exchanges an OAuth authorization code for an access token.
@@ -19,6 +20,7 @@ pub async fn exchange_mastodon_code(
     code: String,
     project_id: String,
     app: tauri::AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
     validate_instance_hostname(&instance)?;
 
@@ -51,8 +53,27 @@ pub async fn exchange_mastodon_code(
         .set_password(KEYRING_SERVICE, &active_username_key(&project_id), &acct)
         .map_err(|e| format!("Failed to store active username: {}", e))?;
 
+    sync_mastodon_connected_platforms(&project_id, &app, &state);
+
     let _ = app.emit("platform-connected", ());
     Ok(acct)
+}
+
+fn sync_mastodon_connected_platforms(project_id: &str, app: &tauri::AppHandle, state: &AppState) {
+    let repos = match state.lock_repos() {
+        Ok(r) => r,
+        Err(e) => { log::warn!("sync_mastodon_connected_platforms: {}", e); return; }
+    };
+    for repo in &repos.repos {
+        let config_path = std::path::PathBuf::from(&repo.path).join(".postlane/config.json");
+        if crate::connected_platforms::read_project_id_from_config(&config_path).as_deref() != Some(project_id) {
+            continue;
+        }
+        let _ = crate::project_config_ops::sync_connected_platforms_to_config_impl(
+            &config_path, &repo.id, true,
+            &|key| app.keyring().get_password(KEYRING_SERVICE, key).unwrap_or(None).is_some(),
+        );
+    }
 }
 
 /// Exchanges an authorization code for an access token via `POST {base_url}/oauth/token`.

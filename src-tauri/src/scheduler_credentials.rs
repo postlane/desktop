@@ -109,7 +109,21 @@ pub async fn save_scheduler_credential(
     write_provider_to_matching_repos(&repo_id, &provider, &state);
 
     let matching_paths = collect_matching_repo_paths(&repo_id, &state);
-    crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths).await;
+    crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths.clone()).await;
+
+    for repo_path in &matching_paths {
+        let config_path = std::path::PathBuf::from(repo_path).join(".postlane/config.json");
+        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
+        let mastodon_active = project_id.map(|pid| {
+            use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
+            app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(&pid))
+                .unwrap_or(None).is_some()
+        }).unwrap_or(false);
+        let _ = crate::project_config_ops::sync_connected_platforms_to_config_impl(
+            &config_path, &repo_id, mastodon_active,
+            &|key| app.keyring().get_password("postlane", key).unwrap_or(None).is_some(),
+        );
+    }
 
     let _ = app.emit("platform-connected", ());
     Ok(())

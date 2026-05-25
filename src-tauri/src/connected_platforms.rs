@@ -53,7 +53,7 @@ fn repo_config_path(repo_id: &str, state: &AppState) -> Result<PathBuf, String> 
     Ok(PathBuf::from(&repo.path).join(".postlane/config.json"))
 }
 
-fn read_project_id_from_config(config_path: &std::path::Path) -> Option<String> {
+pub(crate) fn read_project_id_from_config(config_path: &std::path::Path) -> Option<String> {
     let content = std::fs::read_to_string(config_path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
     json["project_id"].as_str().map(str::to_string)
