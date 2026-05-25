@@ -238,6 +238,9 @@ describe('ModalOrgPicker — scope error and re-auth', () => {
 
     render(<ModalOrgPicker onNext={vi.fn()} onBack={vi.fn()} onPricingGate={vi.fn()} />);
     await waitFor(() => screen.getByRole('button', { name: /sign in again/i }));
+    // Wait for the useEffect that registers the listener to commit before firing the event.
+    // In CI the effect may not have run yet immediately after the prior waitFor resolves.
+    await waitFor(() => { expect(fireActivated).toBeDefined(); });
     fireActivated?.();
     await waitFor(() => expect(screen.getByText('hugoelliott')).toBeDefined());
   });
