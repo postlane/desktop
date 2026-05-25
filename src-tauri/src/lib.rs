@@ -199,62 +199,61 @@ fn handle_oauth_callback(url: &str, handle: &tauri::AppHandle) {
     }
 }
 
-/// Routes by host+path via `deep_link_routing::classify` — query strings are never logged.
-/// `postlane://activate` → license activation. Stubs logged at `info!`. Unknown → `warn!`.
-fn register_deep_link_handler(app_handle: tauri::AppHandle) {
+/// Dispatches a single `postlane://` URL through the appropriate handler.
+/// Called from both the `on_open_url` listener and the single-instance callback.
+pub(crate) fn dispatch_deep_link(url: String, handle: tauri::AppHandle) {
     use deep_link_routing::DeepLinkPath;
     use tauri::Emitter;
-    use tauri_plugin_deep_link::DeepLinkExt;
     use tauri_plugin_keyring::KeyringExt;
+    match deep_link_routing::classify(&url) {
+        DeepLinkPath::Draft => {
+            log::info!("Deep link: {}", deep_link_routing::log_safe_url(&url));
+        }
+        DeepLinkPath::OauthCallback => {
+            handle_oauth_callback(&url, &handle);
+        }
+        DeepLinkPath::Unknown { path } => {
+            log::warn!("Unknown deep link path: {}", path);
+        }
+        DeepLinkPath::Activate => {
+            tauri::async_runtime::spawn(async move {
+                let token = match license::deep_link::parse_activate_url(&url) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        log::warn!("License deep link rejected: {}", e);
+                        let _ = handle.emit("license:error", serde_json::json!({ "message": app_lifecycle::user_facing_activation_error(&e) }));
+                        return;
+                    }
+                };
+                let client = providers::scheduling::build_client();
+                let keyring_handle = handle.clone();
+                let result = license::deep_link::handle_activate(
+                    &token, &client, license::POSTLANE_API_BASE,
+                    move |t| keyring_handle.keyring().set_password("postlane", "license", t)
+                        .map_err(|e| e.to_string()),
+                    license::validator::write_license_cache,
+                ).await;
+                match result {
+                    Ok(display_name) => {
+                        log::info!("License activated for {}", display_name);
+                        let _ = handle.emit("license:activated", serde_json::json!({ "display_name": display_name }));
+                    }
+                    Err(e) => {
+                        log::warn!("License activation failed: {}", e);
+                        let _ = handle.emit("license:error", serde_json::json!({ "message": app_lifecycle::user_facing_activation_error(&e) }));
+                    }
+                }
+            });
+        }
+    }
+}
 
+/// Routes by host+path via `deep_link_routing::classify` — query strings are never logged.
+fn register_deep_link_handler(app_handle: tauri::AppHandle) {
+    use tauri_plugin_deep_link::DeepLinkExt;
     app_handle.clone().deep_link().on_open_url(move |event| {
         for url in event.urls() {
-            let url_str = url.to_string();
-            let handle = app_handle.clone();
-            match deep_link_routing::classify(&url_str) {
-                DeepLinkPath::Draft => {
-                    log::info!("Deep link: {}", deep_link_routing::log_safe_url(&url_str));
-                }
-                DeepLinkPath::OauthCallback => {
-                    handle_oauth_callback(&url_str, &handle);
-                }
-                DeepLinkPath::Unknown { path } => {
-                    log::warn!("Unknown deep link path: {}", path);
-                }
-                DeepLinkPath::Activate => {
-                    tauri::async_runtime::spawn(async move {
-                        let token = match license::deep_link::parse_activate_url(&url_str) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                log::warn!("License deep link rejected: {}", e);
-                                let _ = handle.emit("license:error", serde_json::json!({ "message": app_lifecycle::user_facing_activation_error(&e) }));
-                                return;
-                            }
-                        };
-                        let client = providers::scheduling::build_client();
-                        let keyring_handle = handle.clone();
-                        let result = license::deep_link::handle_activate(
-                            &token,
-                            &client,
-                            license::POSTLANE_API_BASE,
-                            move |t| keyring_handle.keyring().set_password("postlane", "license", t)
-                                .map_err(|e| e.to_string()),
-                            license::validator::write_license_cache,
-                        )
-                        .await;
-                        match result {
-                            Ok(display_name) => {
-                                log::info!("License activated for {}", display_name);
-                                let _ = handle.emit("license:activated", serde_json::json!({ "display_name": display_name }));
-                            }
-                            Err(e) => {
-                                log::warn!("License activation failed: {}", e);
-                                let _ = handle.emit("license:error", serde_json::json!({ "message": app_lifecycle::user_facing_activation_error(&e) }));
-                            }
-                        }
-                    });
-                }
-            }
+            dispatch_deep_link(url.to_string(), app_handle.clone());
         }
     });
 }
@@ -330,6 +329,18 @@ mod tests {
 
 fn add_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // A second instance was launched — bring the existing window to front.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            // On Windows, the deep link URL arrives as a process argument in the
+            // second instance. Re-dispatch it through the existing handler.
+            if let Some(url) = deep_link_routing::deep_link_from_args(&argv) {
+                dispatch_deep_link(url, app.clone());
+            }
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_keyring::init())
