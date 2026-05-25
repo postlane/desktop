@@ -68,6 +68,7 @@ mod tests {
             })),
             repos_path,
             activation_tx: None,
+            watcher_tx: None,
             projects: Arc::new(tokio::sync::RwLock::new(projects)),
         }
     }

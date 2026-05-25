@@ -77,6 +77,7 @@ mod tests {
             })),
             repos_path,
             activation_tx: None,
+            watcher_tx: None,
             projects: empty_projects(),
         }
     }
@@ -94,6 +95,7 @@ mod tests {
             })),
             repos_path,
             activation_tx: Some(tx),
+            watcher_tx: None,
             projects: empty_projects(),
         };
         let app = create_router(state);
@@ -120,6 +122,7 @@ mod tests {
             })),
             repos_path,
             activation_tx: Some(tx),
+            watcher_tx: None,
             projects: empty_projects(),
         };
         let app = create_router(state);
@@ -147,6 +150,7 @@ mod tests {
             })),
             repos_path,
             activation_tx: Some(tx),
+            watcher_tx: None,
             projects: empty_projects(),
         };
         let app = create_router(state);
@@ -208,6 +212,7 @@ mod tests {
             })),
             repos_path,
             activation_tx: Some(tx),
+            watcher_tx: None,
             projects: empty_projects(),
         };
         let app = create_router(state);

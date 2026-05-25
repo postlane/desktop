@@ -45,19 +45,24 @@ pub(super) async fn register_handler(
     let repo = crate::storage::Repo {
         id: uuid::Uuid::new_v4().to_string(),
         name: name.clone(),
-        path: canonical_str,
+        path: canonical_str.clone(),
         active: true,
         added_at: chrono::Utc::now().to_rfc3339(),
     };
 
     let mut repos = state.repos.lock().await;
-    repos.repos.push(repo);
+    repos.repos.push(repo.clone());
 
     if let Err(e) = crate::storage::write_repos(&state.repos_path, &repos) {
         return error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to write repos.json: {:?}", e),
         );
+    }
+    drop(repos);
+
+    if let Some(tx) = &state.watcher_tx {
+        let _ = tx.try_send((repo.id, canonical_str));
     }
 
     (StatusCode::OK, Json(RegisterResponse { success: true, name })).into_response()

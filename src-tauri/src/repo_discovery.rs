@@ -223,8 +223,19 @@ pub async fn discover_repos(
 
     if !result.added.is_empty() {
         if let Ok(new_config) = crate::storage::read_repos_with_recovery(&state.repos_path) {
+            let known_ids: std::collections::HashSet<String> = state
+                .lock_repos()
+                .map(|r| r.repos.iter().map(|rr| rr.id.clone()).collect())
+                .unwrap_or_default();
+            let new_repos: Vec<_> = new_config.repos.iter()
+                .filter(|r| !known_ids.contains(&r.id))
+                .cloned()
+                .collect();
             if let Ok(mut repos) = state.lock_repos() {
                 *repos = new_config;
+            }
+            for repo in new_repos {
+                crate::repo_mgmt::start_repo_watcher(&repo.id, &repo.path, &state, app.clone());
             }
         }
     }

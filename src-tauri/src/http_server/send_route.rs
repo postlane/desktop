@@ -135,6 +135,7 @@ mod tests {
             repos,
             repos_path,
             activation_tx: None,
+            watcher_tx: None,
             projects: empty_projects(),
         }, path_str)
     }
