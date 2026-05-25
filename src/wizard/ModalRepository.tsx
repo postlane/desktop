@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import type { RepoWithStatus } from '../types';
 import WizardShell from './WizardShell';
 
 const CLI_COMMAND = 'npx @postlane/cli init';
@@ -125,12 +126,27 @@ function useRepoConnect(workspaceId: string, pollIntervalMs: number): RepoConnec
     if (!detecting) return;
     const interval = setInterval(async () => {
       try {
-        const repos = await invoke<string[]>('get_repos');
-        if (repos.length > 0) {
+        const repos = await invoke<RepoWithStatus[]>('get_repos');
+        // CLI stamped project_id before registering — already linked to this workspace
+        const alreadyLinked = repos.find(r => r.project_id === workspaceId);
+        if (alreadyLinked) {
           clearInterval(interval);
-          const name = repos[0];
-          setDetectedRepo(name);
-          try { await invoke('register_repo_with_project', { repoName: name, workspaceId }); } catch { /* non-fatal */ }
+          setDetectedRepo(alreadyLinked.name);
+          setDetecting(false);
+          return;
+        }
+        // Fallback: repo registered without project_id (old CLI or no active session)
+        const unlinked = repos.find(r => r.project_id === null);
+        if (unlinked) {
+          clearInterval(interval);
+          setDetectedRepo(unlinked.name);
+          try {
+            await invoke('register_repo_with_project', {
+              projectId: workspaceId,
+              repoPath: unlinked.path,
+              description: unlinked.name,
+            });
+          } catch { /* non-fatal */ }
           setDetecting(false);
         }
       } catch { /* ignore poll errors */ }

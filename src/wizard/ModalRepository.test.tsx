@@ -125,22 +125,95 @@ describe('ModalRepository — detecting phase', () => {
   });
 });
 
+const makeUnlinkedRepo = (name = 'my-repo', path = '/path/my-repo') => ({
+  id: 'r1', name, path, active: true, added_at: '',
+  path_exists: true, ready_count: 0, failed_count: 0,
+  last_post_at: null, provider: null, project_id: null,
+});
+
+const makeLinkedRepo = (name = 'existing', path = '/path/existing') => ({
+  id: 'r2', name, path, active: true, added_at: '',
+  path_exists: true, ready_count: 0, failed_count: 0,
+  last_post_at: null, provider: null, project_id: 'some-project-id',
+});
+
+// Repo the CLI already linked to this workspace (project_id stamped before register)
+const makeWorkspaceLinkedRepo = (name = 'stamped-repo', path = '/path/stamped-repo') => ({
+  id: 'r3', name, path, active: true, added_at: '',
+  path_exists: true, ready_count: 0, failed_count: 0,
+  last_post_at: null, provider: null, project_id: 'ws-1', // matches defaultProps.workspaceId
+});
+
+describe('ModalRepository — CLI detection — register params', () => {
+  it('test_polling_calls_register_repo_with_project_correct_params', async () => {
+    const repo = makeUnlinkedRepo('my-repo', '/path/my-repo');
+    mockInvoke
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([repo])
+      .mockResolvedValue(undefined);
+    render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('register_repo_with_project', {
+        projectId: 'ws-1',
+        repoPath: '/path/my-repo',
+        description: 'my-repo',
+      });
+    }, { timeout: 3000 });
+  });
+
+  it('test_polling_shows_unlinked_repo_name_in_done_view', async () => {
+    const repo = makeUnlinkedRepo('my-repo', '/path/my-repo');
+    mockInvoke
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([repo])
+      .mockResolvedValue(undefined);
+    render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
+    await waitFor(() => { expect(screen.getByText(/my-repo/i)).toBeDefined(); }, { timeout: 3000 });
+  });
+
+  it('test_polling_skips_repos_with_project_id_set', async () => {
+    const repo = makeLinkedRepo();
+    mockInvoke.mockResolvedValue([repo]);
+    render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
+    await new Promise(r => setTimeout(r, 120));
+    expect(mockInvoke).not.toHaveBeenCalledWith('register_repo_with_project', expect.anything());
+  });
+
+  it('test_polling_advances_when_repo_already_linked_to_this_workspace', async () => {
+    const repo = makeWorkspaceLinkedRepo();
+    mockInvoke.mockResolvedValueOnce([]).mockResolvedValue([repo]);
+    render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
+    await waitFor(() => { expect(screen.getByText(/stamped-repo/i)).toBeDefined(); }, { timeout: 3000 });
+  });
+
+  it('test_polling_does_not_call_register_when_repo_already_linked', async () => {
+    const repo = makeWorkspaceLinkedRepo();
+    mockInvoke.mockResolvedValueOnce([]).mockResolvedValue([repo]);
+    render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
+    await waitFor(() => screen.getByRole('button', { name: /open dashboard/i }), { timeout: 3000 });
+    expect(mockInvoke).not.toHaveBeenCalledWith('register_repo_with_project', expect.anything());
+  });
+});
+
 describe('ModalRepository — done phase', () => {
   it('test_detects_repo_and_transitions_to_done', async () => {
-    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce(['my-repo']).mockResolvedValue(undefined);
+    const repo = makeUnlinkedRepo();
+    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce([repo]).mockResolvedValue(undefined);
     render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
     await waitFor(() => { expect(screen.getByText(/my-repo/i)).toBeDefined(); }, { timeout: 3000 });
   });
 
   it('test_commit_notice_shown_after_registration', async () => {
-    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce(['my-repo']).mockResolvedValue(undefined);
+    const repo = makeUnlinkedRepo();
+    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce([repo]).mockResolvedValue(undefined);
     render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
     await waitFor(() => { expect(screen.getByText(/commit/i)).toBeDefined(); }, { timeout: 3000 });
   });
 
   it('test_open_dashboard_calls_set_wizard_completed', async () => {
     const onComplete = vi.fn();
-    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce(['my-repo']).mockResolvedValue(undefined);
+    const repo = makeUnlinkedRepo();
+    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce([repo]).mockResolvedValue(undefined);
     render(<ModalRepository {...defaultProps} onComplete={onComplete} pollIntervalMs={30} />);
     await waitFor(() => screen.getByRole('button', { name: /open dashboard/i }), { timeout: 3000 });
     await userEvent.click(screen.getByRole('button', { name: /open dashboard/i }));
@@ -151,7 +224,8 @@ describe('ModalRepository — done phase', () => {
   });
 
   it('test_add_another_repo_restarts_detection', async () => {
-    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce(['my-repo']).mockResolvedValue(undefined);
+    const repo = makeUnlinkedRepo();
+    mockInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce([repo]).mockResolvedValue(undefined);
     render(<ModalRepository {...defaultProps} pollIntervalMs={30} />);
     await waitFor(() => screen.getByRole('button', { name: /add another repo/i }), { timeout: 3000 });
     await userEvent.click(screen.getByRole('button', { name: /add another repo/i }));
