@@ -341,7 +341,7 @@ fn add_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry
 
 fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
-        repo_queries::get_repos, draft_queries::get_all_drafts, draft_queries::get_all_drafts_count,
+        repo_queries::get_repos, repo_queries::has_active_repos, draft_queries::get_all_drafts, draft_queries::get_all_drafts_count,
         published_queries::get_repo_published, published_queries::get_all_published, org_published::get_org_published,
         model_stats::get_model_stats, nav_commands::get_app_version, nav_commands::get_autostart_enabled,
         nav_commands::get_attribution, nav_commands::set_attribution, nav_commands::get_watcher_status,

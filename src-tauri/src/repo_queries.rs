@@ -121,6 +121,19 @@ pub fn get_repos(state: State<'_, AppState>) -> Result<Vec<RepoWithStatus>, Stri
     get_repos_impl(&state)
 }
 
+pub fn has_active_repos_impl(state: &AppState) -> Result<bool, String> {
+    let repos = state
+        .repos
+        .lock()
+        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    Ok(repos.repos.iter().any(|r| r.active))
+}
+
+#[tauri::command]
+pub fn has_active_repos(state: State<'_, AppState>) -> Result<bool, String> {
+    has_active_repos_impl(&state)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +249,29 @@ mod tests {
         assert_eq!(ready, 0);
         assert_eq!(failed, 0);
         assert!(ts.is_none());
+    }
+
+    #[test]
+    fn test_has_active_repos_returns_false_when_empty() {
+        let state = make_state(vec![]);
+        assert!(!has_active_repos_impl(&state).expect("should succeed"));
+    }
+
+    #[test]
+    fn test_has_active_repos_returns_true_when_any_active() {
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "r".to_string(), path: "/x".to_string(),
+            active: true, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        assert!(has_active_repos_impl(&state).expect("should succeed"));
+    }
+
+    #[test]
+    fn test_has_active_repos_returns_false_when_all_inactive() {
+        let state = make_state(vec![Repo {
+            id: "r1".to_string(), name: "r".to_string(), path: "/x".to_string(),
+            active: false, added_at: "2024-01-01T00:00:00Z".to_string(),
+        }]);
+        assert!(!has_active_repos_impl(&state).expect("should succeed"));
     }
 }

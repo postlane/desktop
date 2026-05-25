@@ -27,6 +27,29 @@ export interface AppInitState {
   appStateRef: MutableRefObject<AppStateFile | null>;
 }
 
+interface WizardSetters {
+  setWizardStartStep: (_step: number) => void;
+  setResumeStep: (_step: number | null) => void;
+  setWizardWorkspaceId: (_id: string | null) => void;
+  setWizardWorkspaceName: (_name: string | null) => void;
+  setWizardProvider: (_p: string | null) => void;
+  setShowWizard: (_v: boolean) => void;
+}
+
+async function applyWizardResumeState(setters: WizardSetters): Promise<void> {
+  const saved = await invoke<{ step: number; workspaceId?: string; workspaceName?: string; provider?: string } | null>(
+    'read_wizard_state'
+  ).catch(() => null);
+  if (saved && saved.step > 1) {
+    setters.setWizardStartStep(saved.step);
+    setters.setResumeStep(saved.step);
+    setters.setWizardWorkspaceId(saved.workspaceId ?? null);
+    setters.setWizardWorkspaceName(saved.workspaceName ?? null);
+    setters.setWizardProvider(saved.provider ?? null);
+  }
+  setters.setShowWizard(true);
+}
+
 export function useAppInit(): AppInitState {
   const [timezone, setTimezone] = useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -47,6 +70,10 @@ export function useAppInit(): AppInitState {
   }, []);
 
   useEffect(() => {
+    const setters: WizardSetters = {
+      setWizardStartStep, setResumeStep, setWizardWorkspaceId, setWizardWorkspaceName,
+      setWizardProvider, setShowWizard,
+    };
     Promise.all([
       invoke<AppStateFile>('read_app_state_command'),
       invoke<boolean>('get_license_signed_in'),
@@ -60,18 +87,9 @@ export function useAppInit(): AppInitState {
         }
         if (!appState.consent_asked) setShowConsentModal(true);
         if (!appState.wizard_completed) {
-          const saved = await invoke<{ step: number; workspaceId?: string; workspaceName?: string; provider?: string } | null>(
-            'read_wizard_state'
-          ).catch(() => null);
-          if (saved && saved.step > 1) {
-            setWizardStartStep(saved.step);
-            setResumeStep(saved.step);
-            if (saved.workspaceId) setWizardWorkspaceId(saved.workspaceId);
-            if (saved.workspaceName) setWizardWorkspaceName(saved.workspaceName);
-            if (saved.provider) setWizardProvider(saved.provider);
-          }
-          setShowWizard(true);
-          return;
+          const hasActiveRepos = await invoke<boolean>('has_active_repos').catch(() => false);
+          if (!hasActiveRepos) { await applyWizardResumeState(setters); return; }
+          // Active repos exist — skip the wizard and go to the main app
         }
         if (!hasToken) { setShowReSignIn(true); return; }
         if (!appState.post_wizard_completed) setWizardNudgePending(true);
