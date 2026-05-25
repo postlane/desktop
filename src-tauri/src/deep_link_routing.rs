@@ -53,6 +53,13 @@ pub fn installation_id_from_url(url: &str) -> Option<u64> {
     if id == 0 { None } else { Some(id) }
 }
 
+/// Extracts the first `postlane://` URL from a list of process arguments.
+/// Used by the single-instance callback to re-dispatch a deep link that arrived
+/// as a process argument in the second instance (Windows path).
+pub fn deep_link_from_args(args: &[String]) -> Option<String> {
+    args.iter().find(|a| a.starts_with("postlane://")).cloned()
+}
+
 /// Returns a log-safe representation of a deep link URL: `scheme://host/path` only.
 /// The query string and fragment are never included.
 pub fn log_safe_url(url: &str) -> String {
@@ -143,5 +150,53 @@ mod tests {
     fn test_installation_id_from_url_ignores_other_params() {
         let id = installation_id_from_url("postlane://oauth/callback?setup_action=install&installation_id=99001122");
         assert_eq!(id, Some(99001122));
+    }
+
+    // ── deep_link_from_args ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_deep_link_from_args_returns_url_when_present() {
+        let args = vec![
+            "postlane".to_string(),
+            "postlane://oauth/callback?installation_id=12345678".to_string(),
+        ];
+        assert_eq!(
+            deep_link_from_args(&args),
+            Some("postlane://oauth/callback?installation_id=12345678".to_string())
+        );
+    }
+
+    #[test]
+    fn test_deep_link_from_args_returns_none_when_absent() {
+        let args = vec!["postlane".to_string(), "--defaults".to_string()];
+        assert_eq!(deep_link_from_args(&args), None);
+    }
+
+    #[test]
+    fn test_deep_link_from_args_handles_empty_slice() {
+        assert_eq!(deep_link_from_args(&[]), None);
+    }
+
+    #[test]
+    fn test_deep_link_from_args_ignores_non_postlane_args() {
+        let args = vec![
+            "/usr/bin/postlane".to_string(),
+            "https://example.com".to_string(),
+            "file:///some/path".to_string(),
+        ];
+        assert_eq!(deep_link_from_args(&args), None);
+    }
+
+    #[test]
+    fn test_deep_link_from_args_returns_first_when_multiple_present() {
+        let args = vec![
+            "postlane".to_string(),
+            "postlane://activate?token=abc".to_string(),
+            "postlane://oauth/callback?installation_id=99".to_string(),
+        ];
+        assert_eq!(
+            deep_link_from_args(&args),
+            Some("postlane://activate?token=abc".to_string())
+        );
     }
 }
