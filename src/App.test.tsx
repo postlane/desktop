@@ -257,11 +257,25 @@ describe('App startup — routing', () => {
     mockInvoke.mockImplementation((cmd: unknown) => {
       if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: false }))
       if (cmd === 'get_license_signed_in') return Promise.resolve(false)
+      if (cmd === 'has_active_repos') return Promise.resolve(false)
       if (cmd === 'get_repos') return Promise.resolve([])
       return Promise.resolve(null)
     })
     render(<App />)
     await waitFor(() => { expect(screen.getByText('Wizard')).toBeInTheDocument() })
+  })
+
+  it('test_skips_wizard_and_shows_app_when_repos_exist_despite_wizard_not_completed', async () => {
+    mockInvoke.mockImplementation((cmd: unknown) => {
+      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: false }))
+      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
+      if (cmd === 'has_active_repos') return Promise.resolve(true)
+      if (cmd === 'get_repos') return Promise.resolve([])
+      return Promise.resolve(null)
+    })
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('LeftNav')).toBeInTheDocument())
+    expect(screen.queryByText('Wizard')).not.toBeInTheDocument()
   })
 
   it('test_shows_resign_in_when_token_missing', async () => {
