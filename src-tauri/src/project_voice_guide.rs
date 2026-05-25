@@ -122,13 +122,16 @@ mod tests {
     use crate::test_fixtures::make_state;
 
     fn make_state_with_repo(repo_path: &str) -> AppState {
-        make_state(vec![Repo {
+        let state = make_state(vec![Repo {
             id: "test-repo-id".to_string(),
             name: "test".to_string(),
             path: repo_path.to_string(),
             active: true,
             added_at: "2026-01-01T00:00:00Z".to_string(),
-        }])
+        }]);
+        let repos = state.repos.lock().unwrap().clone();
+        crate::storage::write_repos(&state.repos_path, &repos).expect("write repos.json for test");
+        state
     }
 
     /// 21.3.10 — saves voice guide to all registered repos under the project
@@ -220,6 +223,8 @@ mod tests {
                 added_at: "2026-01-01T00:00:00Z".to_string(),
             },
         ]);
+        let repos = state.repos.lock().unwrap().clone();
+        crate::storage::write_repos(&state.repos_path, &repos).expect("write repos.json for test");
 
         let result = sync_voice_guide_to_repos_impl("proj-multi", "guide text", &state);
 
