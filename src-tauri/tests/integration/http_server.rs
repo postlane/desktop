@@ -57,6 +57,7 @@ async fn test_send_with_correct_token_and_registered_path() {
         repos: Arc::new(Mutex::new(repos_config)),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -92,6 +93,7 @@ async fn test_send_with_path_traversal_returns_403() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -125,6 +127,7 @@ async fn test_send_with_wrong_token_returns_401() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -166,6 +169,7 @@ async fn test_register_with_valid_path() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -199,6 +203,7 @@ async fn test_register_with_invalid_path_returns_403() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -229,6 +234,7 @@ async fn test_register_with_wrong_token_returns_401() {
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -268,6 +274,7 @@ async fn test_register_actually_adds_repo_to_repos_json() {
         repos: repos_arc.clone(),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -318,6 +325,7 @@ async fn test_register_writes_to_state_repos_path_not_real_postlane_dir() {
         })),
         repos_path: isolated_repos_path.clone(),
         activation_tx: None,
+        watcher_tx: None,
         projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -350,4 +358,77 @@ async fn test_register_writes_to_state_repos_path_not_real_postlane_dir() {
             "real repos.json must not contain the test repo"
         );
     }
+}
+
+#[tokio::test]
+async fn test_register_sends_watcher_notification_on_success() {
+    let temp_dir = TempDir::new().unwrap();
+    let repo_path = temp_dir.path().join("watch-repo");
+    fs::create_dir_all(repo_path.join(".git")).unwrap();
+    fs::create_dir_all(repo_path.join(".postlane")).unwrap();
+    fs::write(repo_path.join(".postlane/config.json"), "{}").unwrap();
+    let canonical_path = fs::canonicalize(&repo_path).unwrap();
+    let token = "watch-token-12345678901234567890";
+    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<(String, String)>(4);
+    let server_state = postlane_desktop_lib::http_server::ServerState {
+        token: token.to_string(),
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
+        activation_tx: None,
+        watcher_tx: Some(watcher_tx),
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
+    };
+    let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
+        .await
+        .unwrap();
+    reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{}/register", port))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({ "path": canonical_path.to_str().unwrap() }))
+        .send()
+        .await
+        .unwrap();
+
+    let msg = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        watcher_rx.recv(),
+    )
+    .await
+    .expect("channel must receive within 2s")
+    .expect("channel must not be closed");
+    assert_eq!(msg.1, canonical_path.to_str().unwrap(), "path must match registered repo");
+}
+
+#[tokio::test]
+async fn test_register_does_not_send_watcher_notification_on_failure() {
+    let temp_dir = TempDir::new().unwrap();
+    let token = "watch-fail-token-12345678901234567890";
+    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::channel::<(String, String)>(4);
+    let server_state = postlane_desktop_lib::http_server::ServerState {
+        token: token.to_string(),
+        repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
+            version: 1, repos: vec![],
+        })),
+        repos_path: temp_dir.path().join("repos.json"),
+        activation_tx: None,
+        watcher_tx: Some(watcher_tx),
+        projects: std::sync::Arc::new(tokio::sync::RwLock::new(vec![])),
+    };
+    let port = postlane_desktop_lib::http_server::start_server(server_state, 0)
+        .await
+        .unwrap();
+    reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{}/register", port))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&serde_json::json!({ "path": "/nonexistent/path/definitely/not/real" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert!(
+        watcher_rx.try_recv().is_err(),
+        "channel must NOT receive a message when registration fails"
+    );
 }

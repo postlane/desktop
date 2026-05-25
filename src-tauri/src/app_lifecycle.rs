@@ -39,11 +39,13 @@ pub fn spawn_http_server(
     let token = crate::http_server::generate_and_write_token()?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
     let (activation_tx, activation_rx) = tokio::sync::mpsc::channel::<(String, bool)>(4);
+    let (watcher_tx, watcher_rx) = tokio::sync::mpsc::channel::<(String, String)>(16);
     let server_state = crate::http_server::ServerState {
         token,
         repos: repos_arc,
         repos_path,
         activation_tx: Some(activation_tx),
+        watcher_tx: Some(watcher_tx),
         projects: Arc::new(tokio::sync::RwLock::new(vec![])),
     };
 
@@ -64,7 +66,8 @@ pub fn spawn_http_server(
             log::error!("Failed to start HTTP server: {}", e);
         }
     });
-    spawn_activation_listener(activation_rx, app_handle);
+    spawn_activation_listener(activation_rx, app_handle.clone());
+    spawn_watcher_listener(watcher_rx, app_handle);
     Ok(())
 }
 
@@ -107,6 +110,18 @@ fn spawn_activation_listener(
                     );
                 }
             }
+        }
+    });
+}
+
+fn spawn_watcher_listener(
+    mut rx: tokio::sync::mpsc::Receiver<(String, String)>,
+    app_handle: tauri::AppHandle,
+) {
+    tauri::async_runtime::spawn(async move {
+        while let Some((repo_id, repo_path)) = rx.recv().await {
+            let state: tauri::State<crate::app_state::AppState> = app_handle.state();
+            crate::repo_mgmt::start_repo_watcher(&repo_id, &repo_path, &state, app_handle.clone());
         }
     });
 }
