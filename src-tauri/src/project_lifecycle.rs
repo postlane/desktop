@@ -15,7 +15,7 @@ use crate::project_config_ops::{sha256_hex, write_project_id_to_config_impl};
 use crate::project_registry::{require_license_token, ProjectSummary};
 use crate::project_validation::validate_project_id;
 use crate::providers::scheduling::build_client;
-use tauri::State;
+use tauri::{Manager, State};
 use tauri_plugin_keyring::KeyringExt;
 
 /// Calls `POST {base_url}/v1/projects/{project_id}/repos`, then writes `project_id` to config.
@@ -86,7 +86,15 @@ pub async fn create_project(
         )
             .await
             .map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "project_id": project_id, "name": project_name, "workspace_type": wt }))
+    let result = serde_json::json!({ "project_id": project_id, "name": project_name, "workspace_type": wt });
+    match list_projects_with_client(&client, POSTLANE_API_BASE, &token).await {
+        Ok(list) => {
+            let state: tauri::State<AppState> = app.state();
+            *state.projects_cache.write().await = list;
+        }
+        Err(e) => log::warn!("[create_project] failed to refresh projects cache: {}", e),
+    }
+    Ok(result)
 }
 
 /// Sets `provider_org_login` on an existing project. Used by the v1.2 upgrade flow.

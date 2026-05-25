@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::init::postlane_dir;
+use crate::project_registry::ProjectSummary;
 use crate::storage::ReposConfig;
 use crate::telemetry::client::TelemetryClient;
 use notify::RecommendedWatcher;
@@ -8,6 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
+use tokio::sync::RwLock;
 
 pub use crate::app_state_types::{AppStateFile, DefaultPostTime, NavState, WindowState};
 
@@ -29,6 +31,9 @@ pub struct AppState {
     /// Path to repos.json. Production code uses the real ~/.postlane/repos.json;
     /// tests use an isolated temp path so they cannot corrupt user data.
     pub repos_path: PathBuf,
+    /// Project list cache shared with the HTTP server's /github-project-config endpoint.
+    /// Populated after sign-in and updated after project creation.
+    pub projects_cache: Arc<RwLock<Vec<ProjectSummary>>>,
 }
 
 impl AppState {
@@ -56,6 +61,7 @@ impl AppState {
             in_flight_sends: Arc::new(AtomicUsize::new(0)),
             http_port: Mutex::new(None),
             repos_path,
+            projects_cache: Arc::new(RwLock::new(vec![])),
         }
     }
 }

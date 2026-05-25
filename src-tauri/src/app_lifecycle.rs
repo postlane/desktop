@@ -3,6 +3,10 @@
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
 use tauri_plugin_keyring::KeyringExt;
+use crate::app_state::AppState;
+use crate::license::POSTLANE_API_BASE;
+use crate::project_api::list_projects_with_client;
+use crate::providers::scheduling::build_client;
 
 /// Maps a `DeepLinkError` to a user-friendly message suitable for display in the UI.
 /// Internal details (OS errors, server terminology) are never exposed.
@@ -40,13 +44,14 @@ pub fn spawn_http_server(
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
     let (activation_tx, activation_rx) = tokio::sync::mpsc::channel::<(String, bool)>(4);
     let (watcher_tx, watcher_rx) = tokio::sync::mpsc::channel::<(String, String)>(16);
+    let projects = app_handle.state::<AppState>().projects_cache.clone();
     let server_state = crate::http_server::ServerState {
         token,
         repos: repos_arc,
         repos_path,
         activation_tx: Some(activation_tx),
         watcher_tx: Some(watcher_tx),
-        projects: Arc::new(tokio::sync::RwLock::new(vec![])),
+        projects,
     };
 
     // Bind synchronously so the port file is written before setup_app returns.
@@ -97,6 +102,16 @@ fn spawn_activation_listener(
             match result {
                 Ok(display_name) => {
                     log::info!("License activated via local callback for {}", display_name);
+                    if let Ok(Some(token)) = handle.keyring().get_password("postlane", "license") {
+                        let client = build_client();
+                        match list_projects_with_client(&client, POSTLANE_API_BASE, &token).await {
+                            Ok(list) => {
+                                let state: tauri::State<AppState> = handle.state();
+                                *state.projects_cache.write().await = list;
+                            }
+                            Err(e) => log::warn!("[activate] failed to refresh projects cache: {}", e),
+                        }
+                    }
                     let _ = handle.emit(
                         "license:activated",
                         serde_json::json!({ "display_name": display_name, "new_link": new_link }),
