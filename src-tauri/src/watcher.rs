@@ -66,7 +66,11 @@ where
     Ok(())
 }
 
-/// Starts watching a repo's posts directory for meta.json changes
+/// Starts watching a repo's `.postlane/` directory for meta.json changes.
+///
+/// Watches `.postlane/` rather than `.postlane/posts/` so the watcher is active
+/// even when `posts/` does not yet exist at startup. The `meta.json` filename
+/// filter ensures only post-state changes trigger the callback.
 pub fn watch_repo<F>(
     repo_id: String,
     repo_path: &Path,
@@ -80,14 +84,15 @@ where
         return watch_workspace_children(repo_id, repo_path, watchers, on_change);
     }
 
-    let posts_dir = repo_path.join(".postlane").join("posts");
+    let watch_dir = repo_path.join(".postlane");
 
-    // If posts/ doesn't exist yet, return Ok - no-op, not an error
-    if !posts_dir.exists() {
+    // .postlane/ is always present for registered repos (config.json requires it),
+    // but guard defensively so a missing directory is a silent no-op, not a crash.
+    if !watch_dir.exists() {
+        log::warn!("watch_repo: .postlane/ not found at {:?}, skipping watcher", repo_path);
         return Ok(());
     }
 
-    // Create watcher with closure that filters to meta.json only
     let last_fired: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
     let watcher = RecommendedWatcher::new(
         move |res: Result<Event, notify::Error>| {
@@ -113,11 +118,9 @@ where
         notify::Config::default(),
     )?;
 
-    // Watch recursively to detect changes inside post subdirectories
     let mut watcher = watcher;
-    watcher.watch(&posts_dir, RecursiveMode::Recursive)?;
+    watcher.watch(&watch_dir, RecursiveMode::Recursive)?;
 
-    // Store watcher in HashMap to prevent it being dropped
     watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(repo_id, watcher);
 
     Ok(())
@@ -168,25 +171,25 @@ mod tests {
     }
 
     #[test]
-    fn test_watch_repo_nonexistent_posts_dir() {
+    fn test_watch_repo_registers_watcher_when_posts_dir_absent() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-        fs::create_dir_all(dir.path().join(".git")).expect("Failed to create test dir");
+        // .git and .postlane exist but .postlane/posts does NOT
+        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
+        fs::create_dir_all(dir.path().join(".postlane")).expect("create .postlane");
 
         let watchers: WatcherMap = Mutex::new(HashMap::new());
         let (tx, _rx) = mpsc::channel();
 
-        // Should not error when posts/ doesn't exist
         let result = watch_repo(
             "test-repo".to_string(),
             dir.path(),
             &watchers,
-            move |_paths| {
-                tx.send(()).unwrap();
-            },
+            move |_paths| { tx.send(()).unwrap(); },
         );
 
-        assert!(result.is_ok(), "Should not error on missing posts/ dir");
-        assert_eq!(watchers.lock().unwrap().len(), 0, "Should not create watcher");
+        assert!(result.is_ok(), "watch_repo must succeed when posts/ is absent");
+        assert_eq!(watchers.lock().unwrap().len(), 1,
+            "watcher must be registered even when posts/ does not yet exist");
     }
 
     #[test]
