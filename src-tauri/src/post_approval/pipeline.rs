@@ -265,7 +265,7 @@ pub(super) async fn call_scheduler(
         None => fetch_and_cache_account_id(platform, &*provider, canonical_path).await,
     };
     let result = provider
-        .schedule_post(&content, platform, scheduled_for, None, resolved_id.as_deref())
+        .schedule_post(&content, platform, scheduled_for, meta.image_url.as_deref(), resolved_id.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     Ok((result.scheduler_id, result.platform_url))
