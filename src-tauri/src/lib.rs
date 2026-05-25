@@ -56,6 +56,7 @@ pub mod project_cache;
 pub mod project_delete;
 pub mod project_config_ops;
 pub mod project_lifecycle;
+pub mod startup_sync;
 pub mod project_registry;
 pub mod project_voice_guide;
 pub mod provider_orgs;
@@ -140,6 +141,30 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         if let Err(e) = credential_migration::run_v1(app.handle(), &migration_state) {
             log::warn!("[setup] credential migration failed: {}", e);
         }
+    }
+
+    // Sync connected_platforms for all repos from the current keyring state.
+    // Credentials may have been added or removed between sessions; this ensures
+    // the field in config.json reflects reality before any draft command runs.
+    {
+        use tauri_plugin_keyring::KeyringExt;
+        let handle = app.handle().clone();
+        startup_sync::sync_all_repos_on_startup(
+            &repos_config.repos,
+            &|project_id| {
+                use mastodon_connection::{active_instance_key, KEYRING_SERVICE};
+                handle.keyring()
+                    .get_password(KEYRING_SERVICE, &active_instance_key(project_id))
+                    .unwrap_or(None)
+                    .is_some()
+            },
+            &|key| {
+                handle.keyring()
+                    .get_password("postlane", key)
+                    .unwrap_or(None)
+                    .is_some()
+            },
+        );
     }
 
     if repos_was_corrupted {
