@@ -87,8 +87,13 @@ pub fn read_repos_with_recovery(repos_path: &Path) -> Result<ReposConfig, Storag
     read_repos_checked(repos_path).map(|(config, _)| config)
 }
 
-/// Writes repos.json atomically
+/// Writes repos.json atomically. Copies the current file to `repos.json.bak`
+/// before overwriting so the previous state survives accidental corruption.
 pub fn write_repos(repos_path: &Path, config: &ReposConfig) -> Result<(), StorageError> {
+    if repos_path.exists() {
+        let bak_path = repos_path.with_extension("json.bak");
+        let _ = std::fs::copy(repos_path, &bak_path);
+    }
     let json = serde_json::to_string_pretty(config)?;
     crate::init::atomic_write(repos_path, json.as_bytes())?;
     Ok(())
@@ -348,5 +353,45 @@ mod tests {
 
         let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
         assert!(!was_corrupted, "missing file is not corruption");
+    }
+
+    #[test]
+    fn test_write_repos_preserves_previous_content_in_bak() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = dir.path().join("repos.json");
+
+        let make_config = |id: &str| ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: id.to_string(),
+                name: id.to_string(),
+                path: "/p".to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+
+        write_repos(&repos_path, &make_config("first")).expect("first write");
+        write_repos(&repos_path, &make_config("second")).expect("second write");
+
+        let bak_path = repos_path.with_extension("json.bak");
+        assert!(bak_path.exists(), "repos.json.bak must exist after second write");
+        let bak_content = fs::read_to_string(&bak_path).expect("read bak");
+        let bak_config: ReposConfig = serde_json::from_str(&bak_content).expect("parse bak");
+        assert_eq!(
+            bak_config.repos[0].id, "first",
+            "bak must contain the pre-second-write state"
+        );
+    }
+
+    #[test]
+    fn test_write_repos_no_bak_on_first_write() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = dir.path().join("repos.json");
+
+        write_repos(&repos_path, &ReposConfig { version: 1, repos: vec![] }).expect("first write");
+
+        let bak_path = repos_path.with_extension("json.bak");
+        assert!(!bak_path.exists(), "no bak should exist when there was nothing to back up");
     }
 }
