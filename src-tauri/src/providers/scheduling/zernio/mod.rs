@@ -74,7 +74,7 @@ impl ZernioProvider {
         }
 
         if let Some(image) = image_url {
-            body["imageUrl"] = serde_json::json!(image);
+            body["mediaItems"] = serde_json::json!([{ "type": "image", "url": image }]);
         }
 
         body

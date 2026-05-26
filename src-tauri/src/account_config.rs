@@ -96,7 +96,36 @@ pub fn get_account_ids(
 }
 
 
-/// Writes each profile's account ID into `config_path` for its platforms.
+/// Writes a display name (e.g. "@rng_dev") for `platform` into
+/// `scheduler.account_names` in `config_path`. Atomic write, same contract as
+/// `save_account_id_impl`.
+pub fn save_account_name_impl(
+    config_path: &std::path::Path,
+    platform: &str,
+    name: &str,
+) -> Result<(), String> {
+    if !config_path.exists() {
+        return Err(format!("config.json not found at {}", config_path.display()));
+    }
+    let mut config: serde_json::Value = read_json_file(config_path)?;
+    if !config["scheduler"].is_object() {
+        config["scheduler"] = serde_json::json!({});
+    }
+    if !config["scheduler"]["account_names"].is_object() {
+        config["scheduler"]["account_names"] = serde_json::json!({});
+    }
+    config["scheduler"]["account_names"][platform] = serde_json::json!(name);
+    let serialized = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config.json: {}", e))?;
+    let tmp_path = config_path.with_extension("tmp");
+    fs::write(&tmp_path, &serialized)
+        .map_err(|e| format!("Failed to write temp config: {}", e))?;
+    fs::rename(&tmp_path, config_path)
+        .map_err(|e| format!("Failed to rename temp config: {}", e))?;
+    Ok(())
+}
+
+/// Writes each profile's account ID and display name into `config_path`.
 /// Failures are logged as warnings and silently skipped.
 pub fn apply_profiles_to_repo(
     profiles: &[crate::providers::scheduling::SchedulerProfile],
@@ -105,33 +134,67 @@ pub fn apply_profiles_to_repo(
     for profile in profiles {
         for platform in &profile.platforms {
             if let Err(e) = save_account_id_impl(config_path, platform, &profile.id) {
-                log::warn!("[account_sync] {}/{}: {}", platform, config_path.display(), e);
+                log::warn!("[account_sync] id {}/{}: {}", platform, config_path.display(), e);
+            }
+            if let Err(e) = save_account_name_impl(config_path, platform, &profile.name) {
+                log::warn!("[account_sync] name {}/{}: {}", platform, config_path.display(), e);
             }
         }
     }
 }
 
+/// Returns `scheduler.account_names` from `config.json` as a platform → display-name map.
+pub(crate) fn get_account_names_impl(
+    config_path: &std::path::Path,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    if !config_path.exists() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let config: serde_json::Value = read_json_file(config_path)?;
+    let names = match config["scheduler"]["account_names"].as_object() {
+        Some(obj) => obj
+            .iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect(),
+        None => std::collections::HashMap::new(),
+    };
+    Ok(names)
+}
+
+#[tauri::command]
+pub fn get_scheduler_account_names(
+    repo_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let repos = state.lock_repos()?;
+    let repo = repos
+        .repos
+        .iter()
+        .find(|r| r.id == repo_id)
+        .ok_or_else(|| format!("Repo '{}' not found", repo_id))?;
+    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
+    get_account_names_impl(&config_path)
+}
+
 /// Fetches the connected social accounts for `provider_name` and writes them
-/// into `config.json` for each repo path. Best-effort: errors are logged only.
+/// into `config.json` for each repo path.
+/// Returns `Err` if the provider cannot be built or `list_profiles` fails.
 pub async fn sync_accounts_for_provider(
     provider_name: &str,
     api_key: &str,
     repo_paths: Vec<std::path::PathBuf>,
-) {
+) -> Result<(), String> {
     if repo_paths.is_empty() {
-        return;
+        return Ok(());
     }
-    let provider = match crate::scheduling::credential_router::build_provider(provider_name, api_key.to_string()) {
-        Ok(p) => p,
-        Err(e) => { log::warn!("[account_sync] build provider {}: {}", provider_name, e); return; }
-    };
-    let profiles = match provider.list_profiles().await {
-        Ok(p) => p,
-        Err(e) => { log::warn!("[account_sync] list_profiles {}: {}", provider_name, e); return; }
-    };
+    let provider = crate::scheduling::credential_router::build_provider(provider_name, api_key.to_string())
+        .map_err(|e| format!("build provider {}: {}", provider_name, e))?;
+    let profiles = provider.list_profiles().await
+        .map_err(|e| format!("list_profiles {}: {}", provider_name, e))?;
     for path in &repo_paths {
         apply_profiles_to_repo(&profiles, &path.join(".postlane/config.json"));
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -330,6 +393,89 @@ mod tests {
             !config_path.exists(),
             "apply_profiles_to_repo must not create config.json when it is absent"
         );
+    }
+
+    // ── save_account_name_impl ────────────────────────────────────────────────
+
+    #[test]
+    fn test_save_account_name_writes_name_for_platform() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        save_account_name_impl(&config_path, "bluesky", "@rng_dev").expect("should succeed");
+        let content = std::fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("@rng_dev"));
+    }
+
+    #[test]
+    fn test_save_account_name_preserves_existing_names_for_other_platforms() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(
+            dir.path(),
+            r#"{"version":1,"scheduler":{"account_names":{"x":"@existing_x"}}}"#,
+        );
+        save_account_name_impl(&config_path, "bluesky", "@new_bsky").expect("should succeed");
+        let content = std::fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("@existing_x"));
+        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("@new_bsky"));
+    }
+
+    #[test]
+    fn test_save_account_name_errors_when_config_missing() {
+        let result = save_account_name_impl(
+            std::path::Path::new("/nonexistent/.postlane/config.json"),
+            "bluesky",
+            "@handle",
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    // ── apply_profiles_to_repo — name persistence ─────────────────────────────
+
+    #[test]
+    fn test_apply_profiles_to_repo_writes_account_name() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        let profiles = vec![SchedulerProfile {
+            id: "acc-bsky".to_string(),
+            name: "@rng_dev".to_string(),
+            platforms: vec!["bluesky".to_string()],
+        }];
+        apply_profiles_to_repo(&profiles, &config_path);
+        let content = std::fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(
+            config["scheduler"]["account_names"]["bluesky"].as_str(),
+            Some("@rng_dev"),
+            "account name must be written alongside account id"
+        );
+    }
+
+    #[test]
+    fn test_apply_profiles_to_repo_writes_account_name_for_multiple_platforms() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        let profiles = vec![
+            SchedulerProfile {
+                id: "acc-x".to_string(),
+                name: "@postlane".to_string(),
+                platforms: vec!["x".to_string()],
+            },
+            SchedulerProfile {
+                id: "acc-bsky".to_string(),
+                name: "@rng_dev".to_string(),
+                platforms: vec!["bluesky".to_string()],
+            },
+        ];
+        apply_profiles_to_repo(&profiles, &config_path);
+        let content = std::fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("@postlane"));
+        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("@rng_dev"));
     }
 
     #[test]

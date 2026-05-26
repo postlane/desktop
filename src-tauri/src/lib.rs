@@ -68,6 +68,7 @@ pub mod repo_project_filter;
 pub mod repo_scheduler_config;
 pub mod repo_queries;
 pub mod scheduler_credentials;
+pub mod scheduler_account_sync;
 pub mod security;
 pub mod scheduling;
 pub mod storage;
@@ -181,6 +182,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app_lifecycle::spawn_daily_engagement_sync(app.handle().clone());
     app_lifecycle::spawn_telemetry_flush(app.handle().clone());
     app_lifecycle::spawn_license_revalidation(app.handle().clone());
+    app_lifecycle::spawn_startup_account_sync(app.handle().clone(), repos_config.repos.clone());
 
     // Restart watchers for all repos that were already registered before this launch.
     // Watchers are started at registration time but are not persisted across restarts,
@@ -395,6 +397,8 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         repo_project_filter::list_repos_for_project, repo_project_filter::unregister_repo,
         scheduler_credentials::get_libsecret_status, scheduler_credentials::list_connected_providers,
         scheduler_credentials::save_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
+        scheduler_credentials::refresh_scheduler_accounts,
+        account_config::get_scheduler_account_names,
         commands::cancel_post_command, commands::get_queue_command,
         post_export::export_history_csv, post_editor::update_post_content, post_editor::update_post_image,
         post_image_unsplash::update_post_image_unsplash,
