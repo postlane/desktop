@@ -88,7 +88,7 @@ pub async fn save_scheduler_credential(
     repo_id: String,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<std::collections::HashMap<String, String>, String> {
     let libsecret_available = {
         let flag = state
             .libsecret_available
@@ -98,6 +98,8 @@ pub async fn save_scheduler_credential(
     };
 
     save_scheduler_credential_impl(&provider, &api_key, libsecret_available)?;
+
+    crate::scheduler_account_sync::validate_provider_credential(&provider, &api_key).await?;
 
     let keyring_key = get_credential_keyring_key(&provider, &repo_id);
     app.keyring()
@@ -109,7 +111,7 @@ pub async fn save_scheduler_credential(
     write_provider_to_matching_repos(&repo_id, &provider, &state);
 
     let matching_paths = collect_matching_repo_paths(&repo_id, &state);
-    crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths.clone()).await;
+    let _ = crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths.clone()).await;
 
     for repo_path in &matching_paths {
         let config_path = std::path::PathBuf::from(repo_path).join(".postlane/config.json");
@@ -126,7 +128,15 @@ pub async fn save_scheduler_credential(
     }
 
     let _ = app.emit("platform-connected", ());
-    Ok(())
+
+    let mut account_names = std::collections::HashMap::new();
+    for repo_path in &matching_paths {
+        let config_path = std::path::PathBuf::from(repo_path).join(".postlane/config.json");
+        if let Ok(names) = crate::account_config::get_account_names_impl(&config_path) {
+            account_names.extend(names);
+        }
+    }
+    Ok(account_names)
 }
 
 #[tauri::command]
@@ -157,6 +167,46 @@ pub fn delete_scheduler_credential(
     }
 
     Ok(())
+}
+
+/// Re-fetches connected accounts from every configured scheduler provider and
+/// updates `config.json` for all repos in the same project.
+/// Returns which providers were synced and any per-provider errors.
+#[tauri::command]
+pub async fn refresh_scheduler_accounts(
+    repo_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::scheduler_account_sync::RefreshResult, String> {
+    let repos = state.lock_repos()?.repos.clone();
+    let result = crate::scheduler_account_sync::refresh_scheduler_accounts_impl(
+        &repos,
+        &|provider, project_id| {
+            let key = get_credential_keyring_key(provider, project_id);
+            app.keyring().get_password("postlane", &key).unwrap_or(None)
+        },
+    )
+    .await;
+    if !result.providers_synced.is_empty() {
+        let _ = app.emit("platform-connected", ());
+    }
+    // Rebuild connected_platforms in config.json for repos in this project
+    for repo_path in collect_matching_repo_paths(&repo_id, &state) {
+        let config_path = repo_path.join(".postlane/config.json");
+        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
+        let mastodon_active = project_id.as_deref().map(|pid| {
+            use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
+            app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(pid))
+                .unwrap_or(None).is_some()
+        }).unwrap_or(false);
+        let _ = crate::project_config_ops::sync_connected_platforms_to_config_impl(
+            &config_path,
+            &repo_id,
+            mastodon_active,
+            &|key| app.keyring().get_password("postlane", key).unwrap_or(None).is_some(),
+        );
+    }
+    Ok(result)
 }
 
 pub fn is_keyring_not_found(error_msg: &str) -> bool {

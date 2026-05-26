@@ -172,6 +172,35 @@ pub fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
 
 /// Spawns the 24-hour license revalidation loop.
 /// Reads the keyring on each cycle so that a re-authentication mid-session is picked up.
+/// Spawns a one-shot background task that re-fetches scheduler account profiles
+/// from each configured provider on startup. Runs once immediately after launch;
+/// does not repeat. Errors are logged and do not surface to the user.
+pub fn spawn_startup_account_sync(
+    app_handle: tauri::AppHandle,
+    repos: Vec<crate::storage::Repo>,
+) {
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_keyring::KeyringExt;
+        let result = crate::scheduler_account_sync::refresh_scheduler_accounts_impl(
+            &repos,
+            &|provider, project_id| {
+                let key = crate::scheduler_credentials::get_credential_keyring_key(provider, project_id);
+                app_handle.keyring().get_password("postlane", &key).unwrap_or(None)
+            },
+        )
+        .await;
+        if result.providers_synced.is_empty() && result.errors.is_empty() {
+            log::debug!("[startup_account_sync] no scheduler credentials found, skipping");
+        } else {
+            log::info!(
+                "[startup_account_sync] synced: {:?}; errors: {:?}",
+                result.providers_synced,
+                result.errors
+            );
+        }
+    });
+}
+
 pub fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let client = crate::providers::scheduling::build_client();

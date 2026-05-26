@@ -322,6 +322,41 @@ async fn test_schedule_post_409_already_posted_returns_existing_id() {
     assert!(schedule_result.platform_url.is_none());
 }
 
+// ── build_schedule_body — image field ────────────────────────────────────────
+
+#[test]
+fn test_build_schedule_body_sends_media_items_for_image() {
+    let body = ZernioProvider::build_schedule_body(
+        "Post with image",
+        "bluesky",
+        None,
+        Some("https://example.com/image.jpg"),
+        Some("profile-123"),
+    );
+
+    let media_items = &body["mediaItems"];
+    assert!(media_items.is_array(), "mediaItems must be an array, got: {body}");
+    assert_eq!(media_items[0]["type"], serde_json::json!("image"));
+    assert_eq!(
+        media_items[0]["url"],
+        serde_json::json!("https://example.com/image.jpg")
+    );
+    assert!(
+        body.get("imageUrl").map_or(true, |v| v.is_null()),
+        "imageUrl must be absent when mediaItems is used, got: {}",
+        body["imageUrl"]
+    );
+}
+
+#[test]
+fn test_build_schedule_body_omits_media_items_when_no_image() {
+    let body = ZernioProvider::build_schedule_body("No image post", "bluesky", None, None, None);
+    assert!(
+        body.get("mediaItems").map_or(true, |v| v.is_null()),
+        "mediaItems must be absent when no image provided"
+    );
+}
+
 #[tokio::test]
 async fn test_schedule_post_409_missing_existing_post_id_returns_error() {
     use httpmock::prelude::*;

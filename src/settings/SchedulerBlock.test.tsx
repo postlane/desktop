@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
@@ -14,11 +14,13 @@ import SchedulerBlock from './SchedulerBlock'
 const mockInvoke = vi.mocked(invoke)
 const mockOpenUrl = vi.mocked(openUrl)
 
-// Default: zernio connected, nothing else
+// Default: zernio connected, no named accounts
 beforeEach(() => {
   vi.clearAllMocks()
   mockInvoke.mockImplementation(async (cmd) => {
     if (cmd === 'list_connected_providers') return ['zernio']
+    if (cmd === 'get_scheduler_account_names') return {}
+    if (cmd === 'save_scheduler_credential') return {}
     return null
   })
 })
@@ -220,16 +222,124 @@ describe('SchedulerBlock — change key', () => {
   })
 
   it('successful change re-fetches profiles', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+      await waitFor(() => screen.getByRole('button', { name: /Change key/i }))
+      fireEvent.click(screen.getByRole('button', { name: /Change key/i }))
+      await waitFor(() => screen.getByLabelText(/API key/i))
+      fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'new-key-456' } })
+      fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
+      await waitFor(() => screen.getByRole('status'))
+      await act(async () => { vi.advanceTimersByTime(6000) })
+      await waitFor(() => {
+        const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'list_connected_providers')
+        expect(calls.length).toBeGreaterThanOrEqual(2)
+      })
+    } finally {
+      vi.runAllTimers()
+      vi.useRealTimers()
+    }
+  })
+})
+
+// ── Sync accounts button ──────────────────────────────────────────────────────
+
+describe('SchedulerBlock — sync accounts button', () => {
+  it('shows Sync accounts button when a provider is connected', async () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
-    await waitFor(() => screen.getByRole('button', { name: /Change key/i }))
-    fireEvent.click(screen.getByRole('button', { name: /Change key/i }))
-    await waitFor(() => screen.getByLabelText(/API key/i))
-    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'new-key-456' } })
-    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
-    await waitFor(() => {
-      const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'list_connected_providers')
-      expect(calls.length).toBeGreaterThanOrEqual(2)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Sync accounts/i })).toBeInTheDocument()
+    )
+  })
+
+  it('does not show Sync accounts button when no provider is connected', async () => {
+    mockInvoke.mockResolvedValue([])
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText(/No scheduler connected/i)).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Sync accounts/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('SchedulerBlock — sync accounts actions', () => {
+  it('calls refresh_scheduler_accounts with repoId on click', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return ['zernio']
+      if (cmd === 'get_scheduler_account_names') return {}
+      if (cmd === 'refresh_scheduler_accounts') return { providers_synced: ['zernio'], errors: [] }
+      return null
     })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /Sync accounts/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Sync accounts/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('refresh_scheduler_accounts', { repoId: 'proj-1' })
+    )
+  })
+
+  it('shows success message after sync', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return ['zernio']
+      if (cmd === 'get_scheduler_account_names') return {}
+      if (cmd === 'refresh_scheduler_accounts') return { providers_synced: ['zernio'], errors: [] }
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /Sync accounts/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Sync accounts/i }))
+    await waitFor(() => expect(screen.getByText(/Synced/i)).toBeInTheDocument())
+  })
+
+  it('shows error message when sync returns errors', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return ['zernio']
+      if (cmd === 'get_scheduler_account_names') return {}
+      if (cmd === 'refresh_scheduler_accounts') return { providers_synced: [], errors: ['zernio: 401 Unauthorized'] }
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /Sync accounts/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Sync accounts/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+  })
+
+  it('shows error alert when refresh_scheduler_accounts throws', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return ['zernio']
+      if (cmd === 'get_scheduler_account_names') return {}
+      if (cmd === 'refresh_scheduler_accounts') throw new Error('IPC error')
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getByRole('button', { name: /Sync accounts/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Sync accounts/i }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+  })
+})
+
+// ── Account names display ─────────────────────────────────────────────────────
+
+describe('SchedulerBlock — account names', () => {
+  it('shows account name tags when get_scheduler_account_names returns data', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return ['zernio']
+      if (cmd === 'get_scheduler_account_names') return { bluesky: '@rng_dev', x: '@postlane' }
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('@rng_dev')).toBeInTheDocument())
+    expect(screen.getByText('@postlane')).toBeInTheDocument()
+  })
+
+  it('shows nothing extra when get_scheduler_account_names returns empty', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return ['zernio']
+      if (cmd === 'get_scheduler_account_names') return {}
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('Zernio')).toBeInTheDocument())
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument()
   })
 })
 
@@ -261,5 +371,46 @@ describe('SchedulerBlock — provider links', () => {
     render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => screen.getByText('Webhook'))
     expect(screen.queryByRole('button', { name: /Open Webhook website/i })).not.toBeInTheDocument()
+  })
+})
+
+// ── Connect form — success message ────────────────────────────────────────────
+
+describe('SchedulerBlock — connect form success message', () => {
+  beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
+  afterEach(() => { vi.runAllTimers(); vi.useRealTimers() })
+
+  it('shows Connected status after successful save', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return []
+      if (cmd === 'get_scheduler_account_names') return {}
+      if (cmd === 'save_scheduler_credential') return {}
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getAllByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
+    await waitFor(() => screen.getByLabelText(/API key/i))
+    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'valid-key' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument())
+    expect(screen.getByRole('status')).toHaveTextContent(/connected/i)
+  })
+
+  it('includes org name in success message when account names are returned', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'list_connected_providers') return []
+      if (cmd === 'get_scheduler_account_names') return {}
+      if (cmd === 'save_scheduler_credential') return { bluesky: 'PostLane Org', x: 'PostLane Org' }
+      return null
+    })
+    render(<SchedulerBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => screen.getAllByRole('button', { name: /^Connect$/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
+    await waitFor(() => screen.getByLabelText(/API key/i))
+    fireEvent.change(screen.getByLabelText(/API key/i), { target: { value: 'valid-key' } })
+    fireEvent.click(screen.getAllByRole('button', { name: /^Connect$/i })[0])
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument())
+    expect(screen.getByRole('status')).toHaveTextContent(/PostLane Org/i)
   })
 })

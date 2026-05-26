@@ -92,7 +92,7 @@ pub fn connect_repo_from_desktop(
     for (provider, api_key) in pairs {
         let path = repo_path_buf.clone();
         tauri::async_runtime::spawn(async move {
-            crate::account_config::sync_accounts_for_provider(&provider, &api_key, vec![path]).await;
+            let _ = crate::account_config::sync_accounts_for_provider(&provider, &api_key, vec![path]).await;
         });
     }
     Ok(repo)
