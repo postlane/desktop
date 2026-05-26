@@ -6,9 +6,19 @@ use crate::app_state::AppState;
 use std::path::{Path, PathBuf};
 
 /// Returns the paths of all repos whose `.postlane/config.json` has the given `project_id`.
+///
+/// Reads `repos.json` from disk so that repos registered via the CLI after app
+/// startup are included — in-memory state is not updated by CLI writes.
 pub(crate) fn collect_matching_repo_paths(project_id: &str, state: &AppState) -> Vec<PathBuf> {
-    let Ok(repos) = state.repos.lock() else {
-        return vec![];
+    let repos = match crate::storage::read_repos_with_recovery(&state.repos_path) {
+        Ok(config) => config,
+        Err(e) => {
+            log::warn!(
+                "[credential_repo_sync] failed to read repos.json at {:?}: {:?}",
+                &state.repos_path, e
+            );
+            return vec![];
+        }
     };
     repos
         .repos
@@ -73,9 +83,42 @@ mod tests {
         std::fs::write(postlane.join("config.json"), r#"{"project_id":"my-proj"}"#)
             .expect("write config.json");
         let state = make_test_state_with_repo(dir.path().to_str().unwrap());
+        let repos = state.repos.lock().unwrap().clone();
+        crate::storage::write_repos(&state.repos_path, &repos).expect("write repos.json");
         let paths = collect_matching_repo_paths("my-proj", &state);
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0], dir.path());
+    }
+
+    // ── bug fix: CLI-registered repos must be found ─────────────────────────
+
+    #[test]
+    fn collect_matching_repo_paths_finds_repo_registered_via_cli_since_startup() {
+        let dir_a = tempfile::TempDir::new().expect("temp dir a");
+        let dir_b = tempfile::TempDir::new().expect("temp dir b");
+
+        let postlane_b = dir_b.path().join(".postlane");
+        std::fs::create_dir_all(&postlane_b).expect("mkdir .postlane b");
+        std::fs::write(postlane_b.join("config.json"), r#"{"project_id":"proj-b"}"#)
+            .expect("write config b");
+
+        // App started with only repo-a in memory
+        let state = make_test_state_with_repo(dir_a.path().to_str().unwrap());
+
+        // CLI registers repo-b by writing repos.json directly — state.repos is NOT updated
+        let repos_on_disk = crate::storage::ReposConfig {
+            version: 1,
+            repos: vec![
+                make_repo("repo-a", dir_a.path().to_str().unwrap()),
+                make_repo("repo-b", dir_b.path().to_str().unwrap()),
+            ],
+        };
+        crate::storage::write_repos(&state.repos_path, &repos_on_disk)
+            .expect("write repos.json");
+
+        let paths = collect_matching_repo_paths("proj-b", &state);
+        assert_eq!(paths.len(), 1, "repo registered via CLI must be found from disk");
+        assert_eq!(paths[0], dir_b.path());
     }
 
     #[test]
@@ -95,6 +138,8 @@ mod tests {
             .expect("write config.local.json");
 
         let state = make_test_state_with_repo(dir.path().to_str().unwrap());
+        let repos = state.repos.lock().unwrap().clone();
+        crate::storage::write_repos(&state.repos_path, &repos).expect("write repos.json");
         write_provider_to_matching_repos("proj-abc", "zernio", &state);
 
         let written = std::fs::read_to_string(postlane.join("config.local.json")).expect("read");
