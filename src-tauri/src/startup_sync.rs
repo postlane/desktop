@@ -17,8 +17,10 @@ use crate::storage::Repo;
 /// `is_mastodon_active`: closure called with the repo's `project_id` — returns
 /// true if a Mastodon instance credential exists in the keyring.
 ///
-/// `has_keyring_key`: closure called with a keyring key (e.g. `"zernio/{repo_id}"`)
-/// — returns true if that credential exists.
+/// `has_keyring_key`: closure called with a keyring key (e.g. `"zernio/{project_id}"`)
+/// — returns true if that credential exists. Scheduler credentials are stored
+/// at project_id scope (not repo UUID scope), so the project_id from
+/// `config.json` is used when available.
 pub(crate) fn sync_all_repos_on_startup(
     repos: &[Repo],
     is_mastodon_active: &dyn Fn(&str) -> bool,
@@ -26,12 +28,14 @@ pub(crate) fn sync_all_repos_on_startup(
 ) {
     for repo in repos.iter().filter(|r| r.active) {
         let config_path = Path::new(&repo.path).join(".postlane").join("config.json");
-        let mastodon_active = crate::connected_platforms::read_project_id_from_config(&config_path)
-            .map(|pid| is_mastodon_active(&pid))
+        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
+        let mastodon_active = project_id.as_deref()
+            .map(is_mastodon_active)
             .unwrap_or(false);
+        let effective_id = project_id.as_deref().unwrap_or(&repo.id);
         if let Err(e) = crate::project_config_ops::sync_connected_platforms_to_config_impl(
             &config_path,
-            &repo.id,
+            effective_id,
             mastodon_active,
             has_keyring_key,
         ) {
@@ -86,7 +90,8 @@ mod tests {
             make_repo("r2", dir2.path().to_str().unwrap(), true),
         ];
 
-        sync_all_repos_on_startup(&repos, &|_| false, &|key| key == "zernio/r1" || key == "zernio/r2");
+        // Credentials are stored at project_id scope, not repo UUID scope
+        sync_all_repos_on_startup(&repos, &|_| false, &|key| key == "zernio/proj-1" || key == "zernio/proj-2");
 
         let p1 = read_platforms(dir1.path()).expect("repo 1 connected_platforms must be written");
         let p2 = read_platforms(dir2.path()).expect("repo 2 connected_platforms must be written");
@@ -146,6 +151,24 @@ mod tests {
 
         let p2 = read_platforms(dir2.path()).expect("repo 2 must be synced despite repo 1 missing config");
         assert!(p2.iter().any(|v| v == "bluesky"), "repo 2 must have bluesky");
+    }
+
+    #[test]
+    fn test_startup_sync_uses_project_id_not_repo_id_for_scheduler_credentials() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Repo UUID is "uuid-r1"; project_id in config is "proj-abc"
+        write_config(
+            dir.path(),
+            r#"{"version":1,"project_id":"proj-abc","scheduler":{"account_ids":{"x":"h1"}}}"#,
+        );
+        let repos = vec![make_repo("uuid-r1", dir.path().to_str().unwrap(), true)];
+        // Credential is stored at project_id scope ("zernio/proj-abc"), not repo UUID scope
+        sync_all_repos_on_startup(&repos, &|_| false, &|key| key == "zernio/proj-abc");
+        let platforms = read_platforms(dir.path()).expect("platforms must be written");
+        assert!(
+            platforms.iter().any(|v| v == "x"),
+            "x must appear when scheduler credential is stored at project_id scope (not repo UUID scope)"
+        );
     }
 
     #[test]
