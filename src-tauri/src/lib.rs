@@ -10,6 +10,7 @@ pub mod config_merge;
 pub mod schedule_time;
 pub mod instance_guard;
 pub mod connect_repo;
+pub mod folder_lookup;
 pub mod credential_migration;
 pub mod credential_repo_sync;
 pub mod analytics;
@@ -426,7 +427,9 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         project_config_ops::read_project_id_from_path,
         project_voice_guide::save_project_voice_guide, project_voice_guide::get_project_voice_guide,
         project_voice_guide::get_voice_guide_fields, project_voice_guide::sync_voice_guide_to_repos,
-        connect_repo::connect_repo_from_desktop, draft_edits::save_post_draft,
+        connect_repo::connect_repo_from_desktop,
+        folder_lookup::find_project_for_folder,
+        draft_edits::save_post_draft,
         wizard_state::read_wizard_state, wizard_state::write_wizard_state, wizard_state::clear_wizard_state,
         unsplash_search::save_unsplash_key, unsplash_search::delete_unsplash_key,
         unsplash_search::has_unsplash_key, unsplash_search::search_unsplash,
