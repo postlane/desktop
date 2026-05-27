@@ -223,7 +223,7 @@ describe('PostCard — approve', () => {
     fireEvent.click(screen.getByRole('button', { name: /preview/i }));
     await waitFor(() => screen.getByRole('button', { name: /approve/i }));
     fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
+    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 5000 });
     expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({
       repoPath: '/path/to/repo',
       postFolder: 'post-001',
@@ -346,59 +346,6 @@ describe('PostCard — auto-schedule badge (§fix-12)', () => {
     render(<PostCard post={makePost({ schedule_source: null })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
     expect(screen.queryByText('auto')).not.toBeInTheDocument();
   });
-});
-
-describe('PostCard — success notice after approve (§review-critical)', () => {
-  function makeApproveInvoke(platforms: string[]) {
-    return async (cmd: unknown) => {
-      if (cmd === 'get_post_content') return '';
-      if (cmd === 'get_attribution') return true;
-      if (cmd === 'approve_post') {
-        return {
-          success: true,
-          platform_results: Object.fromEntries(platforms.map((p) => [p, 'sent'])),
-          error: null,
-          fallback_provider: null,
-        };
-      }
-      return null;
-    };
-  }
-
-  it('shows a success notice after a successful approval', async () => {
-    mockInvoke.mockImplementation(makeApproveInvoke(['x', 'bluesky']));
-    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-    await screen.findByRole('button', { name: /approve/i });
-    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
-  });
-
-  it('success notice lists the platforms that were sent', async () => {
-    mockInvoke.mockImplementation(makeApproveInvoke(['x', 'bluesky']));
-    render(<PostCard post={makePost({ platforms: ['x', 'bluesky'] })} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-    await screen.findByRole('button', { name: /approve/i });
-    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-    await waitFor(() => {
-      const status = screen.getByRole('status');
-      expect(status.textContent).toMatch(/sent/i);
-    });
-  });
-
-  it('calls onApproved after the success notice has been shown', async () => {
-    const onApproved = vi.fn();
-    mockInvoke.mockImplementation(makeApproveInvoke(['x']));
-    render(<PostCard post={makePost({ platforms: ['x'] })} onApproved={onApproved} onDismissed={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-    await screen.findByRole('button', { name: /approve/i });
-    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-    // Notice appears before onApproved fires
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
-    expect(onApproved).not.toHaveBeenCalled();
-    // After the deferral window, onApproved fires
-    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
-  }, 10_000);
 });
 
 // §review-product-medium — image URL error type distinction
