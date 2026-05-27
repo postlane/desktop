@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Cargo aliases for this workspace.
+#
+# Coverage alias
+# --------------
+# `cargo cov` runs lib tests with coverage, excluding the three Tauri
+# runtime-glue files that cannot be unit-tested without a live AppHandle or
+# State<AppState>:
+#
+#   tray.rs          — system-tray setup and Tauri command wrappers for tray actions
+#   lib.rs           — plugin registration, AppHandle wiring; all logic lives in _impl fns
+#   app_lifecycle.rs — on_window_event, on_menu_event handlers; Tauri runtime callbacks
+#
+# Excluding these files from the denominator means the reported percentage
+# reflects testable business logic only. The ceiling for pure unit tests is
+# ~91%; closing the remaining gap requires the Tauri test harness (see
+# project-command-wrapper-testing memory).
+#
+# Usage (from src-tauri/):
+#   cargo cov                          # line + branch + function summary
+#   cargo cov --lcov --output-path /tmp/cov.lcov   # LCOV output for external tooling
+
+[alias]
+# Array form avoids shell-quoting ambiguity for the regex argument.
+# In TOML basic strings, \\ is a literal backslash, so the regex
+# passed to llvm-cov is:  src/(tray|lib|app_lifecycle)\.rs
+cov = ["llvm-cov", "--lib", "--ignore-filename-regex", "src/(tray|lib|app_lifecycle)\\.rs"]
