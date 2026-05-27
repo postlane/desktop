@@ -32,6 +32,10 @@ interface LateStepProps {
   onNext: () => void;
   onBack: () => void;
   onComplete: () => void;
+  /** Folder connect found the folder already belongs to a different project.
+   *  The wizard should redirect to that project instead of continuing with the
+   *  newly-created empty one. */
+  onFolderConflict?: (existingProjectId: string) => void;
 }
 
 interface Step3Props {
@@ -52,9 +56,9 @@ function WizardStep3({ provider, showProviderLinked, linkedProviders, onContinue
   return <ModalOrgPicker onNext={onOrgNext} onBack={onBack} onPricingGate={onPricingGate} onSkipToApp={onSkipToApp} provider={provider} />;
 }
 
-function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, repoConnected, setRepoConnected, onNext, onBack, onComplete }: LateStepProps) {
+function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, repoConnected, setRepoConnected, onNext, onBack, onComplete, onFolderConflict }: LateStepProps) {
   if (step === 5) {
-    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} setRepoConnected={setRepoConnected} />;
+    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} setRepoConnected={setRepoConnected} onFolderAlreadyConnected={onFolderConflict} />;
   }
   if (step === 6) {
     return <ModalProjectContext workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
@@ -124,5 +128,5 @@ export default function Wizard({ onComplete, startAt, initialProvider, initialWo
   if (wizard.step === 4) {
     return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={wizard.next} />;
   }
-  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} repoConnected={repoConnected} setRepoConnected={setRepoConnected} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} />;
+  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} repoConnected={repoConnected} setRepoConnected={setRepoConnected} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} onFolderConflict={(existingProjectId) => { wizard.setWorkspaceId(existingProjectId); void handleSkipToApp(); }} />;
 }

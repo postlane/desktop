@@ -14,13 +14,10 @@ export const MAX_POLL_ATTEMPTS = 120; // 6 minutes
 export const POLL_SLOW_THRESHOLD = 10; // 30 seconds — show "still checking" notice
 export const MOUNT_CHECK_ATTEMPTS = 5; // 15 seconds of mount-time polling before giving up
 
-function repoConnectError(err: unknown, workspaceName?: string): string {
+function repoConnectError(err: unknown): string {
   const raw = typeof err === 'string' ? err : '';
   if (raw.startsWith('NotAGitRepo:')) return 'Not a Git repository. Please select a folder that contains a .git directory.';
-  if (raw.startsWith('RepoAlreadyRegistered:')) {
-    const target = workspaceName ? `the ${workspaceName} workspace` : 'a workspace';
-    return `This repository is already connected to ${target}.`;
-  }
+  if (raw.startsWith('RepoAlreadyRegistered:')) return 'This folder is already connected to another workspace.';
   if (raw.startsWith('PathNotAuthorised:')) return 'This folder is outside your home directory and cannot be connected.';
   return 'Failed to connect repository';
 }
@@ -32,6 +29,10 @@ interface Props {
   onNext: () => void;
   onBack: () => void;
   setRepoConnected: (_v: boolean) => void;
+  /** Called when the selected folder is already registered to a different project.
+   *  The wizard should redirect to that project instead of continuing with the
+   *  newly-created empty one. */
+  onFolderAlreadyConnected?: (existingProjectId: string) => void;
 }
 
 interface GitHubAppSectionProps {
@@ -81,14 +82,23 @@ interface RepoSummary {
   path: string;
 }
 
-interface FolderSectionProps {
-  workspaceId: string;
-  workspaceName: string;
-  onConnected: () => void;
-  onAlreadyConnected: () => void;
+/** Returns the project_id that already owns the folder, or null if unknown. */
+async function findOwningProject(folderPath: string): Promise<string | null> {
+  try {
+    return await invoke<string | null>('find_project_for_folder', { folderPath });
+  } catch {
+    return null;
+  }
 }
 
-function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlreadyConnected }: FolderSectionProps) {
+interface FolderSectionProps {
+  workspaceId: string;
+  onConnected: () => void;
+  onAlreadyConnected: () => void;
+  onFolderConflict?: (existingProjectId: string) => void;
+}
+
+function useFolderConnect({ workspaceId, onConnected, onAlreadyConnected, onFolderConflict }: FolderSectionProps) {
   const [connecting, setConnecting] = useState(false);
   const [existingRepos, setExistingRepos] = useState<RepoSummary[]>([]);
   const [newlyConnected, setNewlyConnected] = useState<string[]>([]);
@@ -112,18 +122,18 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlread
     setConnecting(true);
     setError(null);
     const result = await openDialog({ directory: true });
-    if (typeof result !== 'string') {
-      pickerOpenRef.current = false;
-      setConnecting(false);
-      return;
-    }
+    if (typeof result !== 'string') { pickerOpenRef.current = false; setConnecting(false); return; }
     try {
       const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: result, projectId: workspaceId });
       setNewlyConnected((prev) => [...prev, repo.name]);
       onConnected();
     } catch (err) {
-      if (typeof err === 'string' && err.startsWith('RepoAlreadyRegistered:')) onAlreadyConnected();
-      setError(repoConnectError(err, workspaceName));
+      if (typeof err === 'string' && err.startsWith('RepoAlreadyRegistered:')) {
+        const existingId = await findOwningProject(result);
+        if (existingId && onFolderConflict) onFolderConflict(existingId);
+        else onAlreadyConnected();
+      }
+      setError(repoConnectError(err));
     } finally {
       pickerOpenRef.current = false;
       setConnecting(false);
@@ -131,14 +141,16 @@ function FolderPickerSection({ workspaceId, workspaceName, onConnected, onAlread
   }
 
   const allConnected = [...existingRepos.map((r) => r.name), ...newlyConnected];
-  const hasAny = allConnected.length > 0;
+  return { connecting, allConnected, error, handleChoose };
+}
 
+function FolderPickerSection(props: FolderSectionProps) {
+  const { connecting, allConnected, error, handleChoose } = useFolderConnect(props);
+  const hasAny = allConnected.length > 0;
   return (
     <div className="box mb-3">
       <p className="has-text-weight-semibold mb-1">Desktop folder</p>
-      <p className="is-size-7 has-text-grey mb-3">
-        Connect individual repos or folders from your machine.
-      </p>
+      <p className="is-size-7 has-text-grey mb-3">Connect individual repos or folders from your machine.</p>
       {allConnected.map((name) => (
         <p key={name} className="is-size-7 mb-2">
           <span className="tag is-success is-light mr-2">&#10003;</span>
@@ -325,7 +337,7 @@ function useGitHubAppInstall(isGitHub: boolean, workspaceId: string, onNext: () 
   return { appInstalled, appInstallError, pollSlowNotice, pollTimedOut, handleInstall };
 }
 
-export default function ModalGitHubApp({ provider, workspaceId, workspaceName, onNext, onBack, setRepoConnected }: Props) {
+export default function ModalGitHubApp({ provider, workspaceId, workspaceName: _workspaceName, onNext, onBack, setRepoConnected, onFolderAlreadyConnected }: Props) {
   const [folderConnected, setFolderConnected] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(false);
   const isGitHub = provider === 'github';
@@ -351,9 +363,10 @@ export default function ModalGitHubApp({ provider, workspaceId, workspaceName, o
       skipLabel="I'll connect repos later"
     >
       {isGitHub && <GitHubAppSection appInstalled={appInstalled} error={appInstallError} onInstall={handleInstall} pollSlowNotice={pollSlowNotice} pollTimedOut={pollTimedOut} />}
-      <FolderPickerSection workspaceId={workspaceId} workspaceName={workspaceName}
+      <FolderPickerSection workspaceId={workspaceId}
         onConnected={() => { setFolderConnected(true); setRepoConnected(true); }}
         onAlreadyConnected={() => { setAlreadyConnected(true); setRepoConnected(true); }}
+        onFolderConflict={onFolderAlreadyConnected}
       />
       <CliSection />
     </WizardShell>
