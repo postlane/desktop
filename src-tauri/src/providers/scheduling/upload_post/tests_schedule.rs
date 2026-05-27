@@ -215,3 +215,92 @@ async fn test_schedule_post_platform_url_is_none() {
 
     assert_eq!(result.platform_url, None);
 }
+
+#[tokio::test]
+async fn test_schedule_post_with_image_downloads_and_uploads_bytes() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    let download_mock = server.mock(|when, then| {
+        when.method(GET).path("/img/photo.jpg");
+        then.status(200).header("content-type", "image/jpeg").body(vec![0xFF, 0xD8, 0xFF]);
+    });
+    let upload_mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/upload_photos")
+            .header("Authorization", "Apikey test-key");
+        then.status(200)
+            .json_body(serde_json::json!({"success": true, "request_id": "img-req-123"}));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let image_url = format!("{}/img/photo.jpg", server.base_url());
+    let result = provider
+        .schedule_post("Post with image", "bluesky", None, Some(&image_url), Some("postlane"))
+        .await
+        .unwrap();
+
+    assert_eq!(result.scheduler_id, "img-req-123");
+    download_mock.assert();
+    upload_mock.assert();
+}
+
+#[tokio::test]
+async fn test_schedule_post_image_download_failure_returns_error() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/img/missing.jpg");
+        then.status(404);
+    });
+    server.mock(|when, then| {
+        when.method(POST).path("/upload_text");
+        then.status(200)
+            .json_body(serde_json::json!({"success": true, "request_id": "should-not-reach"}));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let image_url = format!("{}/img/missing.jpg", server.base_url());
+    let err = provider
+        .schedule_post("Post", "bluesky", None, Some(&image_url), Some("postlane"))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, ProviderError::HttpError { status: 404, .. }));
+}
+
+#[tokio::test]
+async fn test_schedule_post_with_image_includes_scheduled_date() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/img/photo.jpg");
+        then.status(200).header("content-type", "image/jpeg").body(vec![0xFF, 0xD8, 0xFF]);
+    });
+    let upload_mock = server.mock(|when, then| {
+        when.method(POST).path("/upload_photos");
+        then.status(202)
+            .json_body(serde_json::json!({"success": true, "job_id": "img-job-456"}));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let dt = chrono::DateTime::parse_from_rfc3339("2025-12-31T10:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let image_url = format!("{}/img/photo.jpg", server.base_url());
+    let result = provider
+        .schedule_post("Scheduled post", "bluesky", Some(dt), Some(&image_url), Some("postlane"))
+        .await
+        .unwrap();
+
+    assert_eq!(result.scheduler_id, "img-job-456");
+    upload_mock.assert();
+}

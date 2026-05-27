@@ -95,6 +95,25 @@ async fn test_list_profiles_success() {
 }
 
 #[tokio::test]
+async fn test_list_profiles_empty_profiles_array_returns_empty_vec() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET)
+            .path("/uploadposts/users")
+            .header("Authorization", "Apikey test-key");
+        then.status(200).json_body(serde_json::json!({"success": true, "plan": "Basic", "profiles": []}));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let profiles = provider.list_profiles().await.unwrap();
+    assert!(profiles.is_empty(), "empty profiles array must return Ok(vec![])");
+}
+
+#[tokio::test]
 async fn test_list_profiles_auth_error() {
     use httpmock::prelude::*;
 

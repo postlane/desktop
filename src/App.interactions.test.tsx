@@ -68,13 +68,11 @@ vi.mock('./components/PostTable', () => ({
   ),
 }))
 vi.mock('./components/EditPostView', () => ({
-  default: ({ onDirtyChange, onToast }: {
+  default: ({ onDirtyChange }: {
     onDirtyChange?: (_d: boolean) => void;
-    onToast?: (_msg: string) => void;
   }) => (
     <div data-testid="edit-post-view">
       <button data-testid="set-dirty" onClick={() => onDirtyChange?.(true)}>Dirty</button>
-      <button data-testid="show-toast" onClick={() => onToast?.('Test toast')}>Toast</button>
     </div>
   ),
 }))
@@ -269,45 +267,6 @@ describe('App — discard modal', () => {
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
-describe('App — toast', () => {
-  it('shows toast notification when triggered', async () => {
-    mockInvoke.mockImplementation((cmd: unknown) => {
-      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
-      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
-      if (cmd === 'list_projects') return Promise.resolve([MOCK_PROJECT])
-      if (cmd === 'get_all_drafts') return Promise.resolve([])
-      return Promise.resolve(null)
-    })
-    render(<App />)
-    await waitFor(() => screen.getByTestId('select-post'))
-    await userEvent.setup().click(screen.getByTestId('select-post'))
-    await waitFor(() => screen.getByTestId('show-toast'))
-    await userEvent.setup().click(screen.getByTestId('show-toast'))
-    await waitFor(() => expect(screen.getByText('Test toast')).toBeInTheDocument())
-  })
-})
-
-// ── Toast — timer replacement ─────────────────────────────────────────────────
-
-describe('App — toast timer clears existing timer', () => {
-  it('showing toast twice clears the first timer and resets', async () => {
-    mockInvoke.mockImplementation((cmd: unknown) => {
-      if (cmd === 'read_app_state_command') return Promise.resolve(makeAppState({ wizard_completed: true, post_wizard_completed: true }))
-      if (cmd === 'get_license_signed_in') return Promise.resolve(true)
-      if (cmd === 'list_projects') return Promise.resolve([MOCK_PROJECT])
-      if (cmd === 'get_all_drafts') return Promise.resolve([])
-      return Promise.resolve(null)
-    })
-    render(<App />)
-    await waitFor(() => screen.getByTestId('select-post'))
-    await userEvent.setup().click(screen.getByTestId('select-post'))
-    await waitFor(() => screen.getByTestId('show-toast'))
-    // Click toast twice — the second click should clear the first timer (branch 26)
-    await userEvent.setup().click(screen.getByTestId('show-toast'))
-    await userEvent.setup().click(screen.getByTestId('show-toast'))
-    await waitFor(() => expect(screen.getByText('Test toast')).toBeInTheDocument())
-  })
-})
 
 // ── Key press that does not trigger Cmd+H ─────────────────────────────────────
 

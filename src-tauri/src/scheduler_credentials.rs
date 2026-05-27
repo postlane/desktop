@@ -86,6 +86,7 @@ pub async fn save_scheduler_credential(
     provider: String,
     api_key: String,
     repo_id: String,
+    username: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
@@ -111,7 +112,25 @@ pub async fn save_scheduler_credential(
     write_provider_to_matching_repos(&repo_id, &provider, &state);
 
     let matching_paths = collect_matching_repo_paths(&repo_id, &state);
-    let _ = crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths.clone()).await;
+
+    // Upload Post: use the explicit username to call validate_profile and write account_ids
+    // per connected social platform. For all other providers, use the generic account sync.
+    if provider == "upload_post" {
+        if let Some(uname) = username.as_deref() {
+            use crate::providers::scheduling::upload_post::UploadPostProvider;
+            let up = UploadPostProvider::new(api_key.clone());
+            let platforms = up.validate_profile(uname).await
+                .map_err(|e| format!("Username '{}' not recognised by Upload Post: {}", uname, e))?;
+            for repo_path in &matching_paths {
+                crate::account_config::write_upload_post_account(
+                    uname, &platforms,
+                    &std::path::PathBuf::from(repo_path).join(".postlane/config.json"),
+                );
+            }
+        }
+    } else {
+        let _ = crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths.clone()).await;
+    }
 
     for repo_path in &matching_paths {
         let config_path = std::path::PathBuf::from(repo_path).join(".postlane/config.json");
@@ -286,6 +305,11 @@ mod tests {
     #[test]
     fn test_save_accepts_webhook() {
         assert!(save_scheduler_credential_impl("webhook", "https://hooks.zapier.com/x", None).is_ok());
+    }
+
+    #[test]
+    fn test_save_accepts_upload_post() {
+        assert!(save_scheduler_credential_impl("upload_post", "sk_test_12345", None).is_ok());
     }
 
     #[test]

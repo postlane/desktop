@@ -471,6 +471,31 @@ mod fetch_account_id_tests {
         assert_eq!(result, None, "no bluesky profile → None");
     }
 
+    // Upload Post returns one profile covering multiple platforms (same username for bluesky + x).
+    // This differs from providers like Zernio that return one profile per platform.
+    #[tokio::test]
+    async fn test_fetch_and_cache_returns_id_from_multi_platform_profile() {
+        let dir = make_config_dir(r#"{"version":1,"scheduler":{}}"#);
+        let provider = MockProvider {
+            profiles: Ok(vec![SchedulerProfile {
+                id: "myhandle".to_string(),
+                name: "myhandle".to_string(),
+                platforms: vec!["bluesky".to_string(), "x".to_string()],
+            }]),
+        };
+
+        let result = fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+        assert_eq!(result, Some("myhandle".to_string()), "multi-platform profile must match on any listed platform");
+
+        let config: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join(".postlane/config.json")).expect("read"),
+        ).expect("parse");
+        assert_eq!(
+            config["scheduler"]["account_ids"]["bluesky"].as_str(),
+            Some("myhandle"),
+        );
+    }
+
     #[tokio::test]
     async fn test_fetch_and_cache_returns_none_when_list_profiles_fails() {
         let dir = make_config_dir(r#"{"version":1,"scheduler":{}}"#);
@@ -511,5 +536,57 @@ mod fetch_account_id_tests {
             Some("acc-bs-1"),
             "new bluesky account_id must also be written"
         );
+    }
+}
+
+// --- §append_unsplash_attribution ---
+
+#[cfg(test)]
+mod attribution_tests {
+    use super::*;
+    use crate::post_meta::{ImageAttribution, PostMeta};
+
+    fn meta_with_attribution() -> PostMeta {
+        PostMeta {
+            image_source: Some("unsplash".to_string()),
+            image_attribution: Some(ImageAttribution {
+                photographer_name: "Jane Doe".to_string(),
+                photographer_url: "https://unsplash.com/@janedoe".to_string(),
+            }),
+            ..PostMeta::default()
+        }
+    }
+
+    #[test]
+    fn test_unsplash_attribution_appended_to_content() {
+        let meta = meta_with_attribution();
+        let result = append_unsplash_attribution("Hello world", &meta);
+        assert!(result.starts_with("Hello world"));
+        assert!(result.contains("Photo by Jane Doe on Unsplash"));
+    }
+
+    #[test]
+    fn test_no_attribution_when_source_is_not_unsplash() {
+        let meta = PostMeta {
+            image_source: Some("other".to_string()),
+            image_attribution: Some(ImageAttribution {
+                photographer_name: "Jane Doe".to_string(),
+                photographer_url: "https://unsplash.com/@janedoe".to_string(),
+            }),
+            ..PostMeta::default()
+        };
+        let result = append_unsplash_attribution("Hello world", &meta);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn test_no_attribution_when_attribution_data_missing() {
+        let meta = PostMeta {
+            image_source: Some("unsplash".to_string()),
+            image_attribution: None,
+            ..PostMeta::default()
+        };
+        let result = append_unsplash_attribution("Hello world", &meta);
+        assert_eq!(result, "Hello world");
     }
 }

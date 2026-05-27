@@ -39,6 +39,17 @@ function providerUrl(provider: string): string | null {
   return urls[provider] ?? null;
 }
 
+function formatSuccessMessage(provider: string, names: Record<string, string>): string {
+  if (provider === 'upload_post') {
+    const user = names['upload_post'] ?? '';
+    const channels = [...new Set(Object.entries(names).filter(([k]) => k !== 'upload_post').map(([, v]) => v))];
+    if (channels.length > 0) return `Connected as the user account ${user} with the channel ${channels.join(', ')}`;
+    return user ? `Connected as the user account ${user}` : 'Connected';
+  }
+  const unique = [...new Set(Object.values(names))];
+  return unique.length > 0 ? `Connected as ${unique.join(', ')}` : 'Connected';
+}
+
 // ── ProviderLink ──────────────────────────────────────────────────────────────
 
 function ProviderLink({ provider }: { provider: string }) {
@@ -56,6 +67,25 @@ function ProviderLink({ provider }: { provider: string }) {
   );
 }
 
+// ── UploadPostUsernameField ───────────────────────────────────────────────────
+
+function UploadPostUsernameField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="is-sr-only" htmlFor="scheduler-username-upload_post">Upload Post username</label>
+      <input
+        id="scheduler-username-upload_post"
+        aria-label="Upload Post username"
+        type="text"
+        className="input is-small"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Your Upload Post username (case-sensitive)"
+      />
+    </div>
+  );
+}
+
 // ── ConnectForm ───────────────────────────────────────────────────────────────
 
 function ConnectForm({ provider, repoId, onConnected, onCancel }: {
@@ -66,15 +96,19 @@ function ConnectForm({ provider, repoId, onConnected, onCancel }: {
 }) {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
+  const [uploadPostUsername, setUploadPostUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectedNames, setConnectedNames] = useState<Record<string, string> | null>(null);
+
+  const canConnect = apiKey && (provider !== 'upload_post' || uploadPostUsername);
 
   async function handleConnect() {
     setLoading(true);
     setError(null);
     try {
-      const names = await invoke<Record<string, string>>('save_scheduler_credential', { provider, apiKey, repoId });
+      const payload = { provider, apiKey, repoId, ...(provider === 'upload_post' ? { username: uploadPostUsername } : {}) };
+      const names = await invoke<Record<string, string>>('save_scheduler_credential', payload);
       setConnectedNames(names ?? {});
       setTimeout(() => onConnected(), 5000);
     } catch (e: unknown) {
@@ -86,16 +120,21 @@ function ConnectForm({ provider, repoId, onConnected, onCancel }: {
 
   return (
     <div className="mt-2 pb-2" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
-      <div className="is-flex" style={{ gap: '0.5rem' }}>
-        <label className="is-sr-only" htmlFor={`scheduler-api-key-${provider}`}>API key</label>
-        <input id={`scheduler-api-key-${provider}`} aria-label="API key"
-          type={showKey ? 'text' : 'password'}
-          className="input is-small" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-          placeholder={`Enter your ${providerLabel(provider)} API key`} style={{ flex: 1 }} />
+      <div className="is-flex" style={{ gap: '0.5rem', alignItems: 'flex-end' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {provider === 'upload_post' && (
+            <UploadPostUsernameField value={uploadPostUsername} onChange={setUploadPostUsername} />
+          )}
+          <label className="is-sr-only" htmlFor={`scheduler-api-key-${provider}`}>API key</label>
+          <input id={`scheduler-api-key-${provider}`} aria-label="API key"
+            type={showKey ? 'text' : 'password'}
+            className="input is-small" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+            placeholder={`Enter your ${providerLabel(provider)} API key`} />
+        </div>
         <button className="button is-small is-ghost" onClick={() => setShowKey((v) => !v)}>
           {showKey ? 'Hide' : 'Show'}
         </button>
-        <button className="button is-small is-primary" onClick={handleConnect} disabled={loading || !apiKey}>
+        <button className="button is-small is-primary" onClick={handleConnect} disabled={loading || !canConnect}>
           Connect
         </button>
         <button className="button is-small is-ghost" onClick={onCancel} disabled={loading}>
@@ -104,10 +143,7 @@ function ConnectForm({ provider, repoId, onConnected, onCancel }: {
       </div>
       {connectedNames !== null && (
         <p role="status" className="is-size-7 has-text-success mt-1">
-          {(() => {
-            const unique = [...new Set(Object.values(connectedNames))];
-            return unique.length > 0 ? `Connected as ${unique.join(', ')}` : 'Connected';
-          })()}
+          {formatSuccessMessage(provider, connectedNames)}
         </p>
       )}
       {error && <p role="alert" className="is-size-7 has-text-danger mt-1">{error}</p>}

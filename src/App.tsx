@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { invoke } from './ipc/invoke';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useAppInit } from './useAppInit';
@@ -19,6 +19,7 @@ import { TimezoneContext, useTimezone } from './TimezoneContext';
 import { ProjectsProvider, useProjectsContext } from './context/ProjectsProvider';
 import { DraftPostsProvider, useDraftPostsContext } from './context/DraftPostsProvider';
 import { useSentPosts } from './hooks/useSentPosts';
+import { useConnectedPlatforms } from './hooks/useConnectedPlatforms';
 import OrgUpgradeBanner from './components/OrgUpgradeBanner';
 import OrgLinkModal from './components/OrgLinkModal';
 import type { AppStateFile, ViewSelection, DraftPost, PublishedPost } from './types';
@@ -63,13 +64,16 @@ function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNa
   const { projects, refresh: refreshProjects } = useProjectsContext();
   const project = projects.find(p => p.id === projectId) ?? null;
   const projectDrafts = drafts.filter(d => d.project_id === projectId);
+  const connectedPlatformsByRepo = useConnectedPlatforms(
+    useMemo(() => [...new Set(projectDrafts.map(d => d.repo_id))], [projectDrafts]),
+  );
 
   if (selectedPost && project) {
     return (
       <EditPostView post={selectedPost} project={project} isHistory={false} timezone={tz}
         onBack={() => { setSelectedPost(null); onDirtyChange(false); }}
         onApproved={() => { setSelectedPost(null); refresh(); onDirtyChange(false); }}
-        onToast={onToast} onNavigate={onNavigate} onDirtyChange={onDirtyChange}
+        onNavigate={onNavigate} onDirtyChange={onDirtyChange}
         pendingNavSel={pendingNavSel} onNavCancelled={onNavCancelled}
       />
     );
@@ -96,14 +100,15 @@ function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNa
           </div>
         </div>
       )}
-      <PostTable posts={projectDrafts} isHistory={false} onSelect={setSelectedPost} timezone={tz} />
+      <PostTable posts={projectDrafts} isHistory={false} onSelect={setSelectedPost} timezone={tz}
+        connectedPlatformsByRepo={connectedPlatformsByRepo}
+        onConnectPlatform={() => onNavigate({ view: 'org_settings', projectId, section: 'settings' })} />
     </>
   );
 }
 
-function OrgHistoryView({ projectId, onToast }: {
+function OrgHistoryView({ projectId }: {
   projectId: string;
-  onToast: (_msg: string, _durationMs?: number) => void;
 }) {
   const tz = useTimezone();
   const { posts, loading, error, refresh } = useSentPosts(projectId);
@@ -116,7 +121,6 @@ function OrgHistoryView({ projectId, onToast }: {
       <EditPostView post={selectedPost} project={project} isHistory={true} timezone={tz}
         onBack={() => setSelectedPost(null)}
         onApproved={() => setSelectedPost(null)}
-        onToast={onToast}
         onNavigate={() => {}}
       />
     );
@@ -167,7 +171,7 @@ export function MainContent({
       />
     );
   }
-  if (view.view === 'org_history') return <OrgHistoryView projectId={view.projectId} onToast={onToast} />;
+  if (view.view === 'org_history') return <OrgHistoryView projectId={view.projectId} />;
   if (view.view === 'org_settings') return <OrgSettingsDispatch projectId={view.projectId} />;
   if (view.view === 'global_settings') {
     return (
