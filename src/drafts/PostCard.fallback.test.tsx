@@ -89,7 +89,7 @@ describe('PostCard — fallback provider banner (§13.2.3)', () => {
     await waitFor(() => screen.getByRole('button', { name: /^approve$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
 
-    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 2500 });
+    await waitFor(() => expect(onApproved).toHaveBeenCalledOnce(), { timeout: 5000 });
     expect(screen.queryByText(/posted via/i)).not.toBeInTheDocument();
   }, 10_000);
 });

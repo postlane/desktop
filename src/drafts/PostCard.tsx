@@ -16,6 +16,7 @@ import { usePostCardKeyboard } from '../hooks/usePostCardKeyboard';
 import { ScheduleRow } from './ScheduleRow';
 import PostCardImageInput from './PostCardImageInput';
 import { usePostCardImage } from '../hooks/usePostCardImage';
+import { SendSuccessModal } from '../components/SendSuccessModal';
 
 interface Props {
   post: DraftPost;
@@ -206,7 +207,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
   const [localSchedule, setLocalSchedule] = useState<string | null>(post.schedule ?? null);
   const platforms = platformsOnPost(post);
-  const { approving, approveError, approveSuccessNotice, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
+  const { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
   const handleKeyDown = usePostCardKeyboard(isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded);
 
   return (
@@ -229,8 +230,8 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
         </div>
       </div>
       {isFailed && <FailedErrorBanner error={post.error} platformResults={post.platform_results} />}
-      {approveSuccessNotice && (
-        <p role="status" className="has-text-success has-text-weight-medium is-size-7 mt-2">✓ {approveSuccessNotice}</p>
+      {approveSuccessPlatforms !== null && (
+        <SendSuccessModal platforms={approveSuccessPlatforms} onClose={onSuccessDismissed} />
       )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (

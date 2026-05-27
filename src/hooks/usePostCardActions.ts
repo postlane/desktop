@@ -8,7 +8,7 @@ import type { DraftPost, SendResult } from '../types';
 export function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed: () => void) {
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
-  const [approveSuccessNotice, setApproveSuccessNotice] = useState<string | null>(null);
+  const [approveSuccessPlatforms, setApproveSuccessPlatforms] = useState<string[] | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -22,15 +22,15 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
       } else {
         const sentPlatforms = Object.entries(result.platform_results ?? {})
           .filter(([, v]) => v === 'sent' || v === 'success')
-          .map(([k]) => k.toUpperCase())
-          .join(', ');
-        setApproveSuccessNotice(sentPlatforms ? `Sent to ${sentPlatforms}` : 'Sent');
-        setTimeout(() => { setApproveSuccessNotice(null); onApproved(); }, 1500);
+          .map(([k]) => k);
+        setApproveSuccessPlatforms(sentPlatforms);
       }
     }
     catch (e) { setApproveError(e instanceof Error ? e.message : String(e)); }
     finally { setApproving(false); }
-  }, [post, onApproved]);
+  }, [post]);
+
+  const onSuccessDismissed = useCallback(() => { setApproveSuccessPlatforms(null); onApproved(); }, [onApproved]);
 
   const dismissFallbackNotice = useCallback(() => { setFallbackNotice(null); onApproved(); }, [onApproved]);
 
@@ -48,5 +48,5 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
     finally { setRetrying(false); }
   }, [post, onApproved]);
 
-  return { approving, approveError, approveSuccessNotice, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry };
+  return { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry };
 }
