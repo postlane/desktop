@@ -79,6 +79,8 @@ jobs:
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
+          # Prevent the keychain locking during the multi-minute Rust compile.
+          security set-keychain-settings -lut 21600 build.keychain
           security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
           rm certificate.p12
@@ -87,6 +89,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Tauri v2 reads the signing identity from APPLE_SIGNING_IDENTITY, not from
+          # bundle.macOS.signingIdentity in tauri.conf.json. This is a public string
+          # (the certificate common name) so it does not need to be a secret.
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Hugo Elliott (RNUCP3LV48)"
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
