@@ -194,6 +194,7 @@ pub fn write_upload_post_account(
     let _ = save_account_name_impl(config_path, "upload_post", username);
 }
 
+
 /// Fetches the connected social accounts for `provider_name` and writes them
 /// into `config.json` for each repo path.
 /// Returns `Err` if the provider cannot be built or `list_profiles` fails.
