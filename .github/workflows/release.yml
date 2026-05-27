@@ -94,7 +94,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
           rm certificate.p12
 
-      - name: Build Tauri app
+      - name: Build Tauri app (compile + sign)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -102,12 +102,34 @@ jobs:
           # bundle.macOS.signingIdentity in tauri.conf.json. This is a public string
           # (the certificate common name) so it does not need to be a secret.
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Hugo Elliott (RNUCP3LV48)"
+          # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID are intentionally absent here.
+          # Tauri only triggers notarytool when all three are present. Notarisation is
+          # handled in the explicit step below so we can see its timing and apply an
+          # independent timeout. If the compile+sign step hangs it is a Tauri/Rust
+          # issue; if the notarise step hangs it is Apple's service.
+        run: npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Notarise macOS DMG
+        if: matrix.platform == 'macos-latest'
+        timeout-minutes: 15
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run tauri build -- --target ${{ matrix.target }}
+        run: |
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" | \
+            while IFS= read -r dmg; do
+              echo "[$(date -u +%H:%M:%SZ)] Submitting $(basename "$dmg") for notarisation..."
+              xcrun notarytool submit "$dmg" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait \
+                --verbose
+              echo "[$(date -u +%H:%M:%SZ)] Notarisation complete: $(basename "$dmg")"
+            done
 
-      - name: Staple notarization ticket to DMG
+      - name: Staple notarisation ticket to DMG
         if: matrix.platform == 'macos-latest'
         run: |
           find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" \
