@@ -41,7 +41,7 @@ function renderEdit(overrides: Partial<EditPostViewProps> = {}) {
   return render(
     <EditPostView
       post={makeDraft()} project={makeProject()} isHistory={false}
-      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
       onNavigate={vi.fn()} pendingNavSel={null} onNavCancelled={vi.fn()}
       {...overrides}
     />,

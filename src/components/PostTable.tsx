@@ -21,6 +21,10 @@ type PostTableQueueProps = {
   isHistory: false;
   onSelect: (_post: DraftPost) => void;
   timezone: string;
+  /** Connected platform slugs keyed by repo ID. Undefined = not yet loaded (show all). */
+  connectedPlatformsByRepo?: Record<string, string[]>;
+  /** Called when user clicks a greyed-out (disconnected) platform badge. */
+  onConnectPlatform?: () => void;
 };
 
 type PostTableHistoryProps = {
@@ -67,9 +71,46 @@ function PlatformBadge({ platform }: { platform: string }) {
   );
 }
 
-function GroupCard({ group, onSelect }: {
+const BTN_STYLE = { width: '2rem', height: '2rem', padding: 0, borderRadius: '50%', flexShrink: 0, border: 'none' } as const;
+
+function PlatformButton({ post, onSelect, onConnectPlatform, isConnected }: {
+  post: DraftPost;
+  onSelect: (_post: DraftPost) => void;
+  onConnectPlatform?: () => void;
+  isConnected: boolean;
+}) {
+  const cfg = PLATFORM_CFG[post.platform];
+  const name = cfg?.label ?? post.platform;
+  const icon = PLATFORM_ICONS[post.platform ?? ''];
+  const content = icon ? <FontAwesomeIcon icon={icon} /> : name;
+  if (!isConnected) {
+    return (
+      <button key={post.platform} data-testid="post-row-disconnected"
+        aria-label={`Connect ${name} to approve`} title={`Connect ${name} to approve`}
+        onClick={() => onConnectPlatform?.()}
+        className="button is-small"
+        style={{ ...BTN_STYLE, background: 'hsl(0,0%,75%)', color: '#fff', opacity: 0.6 }}>
+        {content}
+      </button>
+    );
+  }
+  const isFailed = post.status === 'failed';
+  return (
+    <button key={post.platform} data-testid="post-row"
+      aria-label={`Edit ${name} post`} title={name}
+      onClick={() => onSelect(post)}
+      className={'button is-small' + (isFailed ? ' has-text-danger' : '')}
+      style={{ ...BTN_STYLE, background: isFailed ? undefined : cfg?.color ?? 'hsl(0,0%,50%)', color: isFailed ? undefined : '#fff' }}>
+      {content}
+    </button>
+  );
+}
+
+function GroupCard({ group, onSelect, connectedPlatforms, onConnectPlatform }: {
   group: DraftGroup;
   onSelect: (_post: DraftPost) => void;
+  connectedPlatforms: string[] | undefined;
+  onConnectPlatform?: () => void;
 }) {
   const firstPost = group.posts[0];
   const label = firstPost?.trigger ?? group.post_folder;
@@ -80,23 +121,11 @@ function GroupCard({ group, onSelect }: {
       </div>
       <div className="px-4 py-2 has-background-white-ter is-flex is-align-items-center"
         style={{ gap: '0.5rem', borderTop: '1px solid var(--bulma-border-weak)' }}>
-        {group.posts.map((post) => {
-          const cfg = PLATFORM_CFG[post.platform];
-          const color = cfg?.color ?? 'hsl(0,0%,50%)';
-          const name = cfg?.label ?? post.platform;
-          const isFailed = post.status === 'failed';
-          const icon = PLATFORM_ICONS[post.platform ?? ''];
-          return (
-            <button key={post.platform} data-testid="post-row"
-              aria-label={`Edit ${name} post`} title={name}
-              onClick={() => onSelect(post)}
-              className={'button is-small' + (isFailed ? ' has-text-danger' : '')}
-              style={{ width: '2rem', height: '2rem', padding: 0, borderRadius: '50%', flexShrink: 0, border: 'none',
-                background: isFailed ? undefined : color, color: isFailed ? undefined : '#fff' }}>
-              {icon ? <FontAwesomeIcon icon={icon} /> : name}
-            </button>
-          );
-        })}
+        {group.posts.map((post) => (
+          <PlatformButton key={post.platform} post={post} onSelect={onSelect}
+            onConnectPlatform={onConnectPlatform}
+            isConnected={connectedPlatforms === undefined || connectedPlatforms.includes(post.platform)} />
+        ))}
       </div>
     </div>
   );
@@ -124,7 +153,7 @@ function HistoryRow({ post, timezone, onSelect }: {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-function QueueTable({ posts, onSelect, timezone: _timezone }: PostTableQueueProps) {
+function QueueTable({ posts, onSelect, timezone: _timezone, connectedPlatformsByRepo, onConnectPlatform }: PostTableQueueProps) {
   if (posts.length === 0) {
     return (
       <div className="px-4 py-6 has-text-centered">
@@ -136,7 +165,9 @@ function QueueTable({ posts, onSelect, timezone: _timezone }: PostTableQueueProp
   return (
     <div className="px-4 pt-4">
       {groups.map((group) => (
-        <GroupCard key={group.key} group={group} onSelect={onSelect} />
+        <GroupCard key={group.key} group={group} onSelect={onSelect}
+          connectedPlatforms={connectedPlatformsByRepo?.[group.posts[0]?.repo_id ?? '']}
+          onConnectPlatform={onConnectPlatform} />
       ))}
     </div>
   );

@@ -19,7 +19,6 @@ export interface EditPostViewProps {
   timezone: string;
   onBack: () => void;
   onApproved: () => void;
-  onToast: (_msg: string, _durationMs: number) => void;
   onNavigate: (_sel: ViewSelection) => void;
   onDirtyChange?: (_dirty: boolean) => void;
   pendingNavSel?: ViewSelection | null;
@@ -176,7 +175,6 @@ function useApproveHandlers(
   selectedPlatform: string,
   refresh: () => void,
   onApproved: () => void,
-  onToast: (_msg: string, _ms: number) => void,
   setSelectedPlatform: (_p: string) => void,
   setText: (_t: string) => void,
   originalTextRef: MutableRefObject<string>,
@@ -197,10 +195,9 @@ function useApproveHandlers(
         originalTextRef.current = next.text ?? '';
         setText(next.text ?? '');
       } else { onApproved(); }
-      onToast('Post approved.', 3000);
     } catch (e: unknown) { setApproveError(String(e)); }
     finally { setApproveLoading(false); }
-  }, [post, siblings, selectedPlatform, refresh, onApproved, onToast, setSelectedPlatform, setText, originalTextRef]);
+  }, [post, siblings, selectedPlatform, refresh, onApproved, setSelectedPlatform, setText, originalTextRef]);
   return { doApprove, approveLoading, approveError };
 }
 
@@ -309,7 +306,7 @@ function useTextState(post: DraftPost | PublishedPost, onDirtyChange: ((_d: bool
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function EditPostView({
-  post, project, isHistory, onBack, onApproved, onToast, onNavigate, onDirtyChange, pendingNavSel, onNavCancelled,
+  post, project, isHistory, onBack, onApproved, onNavigate, onDirtyChange, pendingNavSel, onNavCancelled,
 }: EditPostViewProps) {
   const { drafts, refresh } = useDraftPostsContext();
   const { siblings, platformList, selectedPlatform, setSelectedPlatform, currentPost } = usePlatformTabs(post, drafts);
@@ -335,7 +332,7 @@ export default function EditPostView({
 
   const save = useSavePost(currentPost, text, originalTextRef, refresh);
   const approve = useApproveHandlers(
-    currentPost, siblings, selectedPlatform, refresh, onApproved, onToast,
+    currentPost, siblings, selectedPlatform, refresh, onApproved,
     setSelectedPlatform, setText, originalTextRef);
   const del = useDeletePost(currentPost, selectedPlatform, onBack);
   const guard = useDiscardGuard(isDirty, onBack, onNavigate, pendingNavSel, onNavCancelled);

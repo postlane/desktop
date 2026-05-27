@@ -208,3 +208,46 @@ describe('PostTable — queue mode — unknown platform', () => {
     expect(screen.getByRole('button', { name: /edit unknown-platform-xyz post/i })).toBeInTheDocument()
   })
 })
+
+describe('PostTable — queue mode — connected platform filtering', () => {
+  it('renders greyed-out badge for disconnected platform', () => {
+    const drafts = [
+      makeDraft({ repo_id: 'r1', repo_path: '/repo1', post_folder: 'p', platform: 'x' }),
+      makeDraft({ repo_id: 'r1', repo_path: '/repo1', post_folder: 'p', platform: 'mastodon' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC"
+      connectedPlatformsByRepo={{ r1: ['x'] }} />)
+    expect(screen.getByRole('button', { name: /edit x post/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /connect mastodon to approve/i })).toBeInTheDocument()
+  })
+
+  it('greyed-out badge title says connect platform name', () => {
+    const drafts = [
+      makeDraft({ repo_id: 'r1', repo_path: '/repo1', post_folder: 'p', platform: 'mastodon' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC"
+      connectedPlatformsByRepo={{ r1: [] }} />)
+    const btn = screen.getByRole('button', { name: /connect mastodon to approve/i })
+    expect(btn).toHaveAttribute('title', expect.stringMatching(/connect mastodon to approve/i))
+  })
+
+  it('clicking greyed-out badge calls onConnectPlatform', () => {
+    const onConnect = vi.fn()
+    const drafts = [
+      makeDraft({ repo_id: 'r1', repo_path: '/repo1', post_folder: 'p', platform: 'x' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC"
+      connectedPlatformsByRepo={{ r1: [] }} onConnectPlatform={onConnect} />)
+    fireEvent.click(screen.getByRole('button', { name: /connect x to approve/i }))
+    expect(onConnect).toHaveBeenCalledOnce()
+  })
+
+  it('shows all badges as connected when repo_id absent from connectedPlatformsByRepo', () => {
+    const drafts = [
+      makeDraft({ repo_id: 'r1', repo_path: '/repo1', post_folder: 'p', platform: 'x' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC"
+      connectedPlatformsByRepo={{ other: ['bluesky'] }} />)
+    expect(screen.getByRole('button', { name: /edit x post/i })).toBeInTheDocument()
+  })
+})

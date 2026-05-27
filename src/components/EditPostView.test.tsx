@@ -53,7 +53,7 @@ function renderEdit(overrides: Partial<EditPostViewProps> = {}) {
   return render(
     <EditPostView
       post={makeDraft()} project={makeProject()} isHistory={false}
-      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
       onNavigate={vi.fn()} pendingNavSel={null} onNavCancelled={vi.fn()}
       {...overrides}
     />,
@@ -121,15 +121,13 @@ describe('EditPostView — Approve disabled: dirty', () => {
 })
 
 describe('EditPostView — Approve success', () => {
-  it('calls refresh, onApproved, and onToast when Approve succeeds', async () => {
+  it('calls refresh and onApproved when Approve succeeds', async () => {
     const onApproved = vi.fn()
-    const onToast = vi.fn()
     mockInvoke.mockImplementation(async (cmd) => { if (cmd === 'approve_post') return undefined; return null })
-    renderEdit({ onApproved, onToast })
+    renderEdit({ onApproved })
     fireEvent.click(screen.getByRole('button', { name: /Approve/i }))
     await waitFor(() => expect(onApproved).toHaveBeenCalled())
     expect(mockRefresh).toHaveBeenCalled()
-    expect(onToast).toHaveBeenCalledWith('Post approved.', 3000)
   })
 })
 
@@ -256,7 +254,7 @@ describe('EditPostView — LeftNav navigation guard', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
     rerender(
       <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
         onNavigate={vi.fn()} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
     )
     expect(screen.getByText(/Discard unsaved changes/i)).toBeInTheDocument()
@@ -268,7 +266,7 @@ describe('EditPostView — LeftNav navigation guard', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
     rerender(
       <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
         onNavigate={vi.fn()} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={onNavCancelled} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
@@ -281,7 +279,7 @@ describe('EditPostView — LeftNav navigation guard', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
     rerender(
       <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
         onNavigate={onNavigate} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /^Discard$/i }))

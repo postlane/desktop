@@ -148,7 +148,7 @@ impl SchedulingProvider for UploadPostProvider {
         content: &str,
         platform: &str,
         scheduled_for: Option<DateTime<Utc>>,
-        _image_url: Option<&str>,
+        image_url: Option<&str>,
         profile_id: Option<&str>,
     ) -> Result<PostScheduleResult, ProviderError> {
         let user = profile_id
@@ -160,46 +160,10 @@ impl SchedulingProvider for UploadPostProvider {
                         .to_string(),
                 )
             })?;
-
-        let user_owned = user.to_string();
-        let platform_owned = platform.to_string();
-        let content_owned = content.to_string();
-
-        with_retry(
-            || async {
-                let mut form = reqwest::multipart::Form::new()
-                    .text("user", user_owned.clone())
-                    .text("platform[]", platform_owned.clone())
-                    .text("title", content_owned.clone());
-                if let Some(dt) = scheduled_for {
-                    form = form.text("scheduled_date", dt.to_rfc3339());
-                }
-                let url = format!("{}/upload_text", self.base_url());
-                let resp = self
-                    .client
-                    .post(&url)
-                    .header("Authorization", self.auth_header())
-                    .multipart(form)
-                    .send()
-                    .await
-                    .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
-                Self::check_status(&resp)?;
-                if !resp.status().is_success() {
-                    let status = resp.status().as_u16();
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(ProviderError::HttpError { status, body });
-                }
-                let json: serde_json::Value = resp
-                    .json()
-                    .await
-                    .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
-                log::debug!("UploadPost schedule_post response: {}", json);
-                let scheduler_id = Self::parse_scheduler_id(&json)?;
-                Ok(PostScheduleResult { scheduler_id, platform_url: None })
-            },
-            3,
-        )
-        .await
+        match image_url {
+            Some(url) => self.schedule_with_image(content, platform, scheduled_for, url, user).await,
+            None => self.schedule_text_only(content, platform, scheduled_for, user).await,
+        }
     }
 
     async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> {
@@ -302,6 +266,129 @@ impl SchedulingProvider for UploadPostProvider {
 
     fn post_url(&self, _platform: &str, _post_id: &str) -> Option<String> {
         None
+    }
+}
+
+impl UploadPostProvider {
+    async fn schedule_text_only(
+        &self,
+        content: &str,
+        platform: &str,
+        scheduled_for: Option<DateTime<Utc>>,
+        user: &str,
+    ) -> Result<PostScheduleResult, ProviderError> {
+        let user_owned = user.to_string();
+        let platform_owned = platform.to_string();
+        let content_owned = content.to_string();
+        with_retry(
+            || async {
+                let mut form = reqwest::multipart::Form::new()
+                    .text("user", user_owned.clone())
+                    .text("platform[]", platform_owned.clone())
+                    .text("title", content_owned.clone());
+                if let Some(dt) = scheduled_for {
+                    form = form.text("scheduled_date", dt.to_rfc3339());
+                }
+                let url = format!("{}/upload_text", self.base_url());
+                let resp = self
+                    .client
+                    .post(&url)
+                    .header("Authorization", self.auth_header())
+                    .multipart(form)
+                    .send()
+                    .await
+                    .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+                Self::check_status(&resp)?;
+                if !resp.status().is_success() {
+                    let status = resp.status().as_u16();
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(ProviderError::HttpError { status, body });
+                }
+                let json: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
+                log::debug!("UploadPost schedule_text_only response: {}", json);
+                let scheduler_id = Self::parse_scheduler_id(&json)?;
+                Ok(PostScheduleResult { scheduler_id, platform_url: None })
+            },
+            3,
+        )
+        .await
+    }
+
+    async fn download_image_bytes(&self, url: &str) -> Result<(Vec<u8>, String), ProviderError> {
+        let resp = self.client.get(url).send()
+            .await.map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ProviderError::HttpError { status, body });
+        }
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        let bytes = resp.bytes().await
+            .map_err(|e| ProviderError::NetworkError(e.to_string()))?.to_vec();
+        Ok((bytes, content_type))
+    }
+
+    async fn schedule_with_image(
+        &self,
+        content: &str,
+        platform: &str,
+        scheduled_for: Option<DateTime<Utc>>,
+        image_url: &str,
+        user: &str,
+    ) -> Result<PostScheduleResult, ProviderError> {
+        let (bytes, content_type) = self.download_image_bytes(image_url).await?;
+        let filename = image_url.split('/').next_back().unwrap_or("image.jpg").to_string();
+        let user_owned = user.to_string();
+        let platform_owned = platform.to_string();
+        let content_owned = content.to_string();
+        with_retry(
+            || async {
+                let file_part = reqwest::multipart::Part::bytes(bytes.clone())
+                    .file_name(filename.clone())
+                    .mime_str(&content_type)
+                    .map_err(|e| ProviderError::Unknown(e.to_string()))?;
+                let mut form = reqwest::multipart::Form::new()
+                    .text("user", user_owned.clone())
+                    .text("platform[]", platform_owned.clone())
+                    .text("title", content_owned.clone())
+                    .part("photos[]", file_part);
+                if let Some(dt) = scheduled_for {
+                    form = form.text("scheduled_date", dt.to_rfc3339());
+                }
+                let url = format!("{}/upload_photos", self.base_url());
+                let resp = self
+                    .client
+                    .post(&url)
+                    .header("Authorization", self.auth_header())
+                    .multipart(form)
+                    .send()
+                    .await
+                    .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
+                Self::check_status(&resp)?;
+                if !resp.status().is_success() {
+                    let status = resp.status().as_u16();
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(ProviderError::HttpError { status, body });
+                }
+                let json: serde_json::Value = resp
+                    .json()
+                    .await
+                    .map_err(|e| ProviderError::Unknown(format!("Failed to parse response: {}", e)))?;
+                log::debug!("UploadPost schedule_with_image response: {}", json);
+                let scheduler_id = Self::parse_scheduler_id(&json)?;
+                Ok(PostScheduleResult { scheduler_id, platform_url: None })
+            },
+            3,
+        )
+        .await
     }
 }
 

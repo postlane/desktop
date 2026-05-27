@@ -176,6 +176,25 @@ pub fn get_scheduler_account_names(
     get_account_names_impl(&config_path)
 }
 
+/// Writes an Upload Post username to config.json.
+///
+/// For each connected platform, writes `account_ids[platform] = username` and
+/// `account_names[platform] = username`. Always writes `account_names["upload_post"]`
+/// so the connect success message shows the username even before social platforms
+/// are connected in the Upload Post dashboard.
+pub fn write_upload_post_account(
+    username: &str,
+    connected_platforms: &[String],
+    config_path: &std::path::Path,
+) {
+    for platform in connected_platforms {
+        let _ = save_account_id_impl(config_path, platform, username);
+        let _ = save_account_name_impl(config_path, platform, username);
+    }
+    let _ = save_account_name_impl(config_path, "upload_post", username);
+}
+
+
 /// Fetches the connected social accounts for `provider_name` and writes them
 /// into `config.json` for each repo path.
 /// Returns `Err` if the provider cannot be built or `list_profiles` fails.
@@ -492,6 +511,57 @@ mod tests {
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-x"));
         assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("acc-bs"));
+    }
+
+    // ── write_upload_post_account ─────────────────────────────────────────────
+
+    #[test]
+    fn write_upload_post_account_writes_per_platform_account_ids_and_names() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        write_upload_post_account("postlane", &["bluesky".to_string(), "x".to_string()], &config_path);
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("postlane"));
+        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("postlane"));
+        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("postlane"));
+        assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("postlane"));
+    }
+
+    #[test]
+    fn write_upload_post_account_writes_provider_key_so_success_message_shows_username() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        write_upload_post_account("postlane", &[], &config_path);
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert!(config["scheduler"]["account_ids"].is_null(), "no platforms → no account_ids written");
+        assert_eq!(
+            config["scheduler"]["account_names"]["upload_post"].as_str(),
+            Some("postlane"),
+            "username must be written under 'upload_post' key so success message works before platforms are synced"
+        );
+    }
+
+    // Upload Post returns one profile with platforms: ["bluesky", "x"] — one username covers both.
+    // This differs from Zernio which returns one profile per platform.
+    #[test]
+    fn apply_profiles_to_repo_handles_single_profile_with_multiple_platforms() {
+        use crate::providers::scheduling::SchedulerProfile;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        let profiles = vec![SchedulerProfile {
+            id: "myhandle".to_string(),
+            name: "myhandle".to_string(),
+            platforms: vec!["bluesky".to_string(), "x".to_string()],
+        }];
+        apply_profiles_to_repo(&profiles, &config_path);
+        let content = fs::read_to_string(&config_path).expect("read");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("myhandle"));
+        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("myhandle"));
+        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("myhandle"));
+        assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("myhandle"));
     }
 
     #[test]

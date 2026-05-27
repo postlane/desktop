@@ -55,7 +55,7 @@ function renderEdit(overrides: Partial<EditPostViewProps> = {}) {
   return render(
     <EditPostView
       post={makeDraft()} project={makeProject()} isHistory={false}
-      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
       onNavigate={vi.fn()} pendingNavSel={null} onNavCancelled={vi.fn()}
       {...overrides}
     />,
@@ -107,7 +107,7 @@ describe('EditPostView — nav guard clean navigation', () => {
     const { rerender } = renderEdit({ pendingNavSel: null, onNavigate })
     rerender(
       <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onToast={vi.fn()}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
         onNavigate={onNavigate} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
     )
     expect(onNavigate).toHaveBeenCalledWith(DEFAULT_NAV_SEL)

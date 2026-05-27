@@ -87,6 +87,18 @@ pub(super) fn read_project_id_from_config(config_path: &Path) -> Result<String, 
         .ok_or_else(|| "No project linked to this repo. Run `postlane init` to connect it.".to_string())
 }
 
+pub(super) fn append_unsplash_attribution(content: &str, meta: &PostMeta) -> String {
+    if meta.image_source.as_deref() != Some("unsplash") {
+        return content.to_string();
+    }
+    if let Some(attr) = &meta.image_attribution {
+        if !attr.photographer_name.is_empty() {
+            return format!("{}\n\nPhoto by {} on Unsplash", content, attr.photographer_name);
+        }
+    }
+    content.to_string()
+}
+
 pub(super) fn read_platform_content(post_path: &Path, platform: &str) -> Result<String, String> {
     let content_file = post_path.join(format!("{}.md", platform));
     if !content_file.exists() {
@@ -252,7 +264,8 @@ pub(super) async fn call_scheduler(
         app,
     )
     .await?;
-    let content = read_platform_content(post_path, platform)?;
+    let raw_content = read_platform_content(post_path, platform)?;
+    let content = append_unsplash_attribution(&raw_content, meta);
     let account_ids = load_account_ids(canonical_path).unwrap_or_default();
     let scheduled_for = meta
         .scheduled_for
