@@ -19,9 +19,11 @@ jobs:
     permissions:
       contents: read
       id-token: write  # required for cosign keyless signing
-    # 30 min is ample for a full cold-cache release build + notarisation.
+    # 60 min covers a cold-cache Rust compile (~15 min) plus up to 30 min of
+    # Apple notarisation on a degraded-but-healthy service day. The explicit
+    # notarise step has its own 30-min timeout; this job limit is the backstop.
     # Without a limit a hung notarytool submit --wait can burn hours of minutes.
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -111,7 +113,7 @@ jobs:
 
       - name: Notarise macOS DMG
         if: matrix.platform == 'macos-latest'
-        timeout-minutes: 15
+        timeout-minutes: 30
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
