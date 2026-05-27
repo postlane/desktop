@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Opt into Node.js 24 for all GitHub-provided actions (checkout, cache,
+  # setup-node, upload-artifact, download-artifact). Node.js 20 is removed
+  # from runners on 2026-09-16; forced to Node.js 24 from 2026-06-02.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     permissions:
