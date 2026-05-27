@@ -122,6 +122,11 @@ pub fn scan_for_git_dirs(base_dirs: &[PathBuf], limit: usize) -> Vec<PathBuf> {
 
 /// Writes `.postlane/config.json` with the given `project_id` and appends a
 /// new entry to `repos.json` for the given directory. Both writes are atomic.
+///
+/// Idempotent: if the canonical path is already present in `repos.json` the
+/// function returns `Ok` without touching either file. This is the
+/// defense-in-depth guard for Bug 21.13.6a — the primary guard lives in
+/// `discover_repos_impl`, but this one protects against any future call path.
 fn register_discovered_repo(repos_path: &Path, dir: &Path, project_id: &str) -> Result<String, String> {
     let canonical = std::fs::canonicalize(dir)
         .map_err(|e| format!("canonicalize {dir:?}: {e}"))?;
@@ -129,10 +134,15 @@ fn register_discovered_repo(repos_path: &Path, dir: &Path, project_id: &str) -> 
         .and_then(|n| n.to_str())
         .ok_or("invalid folder name")?
         .to_string();
-    crate::project_config_ops::write_initial_config_files(&canonical, project_id)?;
     let path_str = canonical.to_str().ok_or("invalid path")?.to_string();
     let mut cfg = crate::storage::read_repos_with_recovery(repos_path)
         .unwrap_or_else(|_| ReposConfig { version: 1, repos: vec![] });
+    // Defense-in-depth: do not duplicate an already-registered path and do not
+    // overwrite its config.json (which may belong to a different project).
+    if cfg.repos.iter().any(|r| r.path == path_str) {
+        return Ok(name);
+    }
+    crate::project_config_ops::write_initial_config_files(&canonical, project_id)?;
     cfg.repos.push(Repo {
         id: uuid::Uuid::new_v4().to_string(),
         name: name.clone(),
@@ -169,13 +179,26 @@ pub fn discover_repos_impl(
         match slug_to_path.get(&slug) {
             None => result.not_found_on_disk.push(app_repo.full_name.clone()),
             Some(dir) => {
-                let path_lc = dir.to_string_lossy().to_lowercase();
+                // Canonicalise before comparing: connect_repo_from_desktop_impl
+                // stores the canonical path in repos.json, but scan_for_git_dirs
+                // may return a non-canonical path (e.g. via a symlinked parent or
+                // on macOS where /tmp resolves to /private/tmp).  Without this
+                // step the pre-check misses the match and creates a duplicate
+                // entry (Bug 21.13.6a).
+                let canonical_dir = match std::fs::canonicalize(dir) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        result.failed_to_register.push((dir.to_string_lossy().into(), e.to_string()));
+                        continue;
+                    }
+                };
+                let path_lc = canonical_dir.to_string_lossy().to_lowercase();
                 if registered.contains(&path_lc) {
                     result.already_registered.push(app_repo.name.clone());
                 } else {
-                    match register_discovered_repo(repos_path, dir, project_id) {
+                    match register_discovered_repo(repos_path, &canonical_dir, project_id) {
                         Ok(name) => { registered.insert(path_lc); result.added.push(name); }
-                        Err(e) => result.failed_to_register.push((dir.to_string_lossy().into(), e)),
+                        Err(e) => result.failed_to_register.push((canonical_dir.to_string_lossy().into(), e)),
                     }
                 }
             }
@@ -425,9 +448,15 @@ mod tests {
         let repo_dir = tmp.path().join("my-repo");
         scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
         let repos_path = tmp.path().join("repos.json");
+        // Use the canonical path — this matches what connect_repo_from_desktop_impl
+        // stores (it calls std::fs::canonicalize before writing to repos.json).
+        // On macOS, TempDir returns /var/... but canonicalize resolves it to
+        // /private/var/...; using the raw path here would let the test pass only
+        // by coincidence and would not catch Bug 21.13.6a.
+        let canonical = std::fs::canonicalize(&repo_dir).unwrap();
         let existing = serde_json::json!({
             "version": 1,
-            "repos": [{"id":"u1","name":"my-repo","path": repo_dir.to_str().unwrap(),"active":true,"added_at":"2024-01-01T00:00:00Z"}]
+            "repos": [{"id":"u1","name":"my-repo","path": canonical.to_str().unwrap(),"active":true,"added_at":"2024-01-01T00:00:00Z"}]
         });
         std::fs::write(&repos_path, serde_json::to_string(&existing).unwrap()).unwrap();
         let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
@@ -529,5 +558,91 @@ mod tests {
         let local_str = std::fs::read_to_string(repo_dir.join(".postlane/config.local.json")).unwrap();
         let local: serde_json::Value = serde_json::from_str(&local_str).unwrap();
         assert!(local["scheduler"].is_object(), "config.local.json must have a scheduler block");
+    }
+
+    // ── Bug 21.13.6a — duplicate project via Add-folder + GitHub App ─────────
+    //
+    // Root cause: discover_repos_impl compares the raw (non-canonical) path
+    // returned by scan_for_git_dirs against the canonical paths stored in
+    // repos.json by connect_repo_from_desktop_impl.  On macOS /tmp resolves to
+    // /private/tmp; on any system a symlinked parent produces the same mismatch.
+    // The pre-check sees different strings → calls register_discovered_repo →
+    // duplicate entry and clobbered config.json.
+
+    /// Builds repos.json with a single entry whose path is the CANONICAL form of
+    /// `repo_dir` (matching what "Add folder" wizard stores via canonicalize).
+    fn write_canonical_repos_json(repos_path: &std::path::Path, repo_dir: &std::path::Path) {
+        let canonical = std::fs::canonicalize(repo_dir).unwrap();
+        let json = serde_json::json!({
+            "version": 1,
+            "repos": [{"id":"u1","name":"my-repo","path": canonical.to_str().unwrap(),
+                        "active":true,"added_at":"2026-01-01T00:00:00Z"}]
+        });
+        std::fs::write(repos_path, serde_json::to_string(&json).unwrap()).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_discover_does_not_duplicate_when_scan_path_differs_from_canonical() {
+        // Simulate the macOS path: the "Add folder" wizard stored the canonical
+        // path in repos.json, but scan_for_git_dirs traverses through a symlinked
+        // parent and returns the pre-symlink-resolution path.
+        let tmp = TempDir::new().unwrap();
+        let real_parent = tmp.path().join("real");
+        let repo_dir = real_parent.join("my-repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
+
+        // Symlinked parent: via-link → real
+        let link_parent = tmp.path().join("via-link");
+        std::os::unix::fs::symlink(&real_parent, &link_parent).unwrap();
+
+        let repos_path = tmp.path().join("repos.json");
+        write_canonical_repos_json(&repos_path, &repo_dir);
+
+        // Discover via the symlinked parent — scan_for_git_dirs returns
+        // "via-link/my-repo" but repos.json holds the canonical "real/my-repo".
+        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
+        let result = discover_repos_impl(&app_repos, &[link_parent], &repos_path, "proj-b");
+
+        assert!(result.added.is_empty(), "must not add duplicate: {:?}", result.added);
+        assert_eq!(result.already_registered, vec!["my-repo"],
+            "must report as already registered");
+        let written: crate::storage::ReposConfig =
+            serde_json::from_str(&std::fs::read_to_string(&repos_path).unwrap()).unwrap();
+        assert_eq!(written.repos.len(), 1, "repos.json must not gain a second entry");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_discover_does_not_overwrite_project_config_for_registered_repo() {
+        // When repos.json already has the canonical path registered under proj-a,
+        // running discover with proj-b must not overwrite .postlane/config.json.
+        let tmp = TempDir::new().unwrap();
+        let real_parent = tmp.path().join("real");
+        let repo_dir = real_parent.join("my-repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
+
+        let link_parent = tmp.path().join("via-link");
+        std::os::unix::fs::symlink(&real_parent, &link_parent).unwrap();
+
+        let repos_path = tmp.path().join("repos.json");
+        write_canonical_repos_json(&repos_path, &repo_dir);
+
+        // Plant a config.json belonging to proj-a
+        let postlane_dir = repo_dir.join(".postlane");
+        std::fs::create_dir_all(&postlane_dir).unwrap();
+        std::fs::write(postlane_dir.join("config.json"), r#"{"project_id":"proj-a"}"#).unwrap();
+
+        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
+        let _ = discover_repos_impl(&app_repos, &[link_parent], &repos_path, "proj-b");
+
+        let config_str = std::fs::read_to_string(repo_dir.join(".postlane/config.json")).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
+        assert_eq!(
+            config["project_id"].as_str(), Some("proj-a"),
+            "config.json must not be overwritten with proj-b"
+        );
     }
 }
