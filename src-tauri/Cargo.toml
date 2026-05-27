@@ -1,6 +1,6 @@
 [package]
 name = "postlane-desktop"
-version = "0.1.0"
+version = "0.1.3"
 description = "Postlane Desktop - Social media post scheduling"
 authors = ["Postlane"]
 edition = "2021"
