@@ -2,20 +2,19 @@
 
 use postlane_desktop_lib::app_state::AppState;
 use postlane_desktop_lib::commands::{add_repo_impl, approve_post_impl, check_repo_health_impl, delete_post_impl, dismiss_post_impl, export_history_csv_impl, get_drafts_impl, get_post_content_impl, remove_repo_impl, retry_post_impl, set_repo_active_impl};
-use postlane_desktop_lib::init;
 use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use tempfile::TempDir;
 
-// Mutex to ensure tests that use ~/.postlane directory run sequentially
-// This prevents race conditions when tests run in parallel
-static POSTLANE_DIR_MUTEX: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-
-fn get_postlane_dir_lock() -> &'static std::sync::Mutex<()> {
-    POSTLANE_DIR_MUTEX.get_or_init(|| std::sync::Mutex::new(()))
+/// Creates an AppState backed by an isolated temp file so tests never touch ~/.postlane/repos.json.
+/// The returned TempDir must be kept in scope for the duration of the test — drop it at the end.
+fn make_test_state(repos: ReposConfig) -> (AppState, TempDir) {
+    let tmp = TempDir::new().unwrap();
+    let repos_path = tmp.path().join("repos.json");
+    let state = AppState::new_with_path(repos, repos_path);
+    (state, tmp)
 }
 
 #[cfg(test)]
@@ -125,7 +124,7 @@ mod get_drafts_tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Call get_drafts_impl
         let result = get_drafts_impl(&state);
@@ -183,7 +182,7 @@ mod get_drafts_tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Call get_drafts_impl
         let result = get_drafts_impl(&state);
@@ -211,7 +210,7 @@ mod get_drafts_tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Call get_drafts_impl
         let result = get_drafts_impl(&state);
@@ -239,7 +238,7 @@ mod approve_post_tests {
             version: 1,
             repos: vec![],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Try to approve post from unregistered repo
         let result = approve_post_impl(
@@ -274,7 +273,7 @@ mod approve_post_tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Try to approve post with non-existent post folder
         let result = approve_post_impl(
@@ -314,7 +313,7 @@ mod approve_post_tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         let result = approve_post_impl(
             &canonical_str,
@@ -370,7 +369,7 @@ mod dismiss_post_tests {
 
         // Test: Dismiss the post
         let canonical_repo = fs::canonicalize(&repo_path).unwrap();
-        let state = AppState::new(ReposConfig {
+        let (state, _tmp_repos) = make_test_state(ReposConfig {
             version: 1,
             repos: vec![Repo {
                 id: "repo1".to_string(),
@@ -407,7 +406,7 @@ mod dismiss_post_tests {
         fs::create_dir_all(&post_folder).unwrap();
 
         // Test: Try to dismiss post without meta.json
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let (state, _tmp_repos) = make_test_state(ReposConfig { version: 1, repos: vec![] });
         let result = dismiss_post_impl(
             repo_path.to_str().unwrap(),
             "post1",
@@ -433,7 +432,7 @@ mod delete_post_tests {
         fs::write(post_folder.join("x.md"), "Hello").unwrap();
 
         let canonical = fs::canonicalize(&repo_path).unwrap();
-        let state = AppState::new(ReposConfig {
+        let (state, _tmp_repos) = make_test_state(ReposConfig {
             version: 1,
             repos: vec![Repo {
                 id: "repo1".to_string(),
@@ -456,7 +455,7 @@ mod delete_post_tests {
         let repo_path = temp_dir.path().join("repo1");
         fs::create_dir_all(&repo_path).unwrap();
 
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let (state, _tmp_repos) = make_test_state(ReposConfig { version: 1, repos: vec![] });
         let result = delete_post_impl(repo_path.to_str().unwrap(), "../evil", "x", &state);
 
         assert!(result.is_err());
@@ -470,7 +469,7 @@ mod delete_post_tests {
         fs::create_dir_all(&post_folder).unwrap();
 
         let canonical = fs::canonicalize(&repo_path).unwrap();
-        let state = AppState::new(ReposConfig {
+        let (state, _tmp_repos) = make_test_state(ReposConfig {
             version: 1,
             repos: vec![Repo {
                 id: "repo1".to_string(),
@@ -543,7 +542,7 @@ mod retry_post_tests {
                 added_at: "2024-01-01T00:00:00Z".to_string(),
             }],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Retry the post
         let result = retry_post_impl(
@@ -587,7 +586,7 @@ mod add_repo_tests {
             version: 1,
             repos: vec![],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Try to add repo without .git directory
         let result = add_repo_impl(repo_path.to_str().unwrap(), &state);
@@ -610,7 +609,7 @@ mod add_repo_tests {
             version: 1,
             repos: vec![],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Try to add repo without config.json
         let result = add_repo_impl(repo_path.to_str().unwrap(), &state);
@@ -637,7 +636,7 @@ mod add_repo_tests {
             version: 1,
             repos: vec![],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Add repo
         let result = add_repo_impl(repo_path.to_str().unwrap(), &state);
@@ -669,12 +668,6 @@ mod remove_repo_tests {
 
     #[test]
     fn test_remove_repo_removes_from_state() {
-        // Acquire lock to prevent race conditions with other tests using ~/.postlane
-        let _lock = get_postlane_dir_lock().lock().unwrap();
-
-        // Initialize postlane directory
-        init::init_postlane_dir().expect("Failed to init postlane dir");
-
         // Setup: Create state with two repos
         let temp_dir = TempDir::new().unwrap();
         let repo1_path = temp_dir.path().join("repo1");
@@ -701,7 +694,7 @@ mod remove_repo_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Remove first repo
         let result = remove_repo_impl("id1", &state);
@@ -730,7 +723,7 @@ mod remove_repo_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Try to remove non-existent repo
         let result = remove_repo_impl("nonexistent", &state);
@@ -743,12 +736,6 @@ mod remove_repo_tests {
 
     #[test]
     fn test_remove_repo_does_not_delete_files() {
-        // Acquire lock to prevent race conditions with other tests using ~/.postlane
-        let _lock = get_postlane_dir_lock().lock().unwrap();
-
-        // Initialize postlane directory
-        init::init_postlane_dir().expect("Failed to init postlane dir");
-
         // Setup: Create actual repo directory with files
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
@@ -770,7 +757,7 @@ mod remove_repo_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Remove repo
         let result = remove_repo_impl("id1", &state);
@@ -789,12 +776,6 @@ mod set_repo_active_tests {
 
     #[test]
     fn test_set_repo_active_toggles_state() {
-        // Acquire lock to prevent race conditions with other tests using ~/.postlane
-        let _lock = get_postlane_dir_lock().lock().unwrap();
-
-        // Initialize postlane directory
-        init::init_postlane_dir().expect("Failed to init postlane dir");
-
         // Setup: Create repo that's initially active
         let repos_config = ReposConfig {
             version: 1,
@@ -808,7 +789,7 @@ mod set_repo_active_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Deactivate repo
         let result = set_repo_active_impl("id1", false, &state);
@@ -821,12 +802,6 @@ mod set_repo_active_tests {
 
     #[test]
     fn test_set_repo_active_activates_repo() {
-        // Acquire lock to prevent race conditions with other tests using ~/.postlane
-        let _lock = get_postlane_dir_lock().lock().unwrap();
-
-        // Initialize postlane directory
-        init::init_postlane_dir().expect("Failed to init postlane dir");
-
         // Setup: Create repo that's initially inactive
         let repos_config = ReposConfig {
             version: 1,
@@ -840,7 +815,7 @@ mod set_repo_active_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Activate repo
         let result = set_repo_active_impl("id1", true, &state);
@@ -866,7 +841,7 @@ mod set_repo_active_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Try to set active on non-existent repo
         let result = set_repo_active_impl("nonexistent", true, &state);
@@ -905,7 +880,7 @@ mod check_repo_health_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Check repo health
         let result = check_repo_health_impl(&state);
@@ -933,7 +908,7 @@ mod check_repo_health_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Check repo health
         let result = check_repo_health_impl(&state);
@@ -958,7 +933,7 @@ mod export_history_csv_tests {
             version: 1,
             repos: vec![],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Export CSV
         let result = export_history_csv_impl(&state);
@@ -978,7 +953,7 @@ mod export_history_csv_tests {
             version: 1,
             repos: vec![],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Export CSV
         let result = export_history_csv_impl(&state);
@@ -1088,7 +1063,7 @@ mod export_history_csv_tests {
                 },
             ],
         };
-        let state = AppState::new(repos_config);
+        let (state, _tmp_repos) = make_test_state(repos_config);
 
         // Test: Export CSV
         let result = export_history_csv_impl(&state);
@@ -1177,5 +1152,153 @@ mod get_post_content_tests {
         let repo_path = tmp.path().to_str().unwrap();
         let result = get_post_content_impl(repo_path, "nonexistent-post", "x");
         assert!(result.is_err());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Regression guard: mutations must write to state.repos_path, not ~/.postlane
+// ---------------------------------------------------------------------------
+// These tests guard against the data-corruption bug that has recurred multiple
+// times: a mutating command writes test fixture data to ~/.postlane/repos.json,
+// wiping the user's real repo registry and making all posts disappear from the
+// queue. If any of these tests fail, a command is bypassing state.repos_path.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod test_isolation_guard {
+    use super::*;
+
+    fn guard_repo() -> Repo {
+        Repo {
+            id: "guard-r1".to_string(),
+            name: "guard-repo".to_string(),
+            path: "/tmp/guard-nonexistent".to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// set_repo_active_impl must persist the change to state.repos_path (not ~/.postlane).
+    #[test]
+    fn test_set_repo_active_writes_to_repos_path() {
+        let tmp = TempDir::new().unwrap();
+        let repos_path = tmp.path().join("repos.json");
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![guard_repo()] },
+            repos_path.clone(),
+        );
+        let result = set_repo_active_impl("guard-r1", false, &state);
+        assert!(result.is_ok(), "set_repo_active_impl failed: {:?}", result);
+        assert!(repos_path.exists(), "set_repo_active_impl did not write to state.repos_path");
+        let written = fs::read_to_string(&repos_path).unwrap();
+        assert!(
+            written.contains("\"active\":false") || written.contains("\"active\": false"),
+            "expected active=false in {repos_path:?}, got: {written}"
+        );
+    }
+
+    /// remove_repo_impl must persist the removal to state.repos_path (not ~/.postlane).
+    #[test]
+    fn test_remove_repo_writes_to_repos_path() {
+        let tmp = TempDir::new().unwrap();
+        let repos_path = tmp.path().join("repos.json");
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![guard_repo()] },
+            repos_path.clone(),
+        );
+        let result = remove_repo_impl("guard-r1", &state);
+        assert!(result.is_ok(), "remove_repo_impl failed: {:?}", result);
+        assert!(repos_path.exists(), "remove_repo_impl did not write to state.repos_path");
+        let written = fs::read_to_string(&repos_path).unwrap();
+        assert!(
+            !written.contains("guard-r1"),
+            "expected guard-r1 to be removed from {repos_path:?}, got: {written}"
+        );
+    }
+
+    /// set_repo_active_impl and remove_repo_impl must never modify ~/.postlane/repos.json.
+    /// If this test fails it means a command has hardcoded the home-dir path.
+    #[test]
+    fn test_mutations_do_not_touch_home_dir_repos_json() {
+        let home_repos = std::env::var("HOME")
+            .ok()
+            .map(|h| std::path::PathBuf::from(h).join(".postlane/repos.json"));
+
+        let mtime_before = home_repos
+            .as_ref()
+            .and_then(|p| fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok());
+
+        let (state, _tmp_repos) = make_test_state(
+            ReposConfig { version: 1, repos: vec![guard_repo()] }
+        );
+        let _ = set_repo_active_impl("guard-r1", false, &state);
+        let _ = remove_repo_impl("guard-r1", &state);
+
+        let mtime_after = home_repos
+            .as_ref()
+            .and_then(|p| fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok());
+
+        assert_eq!(
+            mtime_before, mtime_after,
+            "a mutating command modified ~/.postlane/repos.json — \
+             use AppState::new_with_path in tests to isolate writes"
+        );
+    }
+
+    /// Integration path: posts in a registered repo's .postlane/posts/ are returned
+    /// by get_drafts_impl. This is the Rust-layer equivalent of "posts appear in queue."
+    /// If this test fails, the queue will be empty even though post files exist on disk.
+    #[test]
+    fn test_get_drafts_loads_posts_from_registered_repos() {
+        let tmp = TempDir::new().unwrap();
+        let repo_path = tmp.path().join("my-repo");
+        let post_dir = repo_path.join(".postlane/posts/260527-test-post");
+        fs::create_dir_all(&post_dir).unwrap();
+
+        let meta = PostMeta {
+            status: "ready".to_string(),
+            platforms: vec!["bluesky".to_string()],
+            schedule: None,
+            trigger: None,
+            scheduler_ids: None,
+            platform_results: None,
+            platform_urls: None,
+            error: None,
+            image_url: None,
+            image_source: None,
+            image_attribution: None,
+            llm_model: None,
+            created_at: Some("2026-05-27T00:00:00Z".to_string()),
+            sent_at: None,
+            voice_guide_version: None,
+            schedule_source: None,
+            schedule_timezone: None,
+        };
+        fs::write(post_dir.join("meta.json"), serde_json::to_string(&meta).unwrap()).unwrap();
+        fs::write(post_dir.join("bluesky.md"), "Test post content").unwrap();
+
+        let repos_config = ReposConfig {
+            version: 1,
+            repos: vec![Repo {
+                id: "test-repo-id".to_string(),
+                name: "my-repo".to_string(),
+                path: repo_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-05-27T00:00:00Z".to_string(),
+            }],
+        };
+        let (state, _tmp_repos) = make_test_state(repos_config);
+
+        let drafts = get_drafts_impl(&state).expect("get_drafts_impl failed");
+
+        assert_eq!(drafts.len(), 1, "expected 1 draft post, got {}", drafts.len());
+        assert_eq!(drafts[0].status, "ready");
+        assert_eq!(
+            drafts[0].created_at.as_deref(),
+            Some("2026-05-27T00:00:00Z"),
+            "post created_at did not match — wrong post loaded"
+        );
     }
 }
