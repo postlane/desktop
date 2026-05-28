@@ -19,12 +19,12 @@ jobs:
     permissions:
       contents: read
       id-token: write  # required for cosign keyless signing
-    # 180 min: warm-cache compile (~5 min) + up to 150 min notarisation.
-    # Apple's service is green but processing has consistently taken 30+ min
-    # across three consecutive runs; 150 min gives a 5× safety margin over
-    # observed worst-case. The notarise step has its own 150-min timeout;
-    # this job limit is the backstop against any other hung tool.
-    timeout-minutes: 180
+    # 60 min: warm-cache compile (~5 min) + sign + submit to Apple.
+    # Notarisation wait is intentionally absent from this job — Apple's review
+    # queue can take hours to days on a new account. The build job submits and
+    # exits immediately, saving submission IDs alongside the DMG artifacts.
+    # Run notarize-finalize.yml manually once Apple approves.
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -106,15 +106,19 @@ jobs:
           # (the certificate common name) so it does not need to be a secret.
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Hugo Elliott (RNUCP3LV48)"
           # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID are intentionally absent here.
-          # Tauri only triggers notarytool when all three are present. Notarisation is
-          # handled in the explicit step below so we can see its timing and apply an
-          # independent timeout. If the compile+sign step hangs it is a Tauri/Rust
-          # issue; if the notarise step hangs it is Apple's service.
+          # Tauri only triggers notarytool when all three are present. Submission is
+          # handled in the explicit step below; waiting and stapling are in the
+          # notarize-finalize.yml workflow, which is triggered manually once Apple
+          # approves (review can take hours to days on a new developer account).
         run: npm run tauri build -- --target ${{ matrix.target }}
 
-      - name: Notarise macOS DMG
+      - name: Submit DMG to Apple for notarisation
+        # Submits immediately and exits — does NOT wait for Apple's response.
+        # Apple's review queue can take hours to days on a new developer account.
+        # Submission IDs are written to *.submission-id files alongside the DMGs
+        # and uploaded as artifacts. Once Apple approves, run notarize-finalize.yml
+        # to wait, staple, and publish the release.
         if: matrix.platform == 'macos-latest'
-        timeout-minutes: 150
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -122,23 +126,17 @@ jobs:
         run: |
           find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" | \
             while IFS= read -r dmg; do
-              _start=$(date +%s)
               echo "[$(date -u +%H:%M:%SZ)] Submitting $(basename "$dmg") for notarisation..."
-              xcrun notarytool submit "$dmg" \
+              output=$(xcrun notarytool submit "$dmg" \
                 --apple-id "$APPLE_ID" \
                 --password "$APPLE_PASSWORD" \
                 --team-id "$APPLE_TEAM_ID" \
-                --wait \
-                --verbose
-              _end=$(date +%s)
-              echo "[$(date -u +%H:%M:%SZ)] Notarisation complete: $(basename "$dmg") ($(( _end - _start ))s elapsed)"
+                --output-format json)
+              submission_id=$(echo "$output" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+              echo "[$(date -u +%H:%M:%SZ)] Submitted: $(basename "$dmg") → submission ID: $submission_id"
+              # Write alongside the DMG so finalize workflow can find it by name.
+              echo "$submission_id" > "${dmg%.dmg}.submission-id"
             done
-
-      - name: Staple notarisation ticket to DMG
-        if: matrix.platform == 'macos-latest'
-        run: |
-          find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" \
-            -exec xcrun stapler staple {} \;
 
       - name: Install cosign
         if: matrix.platform == 'ubuntu-latest'
@@ -170,6 +168,7 @@ jobs:
           name: ${{ matrix.platform }}-${{ matrix.target }}
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.submission-id
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz.sig
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*setup.exe
@@ -236,11 +235,15 @@ jobs:
           }
           EOF
 
-      - name: Create GitHub Release
+      - name: Create draft GitHub Release
+        # Creates a DRAFT — not publicly visible. The notarize-finalize workflow
+        # staples the DMGs, re-uploads them, and publishes the release once
+        # Apple approves. Unstapled DMGs are excluded here; stapled versions
+        # are uploaded by the finalize workflow.
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
           files: |
-            artifacts/**/*.dmg
             artifacts/**/*.app.tar.gz
             artifacts/**/*.app.tar.gz.sig
             artifacts/**/*setup.exe
