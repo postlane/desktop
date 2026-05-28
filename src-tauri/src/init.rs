@@ -6,8 +6,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Returns the path to the ~/.postlane directory
+/// Returns the path to the ~/.postlane directory.
+/// When `POSTLANE_DATA_DIR` is set (e.g. in tests), that path is used instead
+/// so test runs never touch the real user data directory.
 pub fn postlane_dir() -> Result<PathBuf, String> {
+    if let Ok(override_dir) = std::env::var("POSTLANE_DATA_DIR") {
+        return Ok(PathBuf::from(override_dir));
+    }
     dirs::home_dir()
         .ok_or_else(|| "Could not determine home directory - HOME environment variable not set".to_string())
         .map(|home| home.join(".postlane"))
@@ -54,6 +59,32 @@ pub fn atomic_write(target_path: &Path, content: &[u8]) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::Mutex;
+
+    // Serialises env-var mutations so parallel tests cannot interfere.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_postlane_dir_uses_env_override_when_set() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::env::set_var("POSTLANE_DATA_DIR", dir.path());
+        let result = postlane_dir().expect("must succeed");
+        std::env::remove_var("POSTLANE_DATA_DIR");
+        assert_eq!(result, dir.path(), "postlane_dir() must return POSTLANE_DATA_DIR when set");
+    }
+
+    #[test]
+    fn test_postlane_dir_falls_back_to_home_when_env_unset() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("POSTLANE_DATA_DIR");
+        let result = postlane_dir().expect("must succeed");
+        assert!(
+            result.ends_with(".postlane"),
+            "postlane_dir() must end with .postlane when env var is absent, got: {}",
+            result.display()
+        );
+    }
 
     #[test]
     fn test_init_postlane_dir_creates_directory() {

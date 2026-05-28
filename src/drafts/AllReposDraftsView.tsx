@@ -193,7 +193,7 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
     setApproveAllRunning(true);
     for (const post of posts.filter((p) => p.status === 'ready')) {
       try {
-        await invoke('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder });
+        await invoke('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder, platform: post.platform ?? '' });
         setApproveAllResults((prev) => new Map(prev).set(post.post_folder, 'ok'));
       } catch { setApproveAllResults((prev) => new Map(prev).set(post.post_folder, 'error')); }
     }

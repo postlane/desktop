@@ -59,18 +59,23 @@ mod tests {
     use super::*;
     use crate::storage::ReposConfig;
 
-    fn make_state_with_dir(dir: &std::path::Path) -> AppState {
+    fn make_state_with_dir(dir: &std::path::Path) -> (AppState, tempfile::TempDir) {
         let canonical = std::fs::canonicalize(dir).expect("canonicalize");
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
-                id: "r99".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap().to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![crate::storage::Repo {
+                    id: "r99".to_string(),
+                    name: "test".to_string(),
+                    path: canonical.to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            _tmp_repos.path().join("repos.json"),
+        );
+        (state, _tmp_repos)
     }
 
     fn write_config(dir: &std::path::Path) -> std::path::PathBuf {
@@ -84,7 +89,7 @@ mod tests {
     fn test_update_scheduler_config_writes_single_provider() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path());
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let result = update_scheduler_config_impl("r99", &["zernio".to_string()], &state);
         assert!(result.is_ok(), "{:?}", result);
         let config: serde_json::Value =
@@ -103,7 +108,7 @@ mod tests {
     fn test_update_scheduler_config_writes_full_fallback_order() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path());
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let order_in = ["zernio".to_string(), "publer".to_string(), "outstand".to_string()];
         let result = update_scheduler_config_impl("r99", &order_in, &state);
         assert!(result.is_ok(), "{:?}", result);
@@ -121,7 +126,11 @@ mod tests {
 
     #[test]
     fn test_update_scheduler_config_rejects_empty_list() {
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![] },
+            _tmp_repos.path().join("repos.json"),
+        );
         let result = update_scheduler_config_impl("r99", &[], &state);
         assert!(result.is_err());
     }
@@ -130,7 +139,7 @@ mod tests {
     fn test_update_scheduler_config_rejects_unknown_provider() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_config(dir.path());
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let result =
             update_scheduler_config_impl("r99", &["unknown_xyz".to_string()], &state);
         assert!(result.is_err(), "unknown provider must be rejected");
@@ -146,7 +155,7 @@ mod tests {
     fn test_update_scheduler_config_rejects_provider_in_mixed_list() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_config(dir.path());
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let result = update_scheduler_config_impl(
             "r99",
             &["zernio".to_string(), "bad_provider".to_string()],
@@ -157,7 +166,11 @@ mod tests {
 
     #[test]
     fn test_update_scheduler_config_errors_on_missing_repo() {
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![] },
+            _tmp_repos.path().join("repos.json"),
+        );
         let result =
             update_scheduler_config_impl("nonexistent", &["zernio".to_string()], &state);
         assert!(result.is_err());

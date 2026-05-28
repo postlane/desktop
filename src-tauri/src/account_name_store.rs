@@ -6,10 +6,20 @@ use crate::init::read_json_file;
 use std::fs;
 use std::path::Path;
 
+fn acquire_config_lock(config_path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    let key = config_path.to_string_lossy().into_owned();
+    crate::platform_constants::CONFIG_JSON_LOCKS
+        .entry(key)
+        .or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(())))
+        .clone()
+}
+
 /// Writes a display name (e.g. "@rng_dev") for `platform` into
 /// `scheduler.account_names` in `config_path`. Atomic write, same contract as
 /// `save_account_id_impl`.
-pub fn save_account_name_impl(
+/// Holds a per-path Mutex across the read-mutate-write cycle to prevent concurrent
+/// writes from clobbering each other (e.g. account_id and account_name written simultaneously).
+pub(crate) fn save_account_name_impl(
     config_path: &Path,
     platform: &str,
     name: &str,
@@ -17,6 +27,8 @@ pub fn save_account_name_impl(
     if !config_path.exists() {
         return Err(format!("config.json not found at {}", config_path.display()));
     }
+    let lock = acquire_config_lock(config_path);
+    let _guard = lock.lock().map_err(|e| format!("config.json lock poisoned: {}", e))?;
     let mut config: serde_json::Value = read_json_file(config_path)?;
     if !config["scheduler"].is_object() {
         config["scheduler"] = serde_json::json!({});

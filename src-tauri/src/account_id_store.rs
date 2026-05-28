@@ -6,9 +6,19 @@ use crate::init::read_json_file;
 use std::fs;
 use std::path::Path;
 
+fn acquire_config_lock(config_path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    let key = config_path.to_string_lossy().into_owned();
+    crate::platform_constants::CONFIG_JSON_LOCKS
+        .entry(key)
+        .or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(())))
+        .clone()
+}
+
 /// Writes `account_id` for `platform` into `scheduler.account_ids` in `config_path`.
 /// Atomic write (tmp → rename). Creates `scheduler` and `account_ids` blocks if absent.
-pub fn save_account_id_impl(
+/// Holds a per-path Mutex across the read-mutate-write cycle to prevent concurrent
+/// writes from clobbering each other (e.g. account_id and account_name written simultaneously).
+pub(crate) fn save_account_id_impl(
     config_path: &Path,
     platform: &str,
     account_id: &str,
@@ -16,6 +26,9 @@ pub fn save_account_id_impl(
     if !config_path.exists() {
         return Err(format!("config.json not found at {}", config_path.display()));
     }
+
+    let lock = acquire_config_lock(config_path);
+    let _guard = lock.lock().map_err(|e| format!("config.json lock poisoned: {}", e))?;
 
     let mut config: serde_json::Value = read_json_file(config_path)?;
 
@@ -256,5 +269,58 @@ mod tests {
         assert_eq!(map.len(), 1);
         assert_eq!(map.get("x").map(String::as_str), Some("acc"));
         assert!(!map.contains_key("bad"));
+    }
+
+    // --- §concurrent_write (HIGH-3) ---
+
+    #[test]
+    fn test_save_account_id_and_name_concurrent_writes_preserve_both_fields() {
+        // Regression test for the race condition where save_account_id_impl and
+        // save_account_name_impl can interleave their read-mutate-write on config.json,
+        // causing one writer to clobber the other. Without a per-path Mutex, one field
+        // will occasionally be absent from the final file.
+        //
+        // The barrier synchronises thread start so both threads enter the write loop
+        // simultaneously, making the race reliably observable.
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+
+        let path_a = config_path.clone();
+        let path_b = config_path.clone();
+
+        let barrier = Arc::new(Barrier::new(2));
+        let ba = barrier.clone();
+        let bb = barrier.clone();
+
+        let h1 = thread::spawn(move || {
+            ba.wait();
+            for _ in 0..50 {
+                let _ = save_account_id_impl(&path_a, "x", "acc-x-123");
+            }
+        });
+        let h2 = thread::spawn(move || {
+            bb.wait();
+            for _ in 0..50 {
+                let _ = crate::account_name_store::save_account_name_impl(&path_b, "bluesky", "@test_handle");
+            }
+        });
+        h1.join().expect("thread 1 panicked");
+        h2.join().expect("thread 2 panicked");
+
+        let content = std::fs::read_to_string(&config_path).expect("read config");
+        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(
+            config["scheduler"]["account_ids"]["x"].as_str(),
+            Some("acc-x-123"),
+            "account_id for x must survive concurrent writes"
+        );
+        assert_eq!(
+            config["scheduler"]["account_names"]["bluesky"].as_str(),
+            Some("@test_handle"),
+            "account_name for bluesky must survive concurrent writes"
+        );
     }
 }

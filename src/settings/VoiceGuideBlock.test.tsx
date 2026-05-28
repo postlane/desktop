@@ -343,3 +343,38 @@ describe('VoiceGuideBlock — templates must not use forbidden phrases (AI-M6)',
     })
   }
 })
+
+// ── MEDIUM-1: paths-missing dismiss button ─────────────────────────────────────
+
+describe('VoiceGuideBlock — paths-missing dismiss button (MEDIUM-1)', () => {
+  function setupPathsMissing() {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') return { synced: [], registered: 2 }
+      return null
+    })
+  }
+
+  async function triggerPathsMissing() {
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => screen.getByText(/repo paths could not be found on disk/i))
+  }
+
+  it('shows a dismiss button after a paths-missing save', async () => {
+    setupPathsMissing()
+    await triggerPathsMissing()
+    expect(screen.getByRole('button', { name: /dismiss/i })).toBeInTheDocument()
+  })
+
+  it('clicking the dismiss button clears the paths-missing warning', async () => {
+    setupPathsMissing()
+    await triggerPathsMissing()
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }))
+    await waitFor(() =>
+      expect(screen.queryByText(/repo paths could not be found on disk/i)).not.toBeInTheDocument()
+    )
+  })
+})

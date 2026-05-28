@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Testable core logic for saving a scheduler credential.
+//! Testable writer for scheduler credentials.
 //!
 //! The `CredentialEnv` struct and `save_scheduler_credential_core` function
 //! contain the business logic extracted from the `save_scheduler_credential`

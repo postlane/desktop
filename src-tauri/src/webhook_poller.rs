@@ -83,6 +83,7 @@ pub async fn fetch_pending_events(
     project_id: &str,
     token: &str,
 ) -> Result<Vec<PendingEvent>, String> {
+    crate::project_validation::validate_project_id(project_id)?;
     let client = reqwest::Client::new();
     let url = format!("{}/v1/events/pending?project_id={}", api_base, project_id);
     let resp = client
@@ -102,7 +103,7 @@ pub async fn fetch_pending_events(
     struct Body { events: Vec<PendingEvent> }
     let body: Body = resp.json().await
         .map_err(|e| format!("fetch_pending_events parse failed: {}", e))?;
-    log::debug!("[webhook_poller] fetched {} pending event(s) for project '{}'", body.events.len(), project_id);
+    log::info!("[webhook_poller] fetched {} pending event(s) for project '{}'", body.events.len(), project_id);
     Ok(body.events)
 }
 
@@ -127,7 +128,7 @@ pub async fn mark_delivered(
         log::warn!("[webhook_poller] mark_delivered returned {} for {} event(s)", status, event_ids.len());
         return Err(format_api_error("mark_delivered", status, ""));
     }
-    log::debug!("[webhook_poller] marked {} event(s) as delivered", event_ids.len());
+    log::info!("[webhook_poller] marked {} event(s) as delivered", event_ids.len());
     Ok(())
 }
 
@@ -327,5 +328,23 @@ mod tests {
 
         let result = mark_delivered(&server.base_url(), vec!["evt-1".to_string()], "tok").await;
         assert!(result.is_err());
+    }
+
+    // ── §project_id_validation (MEDIUM-3) ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_fetch_pending_events_rejects_project_id_with_injection_chars() {
+        // project_id is interpolated into the URL query string. Without validation,
+        // a value like "proj&injected=true" would append extra query parameters.
+        // validate_project_id must reject any character that is not a-z, A-Z, 0-9, -, or _.
+        // The error must come from validation (before any HTTP call), not from a
+        // network failure — so the error message must describe the invalid character.
+        let result = fetch_pending_events("https://api.example.com", "proj&injected=true", "tok").await;
+        assert!(result.is_err(), "project_id with & must be rejected before URL construction");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("invalid characters"),
+            "error must say 'invalid characters' (from validate_project_id), not a network error. Got: {}", msg
+        );
     }
 }

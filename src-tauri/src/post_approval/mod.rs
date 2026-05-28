@@ -3,11 +3,10 @@
 mod pipeline;
 
 use crate::app_state::AppState;
-use crate::post_meta::{PostMeta, PostStatus};
+use crate::post_meta::PostMeta;
 use pipeline::{
-    acquire_meta_lock, apply_scheduler_result, call_scheduler, is_platform_edited,
-    record_scheduler_failure, validate_char_limit, validate_platform, validate_post_folder,
-    validate_repo_path, InFlightGuard,
+    acquire_meta_lock, is_platform_edited, run_send_pipeline, validate_char_limit,
+    validate_platform, validate_post_folder, validate_repo_path, InFlightGuard, SendPaths,
 };
 use tauri::State;
 
@@ -88,46 +87,8 @@ pub async fn approve_post_impl(
     fire_unsplash_download_trigger(&mut meta, &meta_path, app);
     let sent_at = chrono::Utc::now().to_rfc3339();
     let is_edited = is_platform_edited(&meta, platform);
-    if let Some(app_handle) = app {
-        match call_scheduler(app_handle, platform, &post_path, &meta, &canonical_path).await {
-            Ok((scheduler_id, platform_url)) => {
-                apply_scheduler_result(
-                    &mut meta,
-                    platform,
-                    &scheduler_id,
-                    platform_url.as_deref(),
-                    &sent_at,
-                );
-                log::info!("[approve_post] sent '{}' to '{}' via scheduler", post_folder, platform);
-                if let Err(e) = meta.save(&meta_path) {
-                    log::error!("[approve_post] meta write failed after successful send: {}", e);
-                    // Return Err so the frontend surfaces this to the user.
-                    // Returning Ok() would leave the queue showing the post as unsent,
-                    // causing a duplicate send when the user clicks Approve again.
-                    return Err(format!(
-                        "Post was sent but the local record could not be saved. \
-                         Do not approve again — your post has already been submitted. \
-                         Error: {}",
-                        e
-                    ));
-                }
-            }
-            Err(e) => {
-                // No retry: a single attempt failure writes status=Failed and surfaces
-                // the error to the user. Retrying automatically risks duplicate sends
-                // if the scheduler accepted the request but returned a transient error.
-                // The user can re-approve from the queue once the issue is resolved.
-                record_scheduler_failure(&mut meta, &e);
-                let _ = meta.save(&meta_path);
-                return Err(e);
-            }
-        }
-    } else {
-        // Test mode: simulate scheduler success without an HTTP call.
-        meta.sent_platforms.insert(platform.to_string(), sent_at);
-        meta.status = Some(PostStatus::Sent);
-        meta.save(&meta_path)?;
-    }
+    let paths = SendPaths { post_folder, post_path: &post_path, canonical_path: &canonical_path, meta_path: &meta_path };
+    run_send_pipeline(app, platform, &paths, &mut meta, &sent_at).await?;
     state.telemetry.record(
         consent,
         "post_approved",
@@ -152,21 +113,18 @@ pub async fn approve_post(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::post_meta::PostMeta;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::post_meta::{PostMeta, PostStatus};
+    use crate::storage::Repo;
     use std::path::Path;
 
     fn make_state(repo_path: &str) -> AppState {
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: repo_path.to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
+        crate::test_fixtures::make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: repo_path.to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }])
     }
 
     fn write_post(dir: &Path, post_folder: &str) {
@@ -523,14 +481,42 @@ mod tests {
     }
 
     // --- §meta_write_failure ---
+    //
+    // ARCHITECTURE NOTE — app=Some path is NOT covered by unit tests.
+    //
+    // The production path (app=Some, line ~92–113 in approve_post_impl) calls
+    // call_scheduler() then writes meta.json.  If the meta write fails it now
+    // returns Err (fixed: was Ok, which caused duplicate sends on retry).
+    //
+    // WHY THIS PATH CANNOT BE UNIT-TESTED:
+    //   `call_scheduler` requires a real `tauri::AppHandle` to resolve the
+    //   managed scheduler state.  AppHandle cannot be constructed outside of a
+    //   Tauri runtime, so there is no safe way to inject it in a `#[tokio::test]`.
+    //   Attempting to construct one via internal Tauri APIs would couple the tests
+    //   to private Tauri internals and break on any Tauri upgrade.
+    //
+    // REGRESSION RISK:
+    //   If the `return Err(...)` on line ~107 is reverted to `log::error!` + `Ok(())`
+    //   (the original bug), the frontend will silently succeed and the post will remain
+    //   in the queue.  The user can then click Approve again and send a duplicate post.
+    //   This is a data-integrity bug that can cause real-world duplicate publishing.
+    //
+    // HOW TO TEST IT:
+    //   Use WebDriver / Tauri integration tests (`tauri::test`) to boot a real app
+    //   instance, write a post, make the posts directory read-only, call approve_post,
+    //   and assert the Tauri command returns an Err variant (surfaced as a rejected
+    //   IPC promise on the JS side).  See: https://docs.rs/tauri/latest/tauri/test/
+    //
+    // The test below covers only the app=None (test-mode) path, which exercises the
+    // same Err contract via the `?` operator on meta.save().
 
     #[tokio::test]
     async fn test_approve_post_returns_err_when_meta_write_fails() {
         // Verifies the contract: a disk-write failure after scheduler success must
         // return Err so the frontend can surface it. Returning Ok() would leave the
         // queue showing the post unsent, causing a duplicate send on retry.
-        // (The production app=Some path was fixed from Ok to Err; this test covers
-        // the test-mode path which uses ? and was already correct.)
+        // This test covers the app=None (test-mode) path only; see the architecture
+        // note above explaining why the app=Some production path cannot be unit-tested.
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");

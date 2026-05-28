@@ -156,29 +156,23 @@ mod tests {
 
     fn make_dismiss_state(dir: &std::path::Path) -> AppState {
         let canonical = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap_or("").to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
+        crate::test_fixtures::make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: canonical.to_str().unwrap_or("").to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }])
     }
 
     fn make_delete_state(canonical_str: &str) -> AppState {
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical_str.to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
+        crate::test_fixtures::make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: canonical_str.to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }])
     }
 
     #[test]
@@ -194,7 +188,8 @@ mod tests {
         )
         .expect("write meta");
         let repos = make_repos_canonical(&[registered.path()]);
-        let state = AppState::new(repos);
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(repos, _tmp_repos.path().join("repos.json"));
         let result = dismiss_post_impl(unregistered.path().to_str().unwrap(), "post-d", &state, false);
         assert!(result.is_err(), "dismiss_post_impl must reject unregistered path");
     }
@@ -211,7 +206,8 @@ mod tests {
         )
         .expect("write meta");
         let repos = make_repos_canonical(&[dir.path()]);
-        let state = AppState::new(repos);
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(repos, _tmp_repos.path().join("repos.json"));
         let canonical_path = fs::canonicalize(dir.path()).expect("canonicalize");
         let result = dismiss_post_impl(canonical_path.to_str().unwrap(), "post-c", &state, false);
         assert!(

@@ -156,6 +156,64 @@ pub(super) fn record_scheduler_failure(meta: &mut PostMeta, error: &str) {
     meta.error = Some(error.to_string());
 }
 
+/// Paths needed by the send pipeline, grouped to stay under the 7-arg clippy limit.
+pub(super) struct SendPaths<'a> {
+    pub post_folder: &'a str,
+    pub post_path: &'a std::path::Path,
+    pub canonical_path: &'a std::path::Path,
+    pub meta_path: &'a std::path::Path,
+}
+
+/// Executes the send pipeline for a single platform: calls the scheduler (or
+/// simulates success in test mode), then writes the updated meta to disk.
+///
+/// Returns `Err` in all failure cases so the frontend always surfaces the error.
+/// Returning `Ok` after a scheduler success with a failed meta write would leave
+/// the queue showing the post unsent, causing a duplicate send on retry.
+pub(super) async fn run_send_pipeline(
+    app: Option<&tauri::AppHandle>,
+    platform: &str,
+    paths: &SendPaths<'_>,
+    meta: &mut PostMeta,
+    sent_at: &str,
+) -> Result<(), String> {
+    if let Some(app_handle) = app {
+        match call_scheduler(app_handle, platform, paths.post_path, meta, paths.canonical_path).await {
+            Ok((scheduler_id, platform_url)) => {
+                apply_scheduler_result(meta, platform, &scheduler_id, platform_url.as_deref(), sent_at);
+                log::info!("[approve_post] sent '{}' to '{}' via scheduler", paths.post_folder, platform);
+                if let Err(e) = meta.save(paths.meta_path) {
+                    log::error!("[approve_post] meta write failed after successful send: {}", e);
+                    // Return Err so the frontend surfaces this to the user.
+                    // Returning Ok() would leave the queue showing the post as unsent,
+                    // causing a duplicate send when the user clicks Approve again.
+                    return Err(format!(
+                        "Post was sent but the local record could not be saved. \
+                         Do not approve again — your post has already been submitted. \
+                         Error: {}",
+                        e
+                    ));
+                }
+            }
+            Err(e) => {
+                // No retry: a single attempt failure writes status=Failed and surfaces
+                // the error to the user. Retrying automatically risks duplicate sends
+                // if the scheduler accepted the request but returned a transient error.
+                // The user can re-approve from the queue once the issue is resolved.
+                record_scheduler_failure(meta, &e);
+                let _ = meta.save(paths.meta_path);
+                return Err(e);
+            }
+        }
+    } else {
+        // Test mode: simulate scheduler success without an HTTP call.
+        meta.sent_platforms.insert(platform.to_string(), sent_at.to_string());
+        meta.status = Some(PostStatus::Sent);
+        meta.save(paths.meta_path)?;
+    }
+    Ok(())
+}
+
 /// Returns Err if the platform content exceeds its character limit.
 /// Silently passes for platforms that have no defined limit (e.g. webhook).
 pub(super) fn validate_char_limit(platform: &str, post_path: &Path) -> Result<(), String> {

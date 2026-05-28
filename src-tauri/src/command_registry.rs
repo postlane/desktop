@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BUSL-1.1
+//! Command registry — central list of all Tauri commands.
+//! Kept as a separate module so the `run()` function in lib.rs stays under 60 lines.
+//! IMPORTANT: Add new commands here rather than in lib.rs.
+
+/// Returns all registered Tauri commands as an invoke handler.
+/// Called once from `run()` during app setup.
+pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        crate::account_config::get_account_ids, crate::account_config::save_account_id, crate::account_config::get_scheduler_account_names,
+        crate::analytics::client::get_site_token, crate::analytics::client::get_post_analytics,
+        crate::app_state_ops::set_default_post_time, crate::app_state_ops::set_wizard_completed,
+        crate::post_approval::approve_post, crate::commands::cancel_post_command, crate::commands::get_queue_command,
+        crate::post_dismiss::delete_post, crate::post_dismiss::dismiss_post, crate::post_export::export_history_csv,
+        crate::post_queries::get_drafts, crate::post_queries::get_post_content, crate::post_retry::retry_post,
+        crate::repo_mgmt::add_repo, crate::repo_mgmt::check_repo_health, crate::repo_mgmt::remove_repo,
+        crate::repo_mgmt::set_repo_active, crate::repo_mgmt::update_repo_path,
+        crate::scheduler_credentials::save_scheduler_credential, crate::scheduler_credentials::delete_scheduler_credential, crate::scheduler_credentials::get_libsecret_status,
+        crate::connected_platforms::list_connected_platforms, crate::connect_repo::connect_repo_from_desktop,
+        crate::credential_provider_list::list_connected_providers, crate::draft_edits::save_post_draft,
+        crate::draft_queries::get_all_drafts, crate::draft_queries::get_all_drafts_count, crate::folder_lookup::find_project_for_folder,
+        crate::github_app::backfill_project_org_login, crate::github_app::check_github_app_installed, crate::github_app::disconnect_github_app, crate::github_app::list_github_app_repos,
+        crate::mastodon_app_registration::register_mastodon_app, crate::mastodon_connection::get_mastodon_connected_instance, crate::mastodon_connection::get_mastodon_connected_account,
+        crate::mastodon_connection::get_mastodon_char_limit, crate::mastodon_connection::disconnect_mastodon, crate::mastodon_token_exchange::exchange_mastodon_code,
+        crate::model_stats::get_model_stats,
+        crate::nav_commands::get_watcher_status, crate::nav_commands::read_app_state_command, crate::nav_commands::save_app_state_command, crate::nav_commands::get_app_state,
+        crate::nav_commands::get_app_version, crate::nav_commands::get_autostart_enabled, crate::nav_commands::get_attribution, crate::nav_commands::set_attribution,
+        crate::og_image::validate_url_safe, crate::og_image::fetch_og_image, crate::org_avatar::fetch_avatar_bytes, crate::org_published::get_org_published,
+        crate::post_editor::update_post_content, crate::post_editor::update_post_image, crate::post_image_unsplash::update_post_image_unsplash,
+        crate::post_redraft::cancel_redraft, crate::post_redraft::queue_redraft, crate::post_schedule::update_post_schedule,
+        crate::project_billing::check_project_status, crate::project_billing::check_billing_gate,
+        crate::project_config_ops::read_project_id_from_path, crate::project_config_ops::write_project_id_to_config, crate::project_config_ops::get_repo_remote_name,
+        crate::project_delete::delete_project, crate::project_lifecycle::list_projects, crate::project_lifecycle::create_project,
+        crate::project_lifecycle::update_project_org_login, crate::project_lifecycle::register_repo_with_project,
+        crate::project_voice_guide::get_project_voice_guide, crate::project_voice_guide::get_voice_guide_fields, crate::project_voice_guide::sync_voice_guide_to_repos, crate::project_voice_guide::save_project_voice_guide,
+        crate::provider_orgs::list_provider_orgs, crate::provider_orgs::list_linked_providers,
+        crate::published_queries::get_all_published, crate::published_queries::get_repo_published,
+        crate::repo_discovery::discover_repos, crate::repo_project_filter::list_repos_for_project, crate::repo_project_filter::unregister_repo,
+        crate::get_local_server_port,
+        crate::license::get_license_signed_in, crate::license::sign_out, crate::license::get_license_display_name,
+        crate::repo_queries::get_repos, crate::repo_queries::has_active_repos, crate::repo_scheduler_config::update_scheduler_config,
+        crate::telemetry_commands::get_telemetry_consent, crate::telemetry_commands::set_telemetry_consent,
+        crate::unsplash_search::save_unsplash_key, crate::unsplash_search::delete_unsplash_key, crate::unsplash_search::has_unsplash_key,
+        crate::unsplash_search::trigger_unsplash_download, crate::unsplash_search::search_unsplash,
+        crate::upload_post_account::validate_upload_post_username,
+        crate::wizard_state::read_wizard_state, crate::wizard_state::write_wizard_state, crate::wizard_state::clear_wizard_state,
+    ]
+}

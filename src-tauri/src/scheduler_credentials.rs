@@ -81,7 +81,17 @@ pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub use crate::credential_save_core::{CredentialEnv, save_scheduler_credential_core};
+pub use crate::scheduler_credential_writer::{CredentialEnv, save_scheduler_credential_core};
+
+/// Response returned by the `save_scheduler_credential` Tauri command.
+/// `account_names` is the merged display-name map. `sync_warning` is `Some` when
+/// non-fatal sync failures occurred (e.g. config write errors) — the credential
+/// itself was saved but the user should be informed about partial success.
+#[derive(serde::Serialize)]
+pub struct SaveCredentialResponse {
+    pub account_names: std::collections::HashMap<String, String>,
+    pub sync_warning: Option<String>,
+}
 
 #[tauri::command]
 pub async fn save_scheduler_credential(
@@ -91,7 +101,7 @@ pub async fn save_scheduler_credential(
     username: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> Result<std::collections::HashMap<String, String>, String> {
+) -> Result<SaveCredentialResponse, String> {
     let libsecret_available = {
         let flag = state
             .libsecret_available
@@ -121,7 +131,12 @@ pub async fn save_scheduler_credential(
         log::warn!("[save_scheduler_credential] {}", warning);
     }
     let _ = app.emit("platform-connected", ());
-    Ok(save_result.account_names)
+    let sync_warning = if save_result.warnings.is_empty() {
+        None
+    } else {
+        Some("Credential saved, but some repos could not be synced. Check logs.".to_string())
+    };
+    Ok(SaveCredentialResponse { account_names: save_result.account_names, sync_warning })
 }
 
 #[tauri::command]
@@ -276,27 +291,21 @@ mod tests {
 
     #[test]
     fn test_record_provider_configured_queues_when_consent_given() {
-        use crate::app_state::AppState;
-        use crate::storage::ReposConfig;
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let state = crate::test_fixtures::make_state(vec![]);
         record_provider_configured(&state, true, "zernio");
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
     #[test]
     fn test_record_provider_configured_no_op_when_consent_not_given() {
-        use crate::app_state::AppState;
-        use crate::storage::ReposConfig;
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let state = crate::test_fixtures::make_state(vec![]);
         record_provider_configured(&state, false, "zernio");
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
 
     #[test]
     fn test_record_provider_configured_has_scope_workspace() {
-        use crate::app_state::AppState;
-        use crate::storage::ReposConfig;
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let state = crate::test_fixtures::make_state(vec![]);
         record_provider_configured(&state, true, "zernio");
         let events = state.telemetry.peek_queue();
         assert_eq!(events.len(), 1);

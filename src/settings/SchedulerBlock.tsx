@@ -11,6 +11,12 @@ import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 const ALL_PROVIDERS = ['zernio', 'upload_post', 'buffer', 'publer', 'outstand', 'webhook'] as const;
 type Provider = typeof ALL_PROVIDERS[number];
 
+/** Mirrors scheduler_credentials::SaveCredentialResponse */
+interface SaveCredentialResponse {
+  account_names: Record<string, string>;
+  sync_warning: string | null;
+}
+
 interface Props {
   projectId: string;
   isOwner: boolean;
@@ -88,35 +94,35 @@ function UploadPostUsernameField({ value, onChange }: { value: string; onChange:
 
 // ── ConnectForm ───────────────────────────────────────────────────────────────
 
-function ConnectForm({ provider, repoId, onConnected, onCancel }: {
-  provider: string;
-  repoId: string;
-  onConnected: () => void;
-  onCancel: () => void;
-}) {
+function useConnectCredential(provider: string, repoId: string, onConnected: () => void) {
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [uploadPostUsername, setUploadPostUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectedNames, setConnectedNames] = useState<Record<string, string> | null>(null);
-
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const canConnect = apiKey && (provider !== 'upload_post' || uploadPostUsername);
 
   async function handleConnect() {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null); setSyncWarning(null);
     try {
       const payload = { provider, apiKey, repoId, ...(provider === 'upload_post' ? { username: uploadPostUsername } : {}) };
-      const names = await invoke<Record<string, string>>('save_scheduler_credential', payload);
-      setConnectedNames(names ?? {});
+      const response = await invoke<SaveCredentialResponse>('save_scheduler_credential', payload);
+      setConnectedNames(response?.account_names ?? {});
+      if (response?.sync_warning) setSyncWarning(response.sync_warning);
       setTimeout(() => onConnected(), 5000);
-    } catch (e: unknown) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: unknown) { setError(String(e)); } finally { setLoading(false); }
   }
+  return { apiKey, setApiKey, showKey, setShowKey, uploadPostUsername, setUploadPostUsername, loading, error, connectedNames, syncWarning, canConnect, handleConnect };
+}
+
+function ConnectForm({ provider, repoId, onConnected, onCancel }: {
+  provider: string; repoId: string; onConnected: () => void; onCancel: () => void;
+}) {
+  const { apiKey, setApiKey, showKey, setShowKey, uploadPostUsername, setUploadPostUsername,
+    loading, error, connectedNames, syncWarning, canConnect, handleConnect } =
+    useConnectCredential(provider, repoId, onConnected);
 
   return (
     <div className="mt-2 pb-2" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
@@ -127,25 +133,18 @@ function ConnectForm({ provider, repoId, onConnected, onCancel }: {
           )}
           <label className="is-sr-only" htmlFor={`scheduler-api-key-${provider}`}>API key</label>
           <input id={`scheduler-api-key-${provider}`} aria-label="API key"
-            type={showKey ? 'text' : 'password'}
-            className="input is-small" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+            type={showKey ? 'text' : 'password'} className="input is-small"
+            value={apiKey} onChange={(e) => setApiKey(e.target.value)}
             placeholder={`Enter your ${providerLabel(provider)} API key`} />
         </div>
-        <button className="button is-small is-ghost" onClick={() => setShowKey((v) => !v)}>
-          {showKey ? 'Hide' : 'Show'}
-        </button>
-        <button className="button is-small is-primary" onClick={handleConnect} disabled={loading || !canConnect}>
-          Connect
-        </button>
-        <button className="button is-small is-ghost" onClick={onCancel} disabled={loading}>
-          Cancel
-        </button>
+        <button className="button is-small is-ghost" onClick={() => setShowKey((v) => !v)}>{showKey ? 'Hide' : 'Show'}</button>
+        <button className="button is-small is-primary" onClick={handleConnect} disabled={loading || !canConnect}>Connect</button>
+        <button className="button is-small is-ghost" onClick={onCancel} disabled={loading}>Cancel</button>
       </div>
-      {connectedNames !== null && (
-        <p role="status" className="is-size-7 has-text-success mt-1">
-          {formatSuccessMessage(provider, connectedNames)}
-        </p>
+      {connectedNames !== null && !syncWarning && (
+        <p role="status" className="is-size-7 has-text-success mt-1">{formatSuccessMessage(provider, connectedNames)}</p>
       )}
+      {syncWarning && <p role="alert" className="is-size-7 has-text-warning mt-1">{syncWarning}</p>}
       {error && <p role="alert" className="is-size-7 has-text-danger mt-1">{error}</p>}
     </div>
   );

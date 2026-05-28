@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { invoke } from '../ipc/invoke';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import type { DraftPost, SendResult } from '../types';
+import type { DraftPost } from '../types';
 
 export function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed: () => void) {
   const [approving, setApproving] = useState(false);
@@ -16,15 +16,14 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
   const approve = useCallback(async () => {
     setApproving(true); setApproveError(null);
     try {
-      const result = await invoke<SendResult>('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder });
-      if (result.fallback_provider) {
-        setFallbackNotice(result.fallback_provider);
-      } else {
-        const sentPlatforms = Object.entries(result.platform_results ?? {})
-          .filter(([, v]) => v === 'sent' || v === 'success')
-          .map(([k]) => k);
-        setApproveSuccessPlatforms(sentPlatforms);
-      }
+      // approve_post returns Result<(), String> which serialises to null on success.
+      // Treat a successful (non-throwing) call as approval complete.
+      await invoke('approve_post', {
+        repoPath: post.repo_path,
+        postFolder: post.post_folder,
+        platform: post.platform ?? '',
+      });
+      setApproveSuccessPlatforms(post.platforms ?? []);
     }
     catch (e) { setApproveError(e instanceof Error ? e.message : String(e)); }
     finally { setApproving(false); }
