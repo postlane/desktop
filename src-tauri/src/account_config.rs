@@ -82,16 +82,26 @@ pub fn apply_profiles_to_repo(
 /// `account_names[platform] = username`. Always writes `account_names["upload_post"]`
 /// so the connect success message shows the username even before social platforms
 /// are connected in the Upload Post dashboard.
+/// Writes per-platform account IDs and names into `config.json` for an Upload Post connection.
+/// Returns a list of warning strings for any write that failed; an empty vec means full success.
 pub fn write_upload_post_account(
     username: &str,
     connected_platforms: &[String],
     config_path: &std::path::Path,
-) {
+) -> Vec<String> {
+    let mut warnings = Vec::new();
     for platform in connected_platforms {
-        let _ = save_account_id_impl(config_path, platform, username);
-        let _ = save_account_name_impl(config_path, platform, username);
+        if let Err(e) = save_account_id_impl(config_path, platform, username) {
+            warnings.push(format!("write account ID for '{}' to {}: {}", platform, config_path.display(), e));
+        }
+        if let Err(e) = save_account_name_impl(config_path, platform, username) {
+            warnings.push(format!("write account name for '{}' to {}: {}", platform, config_path.display(), e));
+        }
     }
-    let _ = save_account_name_impl(config_path, "upload_post", username);
+    if let Err(e) = save_account_name_impl(config_path, "upload_post", username) {
+        warnings.push(format!("write upload_post account name to {}: {}", config_path.display(), e));
+    }
+    warnings
 }
 
 /// Fetches the connected social accounts for `provider_name` and writes them
@@ -260,10 +270,29 @@ mod tests {
     }
 
     #[test]
+    fn write_upload_post_account_returns_empty_warnings_on_success() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let config_path = write_config(dir.path(), r#"{"version":1}"#);
+        let warnings = write_upload_post_account("postlane", &["x".to_string()], &config_path);
+        assert!(warnings.is_empty(), "expected no warnings on success, got: {:?}", warnings);
+    }
+
+    #[test]
+    fn write_upload_post_account_returns_warnings_when_config_path_missing() {
+        let bad_path = std::path::Path::new("/nonexistent_postlane_test_dir/config.json");
+        let warnings = write_upload_post_account("user", &["x".to_string()], bad_path);
+        assert!(!warnings.is_empty(), "expected warnings when config.json cannot be written");
+        assert!(
+            warnings[0].contains("config.json"),
+            "warning must mention the path, got: {:?}", warnings
+        );
+    }
+
+    #[test]
     fn write_upload_post_account_writes_per_platform_account_ids_and_names() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path(), r#"{"version":1}"#);
-        write_upload_post_account("postlane", &["bluesky".to_string(), "x".to_string()], &config_path);
+        let _ = write_upload_post_account("postlane", &["bluesky".to_string(), "x".to_string()], &config_path);
         let content = fs::read_to_string(&config_path).expect("read");
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("postlane"));
@@ -276,7 +305,7 @@ mod tests {
     fn write_upload_post_account_writes_provider_key_so_success_message_shows_username() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path(), r#"{"version":1}"#);
-        write_upload_post_account("postlane", &[], &config_path);
+        let _ = write_upload_post_account("postlane", &[], &config_path);
         let content = fs::read_to_string(&config_path).expect("read");
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert!(config["scheduler"]["account_ids"].is_null(), "no platforms -> no account_ids written");

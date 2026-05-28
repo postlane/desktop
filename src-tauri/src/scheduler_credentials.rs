@@ -113,12 +113,15 @@ pub async fn save_scheduler_credential(
         },
         has_keyring_key: &|key| matches!(app.keyring().get_password("postlane", key), Ok(Some(_))),
     };
-    let result = save_scheduler_credential_core(
+    let save_result = save_scheduler_credential_core(
         &provider, &api_key, &repo_id, username.as_deref(),
         &matching_paths, &env,
     ).await?;
+    for warning in &save_result.warnings {
+        log::warn!("[save_scheduler_credential] {}", warning);
+    }
     let _ = app.emit("platform-connected", ());
-    Ok(result)
+    Ok(save_result.account_names)
 }
 
 #[tauri::command]
