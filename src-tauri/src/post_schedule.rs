@@ -67,19 +67,23 @@ mod tests {
     use crate::storage::{Repo, ReposConfig};
     use std::path::PathBuf;
 
-    fn make_state_with_dir(dir: &std::path::Path) -> AppState {
+    fn make_state_with_dir(dir: &std::path::Path) -> (AppState, tempfile::TempDir) {
         let canonical = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-        let repos = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap_or("").to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        };
-        AppState::new(repos)
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![Repo {
+                    id: "r1".to_string(),
+                    name: "test".to_string(),
+                    path: canonical.to_str().unwrap_or("").to_string(),
+                    active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            _tmp_repos.path().join("repos.json"),
+        );
+        (state, _tmp_repos)
     }
 
     fn write_meta_in(dir: &std::path::Path, post_folder: &str) -> PathBuf {
@@ -100,7 +104,7 @@ mod tests {
     fn test_sets_future_schedule() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let result = update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
         );
@@ -119,7 +123,7 @@ mod tests {
         let mut meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         meta.schedule = Some(schedule_tomorrow().to_string());
         crate::post_mutations::write_post_meta(&meta_path, &meta).unwrap();
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let result = update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", None, &state, future(), None,
         );
@@ -132,7 +136,7 @@ mod tests {
     fn test_rejects_past_timestamp() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let now: DateTime<Utc> = "2026-06-03T12:00:00Z".parse().unwrap();
         let result = update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some("2026-06-03T11:00:00Z"), &state, now, None,
@@ -148,7 +152,7 @@ mod tests {
     fn test_rejects_malformed_iso() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         let result = update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some("not-a-date"), &state, future(), None,
         );
@@ -160,7 +164,11 @@ mod tests {
     fn test_rejects_unregistered_repo_path() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let empty_state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let empty_state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![] },
+            _tmp_repos.path().join("repos.json"),
+        );
         let result = update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &empty_state, future(), None,
         );
@@ -172,7 +180,7 @@ mod tests {
     fn test_atomic_write_leaves_no_tmp_file() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
         ).unwrap();
@@ -183,7 +191,7 @@ mod tests {
     fn test_stores_timezone_when_setting_schedule() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(),
             Some("America/New_York"),
@@ -202,7 +210,7 @@ mod tests {
         meta.schedule = Some(schedule_tomorrow().to_string());
         meta.schedule_timezone = Some("America/New_York".to_string());
         crate::post_mutations::write_post_meta(&meta_path, &meta).unwrap();
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         update_post_schedule_impl(dir.path().to_str().unwrap(), "post-001", None, &state, future(), None).unwrap();
         let meta2 = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta2.schedule_timezone.is_none(), "timezone should be cleared when schedule is cleared");
@@ -212,7 +220,7 @@ mod tests {
     fn test_sets_schedule_source_to_user_when_setting_schedule() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         write_meta_in(dir.path(), "post-001");
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         update_post_schedule_impl(
             dir.path().to_str().unwrap(), "post-001", Some(schedule_tomorrow()), &state, future(), None,
         ).unwrap();
@@ -230,7 +238,7 @@ mod tests {
         meta.schedule = Some(schedule_tomorrow().to_string());
         meta.schedule_source = Some("user".to_string());
         crate::post_mutations::write_post_meta(&meta_path, &meta).unwrap();
-        let state = make_state_with_dir(dir.path());
+        let (state, _tmp_repos) = make_state_with_dir(dir.path());
         update_post_schedule_impl(dir.path().to_str().unwrap(), "post-001", None, &state, future(), None).unwrap();
         let meta2 = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert!(meta2.schedule_source.is_none(), "schedule_source should be None when schedule is cleared");

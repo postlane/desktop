@@ -114,20 +114,17 @@ pub async fn approve_post(
 mod tests {
     use super::*;
     use crate::post_meta::{PostMeta, PostStatus};
-    use crate::storage::{Repo, ReposConfig};
+    use crate::storage::Repo;
     use std::path::Path;
 
     fn make_state(repo_path: &str) -> AppState {
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: repo_path.to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
+        crate::test_fixtures::make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: repo_path.to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }])
     }
 
     fn write_post(dir: &Path, post_folder: &str) {

@@ -250,7 +250,7 @@ mod tests {
     use crate::storage::ReposConfig;
 
     fn make_empty_state() -> AppState {
-        AppState::new(ReposConfig { version: 1, repos: vec![] })
+        crate::test_fixtures::make_state(vec![])
     }
 
     /// Build a state whose repos.json lives in `dir`, seeded with the given repos.

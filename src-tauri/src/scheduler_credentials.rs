@@ -291,27 +291,21 @@ mod tests {
 
     #[test]
     fn test_record_provider_configured_queues_when_consent_given() {
-        use crate::app_state::AppState;
-        use crate::storage::ReposConfig;
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let state = crate::test_fixtures::make_state(vec![]);
         record_provider_configured(&state, true, "zernio");
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
     #[test]
     fn test_record_provider_configured_no_op_when_consent_not_given() {
-        use crate::app_state::AppState;
-        use crate::storage::ReposConfig;
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let state = crate::test_fixtures::make_state(vec![]);
         record_provider_configured(&state, false, "zernio");
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
 
     #[test]
     fn test_record_provider_configured_has_scope_workspace() {
-        use crate::app_state::AppState;
-        use crate::storage::ReposConfig;
-        let state = AppState::new(ReposConfig { version: 1, repos: vec![] });
+        let state = crate::test_fixtures::make_state(vec![]);
         record_provider_configured(&state, true, "zernio");
         let events = state.telemetry.peek_queue();
         assert_eq!(events.len(), 1);

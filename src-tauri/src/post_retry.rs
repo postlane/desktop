@@ -91,7 +91,7 @@ pub fn retry_post(
 mod tests {
     use super::*;
     use crate::app_state::AppState;
-    use crate::storage::{Repo, ReposConfig};
+    use crate::storage::Repo;
     use std::fs;
 
     fn make_retry_dir(post_folder: &str, platforms: &[&str]) -> (std::path::PathBuf, AppState) {
@@ -114,16 +114,13 @@ mod tests {
             ),
         )
         .expect("write meta.json");
-        let state = AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap().to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        });
+        let state = crate::test_fixtures::make_state(vec![Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: canonical.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }]);
         (canonical, state)
     }
 
@@ -162,10 +159,7 @@ mod tests {
         let dir = std::env::temp_dir().join("postlane_test_retry_unregistered");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create dir");
-        let state = AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![],
-        });
+        let state = crate::test_fixtures::make_state(vec![]);
         let result = retry_post_impl(dir.to_str().unwrap(), "some-post", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("403"), "error must indicate not-registered");
@@ -178,16 +172,13 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create dir");
         let canonical = fs::canonicalize(&dir).expect("canonicalize");
-        let state = AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap().to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        });
+        let state = crate::test_fixtures::make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: canonical.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }]);
         let result = retry_post_impl(dir.to_str().unwrap(), "nonexistent-folder", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("does not exist"), "error must indicate missing folder");
@@ -203,16 +194,13 @@ mod tests {
         let post_path = canonical.join(".postlane/posts/no-meta-post");
         fs::create_dir_all(&post_path).expect("create post dir");
         // No meta.json written
-        let state = AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap().to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        });
+        let state = crate::test_fixtures::make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: canonical.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }]);
         let result = retry_post_impl(dir.to_str().unwrap(), "no-meta-post", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("meta.json"), "error must mention meta.json");
@@ -232,16 +220,13 @@ mod tests {
             post_path.join("meta.json"),
             r#"{"status":"failed","platforms":["x","bluesky"],"platform_results":{"x":"failed"}}"#,
         ).expect("write meta");
-        let state = AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: canonical.to_str().unwrap().to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        });
+        let state = crate::test_fixtures::make_state(vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "test".to_string(),
+            path: canonical.to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }]);
         let result = retry_post_impl(dir.to_str().unwrap(), "multi-platform", &state);
         assert!(result.is_ok(), "{:?}", result);
         let send_result = result.unwrap();

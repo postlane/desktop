@@ -39,7 +39,13 @@ pub struct AppState {
 impl AppState {
     /// Creates a new `AppState` with the given repos config.
     /// The repos path is resolved from `postlane_dir()` at construction time.
+    ///
+    /// # Panics (test builds only)
+    /// Panics in `#[cfg(test)]` builds. Use `AppState::new_with_path()` in all
+    /// tests to point at an isolated temp path and never touch `~/.postlane`.
     pub fn new(repos: ReposConfig) -> Self {
+        #[cfg(test)]
+        panic!("Use AppState::new_with_path() in tests — AppState::new() writes to ~/.postlane");
         let repos_path = postlane_dir()
             .map(|d| d.join("repos.json"))
             .unwrap_or_else(|_| PathBuf::from("/dev/null"));
@@ -171,9 +177,21 @@ mod tests {
     }
 
     #[test]
-    fn test_app_state_new() {
+    fn test_app_state_new_panics_in_test_builds() {
+        // AppState::new() must panic in test builds so accidental callers surface
+        // immediately rather than silently writing fixture data to ~/.postlane.
+        // Use new_with_path() in all tests instead.
+        let result = std::panic::catch_unwind(|| {
+            AppState::new(crate::storage::ReposConfig { version: 1, repos: vec![] })
+        });
+        assert!(result.is_err(), "AppState::new() must panic in #[cfg(test)] builds");
+    }
+
+    #[test]
+    fn test_app_state_new_with_path_initialises_correctly() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
-        let app_state = AppState::new(repos);
+        let app_state = AppState::new_with_path(repos, tmp.path().join("repos.json"));
         assert_eq!(app_state.repos.lock().unwrap().version, 1);
         assert_eq!(app_state.repos.lock().unwrap().repos.len(), 0);
         assert_eq!(app_state.watchers.lock().unwrap().len(), 0);
@@ -182,7 +200,8 @@ mod tests {
     #[test]
     fn test_lock_repos_returns_guard_with_correct_data() {
         let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
-        let state = AppState::new(repos);
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(repos, tmp.path().join("repos.json"));
         let guard = state.lock_repos().expect("must acquire repos lock");
         assert_eq!(guard.version, 1);
         assert!(guard.repos.is_empty());
@@ -193,7 +212,8 @@ mod tests {
         // Poison the mutex from another thread, then verify the error message.
         use std::sync::Arc;
         let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
-        let state = Arc::new(AppState::new(repos));
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = Arc::new(AppState::new_with_path(repos, tmp.path().join("repos.json")));
         let state2 = Arc::clone(&state);
         let _ = std::thread::spawn(move || {
             let _guard = state2.repos.lock().unwrap();

@@ -125,17 +125,22 @@ mod tests {
     use crate::storage::{Repo, ReposConfig};
     use std::fs;
 
-    fn make_drafts_state(path: &str) -> AppState {
-        AppState::new(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "r1".to_string(),
-                name: "test".to_string(),
-                path: path.to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        })
+    fn make_drafts_state(path: &str) -> (AppState, tempfile::TempDir) {
+        let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
+        let state = AppState::new_with_path(
+            ReposConfig {
+                version: 1,
+                repos: vec![Repo {
+                    id: "r1".to_string(),
+                    name: "test".to_string(),
+                    path: path.to_string(),
+                    active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                }],
+            },
+            _tmp_repos.path().join("repos.json"),
+        );
+        (state, _tmp_repos)
     }
 
     fn write_draft(dir: &std::path::Path, folder: &str, json: &str) {
@@ -150,7 +155,7 @@ mod tests {
         write_draft(dir.path(), "r1", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
         write_draft(dir.path(), "f1", r#"{"status":"failed","platforms":["x"],"created_at":"2026-04-19T00:00:00Z"}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result[0].status, "failed");
         assert_eq!(result[1].status, "ready");
@@ -162,7 +167,7 @@ mod tests {
         write_draft(dir.path(), "old", r#"{"status":"ready","platforms":["x"],"created_at":"2026-01-01T00:00:00Z"}"#);
         write_draft(dir.path(), "new", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result[0].created_at.as_deref() > result[1].created_at.as_deref());
@@ -174,7 +179,7 @@ mod tests {
         write_draft(dir.path(), "with-ts", r#"{"status":"ready","platforms":["x"],"created_at":"2026-04-20T00:00:00Z"}"#);
         write_draft(dir.path(), "no-ts", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result[0].created_at.is_none());
@@ -187,7 +192,7 @@ mod tests {
         write_draft(dir.path(), "a", r#"{"status":"ready","platforms":["x"]}"#);
         write_draft(dir.path(), "b", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|p| p.created_at.is_none()));
@@ -237,7 +242,7 @@ mod tests {
         // Also write a valid draft so we know scanning continues
         write_draft(dir.path(), "real-post", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1, "non-dir entry must be skipped");
     }
@@ -251,7 +256,7 @@ mod tests {
         // Valid draft to confirm scanning continues
         write_draft(dir.path(), "real-post", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1, "folder without meta.json must be skipped");
     }
@@ -266,7 +271,7 @@ mod tests {
         // Valid draft alongside
         write_draft(dir.path(), "good-post", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1, "malformed meta.json must be skipped");
     }
@@ -278,7 +283,7 @@ mod tests {
         write_draft(dir.path(), "sent-post", r#"{"status":"sent","platforms":["x"]}"#);
         write_draft(dir.path(), "ready-post", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert_eq!(result.len(), 1, "only ready/failed statuses are returned");
         assert_eq!(result[0].status, "ready");
@@ -288,7 +293,7 @@ mod tests {
     fn test_get_drafts_empty_when_no_posts_dir() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         // No .postlane/posts directory at all
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         assert!(result.is_empty(), "missing posts dir must yield empty result");
     }
@@ -310,7 +315,7 @@ mod tests {
         write_draft(dir.path(), "p2", r#"{"status":"ready","platforms":["x"]}"#);
         write_draft(dir.path(), "p3", r#"{"status":"ready","platforms":["x"]}"#);
 
-        let state = make_drafts_state(dir.path().to_str().unwrap());
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
         let result = get_drafts_impl(&state).expect("ok");
         // The two None entries sort before the Some entry
         assert_eq!(result.len(), 3);

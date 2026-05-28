@@ -37,6 +37,7 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::published_queries::get_all_published, crate::published_queries::get_repo_published,
         crate::repo_discovery::discover_repos, crate::repo_project_filter::list_repos_for_project, crate::repo_project_filter::unregister_repo,
         crate::get_local_server_port,
+        crate::license::get_license_signed_in, crate::license::sign_out, crate::license::get_license_display_name,
         crate::repo_queries::get_repos, crate::repo_queries::has_active_repos, crate::repo_scheduler_config::update_scheduler_config,
         crate::telemetry_commands::get_telemetry_consent, crate::telemetry_commands::set_telemetry_consent,
         crate::unsplash_search::save_unsplash_key, crate::unsplash_search::delete_unsplash_key, crate::unsplash_search::has_unsplash_key,
