@@ -170,7 +170,7 @@ mod tests {
         let repos_dir = tempfile::TempDir::new().expect("temp dir");
         let repos_path = repos_dir.path().join("repos.json");
         let repo = make_repo_entry("r-unreg", repo_dir.to_str().unwrap());
-        let config = crate::storage::ReposConfig { version: 1, repos: vec![repo] };
+        let config = crate::storage::ReposConfig { version: 1, workspaces: vec![], repos: vec![repo] };
         let state = crate::app_state::AppState::new_with_path(config, repos_path.clone());
 
         // Write repos.json so AppState initialises correctly, then seal the directory

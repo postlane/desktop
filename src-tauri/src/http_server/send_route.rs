@@ -117,8 +117,7 @@ mod tests {
         let canonical = std::fs::canonicalize(repo_dir.path()).expect("temp dir exists");
         let path_str = canonical.to_str().expect("valid utf8").to_string();
         let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
+            version: 1, workspaces: vec![], repos: vec![crate::storage::Repo {
                 id: "test-id".to_string(),
                 name: "test".to_string(),
                 path: path_str.clone(),

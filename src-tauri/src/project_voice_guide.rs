@@ -50,53 +50,60 @@ pub struct SyncStatus {
     pub registered: usize,
 }
 
-// 21.3.0 — Decision: `.postlane/voice_guide.md` is COMMITTED to the repo.
-// Rationale: team members who clone the repo get the voice guide automatically.
-// Every app-side save creates an uncommitted change the user must notice and push,
-// which is acceptable — they would want to share the update with their team.
+// 22.1.0 — voice_guide.md moves to {workspace}/voice_guide.md exclusively (22.1.9).
+// Per-repo .postlane/voice_guide.md files are no longer written. Rationale:
+// per-repo copies create unsolicited committed files in child repos, can diverge
+// from the workspace canonical version on conflict, and contradict the
+// "no Postlane files in child repos" promise introduced in v1.4.
 
-/// Writes `voice_guide` to `{repo_path}/.postlane/voice_guide.md` atomically.
-/// Creates `.postlane/` if it does not exist (21.3.3).
-pub(crate) fn write_voice_guide_to_repo(
-    repo_path: &std::path::Path,
-    voice_guide: &str,
-) -> std::io::Result<()> {
-    let postlane_dir = repo_path.join(".postlane");
-    std::fs::create_dir_all(&postlane_dir)?;
-    let target = postlane_dir.join("voice_guide.md");
-    let tmp = postlane_dir.join("voice_guide.md.tmp");
-    std::fs::write(&tmp, voice_guide)?;
-    std::fs::rename(&tmp, &target)
-}
-
-/// Writes `voice_guide` to `.postlane/voice_guide.md` in every repo registered under
-/// `project_id`. Repos whose path no longer exists on disk are skipped with a warning.
-/// Returns a `SyncStatus` with the successfully-written paths and the total registered count.
+/// Writes `voice_guide` to `{workspace}/voice_guide.md` for every workspace entry
+/// in `state.repos.workspaces` where `entry.id == project_id` (22.1.9).
+///
+/// Workspaces whose path no longer exists on disk are skipped with a warning.
+/// Returns a `SyncStatus` with the successfully-written workspace paths and
+/// the count of matching workspace registrations.
 pub(crate) fn sync_voice_guide_to_repos_impl(
     project_id: &str,
     voice_guide: &str,
     state: &AppState,
 ) -> SyncStatus {
-    let repo_paths =
-        crate::credential_repo_sync::collect_matching_repo_paths(project_id, state);
-    let registered = repo_paths.len();
+    let repos = match state.repos.lock() {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("[sync_voice_guide] failed to lock repos: {}", e);
+            return SyncStatus { synced: vec![], registered: 0 };
+        }
+    };
+
+    let matching: Vec<_> = repos
+        .workspaces
+        .iter()
+        .filter(|w| w.active && w.id == project_id)
+        .collect();
+
+    let registered = matching.len();
+
     if voice_guide.trim().is_empty() {
-        return SyncStatus { synced: Vec::new(), registered };
+        return SyncStatus { synced: vec![], registered };
     }
+
     let mut synced = Vec::new();
-    for repo_path in repo_paths {
-        if !repo_path.exists() {
+    for workspace in matching {
+        let ws_path = std::path::Path::new(&workspace.workspace_path);
+        if !ws_path.exists() {
             log::warn!(
-                "[sync_voice_guide_to_repos] repo path no longer exists: {}",
-                repo_path.display()
+                "[sync_voice_guide] workspace path no longer exists: {}",
+                workspace.workspace_path
             );
             continue;
         }
-        match write_voice_guide_to_repo(&repo_path, voice_guide) {
-            Ok(_) => synced.push(repo_path.display().to_string()),
+        let target = ws_path.join("voice_guide.md");
+        let tmp = ws_path.join("voice_guide.md.tmp");
+        match std::fs::write(&tmp, voice_guide).and_then(|_| std::fs::rename(&tmp, &target)) {
+            Ok(_) => synced.push(workspace.workspace_path.clone()),
             Err(e) => log::warn!(
-                "[sync_voice_guide_to_repos] write to {}: {}",
-                repo_path.display(),
+                "[sync_voice_guide] write to {}: {}",
+                workspace.workspace_path,
                 e
             ),
         }
@@ -134,185 +141,204 @@ mod tests {
         state
     }
 
-    /// 21.3.10 — saves voice guide to all registered repos under the project
+    /// 22.1.9 — saves voice guide to workspace root, not per-repo .postlane/
     #[test]
-    fn test_sync_writes_to_matching_repo_and_returns_path() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-abc"}"#)
-            .expect("write config.json");
-
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+    fn test_sync_writes_to_matching_workspace_and_returns_path() {
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        let state = make_state_with_workspace("proj-abc", ws.path().to_str().unwrap());
         let result = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
 
-        let written = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
+        let expected = ws.path().join("voice_guide.md");
+        assert!(expected.exists(), "voice_guide.md must exist at workspace root");
+        let written = std::fs::read_to_string(&expected).expect("read");
         assert_eq!(written, "Write with clarity.");
         assert_eq!(result.synced.len(), 1);
         assert_eq!(result.registered, 1);
-        assert!(result.synced[0].contains(dir.path().to_str().unwrap()));
+        assert!(result.synced[0].contains(ws.path().to_str().unwrap()));
     }
 
     #[test]
     fn test_sync_skips_non_matching_project() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"other-proj"}"#)
-            .expect("write config.json");
-
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        let state = make_state_with_workspace("other-proj", ws.path().to_str().unwrap());
         let result = sync_voice_guide_to_repos_impl("proj-abc", "Write with clarity.", &state);
 
-        assert!(!postlane.join("voice_guide.md").exists(), "non-matching repo must not be written");
+        assert!(!ws.path().join("voice_guide.md").exists(), "non-matching workspace must not be written");
         assert!(result.synced.is_empty());
         assert_eq!(result.registered, 0);
     }
 
-    /// 21.3.13 — overwrites, does not append
+    /// 22.1.9 — overwrites existing workspace voice_guide.md, does not append
     #[test]
     fn test_sync_overwrites_existing_file() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-xyz"}"#)
-            .expect("write config.json");
-        std::fs::write(postlane.join("voice_guide.md"), "old content").expect("write old");
-
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        std::fs::write(ws.path().join("voice_guide.md"), "old content").expect("write old");
+        let state = make_state_with_workspace("proj-xyz", ws.path().to_str().unwrap());
         sync_voice_guide_to_repos_impl("proj-xyz", "new content", &state);
 
-        let written = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
+        let written = std::fs::read_to_string(ws.path().join("voice_guide.md")).expect("read");
         assert_eq!(written, "new content");
     }
 
     #[test]
-    fn test_sync_no_repos_returns_empty_vec() {
+    fn test_sync_no_workspaces_returns_empty_vec() {
         let state = make_state(vec![]);
         let result = sync_voice_guide_to_repos_impl("proj-abc", "content", &state);
         assert!(result.synced.is_empty());
         assert_eq!(result.registered, 0);
     }
 
-    /// 21.3.11 — missing path skipped; other repo still written
+    /// 22.1.9 — nonexistent workspace path skipped; existing workspace still written
     #[test]
     fn test_sync_skips_nonexistent_path_but_writes_existing() {
+        use crate::workspace_entry::WorkspaceEntry;
         let existing = tempfile::TempDir::new().expect("create existing dir");
-        let postlane = existing.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-multi"}"#)
-            .expect("write config.json");
-
-        let missing_path = "/tmp/postlane_nonexistent_repo_path_for_test_21_3_11";
-        // Ensure the path really doesn't exist
+        let missing_path = "/tmp/postlane_nonexistent_workspace_for_test_22_1";
         let _ = std::fs::remove_dir_all(missing_path);
 
-        let state = make_state(vec![
-            Repo {
-                id: "repo-missing".to_string(),
-                name: "missing".to_string(),
-                path: missing_path.to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            },
-            Repo {
-                id: "repo-existing".to_string(),
-                name: "existing".to_string(),
-                path: existing.path().to_str().unwrap().to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            },
-        ]);
-        let repos = state.repos.lock().unwrap().clone();
-        crate::storage::write_repos(&state.repos_path, &repos).expect("write repos.json for test");
+        let config = crate::storage::ReposConfig {
+            version: 2,
+            workspaces: vec![
+                WorkspaceEntry {
+                    id: "proj-multi".to_string(),
+                    name: "missing".to_string(),
+                    workspace_path: missing_path.to_string(),
+                    active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+                WorkspaceEntry {
+                    id: "proj-multi".to_string(),
+                    name: "existing".to_string(),
+                    workspace_path: existing.path().to_str().unwrap().to_string(),
+                    active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+            ],
+            repos: vec![],
+        };
+        let repos_path = std::env::temp_dir().join(format!(
+            "postlane_vg_multi_test_{}.json", std::process::id()
+        ));
+        let state = crate::app_state::AppState::new_with_path(config, repos_path);
 
         let result = sync_voice_guide_to_repos_impl("proj-multi", "guide text", &state);
 
-        assert!(postlane.join("voice_guide.md").exists(), "existing repo must be written");
-        assert_eq!(result.synced.len(), 1, "only the existing repo path should be in synced list");
-        assert_eq!(result.registered, 1, "only the repo with config.json counts as registered");
+        assert!(existing.path().join("voice_guide.md").exists(), "existing workspace must be written");
+        assert_eq!(result.synced.len(), 1, "only the existing workspace path in synced list");
+        assert_eq!(result.registered, 2, "both registrations count as registered");
     }
 
-    /// 21.3.12 — atomic write; no .tmp file left after success
+    /// 22.1.9 — atomic write; no .tmp file left after success
     #[test]
     fn test_sync_no_tmp_file_after_successful_write() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-atomic"}"#)
-            .expect("write config.json");
-
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        let state = make_state_with_workspace("proj-atomic", ws.path().to_str().unwrap());
         sync_voice_guide_to_repos_impl("proj-atomic", "atomic content", &state);
 
-        assert!(!postlane.join("voice_guide.md.tmp").exists(), ".tmp file must not exist after write");
-        assert!(postlane.join("voice_guide.md").exists(), "final file must exist");
+        assert!(!ws.path().join("voice_guide.md.tmp").exists(), ".tmp file must not exist after write");
+        assert!(ws.path().join("voice_guide.md").exists(), "final file must exist");
     }
 
-    /// 21.3.17 — write_voice_guide_to_repo creates .postlane/ when it does not exist
-    #[test]
-    fn test_write_creates_postlane_dir_and_file() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        // No .postlane/ directory pre-created — exercises the create_dir_all path
-        write_voice_guide_to_repo(dir.path(), "Be direct.").expect("write should succeed");
-        assert!(dir.path().join(".postlane").is_dir(), ".postlane/ must be created");
-        let content = std::fs::read_to_string(dir.path().join(".postlane/voice_guide.md"))
-            .expect("read voice_guide.md");
-        assert_eq!(content, "Be direct.");
-    }
-
-    /// 21.3.14 — on-disk content exactly matches the input string
+    /// 22.1.9 — on-disk content at workspace root exactly matches the input string
     #[test]
     fn test_sync_content_readback_matches_input() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-readback"}"#)
-            .expect("write config.json");
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        let state = make_state_with_workspace("proj-readback", ws.path().to_str().unwrap());
         let input = "Voice guide content.\nLine two.\n";
         let result = sync_voice_guide_to_repos_impl("proj-readback", input, &state);
         assert_eq!(result.synced.len(), 1);
-        let on_disk = std::fs::read_to_string(postlane.join("voice_guide.md")).expect("read");
+        let on_disk = std::fs::read_to_string(ws.path().join("voice_guide.md")).expect("read");
         assert_eq!(on_disk, input, "on-disk bytes must exactly match input");
     }
 
-    /// Write failure in write_voice_guide_to_repo is logged and skipped — repo is not in synced list
+    // ── 22.1.9 workspace-root voice guide ────────────────────────────────────
+
+    fn make_state_with_workspace(project_id: &str, workspace_path: &str) -> AppState {
+        use crate::workspace_entry::WorkspaceEntry;
+        let config = crate::storage::ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: project_id.to_string(),
+                name: "test-ws".to_string(),
+                workspace_path: workspace_path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![],
+        };
+        let repos_path = std::env::temp_dir().join(format!(
+            "postlane_vg_ws_test_{}_{}.json",
+            std::process::id(),
+            workspace_path.len()
+        ));
+        crate::app_state::AppState::new_with_path(config, repos_path)
+    }
+
+    /// 22.1.9 — voice guide written to {workspace}/voice_guide.md, not per-repo.
     #[test]
-    fn test_sync_logs_warning_and_excludes_path_on_write_failure() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
+    fn test_sync_writes_voice_guide_to_workspace_root() {
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        let state = make_state_with_workspace("proj-ws-1", ws.path().to_str().unwrap());
+
+        let result = sync_voice_guide_to_repos_impl("proj-ws-1", "Write with clarity.", &state);
+
+        let expected_path = ws.path().join("voice_guide.md");
+        assert!(expected_path.exists(), "voice_guide.md must exist at workspace root");
+        let written = std::fs::read_to_string(&expected_path).expect("read");
+        assert_eq!(written, "Write with clarity.");
+        assert_eq!(result.synced.len(), 1);
+        assert_eq!(result.registered, 1);
+    }
+
+    /// 22.1.9 — per-repo legacy registrations do NOT get voice guide written.
+    #[test]
+    fn test_sync_does_not_write_to_per_repo_paths() {
+        let dir = tempfile::TempDir::new().expect("create repo dir");
         let postlane = dir.path().join(".postlane");
         std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-writefail"}"#)
-            .expect("write config.json");
-        // Place a directory at the .tmp path so write_voice_guide_to_repo cannot create the tmp file
-        std::fs::create_dir_all(postlane.join("voice_guide.md.tmp"))
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-legacy"}"#)
+            .expect("write per-repo config");
+
+        // State with ONLY a per-repo registration (legacy `repos` array)
+        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let result = sync_voice_guide_to_repos_impl("proj-legacy", "should not be written", &state);
+
+        assert!(
+            !postlane.join("voice_guide.md").exists(),
+            "voice_guide.md must NOT be written to per-repo paths in v1.4"
+        );
+        assert_eq!(result.synced.len(), 0, "per-repo paths yield no synced entries");
+        assert_eq!(result.registered, 0, "per-repo paths yield 0 registered");
+    }
+
+    /// 22.1.9 — write failure in workspace is logged; workspace not in synced list
+    #[test]
+    fn test_sync_logs_warning_and_excludes_path_on_write_failure() {
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        // Block the tmp file by placing a directory at that path
+        std::fs::create_dir_all(ws.path().join("voice_guide.md.tmp"))
             .expect("create dir at tmp path");
 
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let state = make_state_with_workspace("proj-writefail", ws.path().to_str().unwrap());
         let result = sync_voice_guide_to_repos_impl("proj-writefail", "should not be written", &state);
 
         assert!(result.synced.is_empty(), "failed write must not appear in synced list");
-        assert_eq!(result.registered, 1, "repo is still registered");
+        assert_eq!(result.registered, 1, "workspace is still registered");
         assert!(
-            !postlane.join("voice_guide.md").exists(),
+            !ws.path().join("voice_guide.md").exists(),
             "voice_guide.md must not exist after write failure"
         );
     }
 
-    /// 21.3.16 — whitespace-only voice guide does not write a file
+    /// 22.1.9 — whitespace-only voice guide does not write a file
     #[test]
     fn test_sync_skips_whitespace_only_voice_guide() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let postlane = dir.path().join(".postlane");
-        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
-        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-ws"}"#)
-            .expect("write config.json");
-        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let ws = tempfile::TempDir::new().expect("create workspace dir");
+        let state = make_state_with_workspace("proj-ws", ws.path().to_str().unwrap());
         let result = sync_voice_guide_to_repos_impl("proj-ws", "   \n  ", &state);
         assert!(result.synced.is_empty(), "whitespace-only guide must return empty vec");
-        assert_eq!(result.registered, 1, "repo is still registered even when guide is blank");
-        assert!(!postlane.join("voice_guide.md").exists(), "no file must be written for whitespace input");
+        assert_eq!(result.registered, 1, "workspace is still registered even when guide is blank");
+        assert!(!ws.path().join("voice_guide.md").exists(), "no file must be written for whitespace input");
     }
 }
 

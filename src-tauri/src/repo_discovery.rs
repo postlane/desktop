@@ -38,7 +38,7 @@ fn register_discovered_repo(repos_path: &Path, dir: &Path, project_id: &str) -> 
         .to_string();
     let path_str = canonical.to_str().ok_or("invalid path")?.to_string();
     let mut cfg = crate::storage::read_repos_with_recovery(repos_path)
-        .unwrap_or_else(|_| ReposConfig { version: 1, repos: vec![] });
+        .unwrap_or_else(|_| ReposConfig { version: 1, workspaces: vec![], repos: vec![] });
     // Defense-in-depth: do not duplicate an already-registered path and do not
     // overwrite its config.json (which may belong to a different project).
     if cfg.repos.iter().any(|r| r.path == path_str) {
@@ -72,7 +72,7 @@ pub fn discover_repos_impl(
         }
     }
     let existing = crate::storage::read_repos_with_recovery(repos_path)
-        .unwrap_or_else(|_| ReposConfig { version: 1, repos: vec![] });
+        .unwrap_or_else(|_| ReposConfig { version: 1, workspaces: vec![], repos: vec![] });
     let mut registered: HashSet<String> =
         existing.repos.iter().map(|r| r.path.to_lowercase()).collect();
     let mut result = DiscoveryResult::default();

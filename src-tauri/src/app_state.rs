@@ -166,6 +166,7 @@ mod tests {
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
+            repos_schema_v2: false,
         };
 
         let path = dir.path().join("app_state.json");
@@ -185,7 +186,7 @@ mod tests {
         // immediately rather than silently writing fixture data to ~/.postlane.
         // Use new_with_path() in all tests instead.
         let result = std::panic::catch_unwind(|| {
-            AppState::new(crate::storage::ReposConfig { version: 1, repos: vec![] })
+            AppState::new(crate::storage::ReposConfig { version: 1, workspaces: vec![], repos: vec![] })
         });
         assert!(result.is_err(), "AppState::new() must panic in #[cfg(test)] builds");
     }
@@ -193,7 +194,7 @@ mod tests {
     #[test]
     fn test_app_state_new_with_path_initialises_correctly() {
         let tmp = tempfile::TempDir::new().expect("create temp dir");
-        let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
+        let repos = crate::storage::ReposConfig { version: 1, workspaces: vec![], repos: vec![] };
         let app_state = AppState::new_with_path(repos, tmp.path().join("repos.json"));
         assert_eq!(app_state.repos.lock().unwrap().version, 1);
         assert_eq!(app_state.repos.lock().unwrap().repos.len(), 0);
@@ -202,7 +203,7 @@ mod tests {
 
     #[test]
     fn test_lock_repos_returns_guard_with_correct_data() {
-        let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
+        let repos = crate::storage::ReposConfig { version: 1, workspaces: vec![], repos: vec![] };
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(repos, tmp.path().join("repos.json"));
         let guard = state.lock_repos().expect("must acquire repos lock");
@@ -214,7 +215,7 @@ mod tests {
     fn test_lock_repos_error_message_mentions_repos() {
         // Poison the mutex from another thread, then verify the error message.
         use std::sync::Arc;
-        let repos = crate::storage::ReposConfig { version: 1, repos: vec![] };
+        let repos = crate::storage::ReposConfig { version: 1, workspaces: vec![], repos: vec![] };
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let state = Arc::new(AppState::new_with_path(repos, tmp.path().join("repos.json")));
         let state2 = Arc::clone(&state);
@@ -250,6 +251,7 @@ mod tests {
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
+            repos_schema_v2: false,
         };
 
         write_app_state(&state).expect("Failed to write app_state");
@@ -314,6 +316,7 @@ mod tests {
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
+            repos_schema_v2: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");

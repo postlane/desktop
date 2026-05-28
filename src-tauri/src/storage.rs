@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use crate::workspace_entry::WorkspaceEntry;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -12,10 +13,35 @@ pub struct Repo {
     pub added_at: String,
 }
 
+/// Global desktop registry stored at `~/.postlane/repos.json`.
+///
+/// Version history:
+///   v1 — `{ "version": 1, "repos": [...] }` — individual repo registrations only
+///   v2 — `{ "version": 2, "workspaces": [...], "repos": [...] }` — adds workspace
+///         support; `repos` array is the legacy per-repo list, preserved for back-compat
+///
+/// Migration: `repos_migration::migrate_repos_to_v2` rewrites v1 → v2 at app startup.
+/// New installations always write v2. New registrations go into `workspaces`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ReposConfig {
     pub version: u32,
+    /// Workspace registrations (v2+). Empty on migrated v1 installs until the user
+    /// runs "Add workspace". Never written in new per-repo registrations.
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceEntry>,
+    /// Legacy per-repo registrations from v1. Preserved after migration; new
+    /// registrations never add to this array — they go into `workspaces`.
     pub repos: Vec<Repo>,
+}
+
+impl Default for ReposConfig {
+    fn default() -> Self {
+        Self {
+            version: REPOS_CONFIG_VERSION,
+            workspaces: vec![],
+            repos: vec![],
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -37,25 +63,33 @@ impl From<serde_json::Error> for StorageError {
     }
 }
 
-const REPOS_CONFIG_VERSION: u32 = 1;
+/// Write version for new and migrated configs.
+pub const REPOS_CONFIG_VERSION: u32 = 2;
+
+/// Versions this binary can read without error. v1 is accepted so that
+/// `repos_migration::migrate_repos_to_v2` can run before any other startup code.
+const REPOS_SUPPORTED_VERSIONS: &[u32] = &[1, 2];
 
 /// Reads repos.json with corruption recovery.
 /// Returns `(config, was_corrupted)` — `was_corrupted` is true when the file
 /// existed but was unparseable and had to be replaced with an empty config.
+///
+/// Accepts both v1 and v2 files. Call `repos_migration::migrate_repos_to_v2`
+/// before this function at startup to normalise v1 files to v2.
 pub fn read_repos_checked(repos_path: &Path) -> Result<(ReposConfig, bool), StorageError> {
     if !repos_path.exists() {
-        return Ok((ReposConfig { version: REPOS_CONFIG_VERSION, repos: vec![] }, false));
+        return Ok((ReposConfig::default(), false));
     }
 
     let content = std::fs::read_to_string(repos_path)?;
 
     match serde_json::from_str::<ReposConfig>(&content) {
         Ok(config) => {
-            if config.version != REPOS_CONFIG_VERSION {
+            if !REPOS_SUPPORTED_VERSIONS.contains(&config.version) {
                 log::warn!(
-                    "Version mismatch in repos.json: found {}, expected {}",
+                    "Unsupported version in repos.json: found {}, supported {:?}",
                     config.version,
-                    REPOS_CONFIG_VERSION
+                    REPOS_SUPPORTED_VERSIONS
                 );
                 return Err(StorageError::VersionMismatch {
                     found: config.version,
@@ -75,7 +109,7 @@ pub fn read_repos_checked(repos_path: &Path) -> Result<(ReposConfig, bool), Stor
                 log::info!("Corrupted repos.json backed up to {:?}", bak_path);
             }
 
-            Ok((ReposConfig { version: REPOS_CONFIG_VERSION, repos: vec![] }, true))
+            Ok((ReposConfig::default(), true))
         }
     }
 }
@@ -100,298 +134,5 @@ pub fn write_repos(repos_path: &Path, config: &ReposConfig) -> Result<(), Storag
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    #[test]
-    fn test_read_repos_missing_file_returns_empty() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = dir.path().join("repos.json");
-
-        let result = read_repos_with_recovery(&repos_path).expect("Should return empty config");
-        assert_eq!(result.version, 1);
-        assert_eq!(result.repos.len(), 0);
-    }
-
-    #[test]
-    fn test_read_repos_malformed_json_creates_backup() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = dir.path().join("repos.json");
-        let bak_path = dir.path().join("repos.json.bak");
-
-        // Write malformed JSON
-        fs::write(&repos_path, "{ this is not valid json }").expect("Failed to write malformed JSON");
-
-        // Should not panic, should return empty config
-        let result = read_repos_with_recovery(&repos_path).expect("Should recover from corruption");
-        assert_eq!(result.version, 1);
-        assert_eq!(result.repos.len(), 0, "Should return empty repos list");
-
-        // Backup should exist
-        assert!(bak_path.exists(), "Backup file should exist");
-        assert!(!repos_path.exists(), "Original should be renamed");
-    }
-
-    #[test]
-    fn test_read_repos_valid_json_parses_correctly() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = dir.path().join("repos.json");
-
-        let config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: "test-id".to_string(),
-                name: "Test Repo".to_string(),
-                path: "/path/to/repo".to_string(),
-                active: true,
-                added_at: "2024-01-01T00:00:00Z".to_string(),
-            }],
-        };
-
-        let json = serde_json::to_string_pretty(&config).expect("Failed to serialize");
-        fs::write(&repos_path, json).expect("Failed to write JSON");
-
-        let result = read_repos_with_recovery(&repos_path).expect("Should parse valid JSON");
-        assert_eq!(result.version, 1);
-        assert_eq!(result.repos.len(), 1);
-        assert_eq!(result.repos[0].id, "test-id");
-    }
-
-    #[test]
-    fn test_read_repos_version_mismatch_returns_error() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = dir.path().join("repos.json");
-
-        // Write config with wrong version
-        let json = r#"{"version": 999, "repos": []}"#;
-        fs::write(&repos_path, json).expect("Failed to write JSON");
-
-        let result = read_repos_with_recovery(&repos_path);
-        assert!(result.is_err(), "Should return error on version mismatch");
-
-        match result {
-            Err(StorageError::VersionMismatch { found, expected }) => {
-                assert_eq!(found, 999);
-                assert_eq!(expected, 1);
-            }
-            _ => panic!("Expected VersionMismatch error"),
-        }
-    }
-
-    #[test]
-    fn test_repos_round_trip_with_version() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = dir.path().join("repos.json");
-
-        let config = ReposConfig {
-            version: 1,
-            repos: vec![
-                Repo {
-                    id: "repo1-id".to_string(),
-                    name: "Repo One".to_string(),
-                    path: "/path/to/repo1".to_string(),
-                    active: true,
-                    added_at: "2024-01-01T00:00:00Z".to_string(),
-                },
-                Repo {
-                    id: "repo2-id".to_string(),
-                    name: "Repo Two".to_string(),
-                    path: "/path/to/repo2".to_string(),
-                    active: false,
-                    added_at: "2024-01-02T00:00:00Z".to_string(),
-                },
-            ],
-        };
-
-        // Write
-        write_repos(&repos_path, &config).expect("Failed to write repos");
-
-        // Read back
-        let loaded = read_repos_with_recovery(&repos_path).expect("Failed to read repos");
-
-        assert_eq!(loaded.version, 1, "Version should be preserved");
-        assert_eq!(loaded.repos.len(), 2, "Should have 2 repos");
-        assert_eq!(loaded.repos[0].id, "repo1-id");
-        assert_eq!(loaded.repos[0].name, "Repo One");
-        assert_eq!(loaded.repos[0].active, true);
-        assert_eq!(loaded.repos[1].id, "repo2-id");
-        assert_eq!(loaded.repos[1].active, false);
-    }
-
-    #[test]
-    fn test_concurrent_write_protection() {
-        use std::sync::{Arc, Mutex};
-        use std::thread;
-
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = Arc::new(dir.path().join("repos.json"));
-        let write_lock = Arc::new(Mutex::new(()));
-
-        // Simulate concurrent writes
-        let mut handles = vec![];
-
-        for i in 0..5 {
-            let path = Arc::clone(&repos_path);
-            let lock = Arc::clone(&write_lock);
-
-            let handle = thread::spawn(move || {
-                let _guard = lock.lock().unwrap(); // Mutex prevents interleaving
-
-                let config = ReposConfig {
-                    version: 1,
-                    repos: vec![Repo {
-                        id: format!("repo-{}", i),
-                        name: format!("Repo {}", i),
-                        path: format!("/path/to/repo{}", i),
-                        active: true,
-                        added_at: "2024-01-01T00:00:00Z".to_string(),
-                    }],
-                };
-
-                write_repos(&path, &config).expect("Write failed");
-            });
-
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.join().expect("Thread panicked");
-        }
-
-        // File should be valid JSON (not corrupted)
-        let final_state = read_repos_with_recovery(&repos_path).expect("Failed to read");
-        assert_eq!(final_state.version, 1);
-        assert_eq!(final_state.repos.len(), 1); // Last write wins
-    }
-
-    #[test]
-    fn test_storage_error_from_io_error() {
-        // Test From<std::io::Error> implementation
-        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let storage_err: StorageError = io_err.into();
-
-        match storage_err {
-            StorageError::IoError(_) => {} // Expected
-            _ => panic!("Expected IoError variant"),
-        }
-    }
-
-    #[test]
-    fn test_storage_error_from_json_error() {
-        // Test From<serde_json::Error> implementation
-        let json_result: Result<ReposConfig, serde_json::Error> =
-            serde_json::from_str("{ invalid json }");
-
-        let json_err = json_result.unwrap_err();
-        let storage_err: StorageError = json_err.into();
-
-        match storage_err {
-            StorageError::ParseError(_) => {} // Expected
-            _ => panic!("Expected ParseError variant"),
-        }
-    }
-
-    #[test]
-    fn test_read_repos_malformed_backup_rename_fails() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-
-        let repos_path = dir.path().join("repos.json");
-        let bak_path = dir.path().join("repos.json.bak");
-
-        // Create a directory where the .bak file should go
-        // This will cause the rename to fail
-        fs::create_dir_all(&bak_path).expect("Failed to create bak dir");
-
-        // Write malformed JSON to repos.json
-        fs::write(&repos_path, "{ not valid json }").expect("Failed to write malformed JSON");
-
-        // Attempt to read - should handle rename failure gracefully (line 81)
-        let result = read_repos_with_recovery(&repos_path);
-        assert!(result.is_ok(), "Should return Ok despite backup failure");
-
-        let config = result.unwrap();
-        assert_eq!(config.version, 1);
-        assert_eq!(config.repos.len(), 0, "Should return empty config");
-    }
-
-    // ── Corruption flag tests (§review-high) ─────────────────────────────────
-
-    #[test]
-    fn test_read_repos_returns_false_flag_for_clean_file() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = dir.path().join("repos.json");
-        let config = ReposConfig { version: 1, repos: vec![] };
-        let json = serde_json::to_string(&config).unwrap();
-        fs::write(&repos_path, json).unwrap();
-
-        let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
-        assert!(!was_corrupted, "clean file must not set was_corrupted");
-    }
-
-    #[test]
-    fn test_read_repos_returns_true_flag_for_corrupted_file() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = dir.path().join("repos.json");
-        fs::write(&repos_path, "{ bad json }").unwrap();
-
-        let (config, was_corrupted) = read_repos_checked(&repos_path).expect("should recover");
-        assert!(was_corrupted, "corrupt file must set was_corrupted");
-        assert_eq!(config.repos.len(), 0, "should return empty config after recovery");
-    }
-
-    #[test]
-    fn test_read_repos_returns_false_flag_for_missing_file() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = dir.path().join("repos.json");
-
-        let (_, was_corrupted) = read_repos_checked(&repos_path).expect("should succeed");
-        assert!(!was_corrupted, "missing file is not corruption");
-    }
-
-    #[test]
-    fn test_write_repos_preserves_previous_content_in_bak() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = dir.path().join("repos.json");
-
-        let make_config = |id: &str| ReposConfig {
-            version: 1,
-            repos: vec![Repo {
-                id: id.to_string(),
-                name: id.to_string(),
-                path: "/p".to_string(),
-                active: true,
-                added_at: "2026-01-01T00:00:00Z".to_string(),
-            }],
-        };
-
-        write_repos(&repos_path, &make_config("first")).expect("first write");
-        write_repos(&repos_path, &make_config("second")).expect("second write");
-
-        let bak_path = repos_path.with_extension("json.bak");
-        assert!(bak_path.exists(), "repos.json.bak must exist after second write");
-        let bak_content = fs::read_to_string(&bak_path).expect("read bak");
-        let bak_config: ReposConfig = serde_json::from_str(&bak_content).expect("parse bak");
-        assert_eq!(
-            bak_config.repos[0].id, "first",
-            "bak must contain the pre-second-write state"
-        );
-    }
-
-    #[test]
-    fn test_write_repos_no_bak_on_first_write() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let repos_path = dir.path().join("repos.json");
-
-        write_repos(&repos_path, &ReposConfig { version: 1, repos: vec![] }).expect("first write");
-
-        let bak_path = repos_path.with_extension("json.bak");
-        assert!(!bak_path.exists(), "no bak should exist when there was nothing to back up");
-    }
-}
+#[path = "storage_tests.rs"]
+mod tests;

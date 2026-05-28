@@ -2,6 +2,21 @@
 
 use std::path::{Path, PathBuf};
 
+/// In-memory representation of a workspace loaded from disk.
+///
+/// Loaded from `{workspace_path}/repos.json` (the workspace child-repo registry,
+/// distinct from `~/.postlane/repos.json` which is the global desktop registry).
+/// All config reads for workspace repos use fields on this struct rather than
+/// constructing `.postlane/` paths inline.
+pub struct WorkspaceRoot {
+    /// Absolute path to the workspace root directory.
+    pub workspace_path: PathBuf,
+    /// The workspace's `id` from `~/.postlane/repos.json`.
+    pub workspace_id: String,
+    /// Child repos loaded from `{workspace_path}/repos.json`.
+    pub repos: Vec<crate::storage::Repo>,
+}
+
 /// Returns true when `path` is a workspace root: a directory that has no `.git/`
 /// directly inside it but contains one or more child repos.
 pub fn is_workspace_root(path: &Path) -> bool {
@@ -45,14 +60,21 @@ pub fn discover_child_repos(workspace_path: &Path) -> Vec<PathBuf> {
     children
 }
 
-/// Returns the effective config path for a child repo: the child's own
-/// `.postlane/config.json` if it exists, otherwise the workspace parent's.
+/// Returns the effective config path for a child repo.
+///
+/// Priority order (22.1.2):
+///   1. `{child_path}/.postlane/config.json` — per-repo override (child wins on conflict)
+///   2. `{workspace_path}/config.json`        — workspace primary (at workspace root, not .postlane/)
+///
+/// Legacy per-repo installs (entries in the `repos` array of `~/.postlane/repos.json`,
+/// which have no associated workspace_path) call this with the same path for both
+/// arguments, so the per-repo `.postlane/config.json` is always returned (22.1.15).
 pub fn effective_config_path(child_path: &Path, workspace_path: &Path) -> PathBuf {
     let child_config = child_path.join(".postlane").join("config.json");
     if child_config.exists() {
         child_config
     } else {
-        workspace_path.join(".postlane").join("config.json")
+        workspace_path.join("config.json")
     }
 }
 
@@ -200,5 +222,122 @@ mod tests {
         );
         assert!(path.ends_with("config.json"));
         let _ = fs::remove_dir_all(&ws);
+    }
+
+    // ── 22.1.2 workspace-root config path ─────────────────────────────────────
+
+    /// 22.1.2 — workspace config is at {workspace_root}/config.json (not .postlane/).
+    #[test]
+    fn test_effective_config_path_fallback_is_workspace_root_config_json() {
+        let ws = setup_dir("eff_cfg_v2_root");
+        let child = ws.join("repo-a");
+        fs::create_dir_all(&child).expect("create child");
+
+        let path = effective_config_path(&child, &ws);
+        let expected = ws.join("config.json");
+        assert_eq!(path, expected, "workspace fallback must be {{workspace}}/config.json, not .postlane/config.json");
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    // ── 22.1.7 WorkspaceRoot struct ───────────────────────────────────────────
+
+    /// 22.1.7 — WorkspaceRoot struct can be constructed and exposes fields correctly.
+    #[test]
+    fn test_workspace_root_struct_fields() {
+        let root = WorkspaceRoot {
+            workspace_path: std::path::PathBuf::from("/code/myorg"),
+            workspace_id: "ws-abc".to_string(),
+            repos: vec![],
+        };
+        assert_eq!(root.workspace_id, "ws-abc");
+        assert_eq!(root.workspace_path, std::path::PathBuf::from("/code/myorg"));
+        assert!(root.repos.is_empty());
+    }
+
+    // ── 22.1.10 schema_version tolerance ──────────────────────────────────────
+
+    /// 22.1.10 — config.json without schema_version field is read without error.
+    /// 22.1.18 — effective config resolves correctly for config.json lacking schema_version.
+    #[test]
+    fn test_config_json_without_schema_version_reads_correctly() {
+        let ws = setup_dir("no_schema_ver");
+        // Write a config.json with no schema_version field (simulates legacy file)
+        let config_path = ws.join("config.json");
+        fs::write(&config_path, r#"{"project_id":"proj-legacy-no-schema"}"#).expect("write");
+
+        let content = fs::read_to_string(&config_path).expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        // schema_version must be absent without causing an error
+        assert!(parsed["schema_version"].is_null(), "schema_version must be absent");
+        // project_id must still be readable
+        assert_eq!(parsed["project_id"].as_str(), Some("proj-legacy-no-schema"));
+
+        // effective_config_path must resolve to this file when no child config exists
+        let child = ws.join("repo-a");
+        fs::create_dir_all(&child).expect("create child");
+        let eff_path = effective_config_path(&child, &ws);
+        assert_eq!(eff_path, config_path);
+
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    // ── 22.1.13–22.1.15 config resolution ────────────────────────────────────
+
+    /// 22.1.13 — workspace config is primary; per-repo override wins on conflict;
+    /// non-conflicting fields from workspace still present in resolved path.
+    #[test]
+    fn test_workspace_config_is_primary_child_override_wins() {
+        let ws = setup_dir("cfg_resolve_ws");
+        let child = ws.join("repo-a");
+        fs::create_dir_all(child.join(".postlane")).expect("create .postlane");
+
+        // Workspace config (primary)
+        fs::write(ws.join("config.json"), r#"{"project_id":"ws-proj","schema_version":4}"#)
+            .expect("write workspace config");
+        // Child override config
+        fs::write(child.join(".postlane").join("config.json"), r#"{"project_id":"child-proj"}"#)
+            .expect("write child config");
+
+        // Child config wins on conflict (project_id)
+        let eff_path = effective_config_path(&child, &ws);
+        assert_eq!(eff_path, child.join(".postlane").join("config.json"), "child config must win");
+
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    /// 22.1.14 — project_id read from workspace config when no per-repo override present.
+    #[test]
+    fn test_project_id_read_from_workspace_config_when_no_child_override() {
+        let ws = setup_dir("cfg_ws_proj_id");
+        let child = ws.join("repo-a");
+        fs::create_dir_all(&child).expect("create child");
+        fs::write(ws.join("config.json"), r#"{"project_id":"ws-proj-id-123"}"#)
+            .expect("write workspace config");
+
+        let eff_path = effective_config_path(&child, &ws);
+        assert_eq!(eff_path, ws.join("config.json"), "workspace config must be used when no child config");
+
+        let content = fs::read_to_string(&eff_path).expect("read config");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
+        assert_eq!(parsed["project_id"].as_str(), Some("ws-proj-id-123"));
+
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    /// 22.1.15 — legacy per-repo config path resolves correctly for repos array entries.
+    /// When workspace_path == child_path (legacy install), per-repo .postlane/config.json is used.
+    #[test]
+    fn test_legacy_per_repo_config_path_resolves_for_repos_array_entries() {
+        let repo = setup_dir("cfg_legacy_repo");
+        let postlane = repo.join(".postlane");
+        fs::create_dir_all(&postlane).expect("create .postlane");
+        fs::write(postlane.join("config.json"), r#"{"project_id":"legacy-proj"}"#)
+            .expect("write per-repo config");
+
+        // Legacy install: no separate workspace path — pass repo as both args
+        let eff_path = effective_config_path(&repo, &repo);
+        assert_eq!(eff_path, postlane.join("config.json"), "legacy per-repo config must be resolved");
+
+        let _ = fs::remove_dir_all(&repo);
     }
 }

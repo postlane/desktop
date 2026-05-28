@@ -150,8 +150,7 @@ mod tests {
 
     fn make_repos(paths: &[&str]) -> ReposConfig {
         ReposConfig {
-            version: 1,
-            repos: paths
+            version: 1, workspaces: vec![], repos: paths
                 .iter()
                 .enumerate()
                 .map(|(i, p)| Repo {
@@ -167,8 +166,7 @@ mod tests {
 
     fn make_repos_with_path(path: &str) -> ReposConfig {
         ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
+            version: 1, workspaces: vec![], repos: vec![crate::storage::Repo {
                 id: "r1".to_string(),
                 name: "test".to_string(),
                 path: path.to_string(),
@@ -225,7 +223,7 @@ mod tests {
 
     #[test]
     fn test_read_project_id_from_path_rejects_unregistered_path() {
-        let repos = ReposConfig { version: 1, repos: vec![] };
+        let repos = ReposConfig { version: 1, workspaces: vec![], repos: vec![] };
         let result = read_project_id_from_path_impl("/unregistered/path", &repos);
         assert!(result.is_err(), "path not in repos.json must be rejected (Security Rule 2)");
     }

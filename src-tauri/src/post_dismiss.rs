@@ -123,8 +123,7 @@ mod tests {
 
     fn make_repos_canonical(dirs: &[&std::path::Path]) -> ReposConfig {
         ReposConfig {
-            version: 1,
-            repos: dirs
+            version: 1, workspaces: vec![], repos: dirs
                 .iter()
                 .map(|d| {
                     let canonical = fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());

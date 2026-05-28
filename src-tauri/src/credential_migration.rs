@@ -257,7 +257,7 @@ mod tests {
         use crate::storage::ReposConfig;
         let dir = tempfile::TempDir::new().unwrap();
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![] },
             dir.path().join("repos.json"),
         );
         assert!(get_project_ids_for_provider("zernio", &state).is_empty());
@@ -279,7 +279,7 @@ mod tests {
             active: true, added_at: "2026-01-01T00:00:00Z".into(),
         };
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![repo] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![repo] },
             dir.path().join("repos.json"),
         );
         let ids = get_project_ids_for_provider("zernio", &state);
@@ -302,7 +302,7 @@ mod tests {
             active: true, added_at: "2026-01-01T00:00:00Z".into(),
         };
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![repo] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![repo] },
             dir.path().join("repos.json"),
         );
         let ids = get_project_ids_for_provider("zernio", &state);
@@ -329,7 +329,7 @@ mod tests {
             Repo { id: "r2".into(), name: "b".into(), path: rd2.to_str().unwrap().into(), active: true, added_at: "2026-01-01T00:00:00Z".into() },
         ];
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos },
+            ReposConfig { version: 1, workspaces: vec![], repos },
             dir.path().join("repos.json"),
         );
         let ids = get_project_ids_for_provider("zernio", &state);

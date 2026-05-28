@@ -49,7 +49,7 @@ pub fn make_state(repos: Vec<Repo>) -> AppState {
     let n = TEST_REPOS_SEQ.fetch_add(1, Ordering::Relaxed);
     let repos_path = std::env::temp_dir()
         .join(format!("postlane_test_repos_{}_{}.json", std::process::id(), n));
-    AppState::new_with_path(ReposConfig { version: 1, repos }, repos_path)
+    AppState::new_with_path(ReposConfig { version: 1, workspaces: vec![], repos }, repos_path)
 }
 
 pub fn make_repo(id: &str, path: &str) -> Repo {
@@ -67,10 +67,17 @@ pub fn home_tmp(name: &str) -> PathBuf {
     home.join(".postlane_test_tmp").join(name)
 }
 
+/// Writes config to `{dir}/.postlane/config.json` — use for per-repo (child) configs.
 pub fn write_config(dir: &Path, json: &str) {
     let d = dir.join(".postlane");
     fs::create_dir_all(&d).expect("create .postlane");
     fs::write(d.join("config.json"), json).expect("write config.json");
+}
+
+/// Writes config to `{dir}/config.json` — use for workspace root configs (22.1.2).
+pub fn write_workspace_config(workspace_dir: &Path, json: &str) {
+    fs::create_dir_all(workspace_dir).expect("create workspace dir");
+    fs::write(workspace_dir.join("config.json"), json).expect("write workspace config.json");
 }
 
 pub fn write_meta(dir: &Path, folder: &str, json: &str) {

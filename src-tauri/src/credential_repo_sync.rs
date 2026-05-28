@@ -107,8 +107,7 @@ mod tests {
 
         // CLI registers repo-b by writing repos.json directly — state.repos is NOT updated
         let repos_on_disk = crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 make_repo("repo-a", dir_a.path().to_str().unwrap()),
                 make_repo("repo-b", dir_b.path().to_str().unwrap()),
             ],
