@@ -3,8 +3,8 @@
 //! `"{provider}/{project_id}"` keys, then deletes the originals.
 //!
 //! Idempotency: guarded by `credential_migration_v1` in `app_state.json`.
-//! Concurrency: `lock_acquired` prevents two simultaneous instances from both
-//! running the migration (cross-process advisory file lock via O_EXCL).
+//! Concurrency: `tauri-plugin-single-instance` enforces single-instance; concurrent
+//! launches are impossible, so no additional file lock is needed.
 
 /// Immutable context passed into `run_v1_impl` to reduce argument count.
 pub struct MigrationContext<'a> {
@@ -58,14 +58,6 @@ where
     Ok(true)
 }
 
-fn try_acquire_lock(lock_path: &std::path::Path) -> bool {
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(lock_path)
-        .is_ok()
-}
-
 fn has_provider_in_local_config(repo_path: &std::path::Path, provider: &str) -> bool {
     let config_path = repo_path.join(".postlane/config.local.json");
     let Ok(content) = std::fs::read_to_string(&config_path) else {
@@ -115,19 +107,14 @@ fn get_project_ids_for_provider(
 
 /// Runs the v1 credential migration against the real keyring.
 ///
-/// Acquires an advisory file lock to prevent two simultaneous launches from
-/// both running the migration. Writes `credential_migration_v1 = true` to
-/// `app_state.json` only after all copies succeed. Migration runs silently.
+/// Single-instance is enforced by `tauri-plugin-single-instance`, so no
+/// additional file lock is needed. Writes `credential_migration_v1 = true`
+/// to `app_state.json` only after all copies succeed. Migration runs silently.
 pub fn run_v1(
     app: &tauri::AppHandle,
     state: &crate::app_state::AppState,
 ) -> Result<bool, String> {
     use tauri_plugin_keyring::KeyringExt;
-
-    let lock_path = crate::init::postlane_dir()
-        .map_err(|e| format!("Failed to get postlane dir: {}", e))?
-        .join("migration_v1.lock");
-    let lock_acquired = try_acquire_lock(&lock_path);
 
     let current = crate::app_state::read_app_state();
     let app_handle = app.clone();
@@ -135,7 +122,8 @@ pub fn run_v1(
     let result = run_v1_impl(
         MigrationContext {
             already_migrated: current.credential_migration_v1,
-            lock_acquired,
+            // Single-instance enforced; concurrent launches are impossible.
+            lock_acquired: true,
             providers: &crate::scheduler_credentials::VALID_PROVIDERS,
         },
         |provider| match app_handle.keyring().get_password("postlane", provider) {
@@ -161,10 +149,6 @@ pub fn run_v1(
                 .map_err(|e| format!("Failed to delete bare credential {}: {}", provider, e))
         },
     );
-
-    if lock_acquired {
-        let _ = std::fs::remove_file(&lock_path);
-    }
 
     let ran = result?;
     if ran {
