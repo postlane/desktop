@@ -265,3 +265,91 @@ async fn test_get_engagement_success() {
     assert_eq!(engagement.replies, 3);
     assert_eq!(engagement.impressions, Some(500));
 }
+
+// buffer — non-2xx responses return HttpError (lines 99-109, 143-151, 189-197, 285-294)
+
+#[tokio::test]
+async fn test_schedule_post_non_2xx_returns_http_error() {
+    use httpmock::prelude::*;
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/1/updates/create.json");
+        then.status(500).body("internal server error");
+    });
+    let mut provider = BufferProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+    let result = provider.schedule_post("Hello", "twitter", None, None, Some("ch-1")).await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_list_profiles_non_2xx_returns_http_error() {
+    use httpmock::prelude::*;
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/1/profiles.json");
+        then.status(500).body("server error");
+    });
+    let mut provider = BufferProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_cancel_post_non_2xx_returns_http_error() {
+    use httpmock::prelude::*;
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/1/updates/post-del/destroy.json");
+        then.status(500).body("server error");
+    });
+    let mut provider = BufferProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+    let result = provider.cancel_post("post-del", "twitter").await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_get_engagement_non_2xx_returns_http_error() {
+    use httpmock::prelude::*;
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/1/updates/post-eng.json");
+        then.status(500).body("server error");
+    });
+    let mut provider = BufferProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+    let result = provider.get_engagement("post-eng", "twitter").await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+// buffer get_queue — content longer than 80 chars is truncated (lines 243-245)
+#[tokio::test]
+async fn test_get_queue_truncates_long_content_preview() {
+    use httpmock::prelude::*;
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/1/profiles.json");
+        then.status(200).json_body(serde_json::json!([{"id": "ch-1", "service": "twitter"}]));
+    });
+    let long_text = "x".repeat(100);
+    server.mock(|when, then| {
+        when.method(GET).path("/1/profiles/ch-1/updates/pending.json");
+        then.status(200).json_body(serde_json::json!({
+            "updates": [{
+                "id": "u1",
+                "scheduled_at": 1_717_200_000_i64,
+                "text": long_text
+            }]
+        }));
+    });
+    let mut provider = BufferProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+    let result = provider.get_queue().await;
+    assert!(result.is_ok(), "{:?}", result);
+    let queue = result.unwrap();
+    assert_eq!(queue.len(), 1);
+    assert!(queue[0].content_preview.ends_with("..."), "long content must be truncated");
+    assert!(queue[0].content_preview.chars().count() <= 83, "preview at most 83 chars");
+}

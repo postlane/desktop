@@ -187,4 +187,35 @@ mod tests {
         assert_eq!(e.data.sessions, 10);
         assert_eq!(e.data.top_referrer.as_deref(), Some("t.co"));
     }
+
+    // is_entry_valid: expired entry returns false (line 57)
+    #[test]
+    fn test_is_entry_valid_returns_false_when_expired() {
+        let entry = AnalyticsCacheEntry {
+            data: PostAnalytics::default(),
+            expires_at: Utc::now() - Duration::hours(1), // in the past
+        };
+        assert!(!is_entry_valid(&entry), "expired entry must not be valid");
+    }
+
+    // read_analytics_cache: bad JSON returns default (line 84)
+    #[test]
+    fn test_read_analytics_cache_returns_default_for_bad_json() {
+        let _guard = AnalyticsCacheGuard::acquire();
+        std::fs::write(&_guard.path, "not json at all").expect("write bad json");
+        let cache = read_analytics_cache();
+        assert_eq!(cache.version, 1);
+        assert!(cache.entries.is_empty(), "bad JSON must return empty cache");
+    }
+
+    // read_analytics_cache: directory at path returns default (line 86)
+    #[test]
+    fn test_read_analytics_cache_returns_default_when_path_is_directory() {
+        let _guard = AnalyticsCacheGuard::acquire();
+        // Create a directory at the expected path so fs::read_to_string fails
+        std::fs::create_dir_all(&_guard.path).expect("create dir at cache path");
+        let cache = read_analytics_cache();
+        assert_eq!(cache.version, 1);
+        assert!(cache.entries.is_empty(), "directory at path must return empty cache");
+    }
 }

@@ -11,7 +11,8 @@ use crate::license::POSTLANE_API_BASE;
 use crate::project_api::{
     create_project_with_client, list_projects_with_client, update_project_org_login_with_client,
 };
-use crate::project_config_ops::{sha256_hex, write_project_id_to_config_impl};
+use crate::project_config_ops::write_project_id_to_config_impl;
+use crate::repo_init_config::sha256_hex;
 use crate::project_registry::{require_license_token, ProjectSummary};
 use crate::project_validation::validate_project_id;
 use crate::providers::scheduling::build_client;
@@ -244,6 +245,27 @@ mod tests {
             &build_client(), "http://127.0.0.1:19993", "tok", &repos,
         ).await;
         assert!(result.is_err(), "empty project_id must return Err");
+    }
+
+    // register_repo line 45 — network failure before any response → "Backend error"
+    #[tokio::test]
+    async fn test_register_repo_returns_err_on_network_failure() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos(&[dir.path().to_str().unwrap()]);
+        let result = register_repo_with_project_with_client(
+            "proj-abc",
+            dir.path().to_str().unwrap(),
+            "desc",
+            &build_client(),
+            "http://127.0.0.1:1",  // port 1 = nothing listening → connection refused
+            "tok",
+            &repos,
+        ).await;
+        assert!(result.is_err(), "connection refused must return Err");
+        assert!(
+            result.unwrap_err().contains("Backend error"),
+            "network failure message must say 'Backend error'"
+        );
     }
 
     // ── integration: full wizard path ─────────────────────────────────────────

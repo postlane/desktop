@@ -236,6 +236,39 @@ describe('VoiceGuideBlock — sync confirmation', () => {
   })
 })
 
+// ── Save error ─────────────────────────────────────────────────────────────────
+
+describe('VoiceGuideBlock — save error', () => {
+  it('shows error message when save_project_voice_guide rejects', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') throw new Error('network error')
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() =>
+      expect(screen.getByText(/Failed to save voice guide/i)).toBeInTheDocument()
+    )
+  })
+
+  it('re-enables Save button after a save error', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') throw new Error('network error')
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => screen.getByText(/Failed to save voice guide/i))
+    expect(screen.getByRole('button', { name: /^Save$/i })).not.toBeDisabled()
+  })
+})
+
 // ── Non-owner ──────────────────────────────────────────────────────────────────
 
 describe('VoiceGuideBlock — non-owner', () => {
@@ -247,6 +280,49 @@ describe('VoiceGuideBlock — non-owner', () => {
     render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={false} />)
     await waitFor(() => expect(screen.queryByLabelText(/Identity/i)).not.toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /^Save$/i })).not.toBeInTheDocument()
+  })
+})
+
+// ── Auto-dismiss behaviour ─────────────────────────────────────────────────────
+
+describe('VoiceGuideBlock — sync state auto-dismiss', () => {
+  it('synced state sets a dismiss timer (>= 1000ms delay)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') return { synced: ['/repos/my-repo'], registered: 1 }
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+
+    // Pass-through spy — does not replace the real setTimeout, just observes calls
+    const spy = vi.spyOn(window, 'setTimeout')
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => screen.getByText(/synced to 1 repo/i))
+
+    const dismissCalls = spy.mock.calls.filter((args) => ((args[1] ?? 0) as number) >= 2000)
+    expect(dismissCalls.length).toBeGreaterThanOrEqual(1)
+    spy.mockRestore()
+  })
+
+  it('paths-missing warning does NOT set a dismiss timer', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_voice_guide_fields') return null
+      if (cmd === 'save_project_voice_guide') return { synced: [], registered: 2 }
+      return null
+    })
+    render(<VoiceGuideBlock projectId="proj-1" projectName="Postlane" isOwner={true} />)
+    await waitFor(() => screen.getByLabelText(/Identity/i))
+    fireEvent.change(screen.getByLabelText(/Identity/i), { target: { value: 'My org' } })
+
+    const spy = vi.spyOn(window, 'setTimeout')
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => screen.getByText(/repo paths could not be found on disk/i))
+
+    const dismissCalls = spy.mock.calls.filter((args) => ((args[1] ?? 0) as number) >= 2000)
+    expect(dismissCalls).toHaveLength(0)
+    spy.mockRestore()
   })
 })
 

@@ -81,6 +81,8 @@ pub fn delete_scheduler_credential_impl(provider: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub use crate::credential_save_core::{CredentialEnv, save_scheduler_credential_core};
+
 #[tauri::command]
 pub async fn save_scheduler_credential(
     provider: String,
@@ -97,65 +99,29 @@ pub async fn save_scheduler_credential(
             .map_err(|e| format!("Failed to lock libsecret_available: {}", e))?;
         *flag
     };
-
     save_scheduler_credential_impl(&provider, &api_key, libsecret_available)?;
-
     crate::scheduler_account_sync::validate_provider_credential(&provider, &api_key).await?;
-
-    let keyring_key = get_credential_keyring_key(&provider, &repo_id);
-    app.keyring()
-        .set_password("postlane", &keyring_key, &api_key)
-        .map_err(|e| format!("Failed to store credential: {}", e))?;
-
     let consent = crate::app_state::read_app_state().telemetry_consent;
     record_provider_configured(&state, consent, &provider);
     write_provider_to_matching_repos(&repo_id, &provider, &state);
-
     let matching_paths = collect_matching_repo_paths(&repo_id, &state);
-
-    // Upload Post: use the explicit username to call validate_profile and write account_ids
-    // per connected social platform. For all other providers, use the generic account sync.
-    if provider == "upload_post" {
-        if let Some(uname) = username.as_deref() {
-            use crate::providers::scheduling::upload_post::UploadPostProvider;
-            let up = UploadPostProvider::new(api_key.clone());
-            let platforms = up.validate_profile(uname).await
-                .map_err(|e| format!("Username '{}' not recognised by Upload Post: {}", uname, e))?;
-            for repo_path in &matching_paths {
-                crate::account_config::write_upload_post_account(
-                    uname, &platforms,
-                    &std::path::PathBuf::from(repo_path).join(".postlane/config.json"),
-                );
-            }
-        }
-    } else {
-        let _ = crate::account_config::sync_accounts_for_provider(&provider, &api_key, matching_paths.clone()).await;
-    }
-
-    for repo_path in &matching_paths {
-        let config_path = std::path::PathBuf::from(repo_path).join(".postlane/config.json");
-        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
-        let mastodon_active = project_id.map(|pid| {
+    let env = CredentialEnv {
+        set_keyring: &|key, val| app.keyring().set_password("postlane", key, val).map_err(|e| e.to_string()),
+        has_mastodon_active: &|pid| {
             use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
-            app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(&pid))
-                .unwrap_or(None).is_some()
-        }).unwrap_or(false);
-        let _ = crate::project_config_ops::sync_connected_platforms_to_config_impl(
-            &config_path, &repo_id, mastodon_active,
-            &|key| app.keyring().get_password("postlane", key).unwrap_or(None).is_some(),
-        );
+            matches!(app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(pid)), Ok(Some(_)))
+        },
+        has_keyring_key: &|key| matches!(app.keyring().get_password("postlane", key), Ok(Some(_))),
+    };
+    let save_result = save_scheduler_credential_core(
+        &provider, &api_key, &repo_id, username.as_deref(),
+        &matching_paths, &env,
+    ).await?;
+    for warning in &save_result.warnings {
+        log::warn!("[save_scheduler_credential] {}", warning);
     }
-
     let _ = app.emit("platform-connected", ());
-
-    let mut account_names = std::collections::HashMap::new();
-    for repo_path in &matching_paths {
-        let config_path = std::path::PathBuf::from(repo_path).join(".postlane/config.json");
-        if let Ok(names) = crate::account_config::get_account_names_impl(&config_path) {
-            account_names.extend(names);
-        }
-    }
-    Ok(account_names)
+    Ok(save_result.account_names)
 }
 
 #[tauri::command]
@@ -202,7 +168,7 @@ pub async fn refresh_scheduler_accounts(
         &repos,
         &|provider, project_id| {
             let key = get_credential_keyring_key(provider, project_id);
-            app.keyring().get_password("postlane", &key).unwrap_or(None)
+            app.keyring().get_password("postlane", &key).ok().flatten()
         },
     )
     .await;
@@ -215,47 +181,19 @@ pub async fn refresh_scheduler_accounts(
         let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
         let mastodon_active = project_id.as_deref().map(|pid| {
             use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
-            app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(pid))
-                .unwrap_or(None).is_some()
+            matches!(app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(pid)), Ok(Some(_)))
         }).unwrap_or(false);
         let _ = crate::project_config_ops::sync_connected_platforms_to_config_impl(
             &config_path,
             &repo_id,
             mastodon_active,
-            &|key| app.keyring().get_password("postlane", key).unwrap_or(None).is_some(),
+            &|key| matches!(app.keyring().get_password("postlane", key), Ok(Some(_))),
         );
     }
     Ok(result)
 }
 
-pub fn is_keyring_not_found(error_msg: &str) -> bool {
-    let lower = error_msg.to_lowercase();
-    lower.contains("no entry")
-        || lower.contains("no such entry")
-        || lower.contains("not found")
-        || lower.contains("could not be found")
-}
-
-pub fn list_connected_providers_impl<F>(repo_id: &str, has_cred: F) -> Vec<String>
-where
-    F: Fn(&str, &str) -> bool,
-{
-    VALID_PROVIDERS
-        .iter()
-        .filter(|&&p| has_cred(p, repo_id))
-        .map(|&p| p.to_string())
-        .collect()
-}
-
-/// Returns the names of all providers that have a credential stored.
-/// Safe to call from the frontend — does not expose credential values.
-#[tauri::command]
-pub fn list_connected_providers(repo_id: String, app: tauri::AppHandle) -> Vec<String> {
-    list_connected_providers_impl(&repo_id, |provider, rid| {
-        let key = get_credential_keyring_key(provider, rid);
-        matches!(app.keyring().get_password("postlane", &key), Ok(Some(_)))
-    })
-}
+pub use crate::credential_provider_list::{is_keyring_not_found, list_connected_providers_impl};
 
 #[tauri::command]
 pub fn get_libsecret_status(state: State<AppState>) -> Result<Option<bool>, String> {
@@ -337,15 +275,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_keyring_not_found_recognises_no_entry_messages() {
-        assert!(is_keyring_not_found("No such entry exists"), "platform: Linux libsecret");
-        assert!(is_keyring_not_found("The specified item could not be found in the keychain"), "platform: macOS");
-        assert!(is_keyring_not_found("no entry found"), "generic");
-        assert!(!is_keyring_not_found("Keychain locked — user must unlock"), "genuine error must not match");
-        assert!(!is_keyring_not_found("Access denied"), "access denied is not a not-found");
-    }
-
-    #[test]
     fn test_record_provider_configured_queues_when_consent_given() {
         use crate::app_state::AppState;
         use crate::storage::ReposConfig;
@@ -391,70 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn test_list_connected_providers_empty_when_none_configured() {
-        let result = list_connected_providers_impl("ws-1", |_, _| false);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_list_connected_providers_returns_single_provider() {
-        let result = list_connected_providers_impl("ws-1", |p, _| p == "zernio");
-        assert_eq!(result, vec!["zernio"]);
-    }
-
-    #[test]
-    fn test_list_connected_providers_returns_multiple_providers() {
-        let result = list_connected_providers_impl("ws-1", |p, _| p == "zernio" || p == "upload_post");
-        assert!(result.contains(&"zernio".to_string()));
-        assert!(result.contains(&"upload_post".to_string()));
-    }
-
-    #[test]
-    fn test_list_connected_providers_passes_workspace_id_to_closure() {
-        let result = list_connected_providers_impl("ws-42", |_, rid| rid == "ws-42");
-        assert_eq!(result.len(), VALID_PROVIDERS.len(), "all providers should match when repo_id matches");
-    }
-
-    #[test]
-    fn test_list_connected_providers_excludes_unconfigured_providers() {
-        let result = list_connected_providers_impl("ws-1", |p, _| p == "zernio");
-        assert!(!result.contains(&"upload_post".to_string()));
-        assert!(!result.contains(&"buffer".to_string()));
-    }
-
-    #[test]
-    fn test_list_connected_providers_finds_workspace_scoped_credential() {
-        let result = list_connected_providers_impl("ws-123", |provider, rid| {
-            let key = get_credential_keyring_key(provider, rid);
-            key == "zernio/ws-123" && provider == "zernio"
-        });
-        assert_eq!(result, vec!["zernio"]);
-    }
-
-    #[test]
-    fn test_list_connected_providers_impl_returns_empty_when_no_providers_have_credentials() {
-        let result = list_connected_providers_impl("repo-xyz", |_, _| false);
-        assert!(result.is_empty(), "closure returning false must yield empty vec");
-    }
-
-    #[test]
-    fn test_list_connected_providers_impl_returns_only_providers_with_credentials() {
-        let result = list_connected_providers_impl("repo-xyz", |p, _| p == "zernio");
-        assert_eq!(result, vec!["zernio"], "only zernio should be returned");
-        assert!(!result.contains(&"upload_post".to_string()));
-        assert!(!result.contains(&"buffer".to_string()));
-    }
-
-    #[test]
-    fn test_list_connected_providers_impl_returns_all_when_all_have_credentials() {
-        let result = list_connected_providers_impl("repo-xyz", |_, _| true);
-        assert_eq!(result.len(), VALID_PROVIDERS.len(), "all VALID_PROVIDERS must be returned");
-        for provider in VALID_PROVIDERS {
-            assert!(result.contains(&provider.to_string()), "missing provider: {}", provider);
-        }
-    }
-
-    #[test]
     fn test_check_libsecret_before_save_returns_err_when_libsecret_unavailable() {
         let result = check_libsecret_before_save(Some(false));
         assert!(result.is_err());
@@ -492,5 +357,6 @@ mod tests {
         assert!(key_a.contains("proj-alpha"), "key must embed the project id");
         assert!(key_b.contains("proj-beta"), "key must embed the project id");
     }
+
 
 }

@@ -135,6 +135,9 @@ pub(super) fn apply_scheduler_result(
     sent_at: &str,
 ) {
     meta.sent_platforms.insert(platform.to_string(), sent_at.to_string());
+    // Intentional: status=Sent is written when the FIRST platform is approved, not all.
+    // This signals engagement_sync that the post is in-flight. Per-platform completion
+    // is tracked accurately in sent_platforms — use that for "all platforms sent" queries.
     meta.status = Some(PostStatus::Sent);
     if !scheduler_id.is_empty() {
         meta.scheduler_ids.insert(platform.to_string(), scheduler_id.to_string());
@@ -242,7 +245,7 @@ pub(super) async fn fetch_and_cache_account_id(
     };
     let profile = profiles.iter().find(|p| p.platforms.contains(&platform.to_string()))?;
     let config_path = canonical_path.join(".postlane/config.json");
-    let _ = crate::account_config::save_account_id_impl(&config_path, platform, &profile.id);
+    let _ = crate::account_id_store::save_account_id_impl(&config_path, platform, &profile.id);
     Some(profile.id.clone())
 }
 

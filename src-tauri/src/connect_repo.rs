@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::project_config_ops::write_initial_config_files;
+use crate::repo_init_config::write_initial_config_files;
 use crate::project_validation::validate_project_id;
 use crate::storage::{write_repos, Repo};
 use std::fs;
@@ -129,7 +129,7 @@ pub(crate) fn restore_scheduler_for_new_repo(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project_config_ops::{BASE_URL, DEFAULT_LLM_MODEL};
+    use crate::repo_init_config::{BASE_URL, DEFAULT_LLM_MODEL};
     use crate::test_fixtures::{home_tmp, make_state};
     use std::fs;
 

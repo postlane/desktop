@@ -26,6 +26,7 @@ function useVoiceGuideFields(projectId: string) {
   const [loadedFields, setLoadedFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [loadError, setLoadError] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -46,6 +47,7 @@ function useVoiceGuideFields(projectId: string) {
 
   const save = useCallback(async (current: VoiceGuideFields, projectName: string) => {
     setSaveLoading(true);
+    setSaveError(null);
     try {
       const status = await invoke<SyncStatus>('save_project_voice_guide', {
         projectId,
@@ -61,18 +63,24 @@ function useVoiceGuideFields(projectId: string) {
         : { kind: 'no-repos' };
       setSyncState(next);
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setSyncState(null), 2000);
+      // paths-missing requires user action (reconnect repo paths) — do not auto-dismiss.
+      // synced and no-repos are purely informational and can safely disappear.
+      if (next.kind !== 'paths-missing') {
+        timerRef.current = setTimeout(() => setSyncState(null), 2000);
+      }
+    } catch {
+      setSaveError('Failed to save voice guide. Check your connection and try again.');
     } finally {
       setSaveLoading(false);
     }
   }, [projectId]);
 
   const isDirty = JSON.stringify(fields) !== JSON.stringify(loadedFields);
-  return { fields, setFields, loadError, syncState, saveLoading, load, save, isDirty };
+  return { fields, setFields, loadError, syncState, saveError, saveLoading, load, save, isDirty };
 }
 
 export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Props) {
-  const { fields, setFields, loadError, syncState, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
+  const { fields, setFields, loadError, syncState, saveError, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
 
   function handleChange(key: keyof VoiceGuideFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -90,6 +98,11 @@ export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Pro
       {isOwner ? (
         <>
           <VoiceGuideForm fields={fields} onChange={handleChange} onApplyTemplate={setFields} />
+          {saveError !== null && (
+            <div className="notification is-danger is-light py-2 px-3 mt-2">
+              <p className="is-size-7">{saveError}</p>
+            </div>
+          )}
           <div className="is-flex is-align-items-center mt-2" style={{ gap: '0.5rem' }}>
             {syncState !== null && (
               syncState.kind === 'synced'

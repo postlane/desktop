@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod account_config;
+pub mod account_id_store;
+pub mod account_name_store;
+pub mod credential_provider_list;
+pub mod credential_save_core;
+pub mod git_url_parser;
+pub mod platform_config_sync;
+pub mod repo_init_config;
 pub mod connected_platforms;
 pub mod upload_post_account;
 pub mod app_lifecycle;
@@ -396,7 +403,7 @@ fn register_commands(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         repo_mgmt::check_repo_health, repo_mgmt::update_repo_path,
         repo_scheduler_config::update_scheduler_config,
         repo_project_filter::list_repos_for_project, repo_project_filter::unregister_repo,
-        scheduler_credentials::get_libsecret_status, scheduler_credentials::list_connected_providers,
+        scheduler_credentials::get_libsecret_status, credential_provider_list::list_connected_providers,
         scheduler_credentials::save_scheduler_credential, scheduler_credentials::delete_scheduler_credential,
         scheduler_credentials::refresh_scheduler_accounts,
         account_config::get_scheduler_account_names,

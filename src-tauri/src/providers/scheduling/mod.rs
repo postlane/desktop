@@ -184,6 +184,96 @@ mod tests {
         assert!(build_scheduling_provider("zernio", "test-key".to_string()).is_ok());
     }
 
+    // build_scheduling_provider — all 7 non-zernio providers must construct without error
+    #[test]
+    fn test_build_scheduling_provider_all_known_providers_succeed() {
+        let providers = [
+            "buffer", "ayrshare", "publer", "outstand",
+            "substack_notes", "upload_post", "webhook",
+        ];
+        for name in providers {
+            assert!(
+                build_scheduling_provider(name, "test-key".to_string()).is_ok(),
+                "build_scheduling_provider must succeed for '{}'", name
+            );
+        }
+    }
+
+    // ── ProviderError Display ────────────────────────────────────────────────
+
+    #[test]
+    fn test_provider_error_display_all_variants() {
+        use std::time::Duration;
+        let cases: Vec<(&str, ProviderError)> = vec![
+            ("404", ProviderError::HttpError { status: 404, body: "not found".into() }),
+            ("Rate limit", ProviderError::RateLimit(Duration::from_secs(30))),
+            ("timeout", ProviderError::NetworkError("timeout".into())),
+            ("bad key", ProviderError::AuthError("bad key".into())),
+            ("no cancel", ProviderError::NotSupported("no cancel".into())),
+            ("private ip", ProviderError::InvalidInstance("private ip".into())),
+            ("weird", ProviderError::Unknown("weird".into())),
+        ];
+        for (needle, err) in cases {
+            let msg = format!("{}", err);
+            assert!(msg.contains(needle), "Display for {:?} must contain '{}', got '{}'", err, needle, msg);
+        }
+    }
+
+    // ── ProviderError::is_retryable ───────────────────────────────────────────
+
+    // NetworkError and RateLimit are retryable
+    #[test]
+    fn test_is_retryable_returns_true_for_network_error() {
+        assert!(ProviderError::NetworkError("timeout".into()).is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_true_for_rate_limit() {
+        assert!(ProviderError::RateLimit(Duration::from_secs(60)).is_retryable());
+    }
+
+    // HttpError >= 500 is retryable; < 500 is not
+    #[test]
+    fn test_is_retryable_returns_true_for_http_500() {
+        assert!(ProviderError::HttpError { status: 500, body: String::new() }.is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_true_for_http_503() {
+        assert!(ProviderError::HttpError { status: 503, body: String::new() }.is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_false_for_http_400() {
+        assert!(!ProviderError::HttpError { status: 400, body: String::new() }.is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_false_for_http_422() {
+        assert!(!ProviderError::HttpError { status: 422, body: String::new() }.is_retryable());
+    }
+
+    // Non-transient errors are never retried
+    #[test]
+    fn test_is_retryable_returns_false_for_auth_error() {
+        assert!(!ProviderError::AuthError("bad key".into()).is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_false_for_not_supported() {
+        assert!(!ProviderError::NotSupported("not supported".into()).is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_false_for_invalid_instance() {
+        assert!(!ProviderError::InvalidInstance("private ip".into()).is_retryable());
+    }
+
+    #[test]
+    fn test_is_retryable_returns_false_for_unknown() {
+        assert!(!ProviderError::Unknown("unexpected".into()).is_retryable());
+    }
+
     // A provider that only overrides list_profiles — test_connection should use the default.
     struct MinimalProvider {
         profiles: Vec<SchedulerProfile>,

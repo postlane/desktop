@@ -347,3 +347,100 @@ async fn test_get_engagement_unauthorised() {
     let result = provider.get_engagement("p2", "linkedin").await;
     assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
 }
+
+// outstand line 77 — schedule_post network error (TCP connection refused)
+#[tokio::test]
+async fn test_schedule_post_network_error() {
+    let mut provider = OutstandProvider::new("test-key".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// outstand line 100 — list_profiles network error
+#[tokio::test]
+async fn test_list_profiles_network_error() {
+    let mut provider = OutstandProvider::new("test-key".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// outstand line 127 — cancel_post network error
+#[tokio::test]
+async fn test_cancel_post_network_error() {
+    let mut provider = OutstandProvider::new("test-key".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.cancel_post("post-1", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// outstand line 190 — test_connection network error
+#[tokio::test]
+async fn test_test_connection_network_error() {
+    let mut provider = OutstandProvider::new("test-key".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.test_connection().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// outstand line 206 — get_engagement network error
+#[tokio::test]
+async fn test_get_engagement_network_error() {
+    let mut provider = OutstandProvider::new("test-key".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.get_engagement("post-1", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// outstand line 85 — schedule_post with valid status but non-JSON body → Unknown
+#[tokio::test]
+async fn test_schedule_post_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/posts");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// outstand line 108 — list_profiles with valid status but non-JSON body → Unknown
+#[tokio::test]
+async fn test_list_profiles_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/social-accounts");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// outstand line 157 — get_queue with valid status but non-JSON body → Unknown
+#[tokio::test]
+async fn test_get_queue_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/posts").query_param("status", "scheduled");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// outstand line 214 — get_engagement with valid status but non-JSON body → Unknown
+#[tokio::test]
+async fn test_get_engagement_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/posts/post-json/analytics");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_engagement("post-json", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}

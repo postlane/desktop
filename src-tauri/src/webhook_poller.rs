@@ -46,6 +46,7 @@ pub fn create_draft_from_push(repo_path: &Path, event: &PendingEvent) -> Result<
     let post_dir = repo_path.join(".postlane/posts").join(&folder_name);
 
     if post_dir.exists() {
+        log::debug!("[webhook_poller] draft already exists for event '{}' — skipping", event.id);
         return Ok(post_dir.join("meta.json"));
     }
 
@@ -70,6 +71,7 @@ pub fn create_draft_from_push(repo_path: &Path, event: &PendingEvent) -> Result<
     std::fs::rename(&tmp_path, &meta_path)
         .map_err(|e| format!("Failed to rename meta.json: {}", e))?;
 
+    log::info!("[webhook_poller] created draft '{}' from event '{}'", folder_name, event.id);
     Ok(meta_path)
 }
 
@@ -91,13 +93,16 @@ pub async fn fetch_pending_events(
         .map_err(|e| format!("fetch_pending_events request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format_api_error("fetch_pending_events", resp.status().as_u16(), ""));
+        let status = resp.status().as_u16();
+        log::warn!("[webhook_poller] fetch_pending_events returned {} for project '{}'", status, project_id);
+        return Err(format_api_error("fetch_pending_events", status, ""));
     }
 
     #[derive(Deserialize)]
     struct Body { events: Vec<PendingEvent> }
     let body: Body = resp.json().await
         .map_err(|e| format!("fetch_pending_events parse failed: {}", e))?;
+    log::debug!("[webhook_poller] fetched {} pending event(s) for project '{}'", body.events.len(), project_id);
     Ok(body.events)
 }
 
@@ -118,8 +123,11 @@ pub async fn mark_delivered(
         .map_err(|e| format!("mark_delivered request failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format_api_error("mark_delivered", resp.status().as_u16(), ""));
+        let status = resp.status().as_u16();
+        log::warn!("[webhook_poller] mark_delivered returned {} for {} event(s)", status, event_ids.len());
+        return Err(format_api_error("mark_delivered", status, ""));
     }
+    log::debug!("[webhook_poller] marked {} event(s) as delivered", event_ids.len());
     Ok(())
 }
 

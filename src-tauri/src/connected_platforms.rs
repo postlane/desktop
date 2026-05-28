@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use crate::account_config::get_account_ids_impl;
+use crate::account_id_store::get_account_ids_impl;
 use crate::app_state::AppState;
 use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
 use crate::scheduler_credentials::{get_credential_keyring_key, VALID_PROVIDERS};

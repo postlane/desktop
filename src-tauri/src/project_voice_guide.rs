@@ -277,6 +277,29 @@ mod tests {
         assert_eq!(on_disk, input, "on-disk bytes must exactly match input");
     }
 
+    /// Write failure in write_voice_guide_to_repo is logged and skipped — repo is not in synced list
+    #[test]
+    fn test_sync_logs_warning_and_excludes_path_on_write_failure() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-writefail"}"#)
+            .expect("write config.json");
+        // Place a directory at the .tmp path so write_voice_guide_to_repo cannot create the tmp file
+        std::fs::create_dir_all(postlane.join("voice_guide.md.tmp"))
+            .expect("create dir at tmp path");
+
+        let state = make_state_with_repo(dir.path().to_str().unwrap());
+        let result = sync_voice_guide_to_repos_impl("proj-writefail", "should not be written", &state);
+
+        assert!(result.synced.is_empty(), "failed write must not appear in synced list");
+        assert_eq!(result.registered, 1, "repo is still registered");
+        assert!(
+            !postlane.join("voice_guide.md").exists(),
+            "voice_guide.md must not exist after write failure"
+        );
+    }
+
     /// 21.3.16 — whitespace-only voice guide does not write a file
     #[test]
     fn test_sync_skips_whitespace_only_voice_guide() {

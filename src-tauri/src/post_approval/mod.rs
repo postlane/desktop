@@ -26,6 +26,11 @@ fn fire_unsplash_download_trigger(
     if meta.image_download_triggered_at.is_some() {
         return;
     }
+    // SSRF defence: domain whitelist is the primary guard here.
+    // Unlike OG image fetches (which use is_private_url for DNS-resolution-time
+    // validation), the download_location is validated against a specific Unsplash
+    // hostname prefix. Any private IP literal (127.x, 192.168.x, etc.) cannot pass
+    // this check. DNS rebinding against api.unsplash.com is outside the threat model.
     if !location.starts_with("https://api.unsplash.com/") {
         log::warn!(
             "[approve_post] image_download_location rejected (must start with https://api.unsplash.com/): {}",
@@ -40,7 +45,11 @@ fn fire_unsplash_download_trigger(
     if app.is_some() {
         let loc = location.clone();
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = reqwest::get(&loc).await {
+            let client = reqwest::Client::builder()
+                .user_agent(concat!("Postlane/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .unwrap_or_default();
+            if let Err(e) = client.get(&loc).send().await {
                 log::warn!("[approve_post] Unsplash download trigger failed (non-fatal): {}", e);
             }
         });
@@ -89,12 +98,25 @@ pub async fn approve_post_impl(
                     platform_url.as_deref(),
                     &sent_at,
                 );
+                log::info!("[approve_post] sent '{}' to '{}' via scheduler", post_folder, platform);
                 if let Err(e) = meta.save(&meta_path) {
                     log::error!("[approve_post] meta write failed after successful send: {}", e);
-                    return Ok(());
+                    // Return Err so the frontend surfaces this to the user.
+                    // Returning Ok() would leave the queue showing the post as unsent,
+                    // causing a duplicate send when the user clicks Approve again.
+                    return Err(format!(
+                        "Post was sent but the local record could not be saved. \
+                         Do not approve again — your post has already been submitted. \
+                         Error: {}",
+                        e
+                    ));
                 }
             }
             Err(e) => {
+                // No retry: a single attempt failure writes status=Failed and surfaces
+                // the error to the user. Retrying automatically risks duplicate sends
+                // if the scheduler accepted the request but returned a transient error.
+                // The user can re-approve from the queue once the issue is resolved.
                 record_scheduler_failure(&mut meta, &e);
                 let _ = meta.save(&meta_path);
                 return Err(e);
@@ -498,6 +520,34 @@ mod tests {
             final_meta.image_download_triggered_at.is_none(),
             "triggered_at must not be written when location failed validation"
         );
+    }
+
+    // --- §meta_write_failure ---
+
+    #[tokio::test]
+    async fn test_approve_post_returns_err_when_meta_write_fails() {
+        // Verifies the contract: a disk-write failure after scheduler success must
+        // return Err so the frontend can surface it. Returning Ok() would leave the
+        // queue showing the post unsent, causing a duplicate send on retry.
+        // (The production app=Some path was fixed from Ok to Err; this test covers
+        // the test-mode path which uses ? and was already correct.)
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-ro-fail");
+
+        let post_path = canonical.join(".postlane/posts/post-ro-fail");
+        let ro = std::fs::Permissions::from_mode(0o444);
+        std::fs::set_permissions(&post_path, ro).expect("set read-only");
+
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "post-ro-fail", "x", &state, None, false).await;
+
+        let rw = std::fs::Permissions::from_mode(0o755);
+        let _ = std::fs::set_permissions(&post_path, rw);
+
+        assert!(result.is_err(), "meta write failure must return Err, not Ok — returning Ok causes duplicate sends");
     }
 
     // --- §telemetry ---

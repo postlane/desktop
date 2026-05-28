@@ -251,3 +251,131 @@ async fn test_ensure_username_cached_uses_cached_value() {
     provider.ensure_username_cached().await.expect("second call ok — must not re-fetch");
     profile_mock_handle.assert_hits(1);
 }
+
+// ── name() (lines 87-89) ─────────────────────────────────────────────────────
+
+#[test]
+fn test_name_returns_substack_notes() {
+    let provider = SubstackNotesProvider::new("cookie".to_string());
+    assert_eq!(provider.name(), "substack_notes");
+}
+
+// ── schedule_post: network error (line 109) ───────────────────────────────────
+
+#[tokio::test]
+async fn test_schedule_post_network_error() {
+    let server = MockServer::start();
+    profile_mock(&server);
+    let mut provider = SubstackNotesProvider::new("cookie".to_string());
+    // Profile fetch works, but the comment/feed endpoint hits port 1
+    provider.base_url = server.base_url();
+    // First ensure username is cached via the server profile mock
+    provider.ensure_username_cached().await.expect("cache username");
+    // Now change the base_url to an unreachable address for the post call
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.schedule_post("Hello", "substack", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── schedule_post: JSON parse error (line 117) ────────────────────────────────
+
+#[tokio::test]
+async fn test_schedule_post_json_parse_error() {
+    let server = MockServer::start();
+    profile_mock(&server);
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/comment/feed");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.schedule_post("Hello", "substack", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── list_profiles: network error (line 131) ───────────────────────────────────
+
+#[tokio::test]
+async fn test_list_profiles_network_error() {
+    let mut provider = SubstackNotesProvider::new("cookie".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── list_profiles: JSON parse error (line 139) ────────────────────────────────
+
+#[tokio::test]
+async fn test_list_profiles_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/profile");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── list_profiles: uses username fallback when handle absent (line 141) ───────
+
+#[tokio::test]
+async fn test_list_profiles_uses_username_when_handle_absent() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/profile");
+        then.status(200).json_body(serde_json::json!({
+            "id": "u1",
+            "username": "fallback_user",  // no handle field
+            "name": "Test Pub"
+        }));
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(result.is_ok(), "{:?}", result);
+    let profiles = result.unwrap();
+    assert_eq!(profiles[0].id, "u1");
+}
+
+// ── list_profiles: uses publicationName when name absent (line 145) ───────────
+
+#[tokio::test]
+async fn test_list_profiles_uses_publication_name_when_name_absent() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/profile");
+        then.status(200).json_body(serde_json::json!({
+            "id": "u2",
+            "handle": "myhandle",
+            "publicationName": "My Newsletter"  // no name field
+        }));
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(result.is_ok(), "{:?}", result);
+    let profiles = result.unwrap();
+    assert_eq!(profiles[0].name, "My Newsletter");
+}
+
+// ── get_engagement: network error (line 173) ──────────────────────────────────
+
+#[tokio::test]
+async fn test_get_engagement_network_error() {
+    let mut provider = SubstackNotesProvider::new("cookie".to_string());
+    provider.base_url = "http://127.0.0.1:1".to_string();
+    let result = provider.get_engagement("note-1", "substack").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── get_engagement: JSON parse error (line 181) ───────────────────────────────
+
+#[tokio::test]
+async fn test_get_engagement_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/comment/note-j");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_engagement("note-j", "substack").await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}

@@ -215,4 +215,32 @@ mod tests {
         assert!(result.is_ok(), "must create missing parent dir");
         assert!(path.exists(), "file must be created");
     }
+
+    // wizard_state line 25 — non-NotFound IO error from read_from_path
+    #[test]
+    fn test_read_from_path_returns_err_on_non_not_found_io_error() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // A directory path triggers "Is a directory" error (not NotFound)
+        let result = read_from_path(dir.path());
+        assert!(result.is_err(), "IO error (not NotFound) must return Err");
+        assert!(
+            result.unwrap_err().contains("Failed to read wizard state"),
+            "error must mention 'Failed to read wizard state'"
+        );
+    }
+
+    // wizard_state line 79 — remove_file on a directory returns a non-NotFound error
+    #[test]
+    fn test_clear_wizard_state_at_returns_error_when_path_is_directory() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Place a *directory* at the path where the file would be
+        let path = dir.path().join("wizard_state.json");
+        std::fs::create_dir(&path).expect("create directory at path");
+        let result = clear_wizard_state_at(&path);
+        assert!(result.is_err(), "remove_file on a directory must return Err");
+        assert!(
+            result.unwrap_err().contains("Failed to clear wizard state"),
+            "error message must start with 'Failed to clear wizard state'"
+        );
+    }
 }
