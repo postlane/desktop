@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use dashmap::DashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Denominator unit for ModelStatsResponse — each sent platform counts as one post.
 /// Use this constant in all callers so a typo is a compile error, not a silent mismatch.
@@ -21,4 +21,11 @@ pub use crate::scheduler_credentials::VALID_PROVIDERS;
 /// The null-byte separator is invalid in POSIX paths, making key collisions impossible.
 /// Uses tokio::sync::Mutex so the guard can be held across .await without blocking threads.
 pub static POST_META_LOCKS: LazyLock<DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+    LazyLock::new(DashMap::new);
+
+/// Per-config-path lock map for synchronous read-mutate-write operations on config.json.
+/// Keyed by the canonical path string. Prevents account_id and account_name writers from
+/// interleaving their read-modify-write cycles and clobbering each other.
+/// Uses std::sync::Mutex (not tokio) because callers are synchronous.
+pub static CONFIG_JSON_LOCKS: LazyLock<DashMap<String, Arc<Mutex<()>>>> =
     LazyLock::new(DashMap::new);

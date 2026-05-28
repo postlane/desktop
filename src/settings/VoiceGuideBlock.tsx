@@ -76,11 +76,11 @@ function useVoiceGuideFields(projectId: string) {
   }, [projectId]);
 
   const isDirty = JSON.stringify(fields) !== JSON.stringify(loadedFields);
-  return { fields, setFields, loadError, syncState, saveError, saveLoading, load, save, isDirty };
+  return { fields, setFields, loadError, syncState, setSyncState, saveError, saveLoading, load, save, isDirty };
 }
 
 export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Props) {
-  const { fields, setFields, loadError, syncState, saveError, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
+  const { fields, setFields, loadError, syncState, setSyncState, saveError, saveLoading, load, save, isDirty } = useVoiceGuideFields(projectId);
 
   function handleChange(key: keyof VoiceGuideFields, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -108,7 +108,10 @@ export default function VoiceGuideBlock({ projectId, projectName, isOwner }: Pro
               syncState.kind === 'synced'
                 ? <p className="is-size-7 has-text-success">Voice guide saved and synced to {syncState.count} repo(s).</p>
                 : syncState.kind === 'paths-missing'
-                ? <p className="is-size-7 has-text-warning">Voice guide saved, but your connected repo paths could not be found on disk. Check Repositories in Settings.</p>
+                ? <span className="is-flex is-align-items-center is-size-7 has-text-warning" style={{ gap: '0.25rem' }}>
+                    <span>Voice guide saved, but your connected repo paths could not be found on disk. Check Repositories in Settings.</span>
+                    <button type="button" className="button is-ghost is-small" aria-label="Dismiss" onClick={() => setSyncState(null)}>✕</button>
+                  </span>
                 : <p className="is-size-7 has-text-success">Voice guide saved. Connect a repository to sync it there.</p>
             )}
             <button className="button is-small is-primary ml-auto"

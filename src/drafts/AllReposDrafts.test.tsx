@@ -444,3 +444,38 @@ describe('AllReposDraftsView — Ctrl+Enter shortcut', () => {
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
   });
 });
+
+// ---------------------------------------------------------------------------
+// CRITICAL-1: platform argument must be passed to approve_post
+// ---------------------------------------------------------------------------
+
+describe('AllReposDraftsView — approve-all passes platform argument (CRITICAL-1)', () => {
+  it('approve_post invoke includes the platform field for each post', async () => {
+    const drafts = [
+      makePost({ post_folder: 'p1', platform: 'x' }),
+      makePost({ post_folder: 'p2', platform: 'bluesky' }),
+    ];
+    mockInvoke.mockImplementation(async (cmd: unknown) => {
+      if (cmd === 'get_all_drafts') return drafts;
+      if (cmd === 'approve_post') return null;
+      return null;
+    });
+    render(<AllReposDraftsView postWizardNudge={false} onNudgeDismissed={vi.fn()} />);
+    await waitFor(() => screen.getByRole('button', { name: /approve all ready/i }));
+    fireEvent.click(screen.getByRole('button', { name: /approve all ready/i }));
+    await waitFor(() => screen.getByRole('dialog'));
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({
+        postFolder: 'p1',
+        platform: 'x',
+      })),
+    );
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('approve_post', expect.objectContaining({
+        postFolder: 'p2',
+        platform: 'bluesky',
+      })),
+    );
+  });
+});
