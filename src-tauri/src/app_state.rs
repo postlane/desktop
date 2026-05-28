@@ -43,6 +43,9 @@ impl AppState {
     /// # Panics (test builds only)
     /// Panics in `#[cfg(test)]` builds. Use `AppState::new_with_path()` in all
     /// tests to point at an isolated temp path and never touch `~/.postlane`.
+    // Allow the unreachable code and unused parameter that the #[cfg(test)] panic
+    // produces in test compilation — they are intentional side-effects of the guard.
+    #[cfg_attr(test, allow(unreachable_code, unused_variables))]
     pub fn new(repos: ReposConfig) -> Self {
         #[cfg(test)]
         panic!("Use AppState::new_with_path() in tests — AppState::new() writes to ~/.postlane");
