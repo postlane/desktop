@@ -1,43 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use crate::account_id_store::{get_account_ids_impl, save_account_id_impl};
+use crate::account_name_store::{get_account_names_impl, save_account_name_impl};
 use crate::app_state::AppState;
-use crate::init::read_json_file;
-use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 
-pub fn save_account_id_impl(
-    config_path: &std::path::Path,
-    platform: &str,
-    account_id: &str,
-) -> Result<(), String> {
-    if !config_path.exists() {
-        return Err(format!("config.json not found at {}", config_path.display()));
-    }
-
-    let mut config: serde_json::Value = read_json_file(config_path)?;
-
-    if !config["scheduler"].is_object() {
-        config["scheduler"] = serde_json::json!({});
-    }
-
-    if !config["scheduler"]["account_ids"].is_object() {
-        config["scheduler"]["account_ids"] = serde_json::json!({});
-    }
-
-    config["scheduler"]["account_ids"][platform] = serde_json::json!(account_id);
-
-    let serialized = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config.json: {}", e))?;
-
-    let tmp_path = config_path.with_extension("tmp");
-    fs::write(&tmp_path, &serialized)
-        .map_err(|e| format!("Failed to write temp config: {}", e))?;
-    fs::rename(&tmp_path, config_path)
-        .map_err(|e| format!("Failed to rename temp config: {}", e))?;
-
-    Ok(())
-}
 
 #[tauri::command]
 pub fn save_account_id(
@@ -58,26 +26,6 @@ pub fn save_account_id(
     save_account_id_impl(&config_path, &platform, &account_id)
 }
 
-pub(crate) fn get_account_ids_impl(
-    config_path: &std::path::Path,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    if !config_path.exists() {
-        return Ok(std::collections::HashMap::new());
-    }
-
-    let config: serde_json::Value = read_json_file(config_path)?;
-
-    let account_ids = match config["scheduler"]["account_ids"].as_object() {
-        Some(obj) => obj
-            .iter()
-            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-            .collect(),
-        None => std::collections::HashMap::new(),
-    };
-
-    Ok(account_ids)
-}
-
 #[tauri::command]
 pub fn get_account_ids(
     repo_id: String,
@@ -95,34 +43,19 @@ pub fn get_account_ids(
     get_account_ids_impl(&config_path)
 }
 
-
-/// Writes a display name (e.g. "@rng_dev") for `platform` into
-/// `scheduler.account_names` in `config_path`. Atomic write, same contract as
-/// `save_account_id_impl`.
-pub fn save_account_name_impl(
-    config_path: &std::path::Path,
-    platform: &str,
-    name: &str,
-) -> Result<(), String> {
-    if !config_path.exists() {
-        return Err(format!("config.json not found at {}", config_path.display()));
-    }
-    let mut config: serde_json::Value = read_json_file(config_path)?;
-    if !config["scheduler"].is_object() {
-        config["scheduler"] = serde_json::json!({});
-    }
-    if !config["scheduler"]["account_names"].is_object() {
-        config["scheduler"]["account_names"] = serde_json::json!({});
-    }
-    config["scheduler"]["account_names"][platform] = serde_json::json!(name);
-    let serialized = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config.json: {}", e))?;
-    let tmp_path = config_path.with_extension("tmp");
-    fs::write(&tmp_path, &serialized)
-        .map_err(|e| format!("Failed to write temp config: {}", e))?;
-    fs::rename(&tmp_path, config_path)
-        .map_err(|e| format!("Failed to rename temp config: {}", e))?;
-    Ok(())
+#[tauri::command]
+pub fn get_scheduler_account_names(
+    repo_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let repos = state.lock_repos()?;
+    let repo = repos
+        .repos
+        .iter()
+        .find(|r| r.id == repo_id)
+        .ok_or_else(|| format!("Repo '{}' not found", repo_id))?;
+    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
+    get_account_names_impl(&config_path)
 }
 
 /// Writes each profile's account ID and display name into `config_path`.
@@ -143,39 +76,6 @@ pub fn apply_profiles_to_repo(
     }
 }
 
-/// Returns `scheduler.account_names` from `config.json` as a platform → display-name map.
-pub(crate) fn get_account_names_impl(
-    config_path: &std::path::Path,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    if !config_path.exists() {
-        return Ok(std::collections::HashMap::new());
-    }
-    let config: serde_json::Value = read_json_file(config_path)?;
-    let names = match config["scheduler"]["account_names"].as_object() {
-        Some(obj) => obj
-            .iter()
-            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-            .collect(),
-        None => std::collections::HashMap::new(),
-    };
-    Ok(names)
-}
-
-#[tauri::command]
-pub fn get_scheduler_account_names(
-    repo_id: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    let repos = state.lock_repos()?;
-    let repo = repos
-        .repos
-        .iter()
-        .find(|r| r.id == repo_id)
-        .ok_or_else(|| format!("Repo '{}' not found", repo_id))?;
-    let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
-    get_account_names_impl(&config_path)
-}
-
 /// Writes an Upload Post username to config.json.
 ///
 /// For each connected platform, writes `account_ids[platform] = username` and
@@ -193,7 +93,6 @@ pub fn write_upload_post_account(
     }
     let _ = save_account_name_impl(config_path, "upload_post", username);
 }
-
 
 /// Fetches the connected social accounts for `provider_name` and writes them
 /// into `config.json` for each repo path.
@@ -232,102 +131,6 @@ mod tests {
     }
 
     #[test]
-    fn test_save_account_id_writes_x_account_id() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{
-            "version": 1,
-            "platforms": ["x", "bluesky"],
-            "scheduler": { "provider": "zernio", "account_ids": {} }
-        }"#);
-
-        save_account_id_impl(&config_path, "x", "acc-twitter-123").expect("should succeed");
-
-        let content = fs::read_to_string(&config_path).expect("read config");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-twitter-123"));
-    }
-
-    #[test]
-    fn test_save_account_id_preserves_other_platforms() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{
-            "version": 1,
-            "platforms": ["x", "bluesky"],
-            "scheduler": {
-                "provider": "zernio",
-                "account_ids": { "x": "acc-twitter-existing" }
-            }
-        }"#);
-
-        save_account_id_impl(&config_path, "bluesky", "acc-bluesky-456").expect("should succeed");
-
-        let content = fs::read_to_string(&config_path).expect("read config");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-twitter-existing"));
-        assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("acc-bluesky-456"));
-    }
-
-    #[test]
-    fn test_save_account_id_creates_account_ids_block_if_missing() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{
-            "version": 1,
-            "scheduler": { "provider": "zernio" }
-        }"#);
-
-        save_account_id_impl(&config_path, "x", "acc-new").expect("should succeed");
-
-        let content = fs::read_to_string(&config_path).expect("read config");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-new"));
-    }
-
-    #[test]
-    fn test_save_account_id_preserves_other_config_fields() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{
-            "version": 1,
-            "base_url": "https://postlane.dev",
-            "repo_type": "saas-product",
-            "scheduler": { "provider": "zernio", "account_ids": {} },
-            "llm": { "provider": "anthropic", "model": "claude-sonnet-4-6" }
-        }"#);
-
-        save_account_id_impl(&config_path, "x", "acc-x").expect("should succeed");
-
-        let content = fs::read_to_string(&config_path).expect("read config");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["version"].as_i64(), Some(1));
-        assert_eq!(config["base_url"].as_str(), Some("https://postlane.dev"));
-        assert_eq!(config["repo_type"].as_str(), Some("saas-product"));
-        assert_eq!(config["scheduler"]["provider"].as_str(), Some("zernio"));
-        assert_eq!(config["llm"]["model"].as_str(), Some("claude-sonnet-4-6"));
-    }
-
-    #[test]
-    fn test_save_account_id_errors_when_config_missing() {
-        let result = save_account_id_impl(
-            std::path::Path::new("/nonexistent/path/.postlane/config.json"),
-            "x",
-            "acc-123",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
-    }
-
-    #[test]
-    fn test_save_account_id_creates_scheduler_block_when_missing() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{ "version": 1, "platforms": ["x"] }"#);
-
-        save_account_id_impl(&config_path, "x", "acc-123").expect("should succeed");
-
-        let content = fs::read_to_string(&config_path).expect("read config");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-123"));
-    }
-
-    #[test]
     fn test_save_account_id_rejects_unregistered_repo() {
         let state = make_state(vec![]);
         let repos = state.repos.lock().expect("lock");
@@ -340,27 +143,12 @@ mod tests {
     }
 
     #[test]
-    fn test_save_account_id_errors_when_config_unparseable() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), "{ not valid json }");
-        let result = save_account_id_impl(&config_path, "x", "acc-123");
-        assert!(result.is_err());
-        let msg = result.unwrap_err();
-        assert!(
-            msg.contains("parse") || msg.contains("Failed"),
-            "error must describe parse failure, got: {}",
-            msg
-        );
-    }
-
-    #[test]
     fn apply_profiles_to_repo_is_no_op_for_empty_profiles_list() {
         use crate::providers::scheduling::SchedulerProfile;
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_path = write_config(dir.path(), r#"{"version":1}"#);
         let empty: &[SchedulerProfile] = &[];
         apply_profiles_to_repo(empty, &config_path);
-        // Config must be unchanged (no scheduler block written)
         let content = fs::read_to_string(&config_path).expect("read");
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert!(config["scheduler"]["account_ids"].is_null(), "no writes expected for empty profiles");
@@ -394,64 +182,22 @@ mod tests {
         assert_eq!(config["scheduler"]["account_ids"]["x"].as_str(), Some("acc-1"));
     }
 
-    // §defensive: apply_profiles_to_repo must not panic or create files when config is absent.
-    // This documents the log-and-skip contract so callers of sync_accounts_for_provider
-    // know what to expect when a repo's config.json doesn't exist yet.
     #[test]
     fn test_apply_profiles_to_repo_skips_missing_config() {
         use crate::providers::scheduling::SchedulerProfile;
         let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = dir.path().join(".postlane/config.json"); // does NOT exist
+        let config_path = dir.path().join(".postlane/config.json");
         let profiles = vec![SchedulerProfile {
             id: "acc-1".to_string(),
             name: "Hugo".to_string(),
             platforms: vec!["bluesky".to_string()],
         }];
-        apply_profiles_to_repo(&profiles, &config_path); // must not panic
+        apply_profiles_to_repo(&profiles, &config_path);
         assert!(
             !config_path.exists(),
             "apply_profiles_to_repo must not create config.json when it is absent"
         );
     }
-
-    // ── save_account_name_impl ────────────────────────────────────────────────
-
-    #[test]
-    fn test_save_account_name_writes_name_for_platform() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{"version":1}"#);
-        save_account_name_impl(&config_path, "bluesky", "@rng_dev").expect("should succeed");
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("@rng_dev"));
-    }
-
-    #[test]
-    fn test_save_account_name_preserves_existing_names_for_other_platforms() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(
-            dir.path(),
-            r#"{"version":1,"scheduler":{"account_names":{"x":"@existing_x"}}}"#,
-        );
-        save_account_name_impl(&config_path, "bluesky", "@new_bsky").expect("should succeed");
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("@existing_x"));
-        assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("@new_bsky"));
-    }
-
-    #[test]
-    fn test_save_account_name_errors_when_config_missing() {
-        let result = save_account_name_impl(
-            std::path::Path::new("/nonexistent/.postlane/config.json"),
-            "bluesky",
-            "@handle",
-        );
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
-    }
-
-    // ── apply_profiles_to_repo — name persistence ─────────────────────────────
 
     #[test]
     fn test_apply_profiles_to_repo_writes_account_name() {
@@ -464,7 +210,7 @@ mod tests {
             platforms: vec!["bluesky".to_string()],
         }];
         apply_profiles_to_repo(&profiles, &config_path);
-        let content = std::fs::read_to_string(&config_path).expect("read");
+        let content = fs::read_to_string(&config_path).expect("read");
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(
             config["scheduler"]["account_names"]["bluesky"].as_str(),
@@ -491,7 +237,7 @@ mod tests {
             },
         ];
         apply_profiles_to_repo(&profiles, &config_path);
-        let content = std::fs::read_to_string(&config_path).expect("read");
+        let content = fs::read_to_string(&config_path).expect("read");
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
         assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("@postlane"));
         assert_eq!(config["scheduler"]["account_names"]["bluesky"].as_str(), Some("@rng_dev"));
@@ -513,8 +259,6 @@ mod tests {
         assert_eq!(config["scheduler"]["account_ids"]["bluesky"].as_str(), Some("acc-bs"));
     }
 
-    // ── write_upload_post_account ─────────────────────────────────────────────
-
     #[test]
     fn write_upload_post_account_writes_per_platform_account_ids_and_names() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
@@ -535,7 +279,7 @@ mod tests {
         write_upload_post_account("postlane", &[], &config_path);
         let content = fs::read_to_string(&config_path).expect("read");
         let config: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert!(config["scheduler"]["account_ids"].is_null(), "no platforms → no account_ids written");
+        assert!(config["scheduler"]["account_ids"].is_null(), "no platforms -> no account_ids written");
         assert_eq!(
             config["scheduler"]["account_names"]["upload_post"].as_str(),
             Some("postlane"),
@@ -543,8 +287,6 @@ mod tests {
         );
     }
 
-    // Upload Post returns one profile with platforms: ["bluesky", "x"] — one username covers both.
-    // This differs from Zernio which returns one profile per platform.
     #[test]
     fn apply_profiles_to_repo_handles_single_profile_with_multiple_platforms() {
         use crate::providers::scheduling::SchedulerProfile;
@@ -564,62 +306,22 @@ mod tests {
         assert_eq!(config["scheduler"]["account_names"]["x"].as_str(), Some("myhandle"));
     }
 
-    #[test]
-    fn test_get_account_ids_impl_returns_empty_when_file_absent() {
-        let result = get_account_ids_impl(
-            std::path::Path::new("/nonexistent/path/.postlane/config.json"),
-        );
+    #[tokio::test]
+    async fn test_sync_accounts_for_provider_empty_paths_returns_ok() {
+        let result = sync_accounts_for_provider("zernio", "test-key", vec![]).await;
         assert!(result.is_ok(), "{:?}", result);
-        assert!(result.unwrap().is_empty());
     }
 
-    #[test]
-    fn test_get_account_ids_impl_returns_empty_when_no_account_ids_key() {
+    #[tokio::test]
+    async fn test_sync_accounts_for_provider_unknown_provider_returns_err() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{"scheduler":{}}"#);
-        let result = get_account_ids_impl(&config_path);
-        assert!(result.is_ok(), "{:?}", result);
-        assert!(result.unwrap().is_empty());
+        let result = sync_accounts_for_provider(
+            "not-a-real-provider",
+            "test-key",
+            vec![dir.path().to_path_buf()],
+        ).await;
+        assert!(result.is_err(), "unknown provider must return Err");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("build provider"), "error: {}", msg);
     }
-
-    #[test]
-    fn test_get_account_ids_impl_returns_map_when_present() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{
-            "scheduler": {
-                "account_ids": { "x": "acc123", "bluesky": "bsky456" }
-            }
-        }"#);
-        let result = get_account_ids_impl(&config_path);
-        assert!(result.is_ok(), "{:?}", result);
-        let map = result.unwrap();
-        assert_eq!(map.len(), 2);
-        assert_eq!(map.get("x").map(String::as_str), Some("acc123"));
-        assert_eq!(map.get("bluesky").map(String::as_str), Some("bsky456"));
-    }
-
-    #[test]
-    fn test_get_account_ids_impl_returns_err_on_corrupt_json() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), "not json");
-        let result = get_account_ids_impl(&config_path);
-        assert!(result.is_err(), "expected Err for corrupt JSON");
-    }
-
-    #[test]
-    fn test_get_account_ids_impl_ignores_non_string_values() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config(dir.path(), r#"{
-            "scheduler": {
-                "account_ids": { "x": "acc", "bad": 123 }
-            }
-        }"#);
-        let result = get_account_ids_impl(&config_path);
-        assert!(result.is_ok(), "{:?}", result);
-        let map = result.unwrap();
-        assert_eq!(map.len(), 1);
-        assert_eq!(map.get("x").map(String::as_str), Some("acc"));
-        assert!(!map.contains_key("bad"));
-    }
-
 }

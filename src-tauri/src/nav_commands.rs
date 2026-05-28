@@ -38,7 +38,8 @@ pub fn get_watcher_status(state: tauri::State<crate::app_state::AppState>) -> Ve
     get_watcher_status_impl(&repo_data, &active_ids)
 }
 
-pub use crate::account_config::{get_account_ids, save_account_id, save_account_id_impl};
+pub use crate::account_config::{get_account_ids, save_account_id};
+pub use crate::account_id_store::save_account_id_impl;
 pub use crate::draft_queries::{DraftPost, get_all_drafts, get_all_drafts_impl};
 pub use crate::model_stats::{ModelStatsResponse, get_model_stats, get_model_stats_impl};
 pub use crate::published_queries::{

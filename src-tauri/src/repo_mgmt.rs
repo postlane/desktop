@@ -283,6 +283,146 @@ mod tests {
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
 
+    fn make_repo(id: &str, active: bool, path: &str) -> crate::storage::Repo {
+        crate::storage::Repo {
+            id: id.to_string(),
+            name: "test-repo".to_string(),
+            path: path.to_string(),
+            active,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    // --- add_repo_impl ---
+
+    #[test]
+    fn test_add_repo_returns_err_for_nonexistent_path() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl("/nonexistent/path/xyz_not_real", &state);
+        assert!(result.is_err(), "must err for nonexistent path");
+    }
+
+    #[test]
+    fn test_add_repo_returns_err_when_no_git_dir() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err without .git dir");
+        assert!(result.unwrap_err().contains("Not a git repository"));
+    }
+
+    #[test]
+    fn test_add_repo_returns_err_when_no_config_json() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(tmp.path().join(".git")).expect("create .git");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_err(), "must err without config.json");
+        assert!(result.unwrap_err().contains("config.json not found"));
+    }
+
+    #[test]
+    fn test_add_repo_adds_repo_to_state() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        scaffold_git_repo(tmp.path());
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = add_repo_impl(tmp.path().to_str().unwrap(), &state);
+        assert!(result.is_ok(), "{:?}", result);
+        let repo = result.unwrap();
+        assert!(repo.active, "new repo must be active");
+        let repos = state.repos.lock().unwrap();
+        assert_eq!(repos.repos.len(), 1, "state must contain the new repo");
+        assert_eq!(repos.repos[0].id, repo.id);
+    }
+
+    // --- remove_repo_impl ---
+
+    #[test]
+    fn test_remove_repo_returns_err_for_unknown_id() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = remove_repo_impl("no-such-id", &state);
+        assert!(result.is_err(), "must err for unknown id");
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_remove_repo_removes_from_state() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = make_repo("r1", true, "/some/path");
+        let state = make_state_at(tmp.path(), vec![repo]);
+        remove_repo_impl("r1", &state).expect("remove must succeed");
+        let repos = state.repos.lock().unwrap();
+        assert!(repos.repos.is_empty(), "repo must be removed from state");
+    }
+
+    // --- set_repo_active_impl ---
+
+    #[test]
+    fn test_set_repo_active_returns_err_for_unknown_id() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = set_repo_active_impl("no-such-id", true, &state);
+        assert!(result.is_err(), "must err for unknown id");
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_set_repo_active_sets_active_true() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = make_repo("r1", false, "/some/path");
+        let state = make_state_at(tmp.path(), vec![repo]);
+        set_repo_active_impl("r1", true, &state).expect("must succeed");
+        let repos = state.repos.lock().unwrap();
+        assert!(repos.repos[0].active, "repo must now be active");
+    }
+
+    #[test]
+    fn test_set_repo_active_sets_active_false() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repo = make_repo("r1", true, "/some/path");
+        let state = make_state_at(tmp.path(), vec![repo]);
+        set_repo_active_impl("r1", false, &state).expect("must succeed");
+        let repos = state.repos.lock().unwrap();
+        assert!(!repos.repos[0].active, "repo must now be inactive");
+    }
+
+    // --- check_repo_health_impl ---
+
+    #[test]
+    fn test_check_repo_health_returns_empty_for_no_repos() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let state = make_state_at(tmp.path(), vec![]);
+        let result = check_repo_health_impl(&state).expect("must succeed");
+        assert!(result.is_empty(), "no repos → empty health list");
+    }
+
+    #[test]
+    fn test_check_repo_health_reachable_when_config_exists() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        scaffold_git_repo(tmp.path()); // creates .postlane/config.json
+        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
+        let repo = make_repo("r1", true, canonical.to_str().unwrap());
+        let state = make_state_at(tmp.path(), vec![repo]);
+        let result = check_repo_health_impl(&state).expect("must succeed");
+        assert_eq!(result.len(), 1);
+        assert!(result[0].reachable, "repo with config.json must be reachable");
+        assert_eq!(result[0].id, "r1");
+    }
+
+    #[test]
+    fn test_check_repo_health_not_reachable_when_config_absent() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        // No .postlane/config.json
+        let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize");
+        let repo = make_repo("r2", true, canonical.to_str().unwrap());
+        let state = make_state_at(tmp.path(), vec![repo]);
+        let result = check_repo_health_impl(&state).expect("must succeed");
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].reachable, "repo without config.json must not be reachable");
+    }
+
     // --- update_repo_path_impl ---
 
     #[test]

@@ -129,4 +129,32 @@ mod tests {
             msg
         );
     }
+
+    #[test]
+    fn test_lookup_at_returns_none_on_bad_json() {
+        let (_dir, path) = test_path("bad-json");
+        std::fs::write(&path, b"this is not json").expect("write bad json");
+        // serde_json::from_str fails → .ok() → None → unwrap_or_default → empty HashMap
+        assert!(
+            lookup_version_at("any-project", &path).is_none(),
+            "bad JSON must produce an empty map, so lookup returns None"
+        );
+    }
+
+    #[test]
+    fn test_record_and_lookup_version_via_public_api() {
+        // Covers the 8-line record_version / lookup_version public wrappers that
+        // call through to postlane_dir().
+        let uid = format!("coverage-test-proj-{}", std::process::id());
+        record_version(&uid).expect("record_version must succeed on a reachable home dir");
+        let result = lookup_version(&uid);
+        assert!(result.is_some(), "lookup_version must return Some after record_version");
+        let ts = result.unwrap();
+        assert!(ts.contains('T'), "expected RFC3339 timestamp, got: {}", ts);
+        // lookup a project that was never recorded via the public API
+        assert!(
+            lookup_version("nonexistent-project-coverage-test").is_none(),
+            "lookup_version must return None for an unrecorded project"
+        );
+    }
 }

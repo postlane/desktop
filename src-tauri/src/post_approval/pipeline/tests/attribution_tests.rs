@@ -46,3 +46,22 @@ fn test_no_attribution_when_attribution_data_missing() {
     let result = append_unsplash_attribution("Hello world", &meta);
     assert_eq!(result, "Hello world");
 }
+
+// pipeline — unsplash source + attribution present but photographer_name empty → no attribution appended
+#[test]
+fn test_no_attribution_when_photographer_name_is_empty() {
+    use crate::post_meta::ImageAttribution;
+    let meta = PostMeta {
+        image_source: Some("unsplash".to_string()),
+        image_attribution: Some(ImageAttribution {
+            photographer_name: "".to_string(),
+            photographer_url: "https://unsplash.com/@user".to_string(),
+        }),
+        ..PostMeta::default()
+    };
+    let result = append_unsplash_attribution("Hello world", &meta);
+    assert_eq!(
+        result, "Hello world",
+        "empty photographer_name must not append any attribution text"
+    );
+}

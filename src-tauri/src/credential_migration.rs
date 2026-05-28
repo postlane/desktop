@@ -166,6 +166,177 @@ pub fn run_v1(
 mod tests {
     use super::*;
 
+    use std::io::Write;
+
+    fn write_json(path: &std::path::Path, json: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(json.as_bytes()).unwrap();
+    }
+
+    // has_provider_in_local_config — provider matches scheduler.provider
+    #[test]
+    fn test_has_provider_in_local_config_matches_primary() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg_path = dir.path().join(".postlane/config.local.json");
+        write_json(&cfg_path, r#"{"scheduler":{"provider":"zernio"}}"#);
+        assert!(has_provider_in_local_config(dir.path(), "zernio"));
+        assert!(!has_provider_in_local_config(dir.path(), "outstand"));
+    }
+
+    // has_provider_in_local_config — provider is in fallback_order array
+    #[test]
+    fn test_has_provider_in_local_config_matches_fallback_order() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg_path = dir.path().join(".postlane/config.local.json");
+        write_json(&cfg_path, r#"{"scheduler":{"provider":"zernio","fallback_order":["outstand","buffer"]}}"#);
+        assert!(has_provider_in_local_config(dir.path(), "outstand"));
+        assert!(has_provider_in_local_config(dir.path(), "buffer"));
+        assert!(!has_provider_in_local_config(dir.path(), "ayrshare"));
+    }
+
+    // has_provider_in_local_config — file does not exist → false
+    #[test]
+    fn test_has_provider_in_local_config_returns_false_when_file_absent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(!has_provider_in_local_config(dir.path(), "zernio"));
+    }
+
+    // has_provider_in_local_config — file is invalid JSON → false
+    #[test]
+    fn test_has_provider_in_local_config_returns_false_on_bad_json() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg_path = dir.path().join(".postlane/config.local.json");
+        write_json(&cfg_path, "not json");
+        assert!(!has_provider_in_local_config(dir.path(), "zernio"));
+    }
+
+    // read_project_id_from_repo — returns Some when project_id present
+    #[test]
+    fn test_read_project_id_from_repo_returns_id_when_present() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg_path = dir.path().join(".postlane/config.json");
+        write_json(&cfg_path, r#"{"project_id":"proj-abc"}"#);
+        assert_eq!(
+            read_project_id_from_repo(dir.path()),
+            Some("proj-abc".to_string())
+        );
+    }
+
+    // read_project_id_from_repo — file absent → None
+    #[test]
+    fn test_read_project_id_from_repo_returns_none_when_file_absent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert_eq!(read_project_id_from_repo(dir.path()), None);
+    }
+
+    // read_project_id_from_repo — project_id field missing → None
+    #[test]
+    fn test_read_project_id_from_repo_returns_none_when_field_missing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg_path = dir.path().join(".postlane/config.json");
+        write_json(&cfg_path, r#"{"some_other_field":"value"}"#);
+        assert_eq!(read_project_id_from_repo(dir.path()), None);
+    }
+
+    // read_project_id_from_repo — invalid JSON → None
+    #[test]
+    fn test_read_project_id_from_repo_returns_none_on_bad_json() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cfg_path = dir.path().join(".postlane/config.json");
+        write_json(&cfg_path, "{ bad json }");
+        assert_eq!(read_project_id_from_repo(dir.path()), None);
+    }
+
+    // get_project_ids_for_provider — empty repos → empty vec
+    #[test]
+    fn test_get_project_ids_for_provider_returns_empty_when_no_repos() {
+        use crate::app_state::AppState;
+        use crate::storage::ReposConfig;
+        let dir = tempfile::TempDir::new().unwrap();
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![] },
+            dir.path().join("repos.json"),
+        );
+        assert!(get_project_ids_for_provider("zernio", &state).is_empty());
+    }
+
+    // get_project_ids_for_provider — repo with matching provider + project_id → returned
+    #[test]
+    fn test_get_project_ids_for_provider_returns_id_for_matching_repo() {
+        use crate::app_state::AppState;
+        use crate::storage::{Repo, ReposConfig};
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo_dir = dir.path().join("my-repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        write_json(&repo_dir.join(".postlane/config.local.json"), r#"{"scheduler":{"provider":"zernio"}}"#);
+        write_json(&repo_dir.join(".postlane/config.json"), r#"{"project_id":"proj-111"}"#);
+        let repo = Repo {
+            id: "r1".into(), name: "my-repo".into(),
+            path: repo_dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![repo] },
+            dir.path().join("repos.json"),
+        );
+        let ids = get_project_ids_for_provider("zernio", &state);
+        assert_eq!(ids, vec!["proj-111"]);
+    }
+
+    // get_project_ids_for_provider — repo with wrong provider → skipped
+    #[test]
+    fn test_get_project_ids_for_provider_skips_non_matching_repos() {
+        use crate::app_state::AppState;
+        use crate::storage::{Repo, ReposConfig};
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo_dir = dir.path().join("my-repo");
+        std::fs::create_dir_all(&repo_dir).unwrap();
+        write_json(&repo_dir.join(".postlane/config.local.json"), r#"{"scheduler":{"provider":"buffer"}}"#);
+        write_json(&repo_dir.join(".postlane/config.json"), r#"{"project_id":"proj-222"}"#);
+        let repo = Repo {
+            id: "r1".into(), name: "my-repo".into(),
+            path: repo_dir.to_str().unwrap().to_string(),
+            active: true, added_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos: vec![repo] },
+            dir.path().join("repos.json"),
+        );
+        let ids = get_project_ids_for_provider("zernio", &state);
+        assert!(ids.is_empty(), "non-matching provider must be skipped");
+    }
+
+    // get_project_ids_for_provider — same project_id in two repos → deduplicated
+    #[test]
+    fn test_get_project_ids_for_provider_deduplicates_project_ids() {
+        use crate::app_state::AppState;
+        use crate::storage::{Repo, ReposConfig};
+        let dir = tempfile::TempDir::new().unwrap();
+        let make_repo_dir = |name: &str| -> std::path::PathBuf {
+            let repo_dir = dir.path().join(name);
+            std::fs::create_dir_all(&repo_dir).unwrap();
+            write_json(&repo_dir.join(".postlane/config.local.json"), r#"{"scheduler":{"provider":"zernio"}}"#);
+            write_json(&repo_dir.join(".postlane/config.json"), r#"{"project_id":"proj-shared"}"#);
+            repo_dir
+        };
+        let rd1 = make_repo_dir("repo-a");
+        let rd2 = make_repo_dir("repo-b");
+        let repos = vec![
+            Repo { id: "r1".into(), name: "a".into(), path: rd1.to_str().unwrap().into(), active: true, added_at: "2026-01-01T00:00:00Z".into() },
+            Repo { id: "r2".into(), name: "b".into(), path: rd2.to_str().unwrap().into(), active: true, added_at: "2026-01-01T00:00:00Z".into() },
+        ];
+        let state = AppState::new_with_path(
+            ReposConfig { version: 1, repos },
+            dir.path().join("repos.json"),
+        );
+        let ids = get_project_ids_for_provider("zernio", &state);
+        assert_eq!(ids.len(), 1, "same project_id in two repos must be deduplicated");
+        assert_eq!(ids[0], "proj-shared");
+    }
+
     // 21.5.12 — migration already flagged → skipped entirely; no keyring changes
     #[test]
     fn test_migration_skipped_when_already_flagged() {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 use super::*;
-use super::queue_parser::parse_link_next;
+use super::queue_parser::{map_scheduled_status, parse_link_next};
 
 #[tokio::test]
 async fn test_schedule_post_429_returns_rate_limit_error_with_retry_after() {
@@ -208,4 +208,295 @@ async fn test_rejects_loopback_mastodon_instance() {
         ProviderError::InvalidInstance(_) => {}
         other => panic!("Expected InvalidInstance, got {:?}", other),
     }
+}
+
+// mastodon/mod.rs lines 36-42 — new() constructor is only called by create(); test it directly
+#[test]
+fn test_new_sets_correct_api_base() {
+    let provider = MastodonProvider::new("mastodon.social", "my-token".to_string());
+    assert_eq!(provider.api_base, "https://mastodon.social/api/v1");
+    assert_eq!(provider.access_token, "my-token");
+}
+
+// mastodon/mod.rs lines 340-342 — post_url always returns None
+#[test]
+fn test_post_url_always_returns_none() {
+    let server = MockServer::start();
+    let provider = make_provider(&server);
+    assert_eq!(provider.post_url("mastodon", "12345"), None);
+}
+
+// mastodon line 91 — fetch_instance_char_limit network error → defaults to 500
+#[tokio::test]
+async fn test_fetch_instance_char_limit_returns_500_on_network_error() {
+    let provider = MastodonProvider {
+        client: build_client(),
+        api_base: "http://127.0.0.1:1".to_string(),
+        access_token: "tok".into(),
+    };
+    let limit = provider.fetch_instance_char_limit().await;
+    assert_eq!(limit, 500, "network error must fall back to 500");
+}
+
+// mastodon network error paths — lines 167, 198, 229, 272, 314
+#[tokio::test]
+async fn test_schedule_post_network_error() {
+    let provider = MastodonProvider {
+        client: build_client(),
+        api_base: "http://127.0.0.1:1".to_string(),
+        access_token: "tok".into(),
+    };
+    let result = provider.schedule_post("Hello", "mastodon", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_cancel_post_network_error() {
+    let provider = MastodonProvider {
+        client: build_client(),
+        api_base: "http://127.0.0.1:1".to_string(),
+        access_token: "tok".into(),
+    };
+    let result = provider.cancel_post("post-1", "mastodon").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_list_profiles_network_error() {
+    let provider = MastodonProvider {
+        client: build_client(),
+        api_base: "http://127.0.0.1:1".to_string(),
+        access_token: "tok".into(),
+    };
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_get_queue_network_error() {
+    let provider = MastodonProvider {
+        client: build_client(),
+        api_base: "http://127.0.0.1:1".to_string(),
+        access_token: "tok".into(),
+    };
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_get_engagement_network_error() {
+    let provider = MastodonProvider {
+        client: build_client(),
+        api_base: "http://127.0.0.1:1".to_string(),
+        access_token: "tok".into(),
+    };
+    let result = provider.get_engagement("post-1", "mastodon").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// mastodon JSON parse error paths — lines 180, 242, 287, 327
+#[tokio::test]
+async fn test_schedule_post_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/statuses");
+        then.status(200).body("not json");
+    });
+    let provider = make_provider(&server);
+    let result = provider.schedule_post("Hello", "mastodon", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_list_profiles_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/accounts/verify_credentials");
+        then.status(200).body("not json");
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// mastodon line 248 — list_profiles when display_name is empty uses acct fallback
+#[tokio::test]
+async fn test_list_profiles_uses_acct_when_display_name_empty() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/accounts/verify_credentials");
+        then.status(200).json_body(serde_json::json!({
+            "id": "42",
+            "display_name": "",  // empty → falls back to acct
+            "acct": "@alice@mastodon.social"
+        }));
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(result.is_ok(), "{:?}", result);
+    let profiles = result.unwrap();
+    assert_eq!(profiles[0].name, "@alice@mastodon.social");
+}
+
+#[tokio::test]
+async fn test_get_queue_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/scheduled_statuses");
+        then.status(200).body("not json");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_get_engagement_invalid_json_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/statuses/post-j");
+        then.status(200).body("not json");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_engagement("post-j", "mastodon").await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// mastodon non-2xx HTTP error paths — lines 171-174, 207-211, 233-236, 276-279, 318-321
+
+#[tokio::test]
+async fn test_schedule_post_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/statuses");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    let result = provider.schedule_post("Hello", "mastodon", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_cancel_post_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(DELETE).path("/scheduled_statuses/post-del");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    let result = provider.cancel_post("post-del", "mastodon").await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_list_profiles_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/accounts/verify_credentials");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_get_queue_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/scheduled_statuses");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+#[tokio::test]
+async fn test_get_engagement_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/statuses/post-eng");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    let result = provider.get_engagement("post-eng", "mastodon").await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+// fetch_instance_char_limit — 200 with invalid JSON → defaults to 500
+#[tokio::test]
+async fn test_fetch_instance_char_limit_returns_500_on_invalid_json() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/instance");
+        then.status(200).body("not json");
+    });
+    let provider = make_provider(&server);
+    let limit = provider.fetch_instance_char_limit().await;
+    assert_eq!(limit, 500, "invalid JSON body must fall back to 500");
+}
+
+// fetch_instance_char_limit — 200 with JSON but no max_characters → defaults to 500
+#[tokio::test]
+async fn test_fetch_instance_char_limit_returns_500_when_max_characters_absent() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/instance");
+        then.status(200).json_body(serde_json::json!({ "version": "4.0.0" }));
+    });
+    let provider = make_provider(&server);
+    let limit = provider.fetch_instance_char_limit().await;
+    assert_eq!(limit, 500, "missing max_characters must fall back to 500");
+}
+
+// queue_parser — empty URL in rel="next" must not be returned
+#[test]
+fn test_parse_link_next_returns_none_when_url_is_empty() {
+    // "<>" produces an empty URL after trimming — must not be treated as valid
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("link", "<>; rel=\"next\"".parse().unwrap());
+    assert_eq!(parse_link_next(&headers), None);
+}
+
+// queue_parser — text longer than 80 chars is truncated with trailing "..."
+#[test]
+fn test_map_scheduled_status_truncates_long_text() {
+    let long_text = "a".repeat(100);
+    let item = serde_json::json!({
+        "id": "123",
+        "scheduled_at": "2024-06-01T12:00:00.000Z",
+        "params": { "text": long_text }
+    });
+    let result = map_scheduled_status(&item).unwrap();
+    assert!(result.content_preview.ends_with("..."), "long text must be truncated with '...'");
+    assert_eq!(
+        result.content_preview.chars().count(),
+        83,
+        "preview must be 80 chars + '...' = 83 chars total"
+    );
+}
+
+// mastodon/mod.rs lines 137-139 — name() was never called by any test
+#[test]
+fn test_name_returns_mastodon() {
+    let provider = MastodonProvider::new("mastodon.social", "token".to_string());
+    assert_eq!(provider.name(), "mastodon");
+}
+
+// mastodon/mod.rs lines 130+132 — validate_instance_domain non-private IP path
+#[tokio::test]
+async fn test_validate_instance_domain_passes_for_public_ip() {
+    // 203.0.113.1 is a TEST-NET-3 address (RFC 5737) - public, non-private.
+    // lookup_host on an IP literal returns the address directly without DNS.
+    let result = validate_instance_domain("203.0.113.1").await;
+    assert!(result.is_ok(), "public IP must pass validation: {:?}", result);
+}
+
+// mastodon/mod.rs line 32 — create() success path with public IP
+#[tokio::test]
+async fn test_create_succeeds_for_public_ip() {
+    let result = MastodonProvider::create("203.0.113.1", "tok".to_string()).await;
+    assert!(result.is_ok(), "create() must succeed for public IP: {:?}", result);
+    assert_eq!(result.unwrap().api_base, "https://203.0.113.1/api/v1");
 }

@@ -11,51 +11,12 @@ use crate::init::atomic_write;
 use crate::project_validation::{reject_if_symlink, validate_project_id};
 use crate::storage::ReposConfig;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::State;
 
-pub(crate) const BASE_URL: &str = "https://postlane.dev";
-pub(crate) const DEFAULT_LLM_MODEL: &str = "claude-sonnet-4-6";
+// Re-export for callers that previously used this via project_config_ops.
+pub(crate) use crate::platform_config_sync::sync_connected_platforms_to_config_impl;
 
-pub(crate) fn build_initial_config_json(project_id: &str) -> serde_json::Value {
-    serde_json::json!({
-        "version": 1,
-        "project_id": project_id,
-        "base_url": BASE_URL,
-        "llm": { "provider": "anthropic", "model": DEFAULT_LLM_MODEL }
-    })
-}
-
-pub(crate) fn build_initial_config_local_json() -> serde_json::Value {
-    serde_json::json!({ "scheduler": { "provider": "" } })
-}
-
-/// Writes `.postlane/config.json` and `.postlane/config.local.json` into `repo_dir`.
-/// Both files are written atomically (tmp → rename). Rejects symlinks.
-/// Creates `.postlane/` automatically (via atomic_write's parent-dir creation).
-pub(crate) fn write_initial_config_files(repo_dir: &Path, project_id: &str) -> Result<(), String> {
-    let config_path = repo_dir.join(".postlane").join("config.json");
-    reject_if_symlink(&config_path)?;
-    let config_bytes = serde_json::to_vec_pretty(&build_initial_config_json(project_id))
-        .map_err(|e| format!("Failed to serialise config.json: {}", e))?;
-    atomic_write(&config_path, &config_bytes)
-        .map_err(|e| format!("Failed to write config.json: {}", e))?;
-
-    let local_path = repo_dir.join(".postlane").join("config.local.json");
-    reject_if_symlink(&local_path)?;
-    let local_bytes = serde_json::to_vec_pretty(&build_initial_config_local_json())
-        .map_err(|e| format!("Failed to serialise config.local.json: {}", e))?;
-    atomic_write(&local_path, &local_bytes)
-        .map_err(|e| format!("Failed to write config.local.json: {}", e))?;
-
-    Ok(())
-}
-
-/// Computes the hex-encoded SHA-256 digest of `input`.
-pub fn sha256_hex(input: &str) -> String {
-    use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(input.as_bytes()))
-}
 
 /// Returns the last path segment of a repo's `origin` remote URL (e.g. `"desktop"` from
 /// `https://github.com/postlane/desktop.git`). Returns `None` if no remote is configured.
@@ -147,33 +108,6 @@ pub fn write_project_id_to_config_impl(
     Ok("We've added a project_id to .postlane/config.json — commit this so your team can access this project.".to_string())
 }
 
-/// Updates the `connected_platforms` field in `.postlane/config.json` to reflect
-/// the current set of connected platforms for a repo.
-/// Silent no-op (with warn log) if config.json does not exist.
-pub(crate) fn sync_connected_platforms_to_config_impl(
-    config_path: &Path,
-    repo_id: &str,
-    mastodon_active: bool,
-    has_keyring_key: &dyn Fn(&str) -> bool,
-) -> Result<(), String> {
-    if !config_path.exists() {
-        log::warn!("sync_connected_platforms: config.json not found at {:?}", config_path);
-        return Ok(());
-    }
-    let platforms = crate::connected_platforms::list_connected_platforms_impl(
-        config_path, repo_id, mastodon_active, has_keyring_key,
-    );
-    let content = fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
-    config["connected_platforms"] = serde_json::json!(platforms);
-    let bytes = serde_json::to_vec_pretty(&config)
-        .map_err(|e| format!("Failed to serialise config.json: {}", e))?;
-    atomic_write(config_path, &bytes)
-        .map_err(|e| format!("Failed to write config.json: {}", e))
-}
-
 /// Tauri command: reads the `project_id` field from a repo's `.postlane/config.json`.
 #[tauri::command]
 pub fn read_project_id_from_path(path: String, state: State<AppState>) -> Result<Option<String>, String> {
@@ -242,24 +176,6 @@ mod tests {
                 added_at: "2026-01-01T00:00:00Z".to_string(),
             }],
         }
-    }
-
-    // ── sha256_hex ────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_sha256_hex_produces_64_char_hex() {
-        let h = sha256_hex("test-input");
-        assert_eq!(h.len(), 64, "expected 64-char SHA-256 hex, got {} chars: {}", h.len(), h);
-    }
-
-    #[test]
-    fn test_sha256_hex_is_deterministic() {
-        assert_eq!(sha256_hex("/users/hugo/repos/desktop"), sha256_hex("/users/hugo/repos/desktop"));
-    }
-
-    #[test]
-    fn test_sha256_hex_different_inputs_differ() {
-        assert_ne!(sha256_hex("/path/one"), sha256_hex("/path/two"));
     }
 
     // ── write_project_id_to_config ───────────────────────────────────────────
@@ -388,7 +304,6 @@ mod tests {
 
     #[test]
     fn test_write_project_id_errors_when_config_json_missing() {
-        // Path is registered but .postlane/config.json does not exist yet.
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let repos = make_repos(&[dir.path().to_str().unwrap()]);
         let result = write_project_id_to_config_impl(dir.path().to_str().unwrap(), "proj-new", &repos);
@@ -403,7 +318,6 @@ mod tests {
 
     #[test]
     fn test_write_project_id_errors_on_invalid_json() {
-        // config.json exists but contains invalid JSON — parse step must Err.
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let config_dir = dir.path().join(".postlane");
         std::fs::create_dir_all(&config_dir).expect("create .postlane");
@@ -418,116 +332,4 @@ mod tests {
         );
     }
 
-    // ── sync_connected_platforms_to_config_impl ──────────────────────────────
-
-    fn write_config_for_sync(dir: &std::path::Path, json: &str) -> std::path::PathBuf {
-        let config_dir = dir.join(".postlane");
-        std::fs::create_dir_all(&config_dir).expect("create .postlane");
-        let path = config_dir.join("config.json");
-        std::fs::write(&path, json).expect("write config.json");
-        path
-    }
-
-    #[test]
-    fn test_sync_writes_connected_platforms_to_config() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config_for_sync(dir.path(), r#"{
-            "version": 1,
-            "project_id": "proj-abc",
-            "scheduler": { "account_ids": { "bluesky": "myhandle" } }
-        }"#);
-
-        let result = sync_connected_platforms_to_config_impl(
-            &config_path, "r1", false,
-            &|key| key == "zernio/r1",
-        );
-        assert!(result.is_ok(), "expected Ok, got {:?}", result);
-
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        let platforms = parsed["connected_platforms"].as_array().expect("array");
-        assert!(platforms.iter().any(|v| v.as_str() == Some("bluesky")));
-    }
-
-    #[test]
-    fn test_sync_includes_mastodon_when_active() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config_for_sync(dir.path(), r#"{"version":1}"#);
-
-        let result = sync_connected_platforms_to_config_impl(
-            &config_path, "r1", true, &|_| false,
-        );
-        assert!(result.is_ok());
-
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        let platforms = parsed["connected_platforms"].as_array().expect("array");
-        assert!(platforms.iter().any(|v| v.as_str() == Some("mastodon")));
-    }
-
-    #[test]
-    fn test_sync_preserves_other_config_fields() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config_for_sync(dir.path(), r#"{
-            "version": 1,
-            "project_id": "proj-xyz",
-            "base_url": "https://postlane.dev"
-        }"#);
-
-        sync_connected_platforms_to_config_impl(
-            &config_path, "r1", false, &|_| false,
-        ).expect("should succeed");
-
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(parsed["project_id"].as_str(), Some("proj-xyz"));
-        assert_eq!(parsed["base_url"].as_str(), Some("https://postlane.dev"));
-        assert_eq!(parsed["version"].as_u64(), Some(1));
-    }
-
-    #[test]
-    fn test_sync_overwrites_previous_connected_platforms() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config_for_sync(dir.path(), r#"{
-            "version": 1,
-            "connected_platforms": ["x", "bluesky", "mastodon"],
-            "scheduler": { "account_ids": { "bluesky": "myhandle" } }
-        }"#);
-
-        sync_connected_platforms_to_config_impl(
-            &config_path, "r1", false,
-            &|key| key == "zernio/r1",
-        ).expect("should succeed");
-
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        let platforms = parsed["connected_platforms"].as_array().expect("array");
-        assert!(!platforms.iter().any(|v| v.as_str() == Some("x")), "x should not be present");
-        assert!(!platforms.iter().any(|v| v.as_str() == Some("mastodon")), "mastodon not connected");
-        assert!(platforms.iter().any(|v| v.as_str() == Some("bluesky")));
-    }
-
-    #[test]
-    fn test_sync_writes_empty_array_when_nothing_connected() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let config_path = write_config_for_sync(dir.path(), r#"{"version":1}"#);
-
-        sync_connected_platforms_to_config_impl(
-            &config_path, "r1", false, &|_| false,
-        ).expect("should succeed");
-
-        let content = std::fs::read_to_string(&config_path).expect("read");
-        let parsed: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        let platforms = parsed["connected_platforms"].as_array().expect("array");
-        assert!(platforms.is_empty());
-    }
-
-    #[test]
-    fn test_sync_is_no_op_when_config_missing() {
-        let result = sync_connected_platforms_to_config_impl(
-            std::path::Path::new("/nonexistent/.postlane/config.json"),
-            "r1", false, &|_| false,
-        );
-        assert!(result.is_ok(), "missing config.json must not error, got {:?}", result);
-    }
 }

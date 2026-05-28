@@ -157,4 +157,55 @@ mod tests {
         let result = delete_project_with_client("", &build_client(), "http://127.0.0.1:19993", "tok", &state).await;
         assert!(result.is_err(), "empty project_id must return Err");
     }
+
+    #[tokio::test]
+    async fn test_delete_project_returns_error_when_unregister_fails_after_204() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = dirs::home_dir().expect("home dir");
+        let repo_dir = home.join("postlane_test_del_proj_unreg_fail");
+        write_project_config(&repo_dir, "proj-unreg-fail");
+
+        // Place repos.json in a temp dir we will make read-only so the write fails
+        let repos_dir = tempfile::TempDir::new().expect("temp dir");
+        let repos_path = repos_dir.path().join("repos.json");
+        let repo = make_repo_entry("r-unreg", repo_dir.to_str().unwrap());
+        let config = crate::storage::ReposConfig { version: 1, repos: vec![repo] };
+        let state = crate::app_state::AppState::new_with_path(config, repos_path.clone());
+
+        // Write repos.json so AppState initialises correctly, then seal the directory
+        let repos = state.repos.lock().expect("lock");
+        crate::storage::write_repos(&repos_path, &repos).expect("initial write");
+        drop(repos);
+        let ro_perms = std::fs::Permissions::from_mode(0o444);
+        std::fs::set_permissions(repos_dir.path(), ro_perms).expect("set read-only");
+
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::DELETE).path("/v1/projects/proj-unreg-fail");
+            then.status(204);
+        });
+
+        let result = delete_project_with_client(
+            "proj-unreg-fail",
+            &build_client(),
+            &server.base_url(),
+            "tok",
+            &state,
+        )
+        .await;
+
+        // Restore permissions so TempDir can clean up
+        let rw_perms = std::fs::Permissions::from_mode(0o755);
+        let _ = std::fs::set_permissions(repos_dir.path(), rw_perms);
+        let _ = fs::remove_dir_all(&repo_dir);
+
+        assert!(result.is_err(), "failure to write repos.json after 204 must return Err");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("failed to remove repo") || msg.contains("Failed to write repos.json"),
+            "error must mention repo removal failure, got: {}",
+            msg
+        );
+    }
 }

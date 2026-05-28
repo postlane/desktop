@@ -118,4 +118,25 @@ mod tests {
         let _guard = SitesGuard::acquire();
         assert!(get_cached_site_token("nobody").is_none());
     }
+
+    #[test]
+    fn test_read_returns_default_on_bad_json() {
+        let _guard = SitesGuard::acquire();
+        let path = super::sites_path().expect("path");
+        std::fs::write(&path, b"not valid json").expect("write bad json");
+        // read_analytics_sites must return a default (empty) when JSON is unparseable
+        assert!(get_cached_site_token("any-repo").is_none());
+    }
+
+    #[test]
+    fn test_read_returns_default_on_wrong_version() {
+        let _guard = SitesGuard::acquire();
+        let path = super::sites_path().expect("path");
+        std::fs::write(&path, br#"{"version":99,"sites":{"repo-x":"tok-x"}}"#).expect("write");
+        // version != 1 must be treated as a corrupt/unknown file — return empty default
+        assert!(
+            get_cached_site_token("repo-x").is_none(),
+            "token from unsupported version must not be returned"
+        );
+    }
 }

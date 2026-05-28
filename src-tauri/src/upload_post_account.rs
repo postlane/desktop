@@ -4,7 +4,7 @@
 // The username is validated case-sensitively via the Upload-Post API before
 // being written into account_ids for each connected platform.
 
-use crate::account_config::save_account_id_impl;
+use crate::account_id_store::save_account_id_impl;
 use crate::app_state::AppState;
 use crate::providers::scheduling::upload_post::UploadPostProvider;
 use crate::scheduler_credentials::get_credential_keyring_key;

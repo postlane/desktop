@@ -10,6 +10,26 @@ use tempfile::TempDir;
 
 struct MockEngagementProvider { likes: u64, reposts: u64, replies: u64 }
 
+/// Provider whose `get_engagement` always returns a network error — used to verify
+/// that `fetch_snapshot` falls back to a zero-valued snapshot on failure.
+struct FailingEngagementProvider;
+
+#[async_trait]
+impl SchedulingProvider for FailingEngagementProvider {
+    fn name(&self) -> &str { "failing-mock" }
+    async fn schedule_post(&self, _: &str, _: &str, _: Option<chrono::DateTime<Utc>>, _: Option<&str>, _: Option<&str>) -> Result<PostScheduleResult, ProviderError> {
+        Err(ProviderError::NotSupported("failing-mock".into()))
+    }
+    async fn list_profiles(&self) -> Result<Vec<SchedulerProfile>, ProviderError> { Err(ProviderError::NotSupported("failing-mock".into())) }
+    async fn cancel_post(&self, _: &str, _: &str) -> Result<(), ProviderError> { Err(ProviderError::NotSupported("failing-mock".into())) }
+    async fn get_queue(&self) -> Result<Vec<crate::types::QueuedPost>, ProviderError> { Err(ProviderError::NotSupported("failing-mock".into())) }
+    async fn test_connection(&self) -> Result<(), ProviderError> { Err(ProviderError::NotSupported("failing-mock".into())) }
+    async fn get_engagement(&self, _: &str, _: &str) -> Result<Engagement, ProviderError> {
+        Err(ProviderError::NetworkError("simulated provider failure".into()))
+    }
+    fn post_url(&self, _: &str, _: &str) -> Option<String> { None }
+}
+
 #[async_trait]
 impl SchedulingProvider for MockEngagementProvider {
     fn name(&self) -> &str { "mock" }
@@ -267,6 +287,47 @@ fn test_read_posts_for_sync_skips_malformed_meta_json() {
     let cutoff = Utc::now() - Duration::days(30);
     let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
     assert!(posts.is_empty(), "malformed meta.json must be skipped without panic");
+}
+
+// engagement_sync line 48 — posts dir absent → empty vec, no panic
+#[test]
+fn test_read_posts_for_sync_returns_empty_when_posts_dir_absent() {
+    let tmp = TempDir::new().unwrap();
+    // Deliberately do NOT create .postlane/posts/ — read_dir must return Err
+    let cutoff = Utc::now() - Duration::days(30);
+    let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+    assert!(posts.is_empty(), "absent posts dir must return empty vec without panic");
+}
+
+// engagement_sync line 63 — folder exists but has no meta.json → skipped
+#[test]
+fn test_read_post_for_sync_skips_folder_with_missing_meta_json() {
+    let tmp = TempDir::new().unwrap();
+    // Create the posts dir with a subdirectory that has no meta.json inside
+    let post_dir = tmp.path().join(".postlane").join("posts").join("empty-post");
+    std::fs::create_dir_all(&post_dir).unwrap();
+    let cutoff = Utc::now() - Duration::days(30);
+    let posts = read_posts_for_sync("repo-1", tmp.path(), cutoff);
+    assert!(posts.is_empty(), "folder without meta.json must be skipped");
+}
+
+// engagement_sync line 137 — provider.get_engagement() errors → zero-valued snapshot
+#[tokio::test]
+async fn test_fetch_snapshot_falls_back_to_zero_when_provider_engagement_fails() {
+    let post = PostForSync {
+        repo_uuid: "r1".into(),
+        post_folder: "p1".into(),
+        provider: "zernio".into(),
+        platform: "x".into(),
+        platform_post_id: "id1".into(),
+    };
+    let provider = FailingEngagementProvider;
+    let snapshot = fetch_snapshot(&post, &provider).await;
+    assert_eq!(snapshot.likes, 0, "engagement failure must produce zero likes");
+    assert_eq!(snapshot.shares, 0, "engagement failure must produce zero shares");
+    assert_eq!(snapshot.comments, 0, "engagement failure must produce zero comments");
+    assert_eq!(snapshot.impressions, None);
+    assert_eq!(snapshot.platform_post_id, "id1", "post identity must be preserved in zero snapshot");
 }
 
 #[test]

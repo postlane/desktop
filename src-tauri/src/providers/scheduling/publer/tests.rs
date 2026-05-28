@@ -321,3 +321,348 @@ async fn test_fetch_workspace_id_returns_first_workspace_id() {
     let result = fetch_workspace_id(&client, "key", &base_url).await;
     assert_eq!(result.unwrap(), "ws-1");
 }
+
+// ── workspace_id lazy fetch (lines 57-58) ────────────────────────────────────
+
+#[tokio::test]
+async fn test_workspace_id_fetches_lazily_from_server() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/workspaces");
+        then.status(200).json_body(serde_json::json!([{"id": "ws-from-server"}]));
+    });
+    let provider = make_provider(&server);
+    // Do NOT call with_workspace — the cell is empty, so fetch_workspace_id is invoked
+    let ws_id = provider.workspace_id().await.expect("should succeed");
+    assert_eq!(ws_id, "ws-from-server");
+}
+
+// ── check_response_status: 429 without X-RateLimit-Reset uses 60s default (line 97) ─
+
+#[tokio::test]
+async fn test_schedule_post_429_without_rate_limit_header_defaults_to_60s() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/posts/schedule");
+        then.status(429); // no X-RateLimit-Reset header
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    match result {
+        Err(ProviderError::RateLimit(d)) => assert_eq!(d.as_secs(), 60),
+        other => panic!("expected RateLimit with 60s, got {:?}", other),
+    }
+}
+
+// ── poll_job: completed but post.id absent (line 124) ─────────────────────────
+
+#[tokio::test]
+async fn test_poll_job_missing_post_id_in_completed_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/posts/schedule");
+        then.status(200).json_body(serde_json::json!({ "job_id": "j-no-id" }));
+    });
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/job_status/j-no-id");
+        then.status(200).json_body(serde_json::json!({ "status": "completed" })); // no post.id
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── name() (lines 163-165) ────────────────────────────────────────────────────
+
+#[test]
+fn test_name_returns_publer() {
+    let provider = PublerProvider::new("key".to_string());
+    assert_eq!(provider.name(), "publer");
+}
+
+// ── schedule_post: network error (line 185) ───────────────────────────────────
+
+#[tokio::test]
+async fn test_schedule_post_network_error() {
+    let mut provider = PublerProvider::new("key".to_string());
+    provider.base_url = "http://127.0.0.1:1/api/v1".to_string();
+    with_workspace(&provider).await;
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── schedule_post: JSON parse error (line 193) ────────────────────────────────
+
+#[tokio::test]
+async fn test_schedule_post_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/posts/schedule");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── schedule_post: missing job_id in response (line 195) ──────────────────────
+
+#[tokio::test]
+async fn test_schedule_post_missing_job_id_in_response() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/api/v1/posts/schedule");
+        then.status(200).json_body(serde_json::json!({ "status": "ok" })); // no job_id field
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.schedule_post("Hello", "linkedin", None, None, None).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── list_profiles: success with profiles (lines 221-227) ──────────────────────
+
+#[tokio::test]
+async fn test_list_profiles_success() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/accounts");
+        then.status(200).json_body(serde_json::json!([
+            { "id": "acc-1", "name": "My Account", "type": "facebook" },
+            { "id": "acc-2", "username": "myuser", "type": "twitter" } // no name, uses username
+        ]));
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.list_profiles().await;
+    assert!(result.is_ok(), "{:?}", result);
+    let profiles = result.unwrap();
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles[0].name, "My Account");
+    assert_eq!(profiles[1].name, "myuser");
+}
+
+// ── list_profiles: network error (line 209) ───────────────────────────────────
+
+#[tokio::test]
+async fn test_list_profiles_network_error() {
+    let mut provider = PublerProvider::new("key".to_string());
+    provider.base_url = "http://127.0.0.1:1/api/v1".to_string();
+    with_workspace(&provider).await;
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── list_profiles: JSON parse error (line 217) ────────────────────────────────
+
+#[tokio::test]
+async fn test_list_profiles_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/accounts");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.list_profiles().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── cancel_post: success (line 256) ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_cancel_post_success() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(DELETE).path("/api/v1/posts/post-123");
+        then.status(200);
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.cancel_post("post-123", "linkedin").await;
+    assert!(result.is_ok(), "{:?}", result);
+}
+
+// ── cancel_post: network error (line 241) ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_cancel_post_network_error() {
+    let mut provider = PublerProvider::new("key".to_string());
+    provider.base_url = "http://127.0.0.1:1/api/v1".to_string();
+    with_workspace(&provider).await;
+    let result = provider.cancel_post("post-1", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── cancel_post: non-2xx HttpError (line 254) ─────────────────────────────────
+
+#[tokio::test]
+async fn test_cancel_post_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(DELETE).path("/api/v1/posts/post-del");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.cancel_post("post-del", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+// ── get_queue: success (lines 256-278) ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_queue_success() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/posts");
+        then.status(200).json_body(serde_json::json!({
+            "posts": [{
+                "id": "post-q1",
+                "account_id": "linkedin",
+                "scheduled_at": "2025-07-01T09:00:00Z",
+                "text": "My queued post"
+            }]
+        }));
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.get_queue().await;
+    assert!(result.is_ok(), "{:?}", result);
+    assert_eq!(result.unwrap().len(), 1);
+}
+
+// ── get_queue: network error (line 266) ──────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_queue_network_error() {
+    let mut provider = PublerProvider::new("key".to_string());
+    provider.base_url = "http://127.0.0.1:1/api/v1".to_string();
+    with_workspace(&provider).await;
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── get_queue: non-2xx HttpError (lines 270-272) ──────────────────────────────
+
+#[tokio::test]
+async fn test_get_queue_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/posts");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+// ── get_queue: JSON parse error (line 274) ────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_queue_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/posts");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.get_queue().await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── test_connection: success (lines 281-297) ──────────────────────────────────
+
+#[tokio::test]
+async fn test_test_connection_success() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/users/me");
+        then.status(200).json_body(serde_json::json!({ "id": "user-1" }));
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.test_connection().await;
+    assert!(result.is_ok(), "{:?}", result);
+}
+
+// ── test_connection: network error (line 290) ─────────────────────────────────
+
+#[tokio::test]
+async fn test_test_connection_network_error() {
+    let mut provider = PublerProvider::new("key".to_string());
+    provider.base_url = "http://127.0.0.1:1/api/v1".to_string();
+    with_workspace(&provider).await;
+    let result = provider.test_connection().await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── test_connection: non-2xx (line 295) ───────────────────────────────────────
+
+#[tokio::test]
+async fn test_test_connection_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/users/me");
+        then.status(500).body("server error");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.test_connection().await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 500, .. })), "{:?}", result);
+}
+
+// ── get_engagement: network error (line 309) ──────────────────────────────────
+
+#[tokio::test]
+async fn test_get_engagement_network_error() {
+    let mut provider = PublerProvider::new("key".to_string());
+    provider.base_url = "http://127.0.0.1:1/api/v1".to_string();
+    with_workspace(&provider).await;
+    let result = provider.get_engagement("post-1", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── get_engagement: JSON parse error (line 317) ───────────────────────────────
+
+#[tokio::test]
+async fn test_get_engagement_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/posts/post-e");
+        then.status(200).body("not json at all");
+    });
+    let provider = make_provider(&server);
+    with_workspace(&provider).await;
+    let result = provider.get_engagement("post-e", "linkedin").await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// ── fetch_workspace_id: network error ────────────────────────────────────────
+
+#[tokio::test]
+async fn test_fetch_workspace_id_network_error() {
+    let client = build_client();
+    let result = fetch_workspace_id(&client, "key", "http://127.0.0.1:1/api/v1").await;
+    assert!(matches!(result, Err(ProviderError::NetworkError(_))), "{:?}", result);
+}
+
+// ── fetch_workspace_id: JSON parse error ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_fetch_workspace_id_json_parse_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/api/v1/workspaces");
+        then.status(200).body("not json at all");
+    });
+    let client = build_client();
+    let base_url = format!("{}/api/v1", server.base_url());
+    let result = fetch_workspace_id(&client, "key", &base_url).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
