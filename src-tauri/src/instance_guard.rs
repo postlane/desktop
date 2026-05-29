@@ -1,5 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+/// Calls `exit_fn` if `check_fn` returns `true`. Extracted for testability.
+pub fn exit_if_duplicate_instance_with(check_fn: impl Fn() -> bool, exit_fn: impl Fn()) {
+    if check_fn() {
+        exit_fn();
+    }
+}
+
+/// Silently exits with code 0 if a responsive Postlane instance is already running.
+/// Called at the top of `setup_app` to handle macOS URL-scheme relaunches that race
+/// past `tauri_plugin_single_instance` before setup completes.
+pub fn exit_if_duplicate_instance() {
+    exit_if_duplicate_instance_with(
+        || check_single_instance().is_err(),
+        || std::process::exit(0),
+    );
+}
+
 /// Checks if another instance is already running by probing `~/.postlane/port`.
 /// Returns `Err` if a responsive instance is found, `Ok` if not.
 pub fn check_single_instance() -> Result<(), String> {
@@ -68,10 +85,25 @@ pub fn show_alert_and_exit(message: &str) {
     std::process::exit(1);
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_exit_called_when_duplicate_detected() {
+        let exit_called = std::cell::Cell::new(false);
+        exit_if_duplicate_instance_with(|| true, || exit_called.set(true));
+        assert!(exit_called.get(), "exit must be called when duplicate is detected");
+    }
+
+    #[test]
+    fn test_exit_not_called_when_no_duplicate() {
+        let exit_called = std::cell::Cell::new(false);
+        exit_if_duplicate_instance_with(|| false, || exit_called.set(true));
+        assert!(!exit_called.get(), "exit must not be called when no duplicate exists");
+    }
+
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_escape_for_applescript_escapes_double_quotes() {
         let input = r#"Error: "cannot parse" config"#;
@@ -79,6 +111,7 @@ mod tests {
         assert_eq!(escaped, r#"Error: \"cannot parse\" config"#);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_escape_for_applescript_escapes_backslashes_before_quotes() {
         let input = r"path\to\file";
@@ -86,6 +119,7 @@ mod tests {
         assert_eq!(escaped, r"path\\to\\file");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn test_escape_for_applescript_passthrough_for_plain_text() {
         let input =

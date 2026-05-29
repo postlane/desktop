@@ -173,6 +173,7 @@ mod tests {
 }
 
 fn setup_app(app: &mut tauri::App, repos: storage::ReposConfig) -> Result<(), Box<dyn std::error::Error>> {
+    instance_guard::exit_if_duplicate_instance();
     let handle = app.handle().clone();
     app_lifecycle::spawn_http_server(handle.clone(), repos.clone())?;
     let app_state: tauri::State<AppState> = app.state();
