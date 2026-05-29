@@ -115,8 +115,7 @@ mod get_drafts_tests {
 
         // Setup AppState
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: repo1_path.to_str().unwrap().to_string(),
@@ -173,8 +172,7 @@ mod get_drafts_tests {
         .unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: repo_path.to_str().unwrap().to_string(),
@@ -201,8 +199,7 @@ mod get_drafts_tests {
         fs::create_dir_all(&repo_path).unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: repo_path.to_str().unwrap().to_string(),
@@ -235,8 +232,7 @@ mod approve_post_tests {
 
         // Empty repos config (no repos registered)
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
         let (state, _tmp_repos) = make_test_state(repos_config);
 
@@ -264,8 +260,7 @@ mod approve_post_tests {
         fs::create_dir_all(&repo_path).unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: repo_path.to_str().unwrap().to_string(),
@@ -304,8 +299,7 @@ mod approve_post_tests {
         fs::write(post_folder.join("x.md"), "short content").unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: canonical_str.clone(),
@@ -370,8 +364,7 @@ mod dismiss_post_tests {
         // Test: Dismiss the post
         let canonical_repo = fs::canonicalize(&repo_path).unwrap();
         let (state, _tmp_repos) = make_test_state(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: canonical_repo.to_str().unwrap().to_string(),
@@ -406,7 +399,7 @@ mod dismiss_post_tests {
         fs::create_dir_all(&post_folder).unwrap();
 
         // Test: Try to dismiss post without meta.json
-        let (state, _tmp_repos) = make_test_state(ReposConfig { version: 1, repos: vec![] });
+        let (state, _tmp_repos) = make_test_state(ReposConfig { version: 1, workspaces: vec![], repos: vec![] });
         let result = dismiss_post_impl(
             repo_path.to_str().unwrap(),
             "post1",
@@ -433,8 +426,7 @@ mod delete_post_tests {
 
         let canonical = fs::canonicalize(&repo_path).unwrap();
         let (state, _tmp_repos) = make_test_state(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: canonical.to_str().unwrap().to_string(),
@@ -455,7 +447,7 @@ mod delete_post_tests {
         let repo_path = temp_dir.path().join("repo1");
         fs::create_dir_all(&repo_path).unwrap();
 
-        let (state, _tmp_repos) = make_test_state(ReposConfig { version: 1, repos: vec![] });
+        let (state, _tmp_repos) = make_test_state(ReposConfig { version: 1, workspaces: vec![], repos: vec![] });
         let result = delete_post_impl(repo_path.to_str().unwrap(), "../evil", "x", &state);
 
         assert!(result.is_err());
@@ -470,8 +462,7 @@ mod delete_post_tests {
 
         let canonical = fs::canonicalize(&repo_path).unwrap();
         let (state, _tmp_repos) = make_test_state(ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: canonical.to_str().unwrap().to_string(),
@@ -533,8 +524,7 @@ mod retry_post_tests {
         let canonical_repo_path = fs::canonicalize(&repo_path).unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "repo1".to_string(),
                 name: "Test Repo".to_string(),
                 path: canonical_repo_path.to_str().unwrap().to_string(),
@@ -583,8 +573,7 @@ mod add_repo_tests {
         fs::write(postlane_dir.join("config.json"), "{}").unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
         let (state, _tmp_repos) = make_test_state(repos_config);
 
@@ -606,8 +595,7 @@ mod add_repo_tests {
         fs::create_dir_all(repo_path.join(".git")).unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
         let (state, _tmp_repos) = make_test_state(repos_config);
 
@@ -633,8 +621,7 @@ mod add_repo_tests {
         fs::write(postlane_dir.join("config.json"), "{}").unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
         let (state, _tmp_repos) = make_test_state(repos_config);
 
@@ -676,8 +663,7 @@ mod remove_repo_tests {
         fs::create_dir_all(&repo2_path).unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -712,8 +698,7 @@ mod remove_repo_tests {
     fn test_remove_repo_fails_with_invalid_id() {
         // Setup: Create state with one repo
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -746,8 +731,7 @@ mod remove_repo_tests {
         fs::write(&test_file, "test content").unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -778,8 +762,7 @@ mod set_repo_active_tests {
     fn test_set_repo_active_toggles_state() {
         // Setup: Create repo that's initially active
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -804,8 +787,7 @@ mod set_repo_active_tests {
     fn test_set_repo_active_activates_repo() {
         // Setup: Create repo that's initially inactive
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -830,8 +812,7 @@ mod set_repo_active_tests {
     fn test_set_repo_active_fails_with_invalid_id() {
         // Setup: Create state with one repo
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -869,8 +850,7 @@ mod check_repo_health_tests {
         let canonical_path = fs::canonicalize(&repo_path).unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -897,8 +877,7 @@ mod check_repo_health_tests {
     fn test_check_repo_health_reports_unreachable_repos() {
         // Setup: Create repo config pointing to non-existent path
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "id1".to_string(),
                     name: "Repo 1".to_string(),
@@ -930,8 +909,7 @@ mod export_history_csv_tests {
     fn test_export_history_csv_generates_valid_csv_headers() {
         // Setup: Empty repos (zero posts case)
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
         let (state, _tmp_repos) = make_test_state(repos_config);
 
@@ -950,8 +928,7 @@ mod export_history_csv_tests {
     fn test_export_history_csv_handles_zero_posts() {
         // Setup: Empty repos
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
         let (state, _tmp_repos) = make_test_state(repos_config);
 
@@ -1045,8 +1022,7 @@ mod export_history_csv_tests {
 
         // Setup repos config
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![
+            version: 1, workspaces: vec![], repos: vec![
                 Repo {
                     id: "repo1-id".to_string(),
                     name: "Repo 1".to_string(),
@@ -1184,7 +1160,7 @@ mod test_isolation_guard {
         let tmp = TempDir::new().unwrap();
         let repos_path = tmp.path().join("repos.json");
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![guard_repo()] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![guard_repo()] },
             repos_path.clone(),
         );
         let result = set_repo_active_impl("guard-r1", false, &state);
@@ -1203,7 +1179,7 @@ mod test_isolation_guard {
         let tmp = TempDir::new().unwrap();
         let repos_path = tmp.path().join("repos.json");
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![guard_repo()] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![guard_repo()] },
             repos_path.clone(),
         );
         let result = remove_repo_impl("guard-r1", &state);
@@ -1230,7 +1206,7 @@ mod test_isolation_guard {
             .and_then(|m| m.modified().ok());
 
         let (state, _tmp_repos) = make_test_state(
-            ReposConfig { version: 1, repos: vec![guard_repo()] }
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![guard_repo()] }
         );
         let _ = set_repo_active_impl("guard-r1", false, &state);
         let _ = remove_repo_impl("guard-r1", &state);
@@ -1280,8 +1256,7 @@ mod test_isolation_guard {
         fs::write(post_dir.join("bluesky.md"), "Test post content").unwrap();
 
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![Repo {
+            version: 1, workspaces: vec![], repos: vec![Repo {
                 id: "test-repo-id".to_string(),
                 name: "my-repo".to_string(),
                 path: repo_path.to_str().unwrap().to_string(),
