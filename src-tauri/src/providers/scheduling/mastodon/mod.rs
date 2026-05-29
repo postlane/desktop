@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 
 mod queue_parser;
 use queue_parser::{map_scheduled_status, parse_link_next};
+pub(super) mod media;
 
 /// Mastodon direct-API scheduling provider.
 ///
@@ -147,14 +148,24 @@ impl SchedulingProvider for MastodonProvider {
         content: &str,
         _platform: &str,
         scheduled_for: Option<DateTime<Utc>>,
-        _image_url: Option<&str>,
+        image_url: Option<&str>,
         _profile_id: Option<&str>,
     ) -> Result<PostScheduleResult, ProviderError> {
+        let media_ids = if let Some(url) = image_url {
+            let id = media::upload_media_from_url(&self.client, &self.api_base, &self.access_token, url).await?;
+            vec![id]
+        } else {
+            vec![]
+        };
+
         let url = format!("{}/statuses", self.base_url());
 
         let mut body = serde_json::json!({ "status": content });
         if let Some(scheduled) = scheduled_for {
             body["scheduled_at"] = serde_json::json!(scheduled.to_rfc3339());
+        }
+        if !media_ids.is_empty() {
+            body["media_ids"] = serde_json::json!(media_ids);
         }
 
         let response = self

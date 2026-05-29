@@ -73,15 +73,27 @@ pub(super) fn read_project_id_from_config(config_path: &Path) -> Result<String, 
 }
 
 pub(super) fn append_unsplash_attribution(content: &str, meta: &PostMeta) -> String {
+    const UNSPLASH_UTM: &str = "utm_source=postlane&utm_medium=referral";
+    const UNSPLASH_BASE: &str = "https://unsplash.com/";
+
     if meta.image_source.as_deref() != Some("unsplash") {
         return content.to_string();
     }
-    if let Some(attr) = &meta.image_attribution {
-        if !attr.photographer_name.is_empty() {
-            return format!("{}\n\nPhoto by {} on Unsplash", content, attr.photographer_name);
-        }
+    let Some(attr) = &meta.image_attribution else {
+        return content.to_string();
+    };
+    if attr.photographer_name.is_empty() {
+        return content.to_string();
     }
-    content.to_string()
+    let unsplash_url = format!("{}?{}", UNSPLASH_BASE, UNSPLASH_UTM);
+    if attr.photographer_url.is_empty() {
+        return format!("{}\n\nPhoto by {} on Unsplash ({})", content, attr.photographer_name, unsplash_url);
+    }
+    let photographer_url = format!("{}?{}", attr.photographer_url, UNSPLASH_UTM);
+    format!(
+        "{}\n\nPhoto by {} ({}) on Unsplash ({})",
+        content, attr.photographer_name, photographer_url, unsplash_url
+    )
 }
 
 pub(super) fn read_platform_content(post_path: &Path, platform: &str) -> Result<String, String> {
@@ -258,7 +270,8 @@ async fn call_mastodon_direct(
             .await
             .map_err(|e| e.to_string())?;
 
-    let content = read_platform_content(post_path, "mastodon")?;
+    let raw_content = read_platform_content(post_path, "mastodon")?;
+    let content = append_unsplash_attribution(&raw_content, meta);
     let scheduled_for = meta
         .scheduled_for
         .as_deref()
@@ -266,7 +279,7 @@ async fn call_mastodon_direct(
         .map(|dt| dt.with_timezone(&chrono::Utc));
 
     let result = provider
-        .schedule_post(&content, "mastodon", scheduled_for, None, None)
+        .schedule_post(&content, "mastodon", scheduled_for, meta.image_url.as_deref(), None)
         .await
         .map_err(|e| e.to_string())?;
     Ok((result.scheduler_id, result.platform_url))

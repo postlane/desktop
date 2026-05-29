@@ -251,3 +251,127 @@ async fn test_test_connection_auth_error() {
 }
 
 // 9.5.11 — 429 with Retry-After header returns RateLimit with the correct duration
+
+// --- media upload tests ---
+
+// upload_media_bytes — 200 response with id field returns media_id
+#[tokio::test]
+async fn test_upload_media_bytes_returns_media_id() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/media");
+        then.status(200).json_body(serde_json::json!({
+            "id": "abc123",
+            "url": "https://files.mastodon.social/img.jpg"
+        }));
+    });
+    let result = super::media::upload_media_bytes(
+        &build_client(),
+        &server.base_url(),
+        "test-token",
+        b"fake image bytes",
+        "image/jpeg",
+    ).await;
+    assert!(result.is_ok(), "{:?}", result);
+    assert_eq!(result.unwrap(), "abc123");
+}
+
+// upload_media_bytes — non-2xx returns HttpError
+#[tokio::test]
+async fn test_upload_media_bytes_non_2xx_returns_http_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/media");
+        then.status(422).body("Unprocessable entity");
+    });
+    let result = super::media::upload_media_bytes(
+        &build_client(),
+        &server.base_url(),
+        "test-token",
+        b"bad data",
+        "image/jpeg",
+    ).await;
+    assert!(matches!(result, Err(ProviderError::HttpError { status: 422, .. })), "{:?}", result);
+}
+
+// upload_media_bytes — response missing id field returns Unknown error
+#[tokio::test]
+async fn test_upload_media_bytes_missing_id_returns_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/media");
+        then.status(200).json_body(serde_json::json!({ "url": "https://files.mastodon.social/img.jpg" }));
+    });
+    let result = super::media::upload_media_bytes(
+        &build_client(),
+        &server.base_url(),
+        "test-token",
+        b"fake bytes",
+        "image/jpeg",
+    ).await;
+    assert!(matches!(result, Err(ProviderError::Unknown(_))), "{:?}", result);
+}
+
+// schedule_post with image_url — uploads media first and includes media_ids in status body
+#[tokio::test]
+async fn test_schedule_post_with_image_url_includes_media_ids_in_body() {
+    let image_server = MockServer::start();
+    image_server.mock(|when, then| {
+        when.method(GET).path("/photo.jpg");
+        then.status(200)
+            .header("Content-Type", "image/jpeg")
+            .body(b"fake-image-bytes".as_ref());
+    });
+
+    let mastodon_server = MockServer::start();
+    mastodon_server.mock(|when, then| {
+        when.method(POST).path("/media");
+        then.status(200).json_body(serde_json::json!({ "id": "media-id-xyz" }));
+    });
+    let statuses_mock = mastodon_server.mock(|when, then| {
+        when.method(POST).path("/statuses").body_contains("media_ids");
+        then.status(200).json_body(serde_json::json!({
+            "id": "status-123",
+            "url": "https://mastodon.social/@alice/status-123"
+        }));
+    });
+
+    let provider = make_provider(&mastodon_server);
+    let image_url = format!("{}/photo.jpg", image_server.base_url());
+    let result = provider.schedule_post("Hello with image", "mastodon", None, Some(&image_url), None).await;
+
+    assert!(result.is_ok(), "{:?}", result);
+    statuses_mock.assert();
+}
+
+// schedule_post without image — no media_ids key in status body
+#[tokio::test]
+async fn test_schedule_post_without_image_excludes_media_ids_from_body() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/statuses");
+        then.status(200).json_body(serde_json::json!({
+            "id": "status-456",
+            "url": "https://mastodon.social/@alice/status-456"
+        }));
+    });
+
+    let provider = make_provider(&server);
+    let result = provider.schedule_post("No image here", "mastodon", None, None, None).await;
+    assert!(result.is_ok(), "{:?}", result);
+    mock.assert();
+}
+
+// validate_image_url — rejects private IP (security rule)
+#[tokio::test]
+async fn test_validate_image_url_rejects_private_ip() {
+    let result = super::media::validate_image_url("https://192.168.1.1/photo.jpg").await;
+    assert!(result.is_err(), "Private IP image URL must be rejected");
+}
+
+// validate_image_url — rejects non-HTTPS scheme
+#[tokio::test]
+async fn test_validate_image_url_rejects_non_https() {
+    let result = super::media::validate_image_url("http://images.unsplash.com/photo.jpg").await;
+    assert!(result.is_err(), "HTTP image URL must be rejected");
+}

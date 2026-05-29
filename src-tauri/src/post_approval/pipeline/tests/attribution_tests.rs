@@ -19,7 +19,8 @@ fn test_unsplash_attribution_appended_to_content() {
     let meta = meta_with_attribution();
     let result = append_unsplash_attribution("Hello world", &meta);
     assert!(result.starts_with("Hello world"));
-    assert!(result.contains("Photo by Jane Doe on Unsplash"));
+    assert!(result.contains("Photo by Jane Doe"));
+    assert!(result.contains("on Unsplash"));
 }
 
 #[test]
@@ -45,6 +46,32 @@ fn test_no_attribution_when_attribution_data_missing() {
     };
     let result = append_unsplash_attribution("Hello world", &meta);
     assert_eq!(result, "Hello world");
+}
+
+// pipeline — attribution includes photographer URL and Unsplash base URL with UTM params
+#[test]
+fn test_attribution_full_format_with_utm_links() {
+    let meta = meta_with_attribution();
+    let result = append_unsplash_attribution("Hello world", &meta);
+    let expected = "Hello world\n\nPhoto by Jane Doe (https://unsplash.com/@janedoe?utm_source=postlane&utm_medium=referral) on Unsplash (https://unsplash.com/?utm_source=postlane&utm_medium=referral)";
+    assert_eq!(result, expected);
+}
+
+// pipeline — empty photographer_url falls back to name-only attribution
+#[test]
+fn test_attribution_with_empty_photographer_url_shows_name_only() {
+    use crate::post_meta::ImageAttribution;
+    let meta = PostMeta {
+        image_source: Some("unsplash".to_string()),
+        image_attribution: Some(ImageAttribution {
+            photographer_name: "Jane Doe".to_string(),
+            photographer_url: String::new(),
+        }),
+        ..PostMeta::default()
+    };
+    let result = append_unsplash_attribution("Hello world", &meta);
+    let expected = "Hello world\n\nPhoto by Jane Doe on Unsplash (https://unsplash.com/?utm_source=postlane&utm_medium=referral)";
+    assert_eq!(result, expected);
 }
 
 // pipeline — unsplash source + attribution present but photographer_name empty → no attribution appended
