@@ -100,6 +100,8 @@ pub mod workspace_entry;
 pub mod workspace_history;
 pub mod workspace_repos;
 pub mod workspace_rescan;
+pub mod workspace_disconnect;
+pub mod workspace_disconnect_commands;
 pub mod workspace_migration;
 pub mod workspace_migration_commands;
 pub mod workspace_migration_execute;

@@ -85,7 +85,9 @@ export function useJournalStatuses() {
   const [statuses, setStatuses] = useState<JournalStatus[]>([]);
 
   useEffect(() => {
-    invoke<JournalStatus[]>('get_journal_statuses').then(setStatuses).catch(() => {});
+    invoke<JournalStatus[]>('get_journal_statuses')
+      .then((v) => setStatuses(Array.isArray(v) ? v : []))
+      .catch(() => {});
   }, []);
 
   const resume = useCallback(async (workspaceId: string) => {
