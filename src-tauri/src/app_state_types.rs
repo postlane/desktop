@@ -80,6 +80,10 @@ pub struct AppStateFile {
     /// Prevents the migration from running on every launch once complete.
     #[serde(default)]
     pub repos_schema_v2: bool,
+    /// Set to true when the user clicks "Not now" on the workspace migration banner (22.5.4).
+    /// Banner is permanently hidden; Settings re-entry button remains visible.
+    #[serde(default)]
+    pub workspace_migration_dismissed: bool,
 }
 
 fn default_notifications_enabled() -> bool { true }
@@ -111,6 +115,7 @@ impl Default for AppStateFile {
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
             repos_schema_v2: false,
+            workspace_migration_dismissed: false,
         }
     }
 }

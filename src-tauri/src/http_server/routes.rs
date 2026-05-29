@@ -120,6 +120,52 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
+    /// 22.4.8a: /register-workspace requires Bearer auth (same token as all protected routes).
+    #[tokio::test]
+    async fn test_register_workspace_requires_auth() {
+        let app = create_router(make_state("test-token"));
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/register-workspace")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"workspace_path":"/test","name":"test","project_id":"proj-123"}"#,
+                ))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// 22.4.8a: correct token on /register-workspace is accepted (not 401).
+    #[tokio::test]
+    async fn test_register_workspace_accepts_correct_token() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let state = super::super::ServerState {
+            token: "ws-token".to_string(),
+            repos: std::sync::Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+                version: 1, workspaces: vec![], repos: vec![],
+            })),
+            repos_path,
+            activation_tx: None,
+            watcher_tx: None,
+            projects: empty_projects(),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/register-workspace")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer ws-token")
+                .body(axum::body::Body::from(
+                    r#"{"workspace_path":"/my/workspace","name":"my-workspace","project_id":"proj-abc"}"#,
+                ))
+                .unwrap(),
+        ).await.unwrap();
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED, "correct token must pass auth");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
     /// Security: token comparison must use constant-time equality to prevent timing attacks.
     /// This test verifies both correct rejection and correct acceptance behaviour.
     #[tokio::test]

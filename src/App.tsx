@@ -22,6 +22,7 @@ import { useSentPosts } from './hooks/useSentPosts';
 import { useConnectedPlatforms } from './hooks/useConnectedPlatforms';
 import OrgUpgradeBanner from './components/OrgUpgradeBanner';
 import OrgLinkModal from './components/OrgLinkModal';
+import { MigrationBannersBlock } from './settings/MigrationBanner';
 import type { AppStateFile, ViewSelection, DraftPost, PublishedPost } from './types';
 import { LoadingView, QueueLoadError } from './AppLoadingStates';
 
@@ -82,6 +83,7 @@ function OrgQueueView({ projectId, onNavigate, onToast, onDirtyChange, pendingNa
   if (error) return <QueueLoadError error={error} onRetry={refresh} />;
   return (
     <>
+      <MigrationBannersBlock projectId={projectId} />
       {project && <OrgUpgradeBanner project={project} onConnect={() => setShowOrgLink(true)} />}
       {showOrgLink && project && (
         <div className="modal is-active">

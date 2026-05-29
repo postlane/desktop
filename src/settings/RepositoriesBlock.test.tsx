@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
-vi.mock('../hooks/useRepoData', () => ({ useProjectRepos: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
 vi.mock('../wizard/AddRepoModal', () => ({
   default: ({ onClose, projectId, projectName }: { onClose: () => void; projectId: string; projectName: string }) => (
     <div data-testid="add-repo-modal" data-project-id={projectId} data-project-name={projectName}>
@@ -13,305 +13,264 @@ vi.mock('../wizard/AddRepoModal', () => ({
     </div>
   ),
 }))
+vi.mock('./WorkspaceConfirmModal', () => ({
+  default: ({ result, onConfirm, onCancel }: {
+    result: { workspace_id: string; discovered_repos: Array<{ path: string }> };
+    onConfirm: (paths: string[]) => void;
+    onCancel: () => void;
+  }) => (
+    <div data-testid="workspace-confirm-modal">
+      <button onClick={() => onConfirm(result.discovered_repos.map((r) => r.path))}>Confirm all</button>
+      <button onClick={onCancel}>Cancel workspace</button>
+    </div>
+  ),
+}))
+vi.mock('./VoiceGuideHint', () => ({
+  default: ({ workspacePath, onDismiss }: { workspacePath: string; onDismiss: () => void }) => (
+    <div data-testid="voice-guide-hint" data-workspace-path={workspacePath}>
+      <button onClick={onDismiss}>Dismiss hint</button>
+    </div>
+  ),
+}))
 
 import { invoke } from '../ipc/invoke'
-import { useProjectRepos } from '../hooks/useRepoData'
 import RepositoriesBlock from './RepositoriesBlock'
 
 const mockInvoke = vi.mocked(invoke)
-const mockUseProjectRepos = vi.mocked(useProjectRepos)
-const mockRefresh = vi.fn()
 
-function makeRepo(overrides = {}) {
-  return { id: 'repo-1', name: 'MyRepo', path: '/repos/myrepo', active: true, ...overrides }
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+interface RepoConnectionStatus {
+  repo_id: string | null
+  github_full_name: string | null
+  local_path: string | null
+  display_name: string
+  github_app_connected: boolean
+  folder_registered: boolean
+  cli_initialized: boolean
+  project_id_mismatch: boolean
+}
+
+function makeRow(overrides: Partial<RepoConnectionStatus> = {}): RepoConnectionStatus {
+  return {
+    repo_id: 'repo-1',
+    github_full_name: null,
+    local_path: '/repos/myrepo',
+    display_name: 'MyRepo',
+    github_app_connected: false,
+    folder_registered: true,
+    cli_initialized: true,
+    project_id_mismatch: false,
+    ...overrides,
+  }
+}
+
+function mockStatus(rows: RepoConnectionStatus[], extras: Record<string, unknown> = {}) {
+  mockInvoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'get_repo_connection_status') return rows
+    if (cmd in extras) return extras[cmd]
+    return null
+  })
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockInvoke.mockResolvedValue(null)
-  mockUseProjectRepos.mockReturnValue({ repos: [makeRepo()], loadError: null, refresh: mockRefresh })
+  mockStatus([makeRow()])
 })
 
 // ── Empty state ────────────────────────────────────────────────────────────────
 
 describe('RepositoriesBlock — empty state', () => {
-  it('shows empty-state message when no repos', () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+  it('shows empty-state message when no repos', async () => {
+    mockStatus([])
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument())
   })
 
-  it('shows add button in empty state for owner', () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+  it('shows Add workspace button for owners', async () => {
+    mockStatus([])
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    expect(screen.getByRole('button', { name: /Add repository/i })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Add workspace$/i })).toBeInTheDocument())
   })
 
-  it('shows standard empty-state message when no GitHub App repos and no folder repos', async () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    // list_github_app_repos returns null (unknown command) → treated as empty
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() =>
-      expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
-    )
-    expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
-  })
-
-  it('calls list_github_app_repos with the correct projectId', async () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
+  it('calls get_repo_connection_status with the correct projectId', async () => {
     render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith('list_github_app_repos', { projectId: 'proj-42' })
+      expect(mockInvoke).toHaveBeenCalledWith('get_repo_connection_status', { projectId: 'proj-42' })
     )
   })
 })
 
-// ── Repo list ──────────────────────────────────────────────────────────────────
+// ── Table rendering ────────────────────────────────────────────────────────────
 
-describe('RepositoriesBlock — repo list', () => {
-  it('renders repo name', () => {
+describe('RepositoriesBlock — table rendering', () => {
+  it('renders display_name in the table', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    expect(screen.getByText('MyRepo')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
   })
 
-  it('calls useProjectRepos with the given projectId', () => {
-    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
-    expect(mockUseProjectRepos).toHaveBeenCalledWith('proj-42')
+  it('shows GitHub App column header', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+  })
+
+  it('shows Folder column header', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('Folder')).toBeInTheDocument())
+  })
+
+  it('shows CLI column header', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('CLI')).toBeInTheDocument())
+  })
+
+  it('shows github_full_name when present', async () => {
+    mockStatus([makeRow({ github_full_name: 'org/my-repo', github_app_connected: true })])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('org/my-repo')).toBeInTheDocument())
+  })
+
+  it('renders link to GitHub when github_full_name is set', async () => {
+    mockStatus([makeRow({ github_full_name: 'org/my-repo', github_app_connected: true })])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => {
+      const link = screen.getByRole('link')
+      expect(link).toHaveAttribute('href', 'https://github.com/org/my-repo')
+    })
+  })
+
+  it('shows warning icon when project_id_mismatch is true', async () => {
+    mockStatus([makeRow({ cli_initialized: true, project_id_mismatch: true })])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByTitle(/different project/i)).toBeInTheDocument())
+  })
+
+  it('shows local_path in the row', async () => {
+    mockStatus([makeRow({ local_path: '/Users/hugo/code/my-repo' })])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('/Users/hugo/code/my-repo')).toBeInTheDocument())
   })
 })
 
 // ── Remove ─────────────────────────────────────────────────────────────────────
 
 describe('RepositoriesBlock — remove', () => {
-  it('shows confirmation copy after first Remove click', () => {
+  it('shows Remove button for folder_registered repos when isOwner', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Remove/i })).toBeInTheDocument())
+  })
+
+  it('shows confirmation copy after first Remove click', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Remove/i })))
     expect(screen.getByText(/Existing drafts on disk are not deleted/i)).toBeInTheDocument()
   })
 
-  it('calls unregister_repo on confirm click', async () => {
-    mockInvoke.mockResolvedValue(undefined)
+  it('calls unregister_repo with the correct repoId on confirm', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Remove/i })))
     fireEvent.click(screen.getByRole('button', { name: /^Confirm remove$/i }))
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('unregister_repo', { repoId: 'repo-1' }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('unregister_repo', { repoId: 'repo-1' })
+    )
   })
 
-  it('calls refresh after successful remove', async () => {
-    mockInvoke.mockResolvedValue(undefined)
+  it('refreshes after successful remove', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Remove/i })))
     fireEvent.click(screen.getByRole('button', { name: /^Confirm remove$/i }))
-    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    await waitFor(() => {
+      const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_connection_status')
+      expect(calls.length).toBeGreaterThan(1)
+    })
   })
 
-  it('cancels remove confirmation on Cancel click', () => {
+  it('hides confirmation on Cancel', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Remove/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Remove/i })))
     fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
     expect(screen.queryByText(/Existing drafts on disk are not deleted/i)).not.toBeInTheDocument()
   })
+
+  it('does not show Remove button when repo has no repo_id', async () => {
+    mockStatus([makeRow({ repo_id: null, folder_registered: false })])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Remove/i })).not.toBeInTheDocument()
+  })
 })
 
-// ── Owner-only actions ─────────────────────────────────────────────────────────
+// ── Owner-only ─────────────────────────────────────────────────────────────────
 
-describe('RepositoriesBlock — owner-only', () => {
-  it('hides Remove button for non-owners', () => {
+describe('RepositoriesBlock — owner-only actions', () => {
+  it('hides Remove button for non-owners', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /Remove/i })).not.toBeInTheDocument()
   })
 
-  it('hides Add repository button for non-owners', () => {
+  it('hides Add workspace and Add individual repository for non-owners', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
-    expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
-  })
-})
-
-// ── GitHub App repos section (21.9.5–21.9.9, 21.9.13–21.9.16) ────────────────
-
-function makeGitHubAppRepo(overrides = {}) {
-  return { id: 1, name: 'org-repo', full_name: 'org/org-repo', private: false, html_url: 'https://github.com/org/org-repo', ...overrides }
-}
-
-function withAppRepo(overrides = {}) {
-  return async (cmd: string) => {
-    if (cmd === 'list_github_app_repos') return [makeGitHubAppRepo(overrides)]
-    return null
-  }
-}
-
-describe('RepositoriesBlock — GitHub App repos rendering', () => {
-  it('renders a read-only GitHub App section when app-repos are returned', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Add workspace/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Add individual repository/i })).not.toBeInTheDocument()
   })
 
-  it('shows repo name and full_name in the GitHub App section', async () => {
-    mockInvoke.mockImplementation(withAppRepo({ name: 'my-repo', full_name: 'myorg/my-repo' }))
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('myorg/my-repo')).toBeInTheDocument())
-  })
-
-  it('renders a link to html_url for each GitHub App repo', async () => {
-    mockInvoke.mockImplementation(withAppRepo({ html_url: 'https://github.com/org/org-repo' }))
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => {
-      const link = screen.getByRole('link', { name: /github\.com\/org\/org-repo/i })
-      expect(link).toHaveAttribute('href', 'https://github.com/org/org-repo')
-    })
-  })
-
-  it('shows folder repos section alongside GitHub App repos section', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    expect(screen.getByText('MyRepo')).toBeInTheDocument()
-  })
-
-  it('suppresses old stopgap "monitored via" text when GitHub App repos are shown', async () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    expect(screen.queryByText(/monitored via your github app/i)).not.toBeInTheDocument()
-  })
-
-  it('shows Add repository button even when GitHub App repos are present', async () => {
-    mockUseProjectRepos.mockReturnValue({ repos: [], loadError: null, refresh: mockRefresh })
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /Add repository/i })).toBeInTheDocument()
-  })
-
-  it('does not render GitHub App section when no app repos are returned', async () => {
-    mockInvoke.mockImplementation(async () => [])
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.queryByText('GitHub App')).not.toBeInTheDocument())
-  })
-})
-
-describe('RepositoriesBlock — GitHub App deduplication', () => {
-  function withDedupedRepo() {
-    return async (cmd: string) => {
-      if (cmd === 'list_github_app_repos') return [makeGitHubAppRepo({ name: 'org-repo', full_name: 'org/org-repo' })]
-      return null
-    }
-  }
-
-  it('shows local folder linked indicator when repo appears in both lists', async () => {
-    mockUseProjectRepos.mockReturnValue({
-      repos: [makeRepo({ name: 'org-repo', path: '/repos/org-repo' })],
-      loadError: null,
-      refresh: mockRefresh,
-    })
-    mockInvoke.mockImplementation(withDedupedRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('org/org-repo')).toBeInTheDocument())
-    expect(screen.getByText(/local folder linked/i)).toBeInTheDocument()
-  })
-
-  it('suppresses deduplicated repo from the folder section', async () => {
-    mockUseProjectRepos.mockReturnValue({
-      repos: [makeRepo({ name: 'org-repo', path: '/repos/org-repo' })],
-      loadError: null,
-      refresh: mockRefresh,
-    })
-    mockInvoke.mockImplementation(withDedupedRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('org/org-repo')).toBeInTheDocument())
-    expect(screen.getAllByText('org-repo')).toHaveLength(1)
-  })
-})
-
-describe('RepositoriesBlock — no Configure button', () => {
-  it('does not render a Configure button for owners', () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    expect(screen.queryByRole('button', { name: /Configure/i })).not.toBeInTheDocument()
-  })
-
-  it('does not render a Configure button for non-owners', () => {
+  it('hides Scan for repos for non-owners', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
-    expect(screen.queryByRole('button', { name: /Configure/i })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Scan for repos/i })).not.toBeInTheDocument()
+  })
+
+  it('shows Scan for repos for owners', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /Scan for repos/i })).toBeInTheDocument())
   })
 })
 
-// ── AddRepoModal ───────────────────────────────────────────────────────────────
+// ── Disconnect GitHub App ──────────────────────────────────────────────────────
 
-describe('RepositoriesBlock — AddRepoModal', () => {
-  it('opens AddRepoModal when Add repository is clicked', () => {
+describe('RepositoriesBlock — Disconnect GitHub App', () => {
+  it('shows Disconnect button for owner when a row has github_app_connected=true', async () => {
+    mockStatus([makeRow({ github_app_connected: true })])
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
-    expect(screen.getByTestId('add-repo-modal')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Disconnect GitHub App/i })).toBeInTheDocument()
+    )
   })
 
-  it('calls refresh when AddRepoModal closes', async () => {
+  it('hides Disconnect button when no rows have github_app_connected=true', async () => {
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
-    fireEvent.click(screen.getByRole('button', { name: /Close modal/i }))
-    expect(mockRefresh).toHaveBeenCalled()
-  })
-
-  it('passes the projectId to AddRepoModal (Security Rule 2: repo must be linked to the correct project)', () => {
-    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
-    expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-id', 'proj-42')
-  })
-
-  it('passes projectName to AddRepoModal so already-connected errors can name the workspace', () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="my-workspace" isOwner={true} />)
-    fireEvent.click(screen.getByRole('button', { name: /Add repository/i }))
-    expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-name', 'my-workspace')
-  })
-})
-
-// ── Disconnect GitHub App (21.9.21) ───────────────────────────────────────────
-
-describe('RepositoriesBlock — Disconnect GitHub App (21.9.21)', () => {
-  it('shows Disconnect button for owner when app repos are present', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /Disconnect GitHub App/i })).toBeInTheDocument()
-  })
-
-  it('does not show Disconnect button for non-owners', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /Disconnect GitHub App/i })).not.toBeInTheDocument()
   })
 
-  it('does not show Disconnect button when no app repos', async () => {
-    mockInvoke.mockImplementation(async () => [])
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.queryByText('GitHub App')).not.toBeInTheDocument())
+  it('hides Disconnect button for non-owners even when GitHub App connected', async () => {
+    mockStatus([makeRow({ github_app_connected: true })])
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /Disconnect GitHub App/i })).not.toBeInTheDocument()
   })
 
   it('shows confirmation prompt after clicking Disconnect', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
+    mockStatus([makeRow({ github_app_connected: true })])
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i })))
     expect(screen.getByText(/This will remove Postlane/i)).toBeInTheDocument()
   })
 
   it('hides confirmation on Cancel', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
+    mockStatus([makeRow({ github_app_connected: true })])
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i })))
     fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
     expect(screen.queryByText(/This will remove Postlane/i)).not.toBeInTheDocument()
   })
 
-  it('calls disconnect_github_app with projectId on confirm', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
+  it('calls disconnect_github_app on confirm', async () => {
+    mockStatus([makeRow({ github_app_connected: true })])
     render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Disconnect GitHub App/i })))
     fireEvent.click(screen.getByRole('button', { name: /^Confirm disconnect$/i }))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('disconnect_github_app', { projectId: 'proj-42' })
@@ -319,71 +278,85 @@ describe('RepositoriesBlock — Disconnect GitHub App (21.9.21)', () => {
   })
 })
 
-// ── Scan for repos (21.10.14 / 21.10.26) ─────────────────────────────────────
+// ── Scan for repos ─────────────────────────────────────────────────────────────
 
-function withDiscoveryResult(result: Record<string, unknown>) {
-  return async (cmd: string) => {
-    if (cmd === 'list_github_app_repos') return [makeGitHubAppRepo()]
-    if (cmd === 'discover_repos') return result
-    return null
-  }
-}
+describe('RepositoriesBlock — Scan for repos', () => {
+  const emptyResult = { added: [], already_registered: [], not_found_on_disk: [], failed_to_register: [] }
 
-describe('RepositoriesBlock — Scan for repos (21.10.14)', () => {
-  it('shows Scan for repos button when GitHub App repos are present and user is owner', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /Scan for repos/i })).toBeInTheDocument()
-  })
-
-  it('does not show Scan for repos button for non-owners', async () => {
-    mockInvoke.mockImplementation(withAppRepo())
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: /Scan for repos/i })).not.toBeInTheDocument()
-  })
-
-  it('does not show Scan for repos when no GitHub App repos', async () => {
-    mockInvoke.mockImplementation(async () => [])
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.queryByText('GitHub App')).not.toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: /Scan for repos/i })).not.toBeInTheDocument()
-  })
-
-  it('calls discover_repos with projectId when button clicked (21.10.26)', async () => {
-    mockInvoke.mockImplementation(withDiscoveryResult({ added: [], already_registered: [], not_found_on_disk: [], failed_to_register: [] }))
+  it('calls discover_repos with projectId when button clicked', async () => {
+    mockStatus([makeRow()], { discover_repos: emptyResult })
     render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i })))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('discover_repos', { projectId: 'proj-42' })
     )
   })
 
-  it('shows added repos in result (21.10.26)', async () => {
-    mockInvoke.mockImplementation(withDiscoveryResult({ added: ['my-repo', 'other-repo'], already_registered: [], not_found_on_disk: [], failed_to_register: [] }))
+  it('shows added repos in scan result', async () => {
+    mockStatus([makeRow()], { discover_repos: { added: ['new-repo'], already_registered: [], not_found_on_disk: [], failed_to_register: [] } })
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
-    await waitFor(() => expect(screen.getByText(/my-repo/)).toBeInTheDocument())
-    expect(screen.getByText(/other-repo/)).toBeInTheDocument()
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i })))
+    await waitFor(() => expect(screen.getByText(/new-repo/)).toBeInTheDocument())
   })
 
-  it('shows not_found_on_disk repos with "Add folder manually" link (21.10.26)', async () => {
-    mockInvoke.mockImplementation(withDiscoveryResult({ added: [], already_registered: [], not_found_on_disk: ['org/missing-repo'], failed_to_register: [] }))
+  it('shows not_found_on_disk repos with Add folder manually button', async () => {
+    mockStatus([makeRow()], { discover_repos: { added: [], already_registered: [], not_found_on_disk: ['org/missing'], failed_to_register: [] } })
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
-    await waitFor(() => expect(screen.getByText(/org\/missing-repo/)).toBeInTheDocument())
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i })))
+    await waitFor(() => expect(screen.getByText(/org\/missing/)).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /Add folder manually/i })).toBeInTheDocument()
   })
 
-  it('shows failed_to_register repos with error message (21.10.26)', async () => {
-    mockInvoke.mockImplementation(withDiscoveryResult({ added: [], already_registered: [], not_found_on_disk: [], failed_to_register: [['/some/path', 'permission denied']] }))
+  it('shows error for failed_to_register entries', async () => {
+    mockStatus([makeRow()], { discover_repos: { added: [], already_registered: [], not_found_on_disk: [], failed_to_register: [['/some/path', 'permission denied']] } })
     render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => expect(screen.getByText('GitHub App')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i }))
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Scan for repos/i })))
     await waitFor(() => expect(screen.getByText(/permission denied/)).toBeInTheDocument())
+  })
+})
+
+// ── AddRepoModal (via "Add individual repository") ────────────────────────────
+
+describe('RepositoriesBlock — AddRepoModal', () => {
+  it('opens modal when "Add individual repository" is clicked', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Add individual repository/i })))
+    expect(screen.getByTestId('add-repo-modal')).toBeInTheDocument()
+  })
+
+  it('refreshes when modal closes', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Add individual repository/i })))
+    fireEvent.click(screen.getByRole('button', { name: /Close modal/i }))
+    const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_connection_status')
+    expect(calls.length).toBeGreaterThan(1)
+  })
+
+  it('passes projectId to AddRepoModal', async () => {
+    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Add individual repository/i })))
+    expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-id', 'proj-42')
+  })
+
+  it('passes projectName to AddRepoModal', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="my-workspace" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Add individual repository/i })))
+    expect(screen.getByTestId('add-repo-modal')).toHaveAttribute('data-project-name', 'my-workspace')
+  })
+})
+
+// ── No Configure button ────────────────────────────────────────────────────────
+
+describe('RepositoriesBlock — no Configure button', () => {
+  it('does not render a Configure button for owners', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Configure/i })).not.toBeInTheDocument()
+  })
+
+  it('does not render a Configure button for non-owners', async () => {
+    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Configure/i })).not.toBeInTheDocument()
   })
 })

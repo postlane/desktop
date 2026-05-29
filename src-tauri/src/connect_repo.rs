@@ -316,6 +316,38 @@ mod tests {
         );
     }
 
+    // --- §22.3.15 — individual repo registered in repos array, not workspaces ---
+
+    #[test]
+    fn test_individual_repo_registered_in_repos_array_not_workspaces() {
+        let dir = home_tmp("connect_repo_repos_array");
+        let _ = fs::remove_dir_all(&dir);
+        make_git_repo(&dir);
+        let state = make_state(vec![]);
+
+        let result = connect_repo_from_desktop_impl(
+            dir.to_str().unwrap(),
+            "proj-indiv",
+            &state,
+            dirs::home_dir().as_deref(),
+        );
+        result.expect("should succeed");
+
+        // Must be registered in repos array
+        let repos = state.repos.lock().expect("lock");
+        assert_eq!(repos.repos.len(), 1, "repo must be in repos array");
+        assert!(repos.workspaces.is_empty(), "workspaces must remain empty for individual repos");
+        drop(repos);
+
+        // Per-repo config layout: {repo}/.postlane/config.json must exist
+        assert!(dir.join(".postlane/config.json").exists(), ".postlane/config.json must be created");
+
+        // No workspace-level config at repo root (not inside .postlane/)
+        assert!(!dir.join("config.json").exists(), "no workspace-level config.json at repo root");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn test_rejects_path_outside_home_directory() {
         let dir = home_tmp("connect_repo_path_check");

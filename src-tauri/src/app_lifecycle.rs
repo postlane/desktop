@@ -41,6 +41,7 @@ pub fn spawn_http_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repos_path = crate::init::postlane_dir()?.join("repos.json");
     let token = crate::http_server::generate_and_write_token()?;
+    crate::http_server::write_local_token(&token)?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
     let (activation_tx, activation_rx) = tokio::sync::mpsc::channel::<(String, bool)>(4);
     let (watcher_tx, watcher_rx) = tokio::sync::mpsc::channel::<(String, String)>(16);
@@ -108,6 +109,10 @@ fn spawn_activation_listener(
                             Ok(list) => {
                                 let state: tauri::State<AppState> = handle.state();
                                 *state.projects_cache.write().await = list;
+                                // Auto-discover repos for all projects after login so that
+                                // repos connected via the GitHub App are registered locally
+                                // even if repos.json was wiped or this is a fresh install.
+                                spawn_startup_repo_discovery(handle.clone());
                             }
                             Err(e) => log::warn!("[activate] failed to refresh projects cache: {}", e),
                         }
@@ -297,5 +302,122 @@ mod tests {
         // The function is async and requires a real AppHandle to test end-to-end.
         // The invariant is enforced by code review of the loop structure.
         assert!(true, "see spawn_license_revalidation implementation");
+    }
+}
+
+/// Spawns a background task that discovers and registers repos connected via the
+/// GitHub App. Runs on login and on startup (no-op when not signed in).
+/// Emits `repos:discovered` and `repos:not_found_on_disk` to the frontend.
+pub fn spawn_startup_repo_discovery(app_handle: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = run_startup_repo_discovery(&app_handle).await {
+            log::warn!("[startup_discovery] {}", e);
+        }
+    });
+}
+
+async fn run_startup_repo_discovery(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let token = match app_handle.keyring().get_password("postlane", "license") {
+        Ok(Some(t)) => {
+            log::info!("[startup_discovery] license token found — starting repo discovery");
+            t
+        }
+        Ok(None) => {
+            log::info!("[startup_discovery] no license token — user not signed in, skipping");
+            return Ok(());
+        }
+        Err(e) => return Err(format!("keyring error: {}", e)),
+    };
+
+    let state: tauri::State<AppState> = app_handle.state();
+    let repos_path = state.repos_path.clone();
+    log::info!("[startup_discovery] repos.json path: {:?}", repos_path);
+
+    let projects = resolve_projects_for_discovery(&state, &token).await?;
+    if projects.is_empty() {
+        log::warn!("[startup_discovery] project list is empty — no projects to discover repos for");
+        return Ok(());
+    }
+    log::info!(
+        "[startup_discovery] {} project(s) to scan: {:?}",
+        projects.len(),
+        projects.iter().map(|p| format!("'{}' ({})", p.name, p.id)).collect::<Vec<_>>(),
+    );
+
+    let base_dirs = crate::repo_discovery::candidate_dirs();
+    log::info!(
+        "[startup_discovery] {} candidate dir(s) to scan: {:?}",
+        base_dirs.len(),
+        base_dirs,
+    );
+
+    let results = crate::repo_discovery::run_discovery_for_all_projects(
+        &projects, POSTLANE_API_BASE, &token, &base_dirs, &repos_path,
+    ).await;
+
+    apply_discovery_results(app_handle, &state, &repos_path, results).await;
+    Ok(())
+}
+
+async fn resolve_projects_for_discovery(
+    state: &tauri::State<'_, AppState>,
+    token: &str,
+) -> Result<Vec<crate::project_registry::ProjectSummary>, String> {
+    let cached = state.projects_cache.read().await.clone();
+    if !cached.is_empty() {
+        log::info!("[startup_discovery] using {} cached project(s)", cached.len());
+        return Ok(cached);
+    }
+    log::info!("[startup_discovery] project cache empty — fetching from API");
+    let client = build_client();
+    let list = list_projects_with_client(&client, POSTLANE_API_BASE, token).await
+        .map_err(|e| format!("failed to fetch projects: {}", e))?;
+    log::info!("[startup_discovery] API returned {} project(s)", list.len());
+    *state.projects_cache.write().await = list.clone();
+    Ok(list)
+}
+
+async fn apply_discovery_results(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    repos_path: &std::path::Path,
+    results: Vec<crate::repo_discovery::ProjectDiscoveryResult>,
+) {
+    let added: Vec<String> = results.iter()
+        .flat_map(|r| r.discovery.added.iter().cloned()).collect();
+    let not_found: Vec<String> = results.iter()
+        .flat_map(|r| r.discovery.not_found_on_disk.iter().cloned()).collect();
+
+    if !added.is_empty() {
+        log::info!("[startup_discovery] auto-registered {} repo(s): {:?}", added.len(), added);
+        sync_discovered_repos_to_state(state, repos_path, app_handle);
+        let _ = app_handle.emit("repos:discovered", serde_json::json!({ "added": added }));
+    }
+    if !not_found.is_empty() {
+        log::warn!("[startup_discovery] not found locally: {:?}", not_found);
+        let _ = app_handle.emit(
+            "repos:not_found_on_disk",
+            serde_json::json!({ "repos": not_found }),
+        );
+    }
+}
+
+fn sync_discovered_repos_to_state(
+    state: &tauri::State<'_, AppState>,
+    repos_path: &std::path::Path,
+    app_handle: &tauri::AppHandle,
+) {
+    let Ok(new_config) = crate::storage::read_repos_with_recovery(repos_path) else { return };
+    let known_ids: std::collections::HashSet<String> = state
+        .lock_repos()
+        .map(|r| r.repos.iter().map(|rr| rr.id.clone()).collect())
+        .unwrap_or_default();
+    let new_repos: Vec<_> = new_config.repos.iter()
+        .filter(|r| !known_ids.contains(&r.id)).cloned().collect();
+    if let Ok(mut repos) = state.lock_repos() {
+        *repos = new_config;
+    }
+    for repo in new_repos {
+        crate::repo_mgmt::start_repo_watcher(&repo.id, &repo.path, state, app_handle.clone());
     }
 }

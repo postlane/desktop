@@ -26,6 +26,9 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 beforeEach(() => {
   vi.clearAllMocks()
   mockInvoke.mockImplementation(async (cmd) => {
+    if (cmd === 'get_repo_connection_status') return []
+    if (cmd === 'list_connected_providers') return []
+    if (cmd === 'get_scheduler_account_names') return {}
     if (cmd === 'list_scheduler_profiles') return []
     if (cmd === 'get_project_voice_guide') return ''
     return null
@@ -35,9 +38,9 @@ beforeEach(() => {
 })
 
 describe('OrgSettingsView', () => {
-  it('renders RepositoriesBlock', () => {
+  it('renders RepositoriesBlock', async () => {
     render(<OrgSettingsView org={makeProject()} />)
-    expect(screen.getByText(/No repositories connected/i)).toBeInTheDocument()
+    await screen.findByText(/No repositories connected/i)
   })
 
   it('renders SchedulerBlock', () => {
