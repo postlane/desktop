@@ -109,7 +109,7 @@ pub fn discover_repos_impl(
     result
 }
 
-fn candidate_dirs() -> Vec<PathBuf> {
+pub(crate) fn candidate_dirs() -> Vec<PathBuf> {
     let Some(home) = dirs::home_dir() else {
         return vec![];
     };
@@ -118,6 +118,80 @@ fn candidate_dirs() -> Vec<PathBuf> {
         dirs.push(home.join(sub));
     }
     dirs
+}
+
+/// Aggregated result for one project's discovery pass.
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct ProjectDiscoveryResult {
+    pub project_id: String,
+    pub project_name: String,
+    pub discovery: DiscoveryResult,
+}
+
+/// Runs `discover_repos_impl` for every project in `projects`, fetching each
+/// project's GitHub App repos from the API. Projects whose API call fails are
+/// included in the result with an empty `DiscoveryResult` — the loop always
+/// continues so a single failure does not block the remaining projects.
+pub async fn run_discovery_for_all_projects(
+    projects: &[crate::project_registry::ProjectSummary],
+    api_base: &str,
+    token: &str,
+    base_dirs: &[PathBuf],
+    repos_path: &Path,
+) -> Vec<ProjectDiscoveryResult> {
+    log::info!(
+        "[discovery] starting: {} project(s), {} base dir(s): {:?}",
+        projects.len(), base_dirs.len(), base_dirs,
+    );
+    let mut results = Vec::with_capacity(projects.len());
+    for project in projects {
+        let result = discover_for_project(project, api_base, token, base_dirs, repos_path).await;
+        results.push(result);
+    }
+    log::info!("[discovery] complete for all projects");
+    results
+}
+
+async fn discover_for_project(
+    project: &crate::project_registry::ProjectSummary,
+    api_base: &str,
+    token: &str,
+    base_dirs: &[PathBuf],
+    repos_path: &Path,
+) -> ProjectDiscoveryResult {
+    log::info!("[discovery] project '{}' ({}): fetching GitHub App repos", project.name, project.id);
+    let app_repos = match crate::github_app::list_github_app_repos_impl(api_base, &project.id, token).await {
+        Ok(repos) => repos,
+        Err(e) => {
+            log::warn!("[discovery] project '{}' ({}): GitHub App API failed — {}", project.name, project.id, e);
+            return ProjectDiscoveryResult {
+                project_id: project.id.clone(),
+                project_name: project.name.clone(),
+                discovery: DiscoveryResult::default(),
+            };
+        }
+    };
+    let names: Vec<&str> = app_repos.iter().map(|r| r.full_name.as_str()).collect();
+    log::info!(
+        "[discovery] project '{}' ({}): GitHub App returned {} repo(s): {:?}",
+        project.name, project.id, names.len(), names,
+    );
+    let dirs = base_dirs.to_vec();
+    let path = repos_path.to_path_buf();
+    let pid = project.id.clone();
+    let discovery = tokio::task::spawn_blocking(move || discover_repos_impl(&app_repos, &dirs, &path, &pid))
+        .await
+        .unwrap_or_else(|e| {
+            log::warn!("[discovery] task panicked for project '{}': {}", project.id, e);
+            DiscoveryResult::default()
+        });
+    log::info!(
+        "[discovery] project '{}' ({}): added={:?} already_registered={:?} not_found_on_disk={:?} failed={:?}",
+        project.name, project.id,
+        discovery.added, discovery.already_registered, discovery.not_found_on_disk,
+        discovery.failed_to_register.iter().map(|(p, e)| format!("{p}: {e}")).collect::<Vec<_>>(),
+    );
+    ProjectDiscoveryResult { project_id: project.id.clone(), project_name: project.name.clone(), discovery }
 }
 
 #[tauri::command]
@@ -169,232 +243,5 @@ pub async fn discover_repos(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    fn make_app_repo(name: &str, full_name: &str) -> GitHubAppRepo {
-        GitHubAppRepo {
-            id: 1,
-            name: name.to_string(),
-            full_name: full_name.to_string(),
-            private: false,
-            html_url: format!("https://github.com/{}", full_name),
-        }
-    }
-
-    fn scaffold_git_repo_with_remote(dir: &Path, remote_url: &str) {
-        std::fs::create_dir_all(dir.join(".git")).unwrap();
-        let cfg = format!(
-            "[core]\n\trepofmt = 0\n[remote \"origin\"]\n\turl = {}\n\tfetch = +refs/*\n",
-            remote_url
-        );
-        std::fs::write(dir.join(".git/config"), cfg).unwrap();
-    }
-
-    // ── discover_repos_impl ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_ssh_remote_matched_and_added() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        assert_eq!(result.added, vec!["my-repo"]);
-        assert!(result.not_found_on_disk.is_empty());
-        let written: crate::storage::ReposConfig =
-            serde_json::from_str(&std::fs::read_to_string(&repos_path).unwrap()).unwrap();
-        assert_eq!(written.repos.len(), 1);
-    }
-
-    #[test]
-    fn test_https_remote_matched_and_added() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "https://github.com/my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        assert_eq!(result.added, vec!["my-repo"]);
-    }
-
-    #[test]
-    fn test_already_registered_not_duplicated() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-        let repos_path = tmp.path().join("repos.json");
-        let canonical = std::fs::canonicalize(&repo_dir).unwrap();
-        let existing = serde_json::json!({
-            "version": 1,
-            "repos": [{"id":"u1","name":"my-repo","path": canonical.to_str().unwrap(),"active":true,"added_at":"2024-01-01T00:00:00Z"}]
-        });
-        std::fs::write(&repos_path, serde_json::to_string(&existing).unwrap()).unwrap();
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        assert!(result.added.is_empty());
-        assert_eq!(result.already_registered, vec!["my-repo"]);
-    }
-
-    #[test]
-    fn test_app_repo_not_on_disk_in_not_found() {
-        let tmp = TempDir::new().unwrap();
-        let app_repos = vec![make_app_repo("missing-repo", "my-org/missing-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        assert!(result.added.is_empty());
-        assert_eq!(result.not_found_on_disk, vec!["my-org/missing-repo"]);
-    }
-
-    #[test]
-    fn test_non_github_remote_not_matched() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@gitlab.com:my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        assert!(result.added.is_empty());
-        assert_eq!(result.not_found_on_disk, vec!["my-org/my-repo"]);
-    }
-
-    #[test]
-    fn test_repos_json_write_is_atomic() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        let raw = std::fs::read_to_string(&repos_path).unwrap();
-        assert!(serde_json::from_str::<serde_json::Value>(&raw).is_ok());
-        assert!(std::fs::read_dir(tmp.path()).unwrap()
-            .flatten()
-            .all(|e| !e.file_name().to_string_lossy().ends_with(".tmp")));
-    }
-
-    #[test]
-    fn test_failed_write_in_failed_to_register() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos-dir");
-        std::fs::create_dir_all(&repos_path).unwrap();
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-1");
-        assert_eq!(result.failed_to_register.len(), 1, "one failed registration");
-        assert!(result.added.is_empty());
-    }
-
-    #[test]
-    fn test_discovered_repo_config_json_has_correct_schema() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        let result = discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-xyz");
-        assert_eq!(result.added, vec!["my-repo"]);
-
-        let config_str = std::fs::read_to_string(repo_dir.join(".postlane/config.json"))
-            .expect("config.json must exist after discovery");
-        let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
-        assert_eq!(config["version"].as_u64(), Some(1), "version must be 1");
-        assert_eq!(
-            config["project_id"].as_str(),
-            Some("proj-xyz"),
-            "field must be 'project_id', not 'project'"
-        );
-        assert_eq!(config["base_url"].as_str(), Some("https://postlane.dev"));
-        assert!(config["llm"].is_object(), "llm block must be present");
-        assert_eq!(config["llm"]["provider"].as_str(), Some("anthropic"));
-    }
-
-    #[test]
-    fn test_discovered_repo_writes_config_local_json() {
-        let tmp = TempDir::new().unwrap();
-        let repo_dir = tmp.path().join("my-repo");
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let repos_path = tmp.path().join("repos.json");
-        discover_repos_impl(&app_repos, &[tmp.path().to_path_buf()], &repos_path, "proj-xyz");
-
-        assert!(
-            repo_dir.join(".postlane/config.local.json").exists(),
-            "config.local.json must be written alongside config.json"
-        );
-        let local_str = std::fs::read_to_string(repo_dir.join(".postlane/config.local.json")).unwrap();
-        let local: serde_json::Value = serde_json::from_str(&local_str).unwrap();
-        assert!(local["scheduler"].is_object(), "config.local.json must have a scheduler block");
-    }
-
-    // ── Bug 21.13.6a — duplicate project via Add-folder + GitHub App ─────────
-
-    fn write_canonical_repos_json(repos_path: &std::path::Path, repo_dir: &std::path::Path) {
-        let canonical = std::fs::canonicalize(repo_dir).unwrap();
-        let json = serde_json::json!({
-            "version": 1,
-            "repos": [{"id":"u1","name":"my-repo","path": canonical.to_str().unwrap(),
-                        "active":true,"added_at":"2026-01-01T00:00:00Z"}]
-        });
-        std::fs::write(repos_path, serde_json::to_string(&json).unwrap()).unwrap();
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_discover_does_not_duplicate_when_scan_path_differs_from_canonical() {
-        let tmp = TempDir::new().unwrap();
-        let real_parent = tmp.path().join("real");
-        let repo_dir = real_parent.join("my-repo");
-        std::fs::create_dir_all(&repo_dir).unwrap();
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-
-        let link_parent = tmp.path().join("via-link");
-        std::os::unix::fs::symlink(&real_parent, &link_parent).unwrap();
-
-        let repos_path = tmp.path().join("repos.json");
-        write_canonical_repos_json(&repos_path, &repo_dir);
-
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let result = discover_repos_impl(&app_repos, &[link_parent], &repos_path, "proj-b");
-
-        assert!(result.added.is_empty(), "must not add duplicate: {:?}", result.added);
-        assert_eq!(result.already_registered, vec!["my-repo"],
-            "must report as already registered");
-        let written: crate::storage::ReposConfig =
-            serde_json::from_str(&std::fs::read_to_string(&repos_path).unwrap()).unwrap();
-        assert_eq!(written.repos.len(), 1, "repos.json must not gain a second entry");
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_discover_does_not_overwrite_project_config_for_registered_repo() {
-        let tmp = TempDir::new().unwrap();
-        let real_parent = tmp.path().join("real");
-        let repo_dir = real_parent.join("my-repo");
-        std::fs::create_dir_all(&repo_dir).unwrap();
-        scaffold_git_repo_with_remote(&repo_dir, "git@github.com:my-org/my-repo.git");
-
-        let link_parent = tmp.path().join("via-link");
-        std::os::unix::fs::symlink(&real_parent, &link_parent).unwrap();
-
-        let repos_path = tmp.path().join("repos.json");
-        write_canonical_repos_json(&repos_path, &repo_dir);
-
-        let postlane_dir = repo_dir.join(".postlane");
-        std::fs::create_dir_all(&postlane_dir).unwrap();
-        std::fs::write(postlane_dir.join("config.json"), r#"{"project_id":"proj-a"}"#).unwrap();
-
-        let app_repos = vec![make_app_repo("my-repo", "my-org/my-repo")];
-        let _ = discover_repos_impl(&app_repos, &[link_parent], &repos_path, "proj-b");
-
-        let config_str = std::fs::read_to_string(repo_dir.join(".postlane/config.json")).unwrap();
-        let config: serde_json::Value = serde_json::from_str(&config_str).unwrap();
-        assert_eq!(
-            config["project_id"].as_str(), Some("proj-a"),
-            "config.json must not be overwritten with proj-b"
-        );
-    }
-}
+#[path = "repo_discovery_tests.rs"]
+mod tests;

@@ -3,7 +3,9 @@
 pub mod github_project_config;
 pub mod routes;
 mod activate_route;
+mod projects_route;
 mod register_route;
+mod register_workspace_route;
 mod send_route;
 
 use axum::{
@@ -82,6 +84,8 @@ pub fn create_router(state: ServerState) -> Router {
     let protected_routes = Router::new()
         .route("/send", post(send_route::send_handler))
         .route("/register", post(register_route::register_handler))
+        .route("/register-workspace", post(register_workspace_route::register_workspace_handler))
+        .route("/api/v1/projects", get(projects_route::projects_handler))
         .route("/github-project-config", get(github_project_config::github_project_config_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -207,6 +211,43 @@ pub fn write_port_file(port: u16) -> Result<(), String> {
     {
         std::fs::write(&port_path, content)
             .map_err(|e| format!("Failed to write port file: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Writes `token` to `~/.postlane/local.token` with 0600 permissions.
+/// The CLI reads this file for workspace registration (22.4.8a).
+pub fn write_local_token(token: &str) -> Result<(), String> {
+    let token_path = crate::init::postlane_dir()?.join("local.token");
+
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&token_path)
+            .map_err(|e| format!("Failed to open local.token: {}", e))?;
+
+        file.write_all(token.as_bytes())
+            .map_err(|e| format!("Failed to write local.token: {}", e))?;
+
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&token_path, perms)
+            .map_err(|e| format!("Failed to set local.token permissions: {}", e))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&token_path, token)
+            .map_err(|e| format!("Failed to write local.token: {}", e))?;
     }
 
     Ok(())
@@ -343,6 +384,26 @@ mod tests {
             assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
         }
         let _ = fs::remove_file(&port_path);
+    }
+
+    /// 22.4.8a: write_local_token writes local.token with 0600 permissions.
+    #[test]
+    fn test_write_local_token() {
+        crate::init::init_postlane_dir().expect("Failed to init postlane dir");
+        write_local_token("test-local-token-value").expect("Failed to write local.token");
+        let token_path = crate::init::postlane_dir()
+            .expect("Failed to get postlane dir")
+            .join("local.token");
+        assert!(token_path.exists());
+        let content = fs::read_to_string(&token_path).expect("Failed to read local.token");
+        assert_eq!(content, "test-local-token-value");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(&token_path).expect("Failed to get metadata");
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        }
+        let _ = fs::remove_file(&token_path);
     }
 
     #[test]

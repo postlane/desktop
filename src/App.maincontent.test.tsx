@@ -54,6 +54,18 @@ vi.mock('./components/OrgLinkModal', () => ({
     </>
   ),
 }))
+vi.mock('./settings/WorkspaceMissingBanner', () => ({
+  default: () => null,
+  useWorkspaceStatus: () => ({ result: null, clearStatus: vi.fn() }),
+}))
+
+vi.mock('./settings/MigrationBanner', () => ({
+  MigrationBannerContent: () => null,
+  RecoveryBannerContent: () => null,
+  MigrationBannersBlock: () => null,
+  useMigrationStatus: () => ({ status: null, dismiss: vi.fn() }),
+  useJournalStatuses: () => ({ statuses: [], resume: vi.fn(), dismissSession: vi.fn() }),
+}))
 
 import { MainContent } from './App'
 import { useProjectsContext } from './context/ProjectsProvider'

@@ -67,6 +67,7 @@ pub mod project_voice_guide;
 pub mod provider_orgs;
 pub mod providers;
 pub mod published_queries;
+pub mod repo_connection_status;
 pub mod repo_discovery;
 pub mod repo_init_config;
 pub mod repo_mgmt;
@@ -93,9 +94,16 @@ pub mod webhook_poller;
 pub mod wizard_state;
 pub mod repos_migration;
 pub mod workspace;
+pub mod workspace_add;
+pub mod workspace_confirm;
 pub mod workspace_entry;
 pub mod workspace_history;
 pub mod workspace_repos;
+pub mod workspace_rescan;
+pub mod workspace_migration;
+pub mod workspace_migration_commands;
+pub mod workspace_migration_execute;
+pub mod workspace_path_check;
 
 #[cfg(test)]
 pub mod test_fixtures;

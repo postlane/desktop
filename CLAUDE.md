@@ -72,3 +72,23 @@ No `#[allow(...)]` or ESLint disable comments to bypass limits — fix the code.
 
 Forbidden: `utils`, `helpers`, `common`, `shared`, `core`, `misc`, `lib`.
 Use domain-specific names.
+
+---
+
+## Local dev setup — macOS keychain prompts
+
+Without a code signature, macOS identifies the app by its binary hash. Every
+recompile produces a new hash → new identity → all "Always Allow" keychain
+permissions reset. With 40+ keychain entries in this app, that means constant
+password prompts during development.
+
+**Fix: sign local builds with your Developer ID.** Add this to `~/.zshrc`:
+
+```bash
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Hugo Elliott (RNUCP3LV48)"
+```
+
+Then `source ~/.zshrc`. Tauri picks this up automatically for both
+`cargo tauri dev` and `cargo tauri build`. Run the app once, click
+"Always Allow" on each keychain prompt — that's the last time, because
+macOS now identifies the app by developer identity rather than binary hash.

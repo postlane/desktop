@@ -60,6 +60,17 @@ vi.mock('./settings/AccountSettingsView', () => ({
 }))
 vi.mock('./settings/PreferencesSettingsView', () => ({ default: () => <div>PreferencesSettingsView</div> }))
 vi.mock('./settings/SystemSettingsView', () => ({ default: () => <div>SystemSettingsView</div> }))
+vi.mock('./settings/WorkspaceMissingBanner', () => ({
+  default: () => null,
+  useWorkspaceStatus: () => ({ result: null, clearStatus: vi.fn() }),
+}))
+vi.mock('./settings/MigrationBanner', () => ({
+  MigrationBannerContent: () => null,
+  RecoveryBannerContent: () => null,
+  MigrationBannersBlock: () => null,
+  useMigrationStatus: () => ({ status: null, dismiss: vi.fn() }),
+  useJournalStatuses: () => ({ statuses: [], resume: vi.fn(), dismissSession: vi.fn() }),
+}))
 vi.mock('./components/PostTable', () => ({
   default: ({ onSelect }: { onSelect?: (_p: unknown) => void }) => (
     <button data-testid="select-post" onClick={() => onSelect?.({

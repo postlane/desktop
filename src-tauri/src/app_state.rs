@@ -6,7 +6,7 @@ use crate::storage::ReposConfig;
 use crate::telemetry::client::TelemetryClient;
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::RwLock;
@@ -119,6 +119,15 @@ pub fn read_app_state() -> AppStateFile {
     }
 }
 
+/// Path-parameterised `read_app_state` for testing without touching `~/.postlane/`.
+pub fn read_app_state_from(path: &Path) -> AppStateFile {
+    if !path.exists() { return AppStateFile::default(); }
+    match std::fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => AppStateFile::default(),
+    }
+}
+
 /// Writes app_state.json atomically.
 pub fn write_app_state(state: &AppStateFile) -> Result<(), String> {
     let path = app_state_path()?;
@@ -167,6 +176,7 @@ mod tests {
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
             repos_schema_v2: false,
+            workspace_migration_dismissed: false,
         };
 
         let path = dir.path().join("app_state.json");
@@ -252,6 +262,7 @@ mod tests {
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
             repos_schema_v2: false,
+            workspace_migration_dismissed: false,
         };
 
         write_app_state(&state).expect("Failed to write app_state");
@@ -317,6 +328,7 @@ mod tests {
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
             repos_schema_v2: false,
+            workspace_migration_dismissed: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
