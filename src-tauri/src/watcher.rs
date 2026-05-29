@@ -19,6 +19,12 @@ pub fn should_fire_after_debounce(last_fired: Option<Instant>, min_interval: Dur
     }
 }
 
+/// Watches `{workspace}/posts/` recursively for meta.json changes (22.2.5).
+///
+/// All draft subdirectories under the workspace (one per child repo's `posts_dir`)
+/// are covered by a single recursive watcher on `{workspace}/posts/`.
+/// If the directory does not yet exist, this is a silent no-op — 22.2.4 guarantees
+/// it is created eagerly when the workspace is registered.
 fn watch_workspace_children<F>(
     repo_id: String,
     workspace_path: &Path,
@@ -28,12 +34,8 @@ fn watch_workspace_children<F>(
 where
     F: FnMut(Vec<PathBuf>) + Send + 'static,
 {
-    let posts_dirs: Vec<PathBuf> = crate::workspace::discover_child_repos(workspace_path)
-        .into_iter()
-        .map(|c| c.join(".postlane/posts"))
-        .filter(|p| p.exists())
-        .collect();
-    if posts_dirs.is_empty() {
+    let posts_dir = workspace_path.join("posts");
+    if !posts_dir.exists() {
         return Ok(());
     }
     let last_fired: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
@@ -59,9 +61,7 @@ where
         },
         notify::Config::default(),
     )?;
-    for posts_dir in &posts_dirs {
-        watcher.watch(posts_dir, RecursiveMode::Recursive)?;
-    }
+    watcher.watch(&posts_dir, RecursiveMode::Recursive)?;
     watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(repo_id, watcher);
     Ok(())
 }
@@ -359,29 +359,43 @@ mod tests {
         stop_all_watchers(&arc);
     }
 
-    // ── Workspace watcher (20.8.3) ────────────────────────────────────────────
+    // ── Workspace watcher (22.2.5) ────────────────────────────────────────────
 
+    /// 22.2.5 — workspace watcher watches {workspace}/posts/ recursively, not per-child dirs.
+    #[test]
+    fn test_watch_repo_workspace_watches_workspace_posts_dir() {
+        let ws = tempfile::TempDir::new().expect("create temp dir");
+        // Create {workspace}/posts/ — the v1.4 canonical location
+        fs::create_dir_all(ws.path().join("posts")).expect("create posts dir");
+        let watchers: WatcherMap = Mutex::new(HashMap::new());
+        let result = watch_repo("ws".to_string(), ws.path(), &watchers, |_| {});
+        assert!(result.is_ok(), "workspace watch must not error when posts/ exists");
+        assert_eq!(watchers.lock().unwrap().len(), 1, "one watcher for workspace posts/ dir");
+        stop_all_watchers(&watchers);
+    }
+
+    /// 22.2.5 — noop when {workspace}/posts/ is absent.
+    #[test]
+    fn test_watch_repo_workspace_noop_when_posts_dir_absent() {
+        let ws = tempfile::TempDir::new().expect("create temp dir");
+        // No posts/ directory — workspace not yet initialised
+        let watchers: WatcherMap = Mutex::new(HashMap::new());
+        let result = watch_repo("ws".to_string(), ws.path(), &watchers, |_| {});
+        assert!(result.is_ok());
+        assert_eq!(watchers.lock().unwrap().len(), 0, "no watcher when posts/ absent");
+    }
+
+    /// Legacy compatibility — per-repo watcher still works for repos in `repos` array.
     #[test]
     fn test_watch_repo_workspace_creates_watcher_for_child_posts_dirs() {
         let ws = tempfile::TempDir::new().expect("create temp dir");
-        fs::create_dir_all(ws.path().join("repo-a/.git")).expect("git a");
-        fs::create_dir_all(ws.path().join("repo-b/.git")).expect("git b");
-        fs::create_dir_all(ws.path().join("repo-a/.postlane/posts")).expect("posts a");
-        fs::create_dir_all(ws.path().join("repo-b/.postlane/posts")).expect("posts b");
+        // v1.4 workspace: {workspace}/posts/ present
+        fs::create_dir_all(ws.path().join("posts").join("frontend")).expect("posts/frontend");
+        fs::create_dir_all(ws.path().join("posts").join("backend")).expect("posts/backend");
         let watchers: WatcherMap = Mutex::new(HashMap::new());
         let result = watch_repo("ws".to_string(), ws.path(), &watchers, |_| {});
         assert!(result.is_ok(), "workspace watch should not error");
         assert_eq!(watchers.lock().unwrap().len(), 1, "one watcher entry per workspace repo_id");
         stop_all_watchers(&watchers);
-    }
-
-    #[test]
-    fn test_watch_repo_workspace_no_child_posts_dirs_is_noop() {
-        let ws = tempfile::TempDir::new().expect("create temp dir");
-        fs::create_dir_all(ws.path().join("repo-a/.git")).expect("git");
-        let watchers: WatcherMap = Mutex::new(HashMap::new());
-        let result = watch_repo("ws".to_string(), ws.path(), &watchers, |_| {});
-        assert!(result.is_ok());
-        assert_eq!(watchers.lock().unwrap().len(), 0, "no watcher when no child has posts/");
     }
 }

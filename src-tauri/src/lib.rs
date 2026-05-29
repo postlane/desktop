@@ -94,6 +94,8 @@ pub mod wizard_state;
 pub mod repos_migration;
 pub mod workspace;
 pub mod workspace_entry;
+pub mod workspace_history;
+pub mod workspace_repos;
 
 #[cfg(test)]
 pub mod test_fixtures;

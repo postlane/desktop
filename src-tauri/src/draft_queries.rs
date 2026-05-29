@@ -1,15 +1,61 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
-use crate::draft_post_scanner::{drafts_from_repo_path, project_id_from_config};
+use crate::draft_post_scanner::{drafts_from_posts_dir, drafts_from_repo_path, project_id_from_config};
 use crate::project_config_ops::read_project_id_from_path_impl;
 use crate::storage::{Repo, ReposConfig};
 use crate::types::Post;
-use std::path::PathBuf;
+use crate::workspace_entry::WorkspaceEntry;
+use crate::workspace_repos::read_workspace_repos;
+use std::path::{Path, PathBuf};
 use tauri::State;
 
 pub type DraftPost = Post;
 
+/// Scans drafts from a workspace registration (v2 `workspaces` array entry).
+///
+/// Reads `{workspace}/repos.json`, then for each active `RepoEntry` scans
+/// `{workspace}/posts/{posts_dir}/` — the v1.4 canonical draft location (22.2.2).
+fn drafts_from_workspace_entry(workspace: &WorkspaceEntry) -> Vec<Post> {
+    let ws_path = Path::new(&workspace.workspace_path);
+    let repos_json_path = ws_path.join("repos.json");
+    let ws_repos = match read_workspace_repos(&repos_json_path) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("[draft_queries] failed to read {}: {}", repos_json_path.display(), e);
+            return vec![];
+        }
+    };
+
+    ws_repos
+        .repos
+        .iter()
+        .filter(|e| e.active)
+        .flat_map(|entry| {
+            let posts_subdir = ws_path.join("posts").join(&entry.posts_dir);
+            if !posts_subdir.exists() {
+                return vec![];
+            }
+            let eff_config = crate::workspace::effective_config_path(
+                Path::new(&entry.path),
+                ws_path,
+            );
+            let project_id = project_id_from_config(&eff_config);
+
+            // Use a synthetic Repo so drafts_from_posts_dir sets repo_name + repo_id correctly.
+            let synthetic_repo = Repo {
+                id: entry.id.clone(),
+                name: entry.name.clone(),
+                path: entry.path.clone(),
+                active: true,
+                added_at: entry.added_at.clone(),
+            };
+            drafts_from_posts_dir(&synthetic_repo, &posts_subdir, project_id)
+        })
+        .collect()
+}
+
+/// Scans drafts from a legacy per-repo entry (v1 `repos` array).
 fn drafts_from_workspace(workspace_repo: &Repo, repos: &ReposConfig) -> Vec<Post> {
     let workspace_path = PathBuf::from(&workspace_repo.path);
     let registered: std::collections::HashSet<&str> = repos
@@ -42,20 +88,29 @@ fn drafts_from_repo(repo: &Repo, repos: &ReposConfig) -> Vec<Post> {
 /// Prevents UI-thread blocking on repos with large numbers of accumulated drafts.
 pub const MAX_DRAFT_PAGE: usize = 50;
 
-/// Returns up to [`MAX_DRAFT_PAGE`] draft posts across all active repos.
+/// Returns up to [`MAX_DRAFT_PAGE`] draft posts across all active repos and workspaces.
 ///
 /// Sorted deterministically: `repo_path` → `post_folder` → `platform`.
-/// When the total exceeds the page size the oldest (alphabetically last) entries
-/// are silently dropped; callers that need the full count should call
-/// `get_all_drafts_count` separately.
 pub fn get_all_drafts_impl(state: &AppState) -> Result<Vec<Post>, String> {
     let repos = state.lock_repos()?;
+
+    // v2 workspace entries (22.2.2)
     let mut drafts: Vec<Post> = repos
+        .workspaces
+        .iter()
+        .filter(|w| w.active)
+        .flat_map(drafts_from_workspace_entry)
+        .collect();
+
+    // Legacy per-repo entries (backward compat)
+    let legacy: Vec<Post> = repos
         .repos
         .iter()
         .filter(|r| r.active)
         .flat_map(|repo| drafts_from_repo(repo, &repos))
         .collect();
+
+    drafts.extend(legacy);
     drafts.sort_by(|a, b| {
         a.repo_path
             .cmp(&b.repo_path)
@@ -73,327 +128,27 @@ pub fn get_all_drafts(state: State<'_, AppState>) -> Result<Vec<Post>, String> {
 }
 
 /// Tauri command — returns the total count of draft posts across all active repos.
-/// Use alongside `get_all_drafts` to show "Showing N of M" when M > 50.
 #[tauri::command]
 pub fn get_all_drafts_count(state: State<'_, AppState>) -> Result<usize, String> {
     let repos = state.lock_repos()?;
-    let total = repos
+
+    let workspace_count: usize = repos
+        .workspaces
+        .iter()
+        .filter(|w| w.active)
+        .flat_map(drafts_from_workspace_entry)
+        .count();
+
+    let legacy_count: usize = repos
         .repos
         .iter()
         .filter(|r| r.active)
         .flat_map(|repo| drafts_from_repo(repo, &repos))
         .count();
-    Ok(total)
+
+    Ok(workspace_count + legacy_count)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_fixtures::{make_state, make_repo, write_config, write_meta, write_workspace_config};
-    use std::fs;
-    use std::path::Path;
-
-    fn write_md(dir: &Path, folder: &str, platform: &str, text: &str) {
-        fs::create_dir_all(dir.join(".git")).expect("create .git");
-        let p = dir.join(".postlane/posts").join(folder);
-        fs::create_dir_all(&p).expect("create post dir");
-        fs::write(p.join(format!("{}.md", platform)), text).expect("write md");
-    }
-
-    #[test]
-    fn test_get_all_drafts_includes_image_attribution() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_meta(
-            dir.path(),
-            "my-post",
-            r#"{"image_url":"https://images.unsplash.com/photo-abc","image_attribution":{"photographer_name":"Jane Doe","photographer_url":"https://unsplash.com/@janedoe"}}"#,
-        );
-        write_md(dir.path(), "my-post", "x", "Hello");
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        let attr = result[0].image_attribution.as_ref().expect("image_attribution must be Some");
-        assert_eq!(attr.photographer_name, "Jane Doe");
-        assert_eq!(attr.photographer_url, "https://unsplash.com/@janedoe");
-    }
-
-    #[test]
-    fn test_get_all_drafts_empty() {
-        let state = make_state(vec![]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_get_all_drafts_inactive_repo_excluded() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_md(dir.path(), "my-post", "x", "Inactive");
-        let mut repo = make_repo("r1", dir.path().to_str().unwrap());
-        repo.active = false;
-        let state = make_state(vec![repo]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_get_all_drafts_includes_project_id() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_config(dir.path(), r#"{"project_id":"proj-abc"}"#);
-        write_md(dir.path(), "my-post", "x", "Hello");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].project_id, Some("proj-abc".to_string()));
-    }
-
-    #[test]
-    fn test_get_all_drafts_includes_scheduled_for() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_meta(dir.path(), "my-post", r#"{"scheduled_for":"2026-06-01T10:00:00Z"}"#);
-        write_md(dir.path(), "my-post", "x", "Hello");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].scheduled_for.as_deref(), Some("2026-06-01T10:00:00Z"));
-    }
-
-    #[test]
-    fn test_get_all_drafts_excludes_sent_platforms() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_meta(
-            dir.path(),
-            "my-post",
-            r#"{"sent_platforms":{"x":"2026-05-01T10:00:00Z"}}"#,
-        );
-        write_md(dir.path(), "my-post", "x", "Already sent");
-        write_md(dir.path(), "my-post", "bluesky", "Not sent yet");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].platform, "bluesky");
-    }
-
-    #[test]
-    fn test_draft_event_disappears_from_queue_when_all_platforms_sent() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_meta(
-            dir.path(),
-            "my-post",
-            r#"{"sent_platforms":{"x":"2026-05-01T10:00:00Z","bluesky":"2026-05-01T10:00:00Z"}}"#,
-        );
-        write_md(dir.path(), "my-post", "x", "X post");
-        write_md(dir.path(), "my-post", "bluesky", "Bluesky post");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert!(result.is_empty(), "all sent → zero draft rows");
-    }
-
-    #[test]
-    fn test_get_all_drafts_returns_failed_status() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_meta(
-            dir.path(),
-            "my-post",
-            r#"{"status":"failed","error":"scheduler timeout"}"#,
-        );
-        write_md(dir.path(), "my-post", "x", "Failed post");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "failed");
-        assert_eq!(result[0].error.as_deref(), Some("scheduler timeout"));
-    }
-
-    #[test]
-    fn test_get_all_drafts_treats_absent_post_meta_as_clean() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_md(dir.path(), "my-post", "x", "No meta");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "ready");
-        assert!(result[0].error.is_none());
-        assert!(result[0].scheduled_for.is_none());
-    }
-
-    // ── Workspace tests (20.8) ────────────────────────────────────────────────
-
-    fn make_workspace(_name: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
-        let ws = tempfile::TempDir::new().expect("create temp dir");
-        let child_a = ws.path().join("repo-a");
-        let child_b = ws.path().join("repo-b");
-        fs::create_dir_all(child_a.join(".git")).expect("git a");
-        fs::create_dir_all(child_b.join(".git")).expect("git b");
-        (ws, child_a, child_b)
-    }
-
-    #[test]
-    fn test_workspace_drafts_set_repo_path_to_child_path() {
-        let (ws, child_a, _) = make_workspace("repo_path_13");
-        write_md(&child_a, "my-post", "x", "Hello");
-        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1, "workspace must surface child drafts");
-        assert_eq!(
-            result[0].repo_path,
-            child_a.to_str().unwrap(),
-            "repo_path must be child path, not workspace root"
-        );
-    }
-
-    #[test]
-    fn test_workspace_child_with_own_config_uses_child_project_id() {
-        let (ws, child_a, _) = make_workspace("own_cfg_11");
-        write_workspace_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
-        write_config(&child_a, r#"{"project_id":"child-proj"}"#);
-        write_md(&child_a, "my-post", "x", "Child post");
-        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].project_id, Some("child-proj".to_string()));
-    }
-
-    #[test]
-    fn test_workspace_child_without_config_inherits_parent_project_id() {
-        let (ws, child_a, _) = make_workspace("inherit_cfg_11");
-        write_workspace_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
-        write_md(&child_a, "my-post", "x", "Child post");
-        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].project_id, Some("parent-proj".to_string()));
-    }
-
-    #[test]
-    fn test_workspace_registered_child_not_double_counted() {
-        let (ws, child_a, _) = make_workspace("dedup_16");
-        write_md(&child_a, "my-post", "x", "Post");
-        let state = make_state(vec![
-            make_repo("ws", ws.path().to_str().unwrap()),
-            make_repo("child-r", child_a.to_str().unwrap()),
-        ]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1, "workspace scan must skip registered child");
-    }
-
-    #[test]
-    fn test_workspace_get_all_drafts_from_all_children_deterministic() {
-        let (ws, child_a, child_b) = make_workspace("all_children_17");
-        write_md(&child_a, "post-1", "x", "A");
-        write_md(&child_b, "post-1", "x", "B");
-        let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 2, "both children must be scanned");
-        let pa = child_a.to_str().unwrap();
-        let pb = child_b.to_str().unwrap();
-        assert_eq!(result[0].repo_path, pa.min(pb));
-        assert_eq!(result[1].repo_path, pa.max(pb));
-    }
-
-    // 20.10.13 — markdown_file outputs in draft_output_dir do not appear in get_all_drafts
-    #[test]
-    fn test_markdown_file_output_in_draft_output_dir_not_in_queue() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
-        // Write a file directly to .postlane/drafts/ (not .postlane/posts/)
-        let drafts_dir = dir.path().join(".postlane").join("drafts");
-        fs::create_dir_all(&drafts_dir).expect("create drafts dir");
-        fs::write(drafts_dir.join("newsletter.md"), "# Update\n\nSome content.").expect("write");
-        // Also write a normal social post to confirm queue still works for those
-        write_md(dir.path(), "social-post", "x", "X post");
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        // Only the social post should appear; the markdown_file output must not
-        assert_eq!(result.len(), 1, "markdown_file output must not appear in queue");
-        assert_eq!(result[0].platform, "x", "queue must still contain social posts");
-    }
-
-    #[test]
-    fn test_get_all_drafts_sorted_by_repo_post_folder_platform() {
-        let dir_a = tempfile::TempDir::new().expect("create temp dir");
-        let dir_b = tempfile::TempDir::new().expect("create temp dir");
-        write_md(dir_a.path(), "folder-1", "x", "A x");
-        write_md(dir_a.path(), "folder-1", "bluesky", "A bluesky");
-        write_md(dir_b.path(), "folder-1", "x", "B x");
-        write_md(dir_b.path(), "folder-1", "bluesky", "B bluesky");
-
-        let path_a = dir_a.path().to_str().unwrap().to_string();
-        let path_b = dir_b.path().to_str().unwrap().to_string();
-        let state = make_state(vec![
-            make_repo("rb", &path_b),
-            make_repo("ra", &path_a),
-        ]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 4);
-
-        let (ra, rb) = if path_a < path_b { (&path_a, &path_b) } else { (&path_b, &path_a) };
-        assert_eq!(&result[0].repo_path, ra);
-        assert_eq!(result[0].platform, "bluesky");
-        assert_eq!(&result[1].repo_path, ra);
-        assert_eq!(result[1].platform, "x");
-        assert_eq!(&result[2].repo_path, rb);
-        assert_eq!(result[2].platform, "bluesky");
-        assert_eq!(&result[3].repo_path, rb);
-        assert_eq!(result[3].platform, "x");
-    }
-
-    #[test]
-    fn test_get_all_drafts_capped_at_max_page() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        for i in 0..MAX_DRAFT_PAGE + 5 {
-            write_md(dir.path(), &format!("folder-{:03}", i), "x", "content");
-        }
-        let path = dir.path().to_str().unwrap().to_string();
-        let state = make_state(vec![make_repo("r1", &path)]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), MAX_DRAFT_PAGE, "result must be capped at MAX_DRAFT_PAGE");
-    }
-
-    #[test]
-    fn test_get_all_drafts_repo_with_no_posts_dir_returns_empty() {
-        // posts_dir doesn't exist → drafts_from_repo_path returns vec![] early
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
-        // No .postlane/posts directory
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert!(result.is_empty(), "repo without posts dir must produce no drafts");
-    }
-
-    #[test]
-    fn test_get_all_drafts_post_folder_with_no_md_files() {
-        // Folder exists but contains no .md files → no drafts
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
-        let post_dir = dir.path().join(".postlane/posts/empty-folder");
-        fs::create_dir_all(&post_dir).expect("create post dir");
-        fs::write(post_dir.join("notes.txt"), "notes").expect("write non-md file");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert!(result.is_empty(), "folder with only non-.md files must produce no drafts");
-    }
-
-    #[test]
-    fn test_get_all_drafts_failed_status_is_surfaced() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        write_meta(
-            dir.path(),
-            "fail-post",
-            r#"{"status":"failed","error":"oops"}"#,
-        );
-        write_md(dir.path(), "fail-post", "x", "Failed content");
-
-        let state = make_state(vec![make_repo("r1", dir.path().to_str().unwrap())]);
-        let result = get_all_drafts_impl(&state).expect("ok");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].status, "failed");
-        assert_eq!(result[0].error.as_deref(), Some("oops"));
-    }
-}
+#[path = "draft_queries_tests.rs"]
+mod tests;
