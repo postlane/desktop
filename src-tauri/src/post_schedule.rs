@@ -72,8 +72,7 @@ mod tests {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(
             ReposConfig {
-                version: 1,
-                repos: vec![Repo {
+                version: 1, workspaces: vec![], repos: vec![Repo {
                     id: "r1".to_string(),
                     name: "test".to_string(),
                     path: canonical.to_str().unwrap_or("").to_string(),
@@ -166,7 +165,7 @@ mod tests {
         write_meta_in(dir.path(), "post-001");
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let empty_state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![] },
             _tmp_repos.path().join("repos.json"),
         );
         let result = update_post_schedule_impl(

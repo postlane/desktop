@@ -89,7 +89,7 @@ pub fn get_all_drafts_count(state: State<'_, AppState>) -> Result<usize, String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_fixtures::{make_state, make_repo, write_config, write_meta};
+    use crate::test_fixtures::{make_state, make_repo, write_config, write_meta, write_workspace_config};
     use std::fs;
     use std::path::Path;
 
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn test_workspace_child_with_own_config_uses_child_project_id() {
         let (ws, child_a, _) = make_workspace("own_cfg_11");
-        write_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
+        write_workspace_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
         write_config(&child_a, r#"{"project_id":"child-proj"}"#);
         write_md(&child_a, "my-post", "x", "Child post");
         let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_workspace_child_without_config_inherits_parent_project_id() {
         let (ws, child_a, _) = make_workspace("inherit_cfg_11");
-        write_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
+        write_workspace_config(ws.path(), r#"{"project_id":"parent-proj"}"#);
         write_md(&child_a, "my-post", "x", "Child post");
         let state = make_state(vec![make_repo("ws", ws.path().to_str().unwrap())]);
         let result = get_all_drafts_impl(&state).expect("ok");

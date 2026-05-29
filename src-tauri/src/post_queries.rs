@@ -129,8 +129,7 @@ mod tests {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(
             ReposConfig {
-                version: 1,
-                repos: vec![Repo {
+                version: 1, workspaces: vec![], repos: vec![Repo {
                     id: "r1".to_string(),
                     name: "test".to_string(),
                     path: path.to_string(),

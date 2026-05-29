@@ -148,8 +148,7 @@ mod tests {
 
     fn make_repos(paths: &[&str]) -> ReposConfig {
         ReposConfig {
-            version: 1,
-            repos: paths
+            version: 1, workspaces: vec![], repos: paths
                 .iter()
                 .enumerate()
                 .map(|(i, p)| Repo {

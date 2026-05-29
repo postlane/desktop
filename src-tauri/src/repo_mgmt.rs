@@ -256,7 +256,7 @@ mod tests {
     /// Build a state whose repos.json lives in `dir`, seeded with the given repos.
     fn make_state_at(dir: &std::path::Path, repos: Vec<crate::storage::Repo>) -> AppState {
         AppState::new_with_path(
-            ReposConfig { version: 1, repos },
+            ReposConfig { version: 1, workspaces: vec![], repos },
             dir.join("repos.json"),
         )
     }

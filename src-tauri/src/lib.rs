@@ -91,7 +91,9 @@ pub mod voice_guide_versions;
 pub mod watcher;
 pub mod webhook_poller;
 pub mod wizard_state;
+pub mod repos_migration;
 pub mod workspace;
+pub mod workspace_entry;
 
 #[cfg(test)]
 pub mod test_fixtures;
@@ -189,8 +191,18 @@ pub fn run() {
     let repos_path = init::postlane_dir()
         .map(|d| d.join("repos.json"))
         .unwrap_or_else(|_| std::path::PathBuf::from("/dev/null"));
+
+    // Migrate repos.json from v1 → v2 schema before loading (22.1.1).
+    // Must run before read_repos_with_recovery so the loaded config is always v2.
+    if let Ok(postlane) = init::postlane_dir() {
+        let app_state_path = postlane.join("app_state.json");
+        if let Err(e) = repos_migration::migrate_repos_to_v2(&repos_path, &app_state_path) {
+            log::warn!("[startup] repos.json migration failed (non-fatal): {}", e);
+        }
+    }
+
     let repos = storage::read_repos_with_recovery(&repos_path)
-        .unwrap_or_else(|_| storage::ReposConfig { version: 1, repos: vec![] });
+        .unwrap_or_else(|_| storage::ReposConfig::default());
     let state = AppState::new(repos.clone());
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())

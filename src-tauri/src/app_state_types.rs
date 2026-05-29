@@ -76,6 +76,10 @@ pub struct AppStateFile {
     /// Uses serde default so pre-v1.3 app_state.json files deserialise as false (not yet migrated).
     #[serde(default)]
     pub credential_migration_v1: bool,
+    /// Set to true after `repos.json` is successfully rewritten from v1 to v2 schema.
+    /// Prevents the migration from running on every launch once complete.
+    #[serde(default)]
+    pub repos_schema_v2: bool,
 }
 
 fn default_notifications_enabled() -> bool { true }
@@ -106,6 +110,7 @@ impl Default for AppStateFile {
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
+            repos_schema_v2: false,
         }
     }
 }

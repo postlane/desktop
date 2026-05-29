@@ -41,8 +41,7 @@ async fn test_send_with_correct_token_and_registered_path() {
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
 
     let repos_config = postlane_desktop_lib::storage::ReposConfig {
-        version: 1,
-        repos: vec![postlane_desktop_lib::storage::Repo {
+        version: 1, workspaces: vec![], repos: vec![postlane_desktop_lib::storage::Repo {
             id: "test-id".to_string(),
             name: "Test Repo".to_string(),
             path: canonical_path.to_str().unwrap().to_string(),
@@ -89,7 +88,7 @@ async fn test_send_with_path_traversal_returns_403() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
@@ -123,7 +122,7 @@ async fn test_send_with_wrong_token_returns_401() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
@@ -165,7 +164,7 @@ async fn test_register_with_valid_path() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
@@ -199,7 +198,7 @@ async fn test_register_with_invalid_path_returns_403() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
@@ -230,7 +229,7 @@ async fn test_register_with_wrong_token_returns_401() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
@@ -266,7 +265,7 @@ async fn test_register_actually_adds_repo_to_repos_json() {
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
     let token = "test-token-12345678901234567890";
     let repos_arc = Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-        version: 1, repos: vec![],
+        version: 1, workspaces: vec![], repos: vec![],
     }));
 
     let server_state = postlane_desktop_lib::http_server::ServerState {
@@ -321,7 +320,7 @@ async fn test_register_writes_to_state_repos_path_not_real_postlane_dir() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: isolated_repos_path.clone(),
         activation_tx: None,
@@ -373,7 +372,7 @@ async fn test_register_sends_watcher_notification_on_success() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,
@@ -409,7 +408,7 @@ async fn test_register_does_not_send_watcher_notification_on_failure() {
     let server_state = postlane_desktop_lib::http_server::ServerState {
         token: token.to_string(),
         repos: Arc::new(Mutex::new(postlane_desktop_lib::storage::ReposConfig {
-            version: 1, repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         })),
         repos_path: temp_dir.path().join("repos.json"),
         activation_tx: None,

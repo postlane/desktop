@@ -64,8 +64,7 @@ mod tests {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(
             ReposConfig {
-                version: 1,
-                repos: vec![crate::storage::Repo {
+                version: 1, workspaces: vec![], repos: vec![crate::storage::Repo {
                     id: "r99".to_string(),
                     name: "test".to_string(),
                     path: canonical.to_str().unwrap().to_string(),
@@ -128,7 +127,7 @@ mod tests {
     fn test_update_scheduler_config_rejects_empty_list() {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![] },
             _tmp_repos.path().join("repos.json"),
         );
         let result = update_scheduler_config_impl("r99", &[], &state);
@@ -168,7 +167,7 @@ mod tests {
     fn test_update_scheduler_config_errors_on_missing_repo() {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(
-            ReposConfig { version: 1, repos: vec![] },
+            ReposConfig { version: 1, workspaces: vec![], repos: vec![] },
             _tmp_repos.path().join("repos.json"),
         );
         let result =

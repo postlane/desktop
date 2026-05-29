@@ -131,8 +131,7 @@ mod tests {
 
     fn make_repos_canonical(dirs: &[&std::path::Path]) -> ReposConfig {
         ReposConfig {
-            version: 1,
-            repos: dirs
+            version: 1, workspaces: vec![], repos: dirs
                 .iter()
                 .map(|d| {
                     let canonical = fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf());
@@ -344,8 +343,7 @@ mod tests {
         std::fs::write(&base, b"not a dir").expect("write file");
         let canonical = fs::canonicalize(&base).expect("canonicalize");
         let repos = crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![crate::storage::Repo {
+            version: 1, workspaces: vec![], repos: vec![crate::storage::Repo {
                 id: "r1".to_string(),
                 name: "test".to_string(),
                 path: canonical.to_str().unwrap().to_string(),

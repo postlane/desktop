@@ -12,8 +12,7 @@ mod libsecret_tests {
     fn test_app_state_has_libsecret_flag() {
         // Test: AppState should have libsecret_available field
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
 
         let state = AppState::new(repos_config);
@@ -27,8 +26,7 @@ mod libsecret_tests {
     fn test_app_state_libsecret_defaults_to_none() {
         // Test: libsecret_available should default to None (unchecked)
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
 
         let state = AppState::new(repos_config);
@@ -41,8 +39,7 @@ mod libsecret_tests {
     fn test_app_state_libsecret_can_be_set() {
         // Test: libsecret_available can be updated
         let repos_config = ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         };
 
         let state = AppState::new(repos_config);

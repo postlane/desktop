@@ -267,8 +267,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_cors_header_restricts_origin() {
         let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         }));
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
@@ -294,8 +293,7 @@ mod tests {
     #[tokio::test]
     async fn test_server_only_accessible_on_loopback() {
         let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         }));
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
@@ -316,8 +314,7 @@ mod tests {
     #[tokio::test]
     async fn test_server_binds_to_preferred_port() {
         let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-            version: 1,
-            repos: vec![],
+            version: 1, workspaces: vec![], repos: vec![],
         }));
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");

@@ -72,8 +72,7 @@ mod tests {
         ServerState {
             token: token.to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-                version: 1,
-                repos: vec![],
+                version: 1, workspaces: vec![], repos: vec![],
             })),
             repos_path,
             activation_tx: None,
@@ -91,7 +90,7 @@ mod tests {
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-                version: 1, repos: vec![],
+                version: 1, workspaces: vec![], repos: vec![],
             })),
             repos_path,
             activation_tx: Some(tx),
@@ -118,7 +117,7 @@ mod tests {
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-                version: 1, repos: vec![],
+                version: 1, workspaces: vec![], repos: vec![],
             })),
             repos_path,
             activation_tx: Some(tx),
@@ -146,7 +145,7 @@ mod tests {
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-                version: 1, repos: vec![],
+                version: 1, workspaces: vec![], repos: vec![],
             })),
             repos_path,
             activation_tx: Some(tx),
@@ -208,7 +207,7 @@ mod tests {
         let state = ServerState {
             token: "tok".to_string(),
             repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
-                version: 1, repos: vec![],
+                version: 1, workspaces: vec![], repos: vec![],
             })),
             repos_path,
             activation_tx: Some(tx),

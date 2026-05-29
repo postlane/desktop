@@ -268,6 +268,7 @@ mod tests {
             post_wizard_completed: false,
             org_upgrade_banner_dismissed_v1_2: false,
             credential_migration_v1: false,
+            repos_schema_v2: false,
         };
         let json = serde_json::to_string(&saved).expect("serialize");
         let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");

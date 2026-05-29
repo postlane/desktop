@@ -165,8 +165,7 @@ mod tests {
         // Repo directory exists but has no .postlane/posts
         let state = crate::app_state::AppState::new_with_path(
             ReposConfig {
-                version: 1,
-                repos: vec![Repo {
+                version: 1, workspaces: vec![], repos: vec![Repo {
                     id: "r1".to_string(),
                     name: "my-repo".to_string(),
                     path: tmp.path().to_str().unwrap().to_string(),
@@ -191,8 +190,7 @@ mod tests {
         );
         let state = crate::app_state::AppState::new_with_path(
             ReposConfig {
-                version: 1,
-                repos: vec![Repo {
+                version: 1, workspaces: vec![], repos: vec![Repo {
                     id: "r1".to_string(),
                     name: "my-repo".to_string(),
                     path: tmp.path().to_str().unwrap().to_string(),
