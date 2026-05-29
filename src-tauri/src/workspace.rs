@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 pub struct WorkspaceRoot {
     /// Absolute path to the workspace root directory.
     pub workspace_path: PathBuf,
-    /// The workspace's `id` from `~/.postlane/repos.json`.
+    /// The workspace's `id` from `~/.postlane/repos.json` — equals the project_id.
     pub workspace_id: String,
-    /// Child repos loaded from `{workspace_path}/repos.json`.
-    pub repos: Vec<crate::storage::Repo>,
+    /// Child repos loaded from `{workspace_path}/repos.json`, each with a `posts_dir` field.
+    pub repos: Vec<crate::workspace_repos::RepoEntry>,
 }
 
 /// Returns true when `path` is a workspace root: a directory that has no `.git/`

@@ -21,6 +21,24 @@ pub fn resolve_draft_output_path(
     Ok(repo_path.join(dir).join(filename))
 }
 
+/// Resolve draft output path for workspace repos (22.2.3).
+///
+/// Defaults to `{workspace_path}/drafts/{filename}` when `draft_output_dir` is absent.
+/// When `draft_output_dir` is present in config, resolves it relative to `repo_path`.
+pub fn resolve_workspace_draft_output_path(
+    workspace_path: &Path,
+    repo_path: &Path,
+    config: &serde_json::Value,
+    filename: &str,
+) -> Result<PathBuf, String> {
+    if let Some(dir) = config["draft_output_dir"].as_str() {
+        validate_draft_output_dir(dir)?;
+        Ok(repo_path.join(dir).join(filename))
+    } else {
+        Ok(workspace_path.join("drafts").join(filename))
+    }
+}
+
 fn validate_draft_output_dir(dir: &str) -> Result<(), String> {
     if dir.starts_with('/') || dir.starts_with("\\\\") {
         return Err(format!(
@@ -103,6 +121,30 @@ mod tests {
             path,
             PathBuf::from("/home/user/workspace/postlane-docs/.postlane/drafts/blog-post.md"),
         );
+    }
+
+    // ── 22.2.3 workspace draft output dir ────────────────────────────────────
+
+    /// 22.2.3 — defaults to {workspace}/drafts/ when workspace_path is Some and no override.
+    #[test]
+    fn test_resolve_workspace_draft_output_defaults_to_workspace_drafts() {
+        let repo = Path::new("/code/myorg/frontend");
+        let ws = Path::new("/code/myorg");
+        let config = serde_json::json!({});
+        let path = super::resolve_workspace_draft_output_path(ws, repo, &config, "post.md")
+            .expect("resolve");
+        assert_eq!(path, PathBuf::from("/code/myorg/drafts/post.md"));
+    }
+
+    /// 22.2.3 — per-repo draft_output_dir override still honoured.
+    #[test]
+    fn test_resolve_workspace_draft_output_respects_override() {
+        let repo = Path::new("/code/myorg/frontend");
+        let ws = Path::new("/code/myorg");
+        let config = serde_json::json!({"draft_output_dir": "content/drafts"});
+        let path = super::resolve_workspace_draft_output_path(ws, repo, &config, "post.md")
+            .expect("resolve");
+        assert_eq!(path, PathBuf::from("/code/myorg/frontend/content/drafts/post.md"));
     }
 
     // Different filenames route to the same dir

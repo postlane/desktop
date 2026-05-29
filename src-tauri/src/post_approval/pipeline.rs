@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use crate::app_state::AppState;
+mod post_location;
+pub(super) use post_location::{PostLocation, validate_repo_path};
+
 use crate::post_meta::{PostMeta, PostStatus};
 use std::path::Path;
 use std::sync::Arc;
@@ -40,23 +42,6 @@ pub(super) fn validate_post_folder(post_folder: &str) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-pub(super) fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<String, String> {
-    let canonical = std::fs::canonicalize(repo_path)
-        .map_err(|e| format!("Failed to canonicalize repo path '{}': {}", repo_path, e))?;
-    let canonical_str = canonical
-        .to_str()
-        .ok_or("Repo path contains non-UTF-8 characters")?
-        .to_string();
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
-    if !repos.repos.iter().any(|r| r.path == canonical_str) {
-        return Err(format!("Repo '{}' is not registered", canonical_str));
-    }
-    Ok(canonical_str)
 }
 
 pub(super) fn acquire_meta_lock(canonical_str: &str, post_folder: &str) -> Arc<tokio::sync::Mutex<()>> {

@@ -56,13 +56,17 @@ pub(crate) fn build_draft(
 }
 
 /// Scans a single post folder for `.md` platform files, skipping already-sent platforms.
+///
+/// Meta is read from `{folder_path}/meta.json` — this works for both the legacy
+/// per-repo layout (`{repo}/.postlane/posts/{folder}/`) and the v1.4 workspace
+/// layout (`{workspace}/posts/{posts_dir}/{folder}/`).
 pub(crate) fn drafts_from_folder(
     repo: &Repo,
     folder_path: &Path,
     post_folder: &str,
     project_id: Option<String>,
 ) -> Vec<Post> {
-    let meta_path = PostMeta::path_for(Path::new(&repo.path), post_folder);
+    let meta_path = folder_path.join("meta.json");
     let meta = PostMeta::load(&meta_path).unwrap_or_default();
     let Ok(entries) = std::fs::read_dir(folder_path) else {
         return vec![];
@@ -88,6 +92,38 @@ pub(crate) fn drafts_from_folder(
 pub(crate) fn project_id_from_config(config_path: &Path) -> Option<String> {
     let v: serde_json::Value = crate::init::read_json_file(config_path).ok()?;
     v["project_id"].as_str().map(str::to_string)
+}
+
+/// Scans all post folders directly inside `posts_dir` (no `.postlane/posts` appended).
+///
+/// Used for v1.4 workspace repos where posts live at `{workspace}/posts/{posts_dir}/`
+/// rather than `{repo}/.postlane/posts/`. The `repo.path` field on returned `Post`
+/// objects is set to `repo.path` (the child repo path), not the workspace path.
+pub(crate) fn drafts_from_posts_dir(
+    repo: &Repo,
+    posts_dir: &Path,
+    project_id: Option<String>,
+) -> Vec<Post> {
+    if !posts_dir.exists() {
+        return vec![];
+    }
+    let Ok(entries) = std::fs::read_dir(posts_dir) else {
+        return vec![];
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.path().file_name()?.to_str().map(str::to_string))
+        .filter(|f| is_single_component(f))
+        .flat_map(|folder| {
+            let fp = posts_dir.join(&folder);
+            let mut drafts = drafts_from_folder(repo, &fp, &folder, project_id.clone());
+            for d in &mut drafts {
+                d.repo_path = repo.path.clone();
+            }
+            drafts
+        })
+        .collect()
 }
 
 /// Scans all post folders inside `{repo_path}/.postlane/posts/` and returns draft posts.

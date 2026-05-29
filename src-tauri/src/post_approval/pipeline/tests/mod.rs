@@ -246,7 +246,7 @@ fn test_validate_repo_path_returns_ok_for_registered_path() {
     let repo = make_repo("r1", &canonical_str);
     let state = make_state(vec![repo]);
     let result = validate_repo_path(dir.path().to_str().expect("utf-8 path"), &state);
-    assert_eq!(result.unwrap(), canonical_str);
+    assert_eq!(result.unwrap().canonical(), canonical_str);
 }
 
 // --- §read_platform_content ---
