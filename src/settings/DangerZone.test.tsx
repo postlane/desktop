@@ -35,26 +35,41 @@ describe('22.6.1: owner-only visibility', () => {
 
   it('renders the danger zone when isOwner is true', async () => {
     render(<DangerZone workspaceId="ws-1" isOwner />);
-    await waitFor(() => expect(screen.getByText(/Danger Zone/i)).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/Danger zone/i)).toBeDefined());
   });
 });
 
-// ── 22.6.1: collapsed by default ─────────────────────────────────────────────
+// ── 22.10.14/22.10.15: always-visible two-row layout ─────────────────────────
 
-describe('22.6.1: collapsed by default', () => {
-  it('does not show buttons when collapsed', async () => {
+describe('always-visible two-row layout', () => {
+  it('does not render an expand toggle button', async () => {
     render(<DangerZone workspaceId="ws-1" isOwner />);
     await act(async () => {});
-    expect(screen.queryByText(/Disconnect this workspace/i)).toBeNull();
-    expect(screen.queryByText(/Delete workspace/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Danger Zone/i })).toBeNull();
   });
 
-  it('shows buttons after expanding', async () => {
+  it('disconnect row label is visible without interaction', async () => {
     render(<DangerZone workspaceId="ws-1" isOwner />);
     await act(async () => {});
-    fireEvent.click(screen.getByText(/Danger Zone/i));
-    await waitFor(() => expect(screen.getByText(/Disconnect this workspace/i)).toBeDefined());
-    expect(screen.getByText(/Delete workspace/i)).toBeDefined();
+    expect(screen.getByText(/Disconnect this workspace/i)).toBeDefined();
+  });
+
+  it('delete row label is visible without interaction', async () => {
+    render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    expect(screen.getByText(/Delete this workspace/i)).toBeDefined();
+  });
+
+  it('shows "Disconnect" action button', async () => {
+    render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: /^Disconnect$/i })).toBeDefined();
+  });
+
+  it('shows "Delete" action button', async () => {
+    render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: /^Delete$/i })).toBeDefined();
   });
 });
 
@@ -63,10 +78,8 @@ describe('22.6.1: collapsed by default', () => {
 describe('22.6.2: Disconnect confirmation dialog', () => {
   async function openDisconnect() {
     render(<DangerZone workspaceId="ws-1" isOwner />);
-    await act(async () => {}); // flush useWorkspaceInfo async effect
-    fireEvent.click(screen.getByText(/Danger Zone/i));
-    await waitFor(() => screen.getByRole('button', { name: /Disconnect this workspace/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Disconnect this workspace/i }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /^Disconnect$/i }));
     await waitFor(() => screen.getByRole('dialog', { name: /Disconnect workspace/i }));
   }
 
@@ -89,7 +102,7 @@ describe('22.6.2: Disconnect confirmation dialog', () => {
 
   it('Disconnect button calls disconnect_workspace with correct workspaceId', async () => {
     await openDisconnect();
-    fireEvent.click(screen.getByRole('button', { name: /^Disconnect$/i }));
+    fireEvent.click(screen.getByTestId('modal-confirm-disconnect-btn'));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('disconnect_workspace', { workspaceId: 'ws-1' })
     );
@@ -102,9 +115,7 @@ describe('22.6.10/22.6.11: Delete two-step confirmation', () => {
   async function openDeleteStep1() {
     render(<DangerZone workspaceId="ws-1" isOwner />);
     await act(async () => {});
-    fireEvent.click(screen.getByText(/Danger Zone/i));
-    await waitFor(() => screen.getByRole('button', { name: /Delete workspace/i }));
-    fireEvent.click(screen.getByRole('button', { name: /Delete workspace/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
     await act(async () => {});
   }
 
@@ -138,9 +149,7 @@ describe('22.6.10/22.6.11: Delete two-step confirmation', () => {
 async function openDeleteStep2() {
   render(<DangerZone workspaceId="ws-1" isOwner />);
   await act(async () => {});
-  fireEvent.click(screen.getByText(/Danger Zone/i));
-  await waitFor(() => screen.getByRole('button', { name: /Delete workspace/i }));
-  fireEvent.click(screen.getByRole('button', { name: /Delete workspace/i }));
+  fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
   await act(async () => {});
   await waitFor(() => screen.getByRole('button', { name: /Continue/i }));
   fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
@@ -154,7 +163,7 @@ describe('22.6.11/22.6.19: Step 2 name confirmation', () => {
 
   it('Delete button disabled when input is empty', async () => {
     await openDeleteStep2();
-    const btn = screen.getByRole('button', { name: /^Delete$/i });
+    const btn = screen.getByTestId('modal-confirm-delete-btn');
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -163,7 +172,7 @@ describe('22.6.11/22.6.19: Step 2 name confirmation', () => {
     fireEvent.change(screen.getByLabelText(/type the workspace name/i), {
       target: { value: 'wrongname' },
     });
-    const btn = screen.getByRole('button', { name: /^Delete$/i });
+    const btn = screen.getByTestId('modal-confirm-delete-btn');
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -172,7 +181,7 @@ describe('22.6.11/22.6.19: Step 2 name confirmation', () => {
     fireEvent.change(screen.getByLabelText(/type the workspace name/i), {
       target: { value: 'myorg' },
     });
-    const btn = screen.getByRole('button', { name: /^Delete$/i });
+    const btn = screen.getByTestId('modal-confirm-delete-btn');
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -181,7 +190,7 @@ describe('22.6.11/22.6.19: Step 2 name confirmation', () => {
     const input = screen.getByLabelText(/type the workspace name/i);
     fireEvent.change(input, { target: { value: 'myorg' } });
     fireEvent.change(input, { target: { value: 'myorg-' } });
-    const btn = screen.getByRole('button', { name: /^Delete$/i });
+    const btn = screen.getByTestId('modal-confirm-delete-btn');
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -199,7 +208,7 @@ describe('22.6.11/22.6.19: Step 2 name confirmation', () => {
     fireEvent.change(screen.getByLabelText(/type the workspace name/i), {
       target: { value: 'myorg' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
+    fireEvent.click(screen.getByTestId('modal-confirm-delete-btn'));
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('delete_workspace', { workspaceId: 'ws-1' })
     );
@@ -217,9 +226,7 @@ async function openDeleteWithJournal() {
   });
   render(<DangerZone workspaceId="ws-1" isOwner />);
   await act(async () => {});
-  fireEvent.click(screen.getByText(/Danger Zone/i));
-  await waitFor(() => screen.getByRole('button', { name: /Delete workspace/i }));
-  fireEvent.click(screen.getByRole('button', { name: /Delete workspace/i }));
+  fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
   await act(async () => {});
   await waitFor(() => screen.getByRole('button', { name: /Continue/i }));
   fireEvent.click(screen.getByRole('button', { name: /Continue/i }));

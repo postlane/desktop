@@ -54,7 +54,7 @@ function DisconnectModal({ workspaceId, name, onDone, onCancel }: {
           {error && <p className="has-text-danger mt-2">{error}</p>}
         </section>
         <footer className="modal-card-foot" style={{ gap: '0.5rem' }}>
-          <button className="button is-danger" onClick={handleConfirm} disabled={loading}>Disconnect</button>
+          <button data-testid="modal-confirm-disconnect-btn" className="button is-danger" onClick={handleConfirm} disabled={loading}>Disconnect</button>
           <button className="button" onClick={onCancel}>Cancel</button>
         </footer>
       </div>
@@ -143,7 +143,7 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
           {error && <p className="has-text-danger mt-2">{error}</p>}
         </section>
         <footer className="modal-card-foot" style={{ gap: '0.5rem' }}>
-          <button className="button is-danger" onClick={handleDelete} disabled={!confirmed || loading}>Delete</button>
+          <button data-testid="modal-confirm-delete-btn" className="button is-danger" onClick={handleDelete} disabled={!confirmed || loading}>Delete</button>
           <button className="button" onClick={onCancel}>Cancel</button>
         </footer>
       </div>
@@ -168,37 +168,31 @@ function DeleteModal({ workspaceId, info, onDone, onCancel }: {
   return <DeleteConfirmStep workspaceId={workspaceId} info={info} onDone={onDone} onCancel={onCancel} />;
 }
 
-// ── Main component (22.6.1) ───────────────────────────────────────────────────
+// ── Main component (22.6.1 / 22.10.14 / 22.10.15) ───────────────────────────
 
 export default function DangerZone({ workspaceId, isOwner }: Props) {
   const info = useWorkspaceInfo(workspaceId);
-  const [expanded, setExpanded] = useState(false);
   const [modal, setModal] = useState<Modal>('none');
 
   if (!isOwner) return null;
 
   return (
-    <div className="mt-4" style={{ border: '1px solid #f14668', borderRadius: 4 }}>
-      <button
-        className="button is-ghost has-text-danger is-fullwidth"
-        style={{ justifyContent: 'flex-start', padding: '0.5rem 1rem' }}
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        Danger Zone {expanded ? '▲' : '▼'}
-      </button>
-      {expanded && (
-        <div className="p-3">
-          <div className="is-flex" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button className="button is-small is-light has-text-danger" onClick={() => setModal('disconnect')}>
-              Disconnect this workspace
-            </button>
-            <button className="button is-small is-danger" onClick={() => setModal('delete')}>
-              Delete workspace and all content
-            </button>
-          </div>
+    <div style={{ border: '1px solid #f14668', borderRadius: 4, padding: '1rem' }}>
+      <p className="is-size-6 has-text-weight-medium has-text-danger mb-3">Danger zone</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="is-flex is-align-items-center is-justify-content-space-between">
+          <span className="is-size-7">Disconnect this workspace</span>
+          <button className="button is-warning is-size-6" onClick={() => setModal('disconnect')}>
+            Disconnect
+          </button>
         </div>
-      )}
+        <div className="is-flex is-align-items-center is-justify-content-space-between">
+          <span className="is-size-7">Delete this workspace</span>
+          <button className="button is-danger is-size-6" onClick={() => setModal('delete')}>
+            Delete
+          </button>
+        </div>
+      </div>
       {modal === 'disconnect' && (
         <DisconnectModal workspaceId={workspaceId} name={info?.name ?? workspaceId}
           onDone={() => setModal('none')} onCancel={() => setModal('none')} />
