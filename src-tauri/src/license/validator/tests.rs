@@ -48,7 +48,7 @@ fn mock_valid_response() -> serde_json::Value {
 }
 
 fn test_user() -> UserInfo {
-    UserInfo { id: "u1".into(), display_name: Some("Alice".into()), avatar_url: None }
+    UserInfo { id: "u1".into(), display_name: Some("Alice".into()), avatar_url: None, email: None }
 }
 
 #[tokio::test]

@@ -11,6 +11,10 @@ pub struct UserInfo {
     pub id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
+    /// Account email — used for account deletion confirmation (22.7.2).
+    /// Optional for backward compatibility with older license cache files.
+    #[serde(default)]
+    pub email: Option<String>,
 }
 
 /// A single repo entry in the license response

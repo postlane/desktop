@@ -270,6 +270,7 @@ mod tests {
             credential_migration_v1: false,
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
+            deletion_incomplete: false,
         };
         let json = serde_json::to_string(&saved).expect("serialize");
         let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");

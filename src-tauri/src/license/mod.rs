@@ -32,6 +32,12 @@ pub fn get_license_display_name() -> Option<String> {
     validator::read_license_cache().and_then(|c| c.user.display_name)
 }
 
+/// Returns the account email for deletion confirmation (22.7.2), or None if unavailable.
+#[tauri::command]
+pub fn get_license_email() -> Option<String> {
+    validator::read_license_cache().and_then(|c| c.user.email)
+}
+
 #[cfg(test)]
 mod tests {
     // get_license_signed_in cannot be unit-tested without a real Tauri AppHandle.

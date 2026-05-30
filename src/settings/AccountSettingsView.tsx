@@ -5,6 +5,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '../ipc/invoke';
 import { useProjectsContext } from '../context/ProjectsProvider';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
+import AccountDangerZone from './AccountDangerZone';
 
 interface Props {
   onSignedOut: () => void;
@@ -12,14 +13,14 @@ interface Props {
 
 export default function AccountSettingsView({ onSignedOut }: Props) {
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [signOutLoading, setSignOutLoading] = useState(false);
   const { clear: clearProjects } = useProjectsContext();
   const { clear: clearDrafts } = useDraftPostsContext();
 
   useEffect(() => {
-    invoke<string | null>('get_license_display_name')
-      .then(setDisplayName)
-      .catch(() => setDisplayName(null));
+    invoke<string | null>('get_license_display_name').then(setDisplayName).catch(() => {});
+    invoke<string | null>('get_license_email').then(setEmail).catch(() => {});
   }, []);
 
   async function handleSignOut() {
@@ -49,6 +50,9 @@ export default function AccountSettingsView({ onSignedOut }: Props) {
           Sign out
         </button>
       </div>
+      {email && (
+        <AccountDangerZone userEmail={email} onDeleted={onSignedOut} />
+      )}
     </div>
   );
 }

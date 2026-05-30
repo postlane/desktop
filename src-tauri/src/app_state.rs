@@ -34,6 +34,9 @@ pub struct AppState {
     /// Project list cache shared with the HTTP server's /github-project-config endpoint.
     /// Populated after sign-in and updated after project creation.
     pub projects_cache: Arc<RwLock<Vec<ProjectSummary>>>,
+    /// Workspace snapshot taken at Phase 0 of account deletion.
+    /// Read by Phase 7 (delete workspace dirs) after repos.json is already wiped.
+    pub deletion_snapshot: Mutex<Vec<crate::workspace_entry::WorkspaceEntry>>,
 }
 
 impl AppState {
@@ -71,6 +74,7 @@ impl AppState {
             http_port: Mutex::new(None),
             repos_path,
             projects_cache: Arc::new(RwLock::new(vec![])),
+            deletion_snapshot: Mutex::new(vec![]),
         }
     }
 }
@@ -177,6 +181,7 @@ mod tests {
             credential_migration_v1: false,
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
+            deletion_incomplete: false,
         };
 
         let path = dir.path().join("app_state.json");
@@ -263,6 +268,7 @@ mod tests {
             credential_migration_v1: false,
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
+            deletion_incomplete: false,
         };
 
         write_app_state(&state).expect("Failed to write app_state");
@@ -329,6 +335,7 @@ mod tests {
             credential_migration_v1: false,
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
+            deletion_incomplete: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");

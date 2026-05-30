@@ -84,6 +84,9 @@ pub struct AppStateFile {
     /// Banner is permanently hidden; Settings re-entry button remains visible.
     #[serde(default)]
     pub workspace_migration_dismissed: bool,
+    /// Set to true at the start of Step 1; cleared when Step 5 succeeds (22.7.7a).
+    #[serde(default)]
+    pub deletion_incomplete: bool,
 }
 
 fn default_notifications_enabled() -> bool { true }
@@ -116,6 +119,7 @@ impl Default for AppStateFile {
             credential_migration_v1: false,
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
+            deletion_incomplete: false,
         }
     }
 }
