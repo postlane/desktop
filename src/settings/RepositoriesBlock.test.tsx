@@ -32,6 +32,10 @@ vi.mock('./VoiceGuideHint', () => ({
     </div>
   ),
 }))
+vi.mock('./MigrationBanner', () => ({
+  useMigrationStatus: () => ({ status: null, dismiss: vi.fn() }),
+}))
+vi.mock('./DangerZone', () => ({ default: () => null }))
 
 import { invoke } from '../ipc/invoke'
 import RepositoriesBlock from './RepositoriesBlock'

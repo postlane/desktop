@@ -46,6 +46,9 @@ vi.mock('./telemetry/TelemetryConsentModal', () => ({
     </>
   ),
 }))
+vi.mock('./settings/MigrationBanner', () => ({ MigrationBannersBlock: () => null,
+  useMigrationStatus: () => ({ status: null, dismiss: vi.fn() }), useJournalStatuses: () => ({ statuses: [], resume: vi.fn(), dismissSession: vi.fn() }) }))
+vi.mock('./settings/DangerZone', () => ({ default: () => null }))
 vi.mock('./settings/OrgSettingsView', () => ({ default: () => <div>OrgSettingsView</div> }))
 vi.mock('./settings/AccountSettingsView', () => ({
   default: ({ onSignedOut }: { onSignedOut?: () => void }) => (

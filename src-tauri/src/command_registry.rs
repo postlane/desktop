@@ -61,5 +61,9 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::workspace_migration_commands::resume_workspace_journal,
         crate::workspace_migration_commands::dismiss_workspace_journal_session,
         crate::workspace_migration_commands::note_migration_reentered,
+        crate::workspace_disconnect_commands::disconnect_workspace,
+        crate::workspace_disconnect_commands::delete_workspace,
+        crate::workspace_disconnect_commands::check_workspace_journal,
+        crate::workspace_disconnect_commands::get_workspace_info,
     ]
 }

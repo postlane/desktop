@@ -10,6 +10,7 @@ import { RepoListSection } from './RepoTable';
 import type { RepoConnectionStatus, RowActions } from './RepoTable';
 import type { WorkspaceSetupResult } from './WorkspaceConfirmModal';
 import { useMigrationStatus } from './MigrationBanner';
+import DangerZone from './DangerZone';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -311,6 +312,7 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
           {ws.wsToast && <p className="is-size-7 has-text-info mt-2" role="status">{ws.wsToast}</p>}
           {ws.wsError && <p role="alert" className="is-size-7 has-text-danger mt-2">{ws.wsError}</p>}
           <MigrateWorkspaceButton />
+          <DangerZone workspaceId={projectId} isOwner={isOwner} />
         </>
       )}
 
