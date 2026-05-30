@@ -251,7 +251,6 @@ fn test_delete_workspace_dirs_skips_when_checkbox_unchecked() {
     let ws_dir = tmp.path().join("keep-ws");
     fs::create_dir_all(&ws_dir).unwrap();
 
-    let snapshot = vec![make_entry("ws-keep", ws_dir.to_str().unwrap())];
     storage::write_repos(&repos_path, &ReposConfig { version: 2, workspaces: vec![], repos: vec![] }).unwrap();
 
     // Pass empty snapshot (checkbox=false → caller passes empty snapshot)
@@ -287,4 +286,74 @@ fn test_delete_workspace_dirs_rejects_shallow_path() {
     if shallow.components().count() < 4 {
         assert!(!failures.is_empty(), "/tmp must be rejected as too shallow");
     }
+}
+
+// ── 22.7.12: GitLab SSRF per-URL rejection tests ────────────────────────────
+// Each URL from the spec is tested individually against the real ssrf_validator.
+// On rejection revoke_gitlab_token returns Err("PL-DEL-003: …"); delete_account_impl
+// treats that as non-fatal (log::warn) so deletion continues — tested last.
+
+#[tokio::test]
+async fn test_gitlab_ssrf_rejects_http_10_0_0_1() {
+    let res = revoke_gitlab_token(Some("http://10.0.0.1"), &build_client(), ssrf_validator).await;
+    assert!(res.is_err(), "http://10.0.0.1 must be rejected");
+    assert!(res.unwrap_err().contains("PL-DEL-003"));
+}
+
+#[tokio::test]
+async fn test_gitlab_ssrf_rejects_http_192_168_1_1() {
+    let res = revoke_gitlab_token(Some("http://192.168.1.1"), &build_client(), ssrf_validator).await;
+    assert!(res.is_err(), "http://192.168.1.1 must be rejected");
+    assert!(res.unwrap_err().contains("PL-DEL-003"));
+}
+
+#[tokio::test]
+async fn test_gitlab_ssrf_rejects_http_127_0_0_1() {
+    let res = revoke_gitlab_token(Some("http://127.0.0.1"), &build_client(), ssrf_validator).await;
+    assert!(res.is_err(), "http://127.0.0.1 must be rejected");
+    assert!(res.unwrap_err().contains("PL-DEL-003"));
+}
+
+#[tokio::test]
+async fn test_gitlab_ssrf_rejects_http_ipv6_loopback() {
+    // http://[::1]/oauth/token — http scheme + bare IPv6 loopback
+    let res = revoke_gitlab_token(Some("http://[::1]"), &build_client(), ssrf_validator).await;
+    assert!(res.is_err(), "http://[::1] must be rejected");
+    assert!(res.unwrap_err().contains("PL-DEL-003"));
+}
+
+#[tokio::test]
+async fn test_gitlab_ssrf_rejects_http_ipv6_mapped_10() {
+    // http://[::ffff:10.0.0.1]/oauth/token — IPv4-mapped private address
+    let res = revoke_gitlab_token(Some("http://[::ffff:10.0.0.1]"), &build_client(), ssrf_validator).await;
+    assert!(res.is_err(), "http://[::ffff:10.0.0.1] must be rejected");
+    assert!(res.unwrap_err().contains("PL-DEL-003"));
+}
+
+#[tokio::test]
+async fn test_gitlab_ssrf_blocked_deletion_continues() {
+    // SSRF-blocked GitLab URL must not abort the overall account deletion.
+    let server = MockServer::start();
+    full_mock(&server);
+    let tmp = TempDir::new().unwrap();
+    make_repos(&tmp, vec![make_entry("proj-1", tmp.path().join("ws").to_str().unwrap())]);
+    let mut params = make_params(&tmp, &server);
+    params.gitlab_instance_url = Some("http://10.0.0.1".to_string());
+    let result = delete_account_impl(params, &build_client(), ssrf_validator).await;
+    assert!(result.is_ok(), "blocked GitLab URL must not abort deletion: {:?}", result);
+}
+
+#[tokio::test]
+async fn test_gitlab_ssrf_valid_https_url_calls_endpoint() {
+    // A valid https URL must reach the revocation endpoint.
+    // accept_any_url bypasses the SSRF check so httpmock (HTTP localhost) is reachable,
+    // simulating how a real https://gitlab.example.com would behave.
+    let server = MockServer::start();
+    let m = server.mock(|when, then| {
+        when.method(httpmock::Method::DELETE).path("/oauth/token");
+        then.status(200);
+    });
+    let result = revoke_gitlab_token(Some(&server.base_url()), &build_client(), accept_any_url).await;
+    assert!(result.is_ok(), "valid GitLab URL must succeed: {:?}", result);
+    m.assert();
 }
