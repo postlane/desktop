@@ -343,6 +343,33 @@ async fn test_gitlab_ssrf_blocked_deletion_continues() {
     assert!(result.is_ok(), "blocked GitLab URL must not abort deletion: {:?}", result);
 }
 
+// ── 22.9.11: account_deleted telemetry ───────────────────────────────────────
+
+#[test]
+fn test_account_deleted_records_all_five_payload_fields() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    crate::account_deletion_commands::record_account_deleted(
+        &state, true, 3, 2, true, false, 3,
+    );
+    assert_eq!(state.telemetry.queue_len(), 1);
+    let ev = &state.telemetry.peek_queue()[0];
+    assert_eq!(ev.name, "account_deleted");
+    assert_eq!(ev.properties["project_count"], 3);
+    assert_eq!(ev.properties["github_app_count"], 2);
+    assert_eq!(ev.properties["gitlab_connected"], true);
+    assert_eq!(ev.properties["deleted_workspace_dirs"], false);
+    assert_eq!(ev.properties["workspace_count"], 3);
+}
+
+#[test]
+fn test_account_deleted_no_event_without_consent() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    crate::account_deletion_commands::record_account_deleted(
+        &state, false, 1, 1, false, false, 1,
+    );
+    assert_eq!(state.telemetry.queue_len(), 0);
+}
+
 // ── 22.7.14: Step 4 — keyring wipe covers all project-scoped and global keys ──
 // `clear_all_keyring` requires AppHandle; `clear_all_keyring_impl` is the injectable
 // pure-function form that can be tested without a Tauri runtime.

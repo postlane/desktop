@@ -80,6 +80,14 @@ pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Returns the absolute path to the Postlane application log file (22.9.10c).
+/// Used by the "Copy log path" button in Settings → About.
+#[tauri::command]
+pub fn get_log_path() -> Result<String, String> {
+    let dir = crate::init::postlane_dir()?;
+    Ok(dir.join("app.log").to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn get_autostart_enabled() -> bool {
     false

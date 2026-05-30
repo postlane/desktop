@@ -13,6 +13,24 @@ fn license_token(app: &tauri::AppHandle) -> Result<String, String> {
         .ok_or_else(|| "No license token".to_string())
 }
 
+pub(crate) fn record_account_deleted(
+    state: &crate::app_state::AppState,
+    consent: bool,
+    project_count: usize,
+    github_app_count: usize,
+    gitlab_connected: bool,
+    deleted_workspace_dirs: bool,
+    workspace_count: usize,
+) {
+    state.telemetry.record(consent, "account_deleted", serde_json::json!({
+        "project_count": project_count,
+        "github_app_count": github_app_count,
+        "gitlab_connected": gitlab_connected,
+        "deleted_workspace_dirs": deleted_workspace_dirs,
+        "workspace_count": workspace_count,
+    }));
+}
+
 /// Injectable core: calls `delete_fn` for every keyring key this account owns.
 /// Used by `clear_all_keyring` (production) and unit tests (captures deleted keys).
 pub fn clear_all_keyring_impl(project_ids: &[String], mut delete_fn: impl FnMut(&str)) {
@@ -99,6 +117,16 @@ pub async fn delete_account(
             clear_all_keyring(&project_ids, &app);
             // Step 5 succeeded → clear deletion_incomplete flag.
             set_deletion_incomplete(false);
+            let consent = crate::app_state::read_app_state().telemetry_consent;
+            record_account_deleted(
+                &state,
+                consent,
+                project_ids.len(),
+                project_ids.len(),
+                false,
+                delete_workspace_dirs,
+                project_ids.len(),
+            );
             Ok(())
         }
         Err(e) => Err(e),

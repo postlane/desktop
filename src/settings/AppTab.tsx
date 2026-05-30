@@ -32,6 +32,7 @@ interface AppTabViewProps {
   onTimezoneChange: (_tz: string) => void;
   onAutostartToggle: () => void;
   onOpenLogs: () => void;
+  onCopyLogPath: () => void;
   onCheckUpdates: () => void;
   onHourChange: (_h: string) => void;
   onMinuteChange: (_m: string) => void;
@@ -110,7 +111,7 @@ function useDefaultPostTime() {
   return { defaultPostTime, handleHourChange, handleMinuteChange, handleClear };
 }
 
-function AppTabView({ version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent, currentTimezone, defaultPostTime, timezoneLabel, settingsError, onAttributionToggle, onTelemetryToggle, onTimezoneChange, onAutostartToggle, onOpenLogs, onCheckUpdates, onHourChange, onMinuteChange, onClearDefaultPostTime }: AppTabViewProps) {
+function AppTabView({ version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent, currentTimezone, defaultPostTime, timezoneLabel, settingsError, onAttributionToggle, onTelemetryToggle, onTimezoneChange, onAutostartToggle, onOpenLogs, onCopyLogPath, onCheckUpdates, onHourChange, onMinuteChange, onClearDefaultPostTime }: AppTabViewProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <h2 className="has-text-weight-semibold is-size-7">App</h2>
@@ -152,7 +153,10 @@ function AppTabView({ version, autostart, checkingUpdates, updateResult, attribu
       <DefaultPostTimeRow defaultPostTime={defaultPostTime} timezoneLabel={timezoneLabel} onHourChange={onHourChange} onMinuteChange={onMinuteChange} onClear={onClearDefaultPostTime} />
       <div className="is-flex is-align-items-center is-justify-content-space-between">
         <span className="is-size-7">Logs</span>
-        <button className="button is-outlined is-small" onClick={onOpenLogs}>Open log folder →</button>
+        <div className="is-flex" style={{ gap: '0.5rem' }}>
+          <button className="button is-outlined is-small" onClick={onOpenLogs}>Open log folder →</button>
+          <button className="button is-outlined is-small" data-testid="copy-log-path" onClick={onCopyLogPath}>Copy log path</button>
+        </div>
       </div>
       <div className="is-flex is-align-items-center is-justify-content-space-between">
         <span className="is-size-7">Postlane {version}</span>
@@ -238,12 +242,17 @@ function useAppTab(onTimezoneChange?: (_tz: string) => void) {
     catch (e) { handleIpcError(e); }
   }
 
+  async function handleCopyLogPath() {
+    try { const p = await invoke<string>('get_log_path'); await invoke('plugin:clipboard-manager|write_text', { text: p }); }
+    catch (e) { handleIpcError(e); }
+  }
+
   return {
     version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent,
     currentTimezone, timezoneLabel: getTimezoneOffsetLabel(currentTimezone),
     settingsError,
     handleAttributionToggle, handleTelemetryToggle, handleTimezoneChange,
-    handleAutostartToggle, handleOpenLogs, handleCheckUpdates,
+    handleAutostartToggle, handleOpenLogs, handleCopyLogPath, handleCheckUpdates,
     defaultPostTime, handleHourChange, handleMinuteChange, handleClear,
   };
 }
@@ -252,7 +261,7 @@ export default function AppTab({ onTimezoneChange }: { onTimezoneChange?: (_tz: 
   const {
     version, autostart, checkingUpdates, updateResult, attribution, telemetryConsent,
     currentTimezone, timezoneLabel, settingsError, handleAttributionToggle, handleTelemetryToggle,
-    handleTimezoneChange, handleAutostartToggle, handleOpenLogs, handleCheckUpdates,
+    handleTimezoneChange, handleAutostartToggle, handleOpenLogs, handleCopyLogPath, handleCheckUpdates,
     defaultPostTime, handleHourChange, handleMinuteChange, handleClear,
   } = useAppTab(onTimezoneChange);
   return (
@@ -263,7 +272,7 @@ export default function AppTab({ onTimezoneChange }: { onTimezoneChange?: (_tz: 
       settingsError={settingsError}
       onAttributionToggle={handleAttributionToggle} onTelemetryToggle={handleTelemetryToggle}
       onTimezoneChange={handleTimezoneChange} onAutostartToggle={handleAutostartToggle}
-      onOpenLogs={handleOpenLogs} onCheckUpdates={handleCheckUpdates}
+      onOpenLogs={handleOpenLogs} onCopyLogPath={handleCopyLogPath} onCheckUpdates={handleCheckUpdates}
       onHourChange={handleHourChange} onMinuteChange={handleMinuteChange}
       onClearDefaultPostTime={handleClear}
     />

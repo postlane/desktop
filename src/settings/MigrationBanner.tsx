@@ -117,6 +117,8 @@ interface MigrationBannerProps {
 
 export function MigrationBannerContent({ status, onDismiss, onSetupWorkspace }: MigrationBannerProps) {
   const count = status.qualifying_repos.length;
+  // 22.9.11 — fire workspace_migration_shown when the banner is visible (count > 0)
+  useEffect(() => { if (count > 0) invoke('record_migration_shown').catch(() => {}); }, [count]);
   if (count === 0) return null;
 
   return (

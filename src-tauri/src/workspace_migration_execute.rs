@@ -11,6 +11,13 @@ use crate::workspace_migration::{
     read_migration_journal, write_migration_journal,
 };
 
+/// Stats returned by `resume_migration_journal` for telemetry (22.9.11).
+#[derive(Debug, Default)]
+pub struct RecoveryStats {
+    pub repos_cleaned: usize,
+    pub repos_skipped: usize,
+}
+
 // ── File copy utilities ───────────────────────────────────────────────────────
 
 /// Returns total byte size of all regular files under `dir` recursively.
@@ -249,15 +256,17 @@ fn update_journal_flags(path: &Path, registry_updated: bool, originals_deleted: 
 // ── Crash recovery (22.5.5b) ─────────────────────────────────────────────────
 
 /// Resumes an interrupted migration from the journal.
-pub fn resume_migration_journal(workspace_path: &Path, repos_path: &Path) -> Result<(), String> {
+/// Returns `RecoveryStats` for telemetry: how many repos were cleaned vs already done.
+pub fn resume_migration_journal(workspace_path: &Path, repos_path: &Path) -> Result<RecoveryStats, String> {
     let journal_path = workspace_path.join(".migration-journal.json");
     let mut journal = read_migration_journal(&journal_path)
         .ok_or_else(|| format!("No journal found at {}", journal_path.display()))?;
 
     let ws_repos_path = workspace_path.join("repos.json");
+    let mut stats = RecoveryStats::default();
 
     for entry in &mut journal.entries {
-        if entry.originals_deleted { continue; }
+        if entry.originals_deleted { stats.repos_skipped += 1; continue; }
         if !entry.registry_updated {
             let already = crate::workspace_repos::read_workspace_repos(&ws_repos_path)
                 .map(|ws| ws.repos.iter().any(|r| r.path == entry.repo_path))
@@ -273,6 +282,7 @@ pub fn resume_migration_journal(workspace_path: &Path, repos_path: &Path) -> Res
             PathBuf::from(&entry.repo_path).join(".postlane").join("posts"),
         );
         entry.originals_deleted = true;
+        stats.repos_cleaned += 1;
     }
 
     if journal.entries.iter().all(|e| e.originals_deleted) {
@@ -280,5 +290,5 @@ pub fn resume_migration_journal(workspace_path: &Path, repos_path: &Path) -> Res
     } else {
         write_migration_journal(&journal_path, &journal)?;
     }
-    Ok(())
+    Ok(stats)
 }

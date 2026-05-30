@@ -248,3 +248,30 @@ fn test_validate_workspace_folder_rejects_missing_config_json() {
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("PL-WS-002"));
 }
+
+// ── 22.9.11: workspace_path_recovered telemetry ───────────────────────────────
+
+#[test]
+fn test_path_recovered_auto_records_event() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_path_recovered(&state, true, "auto");
+    assert_eq!(state.telemetry.queue_len(), 1);
+    let ev = &state.telemetry.peek_queue()[0];
+    assert_eq!(ev.name, "workspace_path_recovered");
+    assert_eq!(ev.properties["method"], "auto");
+}
+
+#[test]
+fn test_path_recovered_manual_records_event() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_path_recovered(&state, true, "manual");
+    assert_eq!(state.telemetry.queue_len(), 1);
+    assert_eq!(state.telemetry.peek_queue()[0].properties["method"], "manual");
+}
+
+#[test]
+fn test_path_recovered_no_event_without_consent() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_path_recovered(&state, false, "auto");
+    assert_eq!(state.telemetry.queue_len(), 0);
+}

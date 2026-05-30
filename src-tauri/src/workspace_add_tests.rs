@@ -212,3 +212,22 @@ fn test_add_workspace_creates_posts_and_drafts_dirs() {
     assert!(ws.path().join("posts").is_dir(), "{{workspace}}/posts/ must be created");
     assert!(ws.path().join("drafts").is_dir(), "{{workspace}}/drafts/ must be created");
 }
+
+// ── 22.9.11: workspace_created telemetry ─────────────────────────────────────
+
+#[test]
+fn test_workspace_created_records_telemetry_with_repo_count() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_created(&state, true, 3);
+    assert_eq!(state.telemetry.queue_len(), 1, "workspace_created must be queued");
+    let events = state.telemetry.peek_queue();
+    assert_eq!(events[0].name, "workspace_created");
+    assert_eq!(events[0].properties["repo_count"], 3);
+}
+
+#[test]
+fn test_workspace_created_no_event_when_consent_not_given() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_created(&state, false, 2);
+    assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+}
