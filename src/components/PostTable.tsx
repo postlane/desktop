@@ -59,6 +59,14 @@ function groupDrafts(posts: DraftPost[]): DraftGroup[] {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+//
+// Badge rendering states — must remain visually distinct:
+//   connected + status="failed" → platform colour button + red dot overlay (failed-indicator)
+//   connected + other status    → platform colour button, no overlay
+//   disconnected platform       → grey/dim button (post-row-disconnected), no overlay
+//
+// Never collapse these two: a failed post was sent to the platform and bounced;
+// a disconnected platform was never configured. The user action is different.
 
 function PlatformBadge({ platform }: { platform: string }) {
   const cfg = PLATFORM_CFG[platform];
@@ -99,9 +107,14 @@ function PlatformButton({ post, onSelect, onConnectPlatform, isConnected }: {
     <button key={post.platform} data-testid="post-row"
       aria-label={`Edit ${name} post`} title={name}
       onClick={() => onSelect(post)}
-      className={'button is-small' + (isFailed ? ' has-text-danger' : '')}
-      style={{ ...BTN_STYLE, background: isFailed ? undefined : cfg?.color ?? 'hsl(0,0%,50%)', color: isFailed ? undefined : '#fff' }}>
+      className="button is-small"
+      style={{ ...BTN_STYLE, position: 'relative', background: cfg?.color ?? 'hsl(0,0%,50%)', color: '#fff' }}>
       {content}
+      {isFailed && (
+        <span data-testid="failed-indicator"
+          style={{ position: 'absolute', top: 0, right: 0, width: '0.5rem', height: '0.5rem',
+                   borderRadius: '50%', background: 'hsl(348,100%,61%)' /* Bulma danger */ }} />
+      )}
     </button>
   );
 }
