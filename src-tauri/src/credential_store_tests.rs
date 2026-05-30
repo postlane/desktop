@@ -50,6 +50,58 @@ fn test_keyring_patterns_has_no_duplicates() {
     }
 }
 
+// ── 22.7.15: KEYRING_PATTERNS completeness meta-test ─────────────────────────
+// Scans all non-test production source files for `.set_password(` calls.
+// If a new call site appears in a file not listed below, this test fails —
+// forcing the author to register the key pattern in KEYRING_PATTERNS.
+
+fn files_with_set_password(src_dir: &std::path::Path) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut queue = vec![src_dir.to_path_buf()];
+    while let Some(dir) = queue.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() { queue.push(path); continue; }
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") { continue; }
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            if content.contains(".set_password(") {
+                if let Ok(rel) = path.strip_prefix(src_dir) {
+                    result.push(rel.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    result
+}
+
+#[test]
+fn test_all_set_password_call_sites_have_keyring_pattern() {
+    // Every production file that calls .set_password() must be registered here.
+    // Add a new entry here ONLY AFTER also registering the key pattern in KEYRING_PATTERNS.
+    let expected: std::collections::HashSet<&str> = [
+        "app_lifecycle.rs",             // "license"
+        "credential_migration.rs",      // "{provider}/{project_id}" — scheduler migration path
+        "mastodon_app_registration.rs", // "mastodon_client_id/{instance}", "mastodon_client_secret/{instance}"
+        "mastodon_token_exchange.rs",   // "mastodon/{project_id}/{instance}", active_instance, active_username
+        "scheduler_credentials.rs",     // "{provider}/{project_id}" + transient "__libsecret_test__" (libsecret probe, immediately deleted)
+        "unsplash_search.rs",           // "postlane/unsplash_access_key"
+    ].iter().copied().collect();
+
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let found = files_with_set_password(&src_dir);
+
+    let unexpected: Vec<_> = found.iter()
+        .filter(|f| !expected.contains(f.as_str()))
+        .collect();
+
+    assert!(unexpected.is_empty(),
+        "New .set_password() call sites found — register the key pattern in KEYRING_PATTERNS \
+         then add the file to this list in credential_store_tests.rs:\n  {}",
+        unexpected.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n  "));
+}
+
 // ── project_keyring_keys generates all project-scoped keys ────────────────────
 
 #[test]

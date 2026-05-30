@@ -343,6 +343,40 @@ async fn test_gitlab_ssrf_blocked_deletion_continues() {
     assert!(result.is_ok(), "blocked GitLab URL must not abort deletion: {:?}", result);
 }
 
+// ── 22.7.14: Step 4 — keyring wipe covers all project-scoped and global keys ──
+// `clear_all_keyring` requires AppHandle; `clear_all_keyring_impl` is the injectable
+// pure-function form that can be tested without a Tauri runtime.
+
+#[test]
+fn test_clear_all_keyring_deletes_all_project_scoped_keys() {
+    let project_id = "proj-22714";
+    let mut deleted: Vec<String> = Vec::new();
+    crate::account_deletion_commands::clear_all_keyring_impl(
+        &[project_id.to_string()],
+        |key| deleted.push(key.to_string()),
+    );
+    for key in crate::credential_store::project_keyring_keys(project_id) {
+        assert!(deleted.contains(&key), "Step 4 must delete project key: {key}");
+    }
+    for key in crate::credential_store::global_keyring_keys() {
+        assert!(deleted.contains(&key.to_string()), "Step 4 must delete global key: {key}");
+    }
+}
+
+#[test]
+fn test_clear_all_keyring_covers_multiple_projects() {
+    let mut deleted: Vec<String> = Vec::new();
+    crate::account_deletion_commands::clear_all_keyring_impl(
+        &["proj-a".to_string(), "proj-b".to_string()],
+        |key| deleted.push(key.to_string()),
+    );
+    for pid in ["proj-a", "proj-b"] {
+        for key in crate::credential_store::project_keyring_keys(pid) {
+            assert!(deleted.contains(&key), "must delete {key} for project {pid}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_gitlab_ssrf_valid_https_url_calls_endpoint() {
     // A valid https URL must reach the revocation endpoint.

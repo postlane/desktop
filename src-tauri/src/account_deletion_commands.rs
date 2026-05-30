@@ -13,15 +13,23 @@ fn license_token(app: &tauri::AppHandle) -> Result<String, String> {
         .ok_or_else(|| "No license token".to_string())
 }
 
-fn clear_all_keyring(project_ids: &[String], app: &tauri::AppHandle) {
+/// Injectable core: calls `delete_fn` for every keyring key this account owns.
+/// Used by `clear_all_keyring` (production) and unit tests (captures deleted keys).
+pub fn clear_all_keyring_impl(project_ids: &[String], mut delete_fn: impl FnMut(&str)) {
     for key in global_keyring_keys() {
-        let _ = app.keyring().delete_password("postlane", key);
+        delete_fn(key);
     }
     for pid in project_ids {
         for key in project_keyring_keys(pid) {
-            let _ = app.keyring().delete_password("postlane", &key);
+            delete_fn(&key);
         }
     }
+}
+
+fn clear_all_keyring(project_ids: &[String], app: &tauri::AppHandle) {
+    clear_all_keyring_impl(project_ids, |key| {
+        let _ = app.keyring().delete_password("postlane", key);
+    });
 }
 
 pub fn set_deletion_incomplete_pub(value: bool) { set_deletion_incomplete(value) }
