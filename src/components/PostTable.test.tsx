@@ -120,10 +120,12 @@ describe('PostTable — queue mode — interactions', () => {
     expect(onSelect).toHaveBeenCalledWith(draft)
   })
 
-  it('shows danger indicator for failed posts', () => {
-    const draft = makeDraft({ status: 'failed' })
+  it('shows platform colour (not grey) for failed posts', () => {
+    const draft = makeDraft({ status: 'failed', platform: 'x' })
     render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
-    expect(screen.getByTestId('post-row')).toHaveClass('has-text-danger')
+    const btn = screen.getByTestId('post-row')
+    expect(btn).not.toHaveClass('has-text-danger')
+    expect(btn.style.background).toBeTruthy()
   })
 })
 
@@ -206,6 +208,30 @@ describe('PostTable — queue mode — unknown platform', () => {
     const draft = makeDraft({ platform: 'unknown-platform-xyz' })
     render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
     expect(screen.getByRole('button', { name: /edit unknown-platform-xyz post/i })).toBeInTheDocument()
+  })
+})
+
+// ── 22.8: failed-post badge distinction ──────────────────────────────────────
+// A failed post must look "sent but broken" (platform colour + red dot), not
+// "not connected" (grey/dim). The two states must render different elements.
+
+describe('PostTable — queue mode — failed-post badge distinction (22.8)', () => {
+  it('22.8.3 — failed post badge renders a failed-indicator element', () => {
+    render(<PostTable posts={[makeDraft({ status: 'failed' })]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('post-row').querySelector('[data-testid="failed-indicator"]')).not.toBeNull()
+  })
+
+  it('22.8.4 — non-failed post badge has no failed-indicator element', () => {
+    render(<PostTable posts={[makeDraft({ status: 'ready' })]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('post-row').querySelector('[data-testid="failed-indicator"]')).toBeNull()
+  })
+
+  it('22.8.5 — disconnected badge uses post-row-disconnected and has no failed-indicator', () => {
+    const draft = makeDraft({ repo_id: 'r1', platform: 'x', status: 'ready' })
+    render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC"
+      connectedPlatformsByRepo={{ r1: [] }} />)
+    const btn = screen.getByTestId('post-row-disconnected')
+    expect(btn.querySelector('[data-testid="failed-indicator"]')).toBeNull()
   })
 })
 
