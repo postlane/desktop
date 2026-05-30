@@ -152,3 +152,23 @@ fn test_rescan_workspace_deactivates_missing_repo() {
     assert!(entry_a.active, "child-a must remain active");
     assert!(!entry_b.active, "child-b must be deactivated");
 }
+
+// ── 22.9.11: workspace_rescan telemetry ──────────────────────────────────────
+
+#[test]
+fn test_workspace_rescan_records_telemetry_with_counts() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_rescan(&state, true, 2, 1);
+    assert_eq!(state.telemetry.queue_len(), 1, "workspace_rescan must be queued");
+    let events = state.telemetry.peek_queue();
+    assert_eq!(events[0].name, "workspace_rescan");
+    assert_eq!(events[0].properties["added"], 2);
+    assert_eq!(events[0].properties["removed"], 1);
+}
+
+#[test]
+fn test_workspace_rescan_no_event_without_consent() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_rescan(&state, false, 1, 0);
+    assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+}

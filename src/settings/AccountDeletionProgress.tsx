@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
+import { ErrorCode } from './ErrorCode';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ function ErrorPanel({ error, onRetry, onSkip, onAbort }: ErrorPanelProps) {
   const isCritical = !error.skippable;
   return (
     <div>
-      <p className="has-text-danger mb-2">{error.code}: {error.message}</p>
+      <ErrorCode code={error.code} message={error.message} />
       {isCritical ? (
         <>
           <p className="is-size-7 mb-2">

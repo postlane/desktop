@@ -238,6 +238,12 @@ pub fn check_workspace_paths(
     results
 }
 
+pub(crate) fn record_workspace_path_recovered(
+    state: &crate::app_state::AppState, consent: bool, method: &str,
+) {
+    state.telemetry.record(consent, "workspace_path_recovered", serde_json::json!({ "method": method }));
+}
+
 /// Updates `workspace_path` in repos.json after the user confirms a rename
 /// in the banner (22.3.22). Restarts the file watcher on the new path.
 /// Emits `workspace_path_recovered` telemetry with `method: "auto"` (22.9.11).
@@ -250,6 +256,8 @@ pub fn update_workspace_path(
 ) -> Result<(), String> {
     update_workspace_path_impl(&state.repos_path, &workspace_id, &new_path)?;
     crate::repo_mgmt::start_repo_watcher(&workspace_id, &new_path, &state, app);
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_workspace_path_recovered(&state, consent, "auto");
     Ok(())
 }
 
@@ -266,6 +274,8 @@ pub fn locate_workspace_folder(
     validate_workspace_folder_impl(&state.repos_path, &workspace_id, &folder_path)?;
     update_workspace_path_impl(&state.repos_path, &workspace_id, &folder_path)?;
     crate::repo_mgmt::start_repo_watcher(&workspace_id, &folder_path, &state, app);
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_workspace_path_recovered(&state, consent, "manual");
     Ok(())
 }
 

@@ -176,6 +176,12 @@ pub fn add_workspace_impl(
 /// Does NOT start the file watcher — the caller must invoke a separate
 /// confirmation command (22.3.4) which starts the watcher after the user
 /// confirms (or deselects) the discovered repos.
+pub(crate) fn record_workspace_created(
+    state: &crate::app_state::AppState, consent: bool, repo_count: usize,
+) {
+    state.telemetry.record(consent, "workspace_created", serde_json::json!({ "repo_count": repo_count }));
+}
+
 #[tauri::command]
 pub fn add_workspace(
     folder_path: String,
@@ -185,7 +191,10 @@ pub fn add_workspace(
     use crate::init::postlane_dir;
     let pl_dir = postlane_dir()?;
     let path = PathBuf::from(&folder_path);
-    add_workspace_impl(&path, &state.repos_path, &pl_dir, &project_id)
+    let result = add_workspace_impl(&path, &state.repos_path, &pl_dir, &project_id)?;
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_workspace_created(&state, consent, result.discovered_repos.len());
+    Ok(result)
 }
 
 #[cfg(test)]

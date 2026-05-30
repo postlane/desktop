@@ -102,6 +102,7 @@ pub mod workspace_repos;
 pub mod workspace_rescan;
 pub mod account_deletion;
 pub mod account_deletion_commands;
+pub mod error_registry;
 pub mod account_deletion_steps;
 pub mod credential_store;
 pub mod ssrf_validation;
@@ -230,7 +231,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_keyring::init())
-        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin({
+            let log_dir = init::postlane_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                    path: log_dir,
+                    file_name: Some("app".to_string()),
+                }))
+                .max_file_size(5 * 1_024 * 1_024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build()
+        })
         .manage(state)
         .setup(move |app| setup_app(app, repos.clone()))
         .invoke_handler(command_registry::all_commands())

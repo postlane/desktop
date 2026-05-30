@@ -5,11 +5,12 @@
 use std::path::PathBuf;
 use crate::workspace_migration::{
     LegacyRepoInfo, MigrationResult, MigrationStatus, JournalStatus,
-    RepoConflicts,
+    RepoConflicts, RepoMigrationStatus,
     find_qualifying_legacy_repos, get_migration_status_impl,
     set_migration_dismissed, check_migration_journals,
     dismiss_migration_journal_session, get_migration_conflicts_impl,
 };
+use crate::workspace_migration_execute::RecoveryStats;
 
 // ── Status and dismiss ────────────────────────────────────────────────────────
 
@@ -24,11 +25,15 @@ pub fn migration_status(
 
 #[tauri::command]
 pub fn dismiss_migration(
-    _state: tauri::State<'_, crate::app_state::AppState>,
+    state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<(), String> {
     use crate::app_state::app_state_path;
+    let legacy_repo_count = find_qualifying_legacy_repos(&state.repos_path).len();
     let path = app_state_path()?;
-    set_migration_dismissed(&path)
+    set_migration_dismissed(&path)?;
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_migration_dismissed_event(&state, consent, legacy_repo_count);
+    Ok(())
 }
 
 // ── Migration execution ───────────────────────────────────────────────────────
@@ -44,6 +49,18 @@ pub fn start_workspace_migration(
     let result = crate::workspace_migration_execute::execute_migration(
         &qualifying, &ws, &project_id, &state.repos_path,
     );
+    let repos_failed = result.results.iter()
+        .filter(|r| !matches!(r.status, RepoMigrationStatus::Success { .. }))
+        .count();
+    let failure_reasons: Vec<String> = result.results.iter()
+        .filter_map(|r| match &r.status {
+            RepoMigrationStatus::VerificationFailed { error } => Some(error.clone()),
+            RepoMigrationStatus::ProjectIdMismatch => Some("project ID mismatch".to_string()),
+            _ => None,
+        })
+        .collect();
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_migration_completed_event(&state, consent, repos_failed, failure_reasons);
     reload_repos(&state);
     Ok(result)
 }
@@ -97,7 +114,10 @@ pub fn resume_workspace_journal(
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<(), String> {
     let ws_path = find_workspace_path(&workspace_id, &state.repos_path)?;
-    crate::workspace_migration_execute::resume_migration_journal(&ws_path, &state.repos_path)
+    let stats = crate::workspace_migration_execute::resume_migration_journal(&ws_path, &state.repos_path)?;
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_migration_recovered_event(&state, consent, &stats);
+    Ok(())
 }
 
 #[tauri::command]
@@ -109,7 +129,37 @@ pub fn dismiss_workspace_journal_session(
     dismiss_migration_journal_session(&ws_path)
 }
 
-// ── Telemetry (22.5.12) ───────────────────────────────────────────────────────
+// ── Telemetry helpers (22.5.12, 22.9.11) ─────────────────────────────────────
+
+pub(crate) fn record_migration_shown_event(
+    state: &crate::app_state::AppState, consent: bool,
+) {
+    state.telemetry.record(consent, "workspace_migration_shown", serde_json::json!({}));
+}
+
+pub(crate) fn record_migration_completed_event(
+    state: &crate::app_state::AppState, consent: bool, repos_failed: usize, failure_reasons: Vec<String>,
+) {
+    state.telemetry.record(consent, "workspace_migration_completed", serde_json::json!({
+        "repos_failed": repos_failed,
+        "failure_reasons": failure_reasons,
+    }));
+}
+
+pub(crate) fn record_migration_dismissed_event(
+    state: &crate::app_state::AppState, consent: bool, legacy_repo_count: usize,
+) {
+    state.telemetry.record(consent, "workspace_migration_dismissed", serde_json::json!({ "legacy_repo_count": legacy_repo_count }));
+}
+
+pub(crate) fn record_migration_recovered_event(
+    state: &crate::app_state::AppState, consent: bool, stats: &RecoveryStats,
+) {
+    state.telemetry.record(consent, "workspace_migration_recovered", serde_json::json!({
+        "repos_cleaned": stats.repos_cleaned,
+        "repos_skipped": stats.repos_skipped,
+    }));
+}
 
 /// Records the `workspace_migration_reentered` telemetry event (22.5.12).
 /// Called when the user clicks "Migrate to workspace..." in Settings.
@@ -120,6 +170,16 @@ pub fn note_migration_reentered(
     let consent = crate::app_state::read_app_state().telemetry_consent;
     state.telemetry.record(consent, "workspace_migration_reentered", serde_json::json!({}));
     Ok(())
+}
+
+/// Records the `workspace_migration_shown` telemetry event (22.9.11).
+/// Called by MigrationBanner on first render.
+#[tauri::command]
+pub fn record_migration_shown(
+    state: tauri::State<'_, crate::app_state::AppState>,
+) {
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_migration_shown_event(&state, consent);
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -174,5 +234,57 @@ mod tests {
             .map(|r| r.repo_path.clone())
             .collect();
         assert_eq!(failed, vec!["/repo-b"]);
+    }
+
+    // ── 22.9.11: migration telemetry events ───────────────────────────────────
+
+    #[test]
+    fn test_migration_shown_records_event_with_consent() {
+        let state = crate::test_fixtures::make_state(vec![]);
+        record_migration_shown_event(&state, true);
+        assert_eq!(state.telemetry.queue_len(), 1);
+        assert_eq!(state.telemetry.peek_queue()[0].name, "workspace_migration_shown");
+    }
+
+    #[test]
+    fn test_migration_completed_records_event_with_repos_failed() {
+        let state = crate::test_fixtures::make_state(vec![]);
+        record_migration_completed_event(&state, true, 2, vec!["err-a".to_string(), "err-b".to_string()]);
+        assert_eq!(state.telemetry.queue_len(), 1);
+        let ev = &state.telemetry.peek_queue()[0];
+        assert_eq!(ev.name, "workspace_migration_completed");
+        assert_eq!(ev.properties["repos_failed"], 2);
+        assert_eq!(ev.properties["failure_reasons"][0], "err-a");
+    }
+
+    #[test]
+    fn test_migration_dismissed_records_event_with_legacy_count() {
+        let state = crate::test_fixtures::make_state(vec![]);
+        record_migration_dismissed_event(&state, true, 3);
+        assert_eq!(state.telemetry.queue_len(), 1);
+        let ev = &state.telemetry.peek_queue()[0];
+        assert_eq!(ev.name, "workspace_migration_dismissed");
+        assert_eq!(ev.properties["legacy_repo_count"], 3);
+    }
+
+    #[test]
+    fn test_migration_recovered_records_event_with_stats() {
+        let state = crate::test_fixtures::make_state(vec![]);
+        let stats = RecoveryStats { repos_cleaned: 2, repos_skipped: 1 };
+        record_migration_recovered_event(&state, true, &stats);
+        assert_eq!(state.telemetry.queue_len(), 1);
+        let ev = &state.telemetry.peek_queue()[0];
+        assert_eq!(ev.name, "workspace_migration_recovered");
+        assert_eq!(ev.properties["repos_cleaned"], 2);
+        assert_eq!(ev.properties["repos_skipped"], 1);
+    }
+
+    #[test]
+    fn test_migration_telemetry_no_event_without_consent() {
+        let state = crate::test_fixtures::make_state(vec![]);
+        record_migration_shown_event(&state, false);
+        record_migration_completed_event(&state, false, 0, vec![]);
+        record_migration_dismissed_event(&state, false, 0);
+        assert_eq!(state.telemetry.queue_len(), 0, "no events without consent");
     }
 }

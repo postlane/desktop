@@ -417,3 +417,20 @@ describe('AppTab — default post time — parseInt NaN guard', () => {
     })
   })
 })
+
+describe('AppTab — copy log path (22.9.10c)', () => {
+  it('renders Copy log path button; click calls get_log_path then clipboard', async () => {
+    const logPath = '/Users/hugo/.postlane/app.log'
+    mockInvoke.mockImplementation((cmd: string) =>
+      cmd === 'get_log_path' ? Promise.resolve(logPath) : Promise.resolve('1.4.0'))
+    render(<AppTab />)
+    expect(screen.getByTestId('copy-log-path')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('copy-log-path'))
+    await waitFor(() => {
+      expect(mockInvoke.mock.calls.some(([cmd]) => cmd === 'get_log_path')).toBe(true)
+      expect(mockInvoke.mock.calls.some(([cmd, args]) =>
+        cmd === 'plugin:clipboard-manager|write_text' && (args as { text: string }).text === logPath
+      )).toBe(true)
+    })
+  })
+})
