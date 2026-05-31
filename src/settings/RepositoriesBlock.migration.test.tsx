@@ -39,7 +39,7 @@ async function renderBlock(
   }));
 
   const { default: RepositoriesBlock } = await import('./RepositoriesBlock');
-  return render(<RepositoriesBlock projectId={projectId} projectName="Test" isOwner />);
+  return render(<RepositoriesBlock projectId={projectId} isOwner />);
 }
 
 // ── 22.5.9: button visible when legacy repos exist ────────────────────────────

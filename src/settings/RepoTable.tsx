@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Fragment } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 
 export interface RepoConnectionStatus {
   repo_id: string | null;
@@ -81,7 +83,9 @@ function RepoActionsCell({ row, isOwner, isPending, onRemoveStart }: {
       {row.github_full_name && (
         <a className="has-text-grey ml-2"
           href={`https://github.com/${row.github_full_name}`}
-          target="_blank" rel="noopener noreferrer">↗</a>
+          target="_blank" rel="noopener noreferrer">
+          <FontAwesomeIcon icon={faArrowUpRightFromSquare} size="xs" />
+        </a>
       )}
     </td>
   );
@@ -121,11 +125,7 @@ function ConnectionStatusTable({ rows, isOwner, actions }: {
 }) {
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table className="table is-fullwidth is-narrow mb-0" style={{ tableLayout: 'fixed' }}>
-        <colgroup>
-          <col style={{ width: '44%' }} /><col style={{ width: '14%' }} />
-          <col style={{ width: '14%' }} /><col style={{ width: '10%' }} /><col style={{ width: '18%' }} />
-        </colgroup>
+      <table className="table is-fullwidth is-narrow is-hoverable is-striped mb-0">
         <thead>
           <tr>
             <th className="is-size-7">Repository</th>
