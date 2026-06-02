@@ -36,11 +36,9 @@ fn drafts_from_workspace_entry(workspace: &WorkspaceEntry) -> Vec<Post> {
             if !posts_subdir.exists() {
                 return vec![];
             }
-            let eff_config = crate::workspace::effective_config_path(
-                Path::new(&entry.path),
-                ws_path,
-            );
-            let project_id = project_id_from_config(&eff_config);
+            // 22.1.3: project_id is workspace-level — always read from the workspace
+            // config, never from a child repo's own config.json (which may lack the field).
+            let project_id = project_id_from_config(&ws_path.join("config.json"));
 
             // Use a synthetic Repo so drafts_from_posts_dir sets repo_name + repo_id correctly.
             let synthetic_repo = Repo {
@@ -152,3 +150,62 @@ pub fn get_all_drafts_count(state: State<'_, AppState>) -> Result<usize, String>
 #[cfg(test)]
 #[path = "draft_queries_tests.rs"]
 mod tests;
+
+/// 22.1.3 — project_id for workspace child repos must come from the workspace
+/// config, not the child repo's own config.json (which may have no project_id).
+#[cfg(test)]
+mod project_id_tests {
+    use super::*;
+    use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
+
+    fn write_workspace_draft_simple(ws: &std::path::Path, posts_dir: &str, folder: &str, platform: &str) {
+        let p = ws.join("posts").join(posts_dir).join(folder);
+        std::fs::create_dir_all(&p).expect("create post dir");
+        std::fs::write(p.join(format!("{}.md", platform)), "content").expect("write md");
+        std::fs::write(p.join("meta.json"), "{}").expect("write meta");
+    }
+
+    /// When a workspace child repo has its own .postlane/config.json with no
+    /// project_id, the draft must still carry the workspace's project_id.
+    #[test]
+    fn drafts_from_workspace_entry_uses_workspace_project_id_when_child_config_has_none() {
+        let ws = tempfile::TempDir::new().expect("ws dir");
+        let child = ws.path().join("repo-a");
+        std::fs::create_dir_all(child.join(".postlane")).expect("create .postlane");
+        // Child has its own config with NO project_id (simulates `postlane init` output).
+        std::fs::write(
+            child.join(".postlane/config.json"),
+            r#"{"version":1,"llm":{"provider":"anthropic"}}"#,
+        ).expect("write child config");
+        // Workspace config has the authoritative project_id.
+        std::fs::write(
+            ws.path().join("config.json"),
+            r#"{"project_id":"ws-proj-abc","schema_version":4}"#,
+        ).expect("write ws config");
+
+        let ws_repos = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![RepoEntry {
+                id: "child-id".to_string(), name: "repo-a".to_string(),
+                path: child.to_str().unwrap().to_string(),
+                posts_dir: "repo-a".to_string(),
+                active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        write_workspace_repos(&ws.path().join("repos.json"), &ws_repos).expect("write ws repos");
+        write_workspace_draft_simple(ws.path(), "repo-a", "my-post", "bluesky");
+
+        let ws_entry = crate::workspace_entry::WorkspaceEntry {
+            id: "ws-proj-abc".to_string(), name: "ws".to_string(),
+            workspace_path: ws.path().to_str().unwrap().to_string(),
+            active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let drafts = drafts_from_workspace_entry(&ws_entry);
+
+        assert_eq!(drafts.len(), 1, "draft must appear");
+        assert_eq!(
+            drafts[0].project_id.as_deref(), Some("ws-proj-abc"),
+            "project_id must come from workspace config, not child config",
+        );
+    }
+}
