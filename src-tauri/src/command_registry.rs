@@ -15,7 +15,7 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::post_queries::get_drafts, crate::post_queries::get_post_content, crate::post_retry::retry_post,
         crate::repo_mgmt::add_repo, crate::repo_mgmt::check_repo_health, crate::repo_mgmt::remove_repo,
         crate::repo_mgmt::set_repo_active, crate::repo_mgmt::update_repo_path,
-        crate::scheduler_credentials::save_scheduler_credential, crate::scheduler_credentials::delete_scheduler_credential, crate::scheduler_credentials::get_libsecret_status,
+        crate::scheduler_credentials::save_scheduler_credential, crate::scheduler_credentials::delete_scheduler_credential, crate::scheduler_credentials::get_libsecret_status, crate::scheduler_credentials::refresh_scheduler_accounts,
         crate::connected_platforms::list_connected_platforms, crate::connect_repo::connect_repo_from_desktop,
         crate::credential_provider_list::list_connected_providers, crate::draft_edits::save_post_draft,
         crate::draft_queries::get_all_drafts, crate::draft_queries::get_all_drafts_count, crate::folder_lookup::find_project_for_folder,
