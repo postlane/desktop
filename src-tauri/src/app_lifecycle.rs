@@ -185,11 +185,13 @@ pub fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
 pub fn spawn_startup_account_sync(
     app_handle: tauri::AppHandle,
     repos: Vec<crate::storage::Repo>,
+    workspaces: Vec<crate::workspace_entry::WorkspaceEntry>,
 ) {
     tauri::async_runtime::spawn(async move {
         use tauri_plugin_keyring::KeyringExt;
         let result = crate::scheduler_account_sync::refresh_scheduler_accounts_impl(
             &repos,
+            &workspaces,
             &|provider, project_id| {
                 let key = crate::scheduler_credentials::get_credential_keyring_key(provider, project_id);
                 app_handle.keyring().get_password("postlane", &key).unwrap_or(None)

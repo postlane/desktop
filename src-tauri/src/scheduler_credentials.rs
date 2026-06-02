@@ -178,9 +178,13 @@ pub async fn refresh_scheduler_accounts(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::scheduler_account_sync::RefreshResult, String> {
-    let repos = state.lock_repos()?.repos.clone();
+    let (repos, workspaces) = {
+        let locked = state.lock_repos()?;
+        (locked.repos.clone(), locked.workspaces.clone())
+    };
     let result = crate::scheduler_account_sync::refresh_scheduler_accounts_impl(
         &repos,
+        &workspaces,
         &|provider, project_id| {
             let key = get_credential_keyring_key(provider, project_id);
             app.keyring().get_password("postlane", &key).ok().flatten()
