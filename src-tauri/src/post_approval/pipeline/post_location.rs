@@ -36,6 +36,16 @@ impl PostLocation {
             Self::Legacy { canonical } | Self::Workspace { canonical, .. } => canonical,
         }
     }
+
+    /// The root path to use for reading scheduler config and account IDs.
+    /// Legacy posts: the canonical repo path (config lives at `{root}/.postlane/config.json`).
+    /// Workspace posts: the workspace path (config lives at `{root}/config.json`).
+    pub fn config_root(&self) -> &str {
+        match self {
+            Self::Legacy { canonical } => canonical,
+            Self::Workspace { workspace_path, .. } => workspace_path,
+        }
+    }
 }
 
 /// Validates `repo_path` and resolves the post location (22.2.7).
@@ -152,5 +162,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_workspace_config_root_is_workspace_path() {
+        let loc = PostLocation::Workspace {
+            canonical: "/ws/repo-a".to_string(),
+            workspace_path: "/ws".to_string(),
+            posts_dir: "repo-a".to_string(),
+            repo_name: "repo-a".to_string(),
+        };
+        assert_eq!(loc.config_root(), "/ws");
+    }
+
+    #[test]
+    fn test_legacy_config_root_is_canonical() {
+        let loc = PostLocation::Legacy { canonical: "/repos/my-repo".to_string() };
+        assert_eq!(loc.config_root(), "/repos/my-repo");
     }
 }

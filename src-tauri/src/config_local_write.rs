@@ -100,7 +100,13 @@ fn write_local_config_0600(path: &Path, content: &str) -> Result<(), String> {
 /// when two or more are configured, upgrades to `scheduler.fallback_order` so the
 /// credential router can try each in order.
 pub fn write_scheduler_provider_to_local_config(repo_path: &Path, provider: &str) -> Result<(), String> {
-    let local_path = repo_path.join(".postlane").join("config.local.json");
+    // Workspace configs use flat layout ({root}/config.local.json); legacy use .postlane/.
+    let postlane_dir = repo_path.join(".postlane");
+    let local_path = if postlane_dir.is_dir() {
+        postlane_dir.join("config.local.json")
+    } else {
+        repo_path.join("config.local.json")
+    };
 
     let mut local: serde_json::Value = if local_path.exists() {
         read_json_file(&local_path)?

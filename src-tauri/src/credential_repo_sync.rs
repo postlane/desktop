@@ -58,7 +58,7 @@ pub(crate) fn collect_matching_workspace_config_paths(project_id: &str, state: &
         .collect()
 }
 
-/// Writes `provider` into `config.local.json` for every repo matching `project_id`.
+/// Writes `provider` into `config.local.json` for every repo and workspace matching `project_id`.
 pub(crate) fn write_provider_to_matching_repos(project_id: &str, provider: &str, state: &AppState) {
     for repo_path in collect_matching_repo_paths(project_id, state) {
         if let Err(e) =
@@ -69,6 +69,19 @@ pub(crate) fn write_provider_to_matching_repos(project_id: &str, provider: &str,
                 repo_path.display(),
                 e
             );
+        }
+    }
+    for ws_config_path in collect_matching_workspace_config_paths(project_id, state) {
+        if let Some(ws_path) = ws_config_path.parent() {
+            if let Err(e) =
+                crate::config_merge::write_scheduler_provider_to_local_config(ws_path, provider)
+            {
+                log::warn!(
+                    "[save_scheduler_credential] write provider to workspace {}: {}",
+                    ws_path.display(),
+                    e
+                );
+            }
         }
     }
 }
@@ -233,5 +246,20 @@ mod tests {
         let state = make_state_with_workspace(dir.path().to_str().unwrap(), "proj-ws-123");
         let paths = collect_matching_workspace_config_paths("different-project", &state);
         assert!(paths.is_empty(), "non-matching project_id must return empty");
+    }
+
+    #[test]
+    fn write_provider_to_matching_repos_writes_to_workspace_config_local() {
+        let dir = tempfile::TempDir::new().expect("tmp dir");
+        let state = make_state_with_workspace(dir.path().to_str().unwrap(), "proj-ws-abc");
+        write_provider_to_matching_repos("proj-ws-abc", "upload_post", &state);
+        let local = std::fs::read_to_string(dir.path().join("config.local.json"))
+            .expect("config.local.json must be written");
+        let v: serde_json::Value = serde_json::from_str(&local).expect("parse");
+        assert_eq!(
+            v["scheduler"]["provider"].as_str(),
+            Some("upload_post"),
+            "provider must be written to workspace config.local.json"
+        );
     }
 }

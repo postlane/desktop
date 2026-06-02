@@ -272,7 +272,8 @@ fn test_read_platform_content_returns_err_when_file_missing() {
 fn test_load_account_ids_returns_empty_map_when_no_account_ids_key() {
     let dir = tempfile::TempDir::new().expect("create temp dir");
     crate::test_fixtures::write_config(dir.path(), r#"{"scheduler": {}}"#);
-    let result = load_account_ids(dir.path());
+    let config_path = dir.path().join(".postlane/config.json");
+    let result = load_account_ids(&config_path);
     assert!(result.unwrap().is_empty());
 }
 
@@ -283,7 +284,8 @@ fn test_load_account_ids_returns_map_when_present() {
         dir.path(),
         r#"{"scheduler": {"account_ids": {"x": "acc123"}}}"#,
     );
-    let map = load_account_ids(dir.path()).unwrap();
+    let config_path = dir.path().join(".postlane/config.json");
+    let map = load_account_ids(&config_path).unwrap();
     assert_eq!(map.get("x").and_then(|v| v.as_str()), Some("acc123"));
 }
 

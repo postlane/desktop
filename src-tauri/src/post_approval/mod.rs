@@ -70,7 +70,6 @@ pub async fn approve_post_impl(
     validate_post_folder(post_folder)?;
     let location = validate_repo_path(repo_path, state)?;
     let canonical_str = location.canonical().to_string();
-    let canonical_path = std::path::PathBuf::from(&canonical_str);
     let lock = acquire_meta_lock(&canonical_str, post_folder);
     let _lock_guard = lock.lock().await;
     let post_path = location.posts_base(post_folder);
@@ -89,7 +88,8 @@ pub async fn approve_post_impl(
     fire_unsplash_download_trigger(&mut meta, &meta_path, app);
     let sent_at = chrono::Utc::now().to_rfc3339();
     let is_edited = is_platform_edited(&meta, platform);
-    let paths = SendPaths { post_folder, post_path: &post_path, canonical_path: &canonical_path, meta_path: &meta_path };
+    let config_root = std::path::PathBuf::from(location.config_root());
+    let paths = SendPaths { post_folder, post_path: &post_path, config_root, meta_path: &meta_path };
     run_send_pipeline(app, platform, &paths, &mut meta, &sent_at).await?;
 
     // Write sent.jsonl history entry for workspace repos (22.2.9)
