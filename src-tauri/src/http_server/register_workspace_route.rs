@@ -36,7 +36,7 @@ pub(super) async fn register_workspace_handler(
 
     let mut repos = state.repos.lock().await;
     if !repos.workspaces.iter().any(|w| w.id == payload.project_id) {
-        repos.workspaces.push(entry);
+        repos.workspaces.push(entry.clone());
     }
 
     if let Err(e) = crate::storage::write_repos(&state.repos_path, &repos) {
@@ -45,6 +45,74 @@ pub(super) async fn register_workspace_handler(
             format!("Failed to write repos.json: {:?}", e),
         );
     }
+    drop(repos);
+
+    if let Some(tx) = &state.watcher_tx {
+        let _ = tx.try_send((payload.project_id.clone(), payload.workspace_path.clone()));
+    }
+
+    if let Some(app_handle) = &state.app_handle {
+        use tauri::Manager;
+        if let Some(app_state) = app_handle.try_state::<crate::app_state::AppState>() {
+            add_workspace_to_app_repos(&app_state, &entry);
+        }
+    }
 
     (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
+}
+
+/// Updates the in-memory AppState repos so `get_all_drafts` finds the workspace
+/// immediately without requiring an app restart.
+pub(crate) fn add_workspace_to_app_repos(
+    app_state: &crate::app_state::AppState,
+    entry: &crate::workspace_entry::WorkspaceEntry,
+) {
+    if let Ok(mut repos) = app_state.lock_repos() {
+        if !repos.workspaces.iter().any(|w| w.id == entry.id) {
+            repos.workspaces.push(entry.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_app_state() -> crate::app_state::AppState {
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        crate::app_state::AppState::new_with_path(
+            crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] },
+            tmp.path().join("repos.json"),
+        )
+    }
+
+    fn make_entry(id: &str) -> crate::workspace_entry::WorkspaceEntry {
+        crate::workspace_entry::WorkspaceEntry {
+            id: id.to_string(),
+            name: "ws".to_string(),
+            workspace_path: "/some/path".to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// HTTP registration must update AppState.repos so get_all_drafts finds the workspace.
+    #[test]
+    fn test_add_workspace_to_app_repos_inserts_entry() {
+        let state = make_app_state();
+        let entry = make_entry("proj-abc");
+        add_workspace_to_app_repos(&state, &entry);
+        let repos = state.lock_repos().expect("lock");
+        assert!(repos.workspaces.iter().any(|w| w.id == "proj-abc"));
+    }
+
+    #[test]
+    fn test_add_workspace_to_app_repos_is_idempotent() {
+        let state = make_app_state();
+        let entry = make_entry("proj-abc");
+        add_workspace_to_app_repos(&state, &entry);
+        add_workspace_to_app_repos(&state, &entry);
+        let repos = state.lock_repos().expect("lock");
+        assert_eq!(repos.workspaces.iter().filter(|w| w.id == "proj-abc").count(), 1);
+    }
 }

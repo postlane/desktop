@@ -62,8 +62,59 @@ pub(super) async fn register_handler(
     drop(repos);
 
     if let Some(tx) = &state.watcher_tx {
-        let _ = tx.try_send((repo.id, canonical_str));
+        let _ = tx.try_send((repo.id.clone(), canonical_str));
+    }
+
+    if let Some(app_handle) = &state.app_handle {
+        use tauri::Manager;
+        if let Some(app_state) = app_handle.try_state::<crate::app_state::AppState>() {
+            add_legacy_repo_to_app_repos(&app_state, &repo);
+        }
     }
 
     (StatusCode::OK, Json(RegisterResponse { success: true, name })).into_response()
+}
+
+/// Updates the in-memory AppState repos so `get_all_drafts` finds the legacy repo
+/// immediately without requiring an app restart.
+pub(crate) fn add_legacy_repo_to_app_repos(
+    app_state: &crate::app_state::AppState,
+    repo: &crate::storage::Repo,
+) {
+    if let Ok(mut repos) = app_state.lock_repos() {
+        repos.repos.push(repo.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_app_state() -> crate::app_state::AppState {
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        crate::app_state::AppState::new_with_path(
+            crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] },
+            tmp.path().join("repos.json"),
+        )
+    }
+
+    fn make_repo(id: &str, path: &str) -> crate::storage::Repo {
+        crate::storage::Repo {
+            id: id.to_string(),
+            name: "repo".to_string(),
+            path: path.to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// HTTP registration must update AppState.repos so get_all_drafts finds the repo.
+    #[test]
+    fn test_add_legacy_repo_to_app_repos_inserts_entry() {
+        let state = make_app_state();
+        let repo = make_repo("r1", "/some/repo");
+        add_legacy_repo_to_app_repos(&state, &repo);
+        let repos = state.lock_repos().expect("lock");
+        assert!(repos.repos.iter().any(|r| r.id == "r1"));
+    }
 }

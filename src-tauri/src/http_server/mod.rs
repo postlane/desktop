@@ -46,6 +46,9 @@ pub struct ServerState {
     pub watcher_tx: Option<tokio::sync::mpsc::Sender<(String, String)>>,
     /// Cached project list used by `/github-project-config`. Updated on sign-in.
     pub projects: Arc<tokio::sync::RwLock<Vec<ProjectSummary>>>,
+    /// Used to update AppState.repos in-memory when a workspace or repo is registered
+    /// mid-session so `get_all_drafts` finds it without an app restart. `None` in tests.
+    pub app_handle: Option<tauri::AppHandle>,
 }
 
 #[derive(Deserialize)]
@@ -313,7 +316,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
-        let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, app_handle: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -339,7 +342,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
-        let state = ServerState { token: "tok".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
+        let state = ServerState { token: "tok".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, app_handle: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let port = start_server(state, 0).await.expect("server start failed");
         let client = reqwest::Client::new();
         let resp = client
@@ -360,7 +363,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
-        let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
+        let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, app_handle: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
         let test_port = 57312u16;
         let bound_port = start_server(state, test_port).await.unwrap();
         assert_eq!(bound_port, test_port);

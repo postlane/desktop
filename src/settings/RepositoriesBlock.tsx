@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import WorkspaceConfirmModal from './WorkspaceConfirmModal';
@@ -127,11 +128,18 @@ function useWorkspaceFlow(projectId: string, refresh: () => void) {
       const result = await invoke<WorkspaceSetupResult>('add_workspace', { folderPath: selected, projectId });
       if (result.discovered_repos.length === 1) {
         const repoName = result.discovered_repos[0].name;
-        setWsToast(`Creating workspace at ${result.workspace_path} — Postlane files will be added to ${repoName}/`);
-        await invoke('confirm_workspace_repos', {
-          workspaceId: result.workspace_id,
-          selectedPaths: result.discovered_repos.map((r) => r.path),
+        // flushSync ensures the toast paints before the confirm call starts,
+        // preventing React 18 from batching the set+clear into a single render.
+        flushSync(() => {
+          setWsToast(`Creating workspace at ${result.workspace_path} — Postlane files will be added to ${repoName}/`);
         });
+        await Promise.all([
+          invoke('confirm_workspace_repos', {
+            workspaceId: result.workspace_id,
+            selectedPaths: result.discovered_repos.map((r) => r.path),
+          }),
+          new Promise<void>(resolve => setTimeout(resolve, 1500)),
+        ]);
         setWsToast(null);
         setWsSuccess(result);
         refresh();

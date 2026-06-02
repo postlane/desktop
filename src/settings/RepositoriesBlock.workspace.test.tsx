@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
@@ -193,19 +193,49 @@ describe('RepositoriesBlock — single-repo auto-confirm (22.3.5)', () => {
   })
 
   it('refreshes the repo list after single-repo auto-confirm', async () => {
-    setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
-    await waitFor(() => {
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+      await vi.advanceTimersByTimeAsync(2000)
       const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_connection_status')
       expect(calls.length).toBeGreaterThan(1)
-    })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
 // ── 22.3.11 — Single-repo informational toast ─────────────────────────────────
 
 describe('RepositoriesBlock — single-repo toast (22.3.11)', () => {
+  it('toast remains visible for minimum duration even when confirm resolves instantly', async () => {
+    vi.useFakeTimers()
+    try {
+      mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'get_repo_connection_status') return [makeRow()]
+        if (cmd === 'add_workspace') return singleResult
+        if (cmd === 'confirm_workspace_repos') return null   // resolves instantly
+        return null
+      })
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+
+      // Advance 100ms — toast should still be visible (before 1500ms minimum)
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+      expect(screen.getByText(/Creating workspace at/i)).toBeInTheDocument()
+
+      // Advance past minimum — toast clears, success shows
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+      expect(screen.queryByText(/Creating workspace at/i)).not.toBeInTheDocument()
+      expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows informational toast text before auto-registering', async () => {
     mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
     let resolveConfirm: (v: null) => void = () => {};
@@ -229,21 +259,32 @@ describe('RepositoriesBlock — single-repo toast (22.3.11)', () => {
 
 describe('RepositoriesBlock — voice guide hint (22.3.5a, 22.3.5c)', () => {
   it('shows voice guide hint after single-repo workspace creation', async () => {
-    setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
-    await waitFor(() => expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument())
-    expect(screen.getByTestId('voice-guide-hint'))
-      .toHaveAttribute('data-workspace-path', '/Users/hugo/code/myorg')
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(screen.getByTestId('voice-guide-hint'))
+        .toHaveAttribute('data-workspace-path', '/Users/hugo/code/myorg')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('dismisses voice guide hint on close', async () => {
-    setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
-    await waitFor(() => expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Dismiss hint/i }))
-    expect(screen.queryByTestId('voice-guide-hint')).not.toBeInTheDocument()
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /Dismiss hint/i }))
+      expect(screen.queryByTestId('voice-guide-hint')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows voice guide hint after multi-repo workspace confirmation', async () => {
@@ -382,14 +423,17 @@ describe('22.3.22a: permanent voice guide hint', () => {
   })
 
   it('shows creation hint with dismiss over permanent hint after workspace creation', async () => {
-    setupSingleRepoMock()
-    mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
-    render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Add workspace/i })))
-    await waitFor(() => {
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
+      render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /Add workspace/i }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
       const hint = screen.getByTestId('voice-guide-hint')
-      // The creation hint is shown — it has a dismiss button via the mock
       expect(hint.getAttribute('data-workspace-path')).toBe('/Users/hugo/code/myorg')
-    })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

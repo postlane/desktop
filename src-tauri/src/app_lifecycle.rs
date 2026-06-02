@@ -53,6 +53,7 @@ pub fn spawn_http_server(
         activation_tx: Some(activation_tx),
         watcher_tx: Some(watcher_tx),
         projects,
+        app_handle: Some(app_handle.clone()),
     };
 
     // Bind synchronously so the port file is written before setup_app returns.
@@ -73,7 +74,8 @@ pub fn spawn_http_server(
         }
     });
     spawn_activation_listener(activation_rx, app_handle.clone());
-    spawn_watcher_listener(watcher_rx, app_handle);
+    spawn_watcher_listener(watcher_rx, app_handle.clone());
+    crate::startup_projects::spawn_startup_projects_refresh(app_handle);
     Ok(())
 }
 

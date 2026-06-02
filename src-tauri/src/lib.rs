@@ -80,6 +80,7 @@ pub mod scheduler_credential_writer;
 pub mod scheduler_credentials;
 pub mod scheduling;
 pub mod security;
+pub mod startup_projects;
 pub mod startup_sync;
 pub mod storage;
 pub mod telemetry;
