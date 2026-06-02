@@ -115,6 +115,7 @@ pub async fn save_scheduler_credential(
     record_provider_configured(&state, consent, &provider);
     write_provider_to_matching_repos(&repo_id, &provider, &state);
     let matching_paths = collect_matching_repo_paths(&repo_id, &state);
+    let workspace_config_paths = crate::credential_repo_sync::collect_matching_workspace_config_paths(&repo_id, &state);
     let env = CredentialEnv {
         set_keyring: &|key, val| app.keyring().set_password("postlane", key, val).map_err(|e| e.to_string()),
         has_mastodon_active: &|pid| {
@@ -125,7 +126,7 @@ pub async fn save_scheduler_credential(
     };
     let save_result = save_scheduler_credential_core(
         &provider, &api_key, &repo_id, username.as_deref(),
-        &matching_paths, &env,
+        &matching_paths, &workspace_config_paths, &env,
     ).await?;
     for warning in &save_result.warnings {
         log::warn!("[save_scheduler_credential] {}", warning);
