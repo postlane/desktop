@@ -73,17 +73,20 @@ impl UploadPostProvider {
             })
     }
 
-    fn parse_platform_list(json: &serde_json::Value) -> Vec<String> {
-        if let Some(arr) = json["social_accounts"].as_array() {
-            return arr
-                .iter()
-                .filter_map(|a| a["platform"].as_str().map(str::to_string))
-                .collect();
-        }
-        json["platforms"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+    fn extract_connected_platforms(social_accounts: &serde_json::Value) -> Vec<String> {
+        social_accounts
+            .as_object()
+            .map(|obj| {
+                obj.iter()
+                    .filter(|(_, v)| v.is_object()) // empty string = not connected
+                    .map(|(k, _)| k.clone())
+                    .collect()
+            })
             .unwrap_or_default()
+    }
+
+    fn parse_platform_list(json: &serde_json::Value) -> Vec<String> {
+        Self::extract_connected_platforms(&json["profile"]["social_accounts"])
     }
 
     pub async fn validate_profile(&self, username: &str) -> Result<Vec<String>, ProviderError> {
@@ -127,10 +130,7 @@ impl UploadPostProvider {
             .filter_map(|p| {
                 let id = p["username"].as_str().or_else(|| p["id"].as_str())?.to_string();
                 let name = id.clone();
-                let platforms: Vec<String> = p["platforms"]
-                    .as_array()
-                    .map(|v| v.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
-                    .unwrap_or_default();
+                let platforms = Self::extract_connected_platforms(&p["social_accounts"]);
                 Some(SchedulerProfile { id, name, platforms })
             })
             .collect())
