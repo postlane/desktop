@@ -4,7 +4,7 @@
 use super::*;
 use crate::test_fixtures::{make_state, make_repo, write_config, write_meta, write_workspace_config};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
     fn write_md(dir: &Path, folder: &str, platform: &str, text: &str) {
         fs::create_dir_all(dir.join(".git")).expect("create .git");
@@ -438,4 +438,44 @@ use std::path::Path;
         assert_eq!(frontend_post.platform, "x");
         let backend_post = result.iter().find(|p| p.repo_name == "backend").expect("backend post");
         assert_eq!(backend_post.platform, "bluesky");
+    }
+
+    /// 22.10.7 — legacy per-repo entry in `repos[]` still shows posts alongside a workspace entry.
+    /// Backward compat: upgrading to v1.4 must not break existing repos that were never migrated.
+    #[test]
+    fn test_legacy_repo_queue_coexists_with_workspace() {
+        use crate::storage::ReposConfig;
+        use crate::workspace_entry::WorkspaceEntry;
+
+        // Workspace with one post
+        let ws = tempfile::TempDir::new().expect("create ws");
+        let ws_child = ws.path().join("ws-child");
+        fs::create_dir_all(ws_child.join(".git")).expect("git");
+        write_workspace_repos_json(ws.path(), "ws-r1", "ws-child", ws_child.to_str().unwrap(), "ws-child");
+        write_workspace_draft(ws.path(), "ws-child", "ws-post", "bluesky", "Workspace content");
+
+        // Legacy repo with a post at {repo}/.postlane/posts/
+        let legacy = tempfile::TempDir::new().expect("create legacy");
+        write_md(legacy.path(), "legacy-post", "x", "Legacy content");
+
+        let repos_path = std::env::temp_dir().join(
+            format!("repos_coexist_{}.json", std::process::id()),
+        );
+        let config = ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "ws-1".to_string(),
+                name: "myorg".to_string(),
+                workspace_path: ws.path().to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![make_repo("legacy-r1", legacy.path().to_str().unwrap())],
+        };
+        let state = crate::app_state::AppState::new_with_path(config, repos_path);
+
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2, "both workspace and legacy posts must appear");
+        assert!(result.iter().any(|p| p.text == "Workspace content"), "workspace post missing");
+        assert!(result.iter().any(|p| p.text == "Legacy content"), "legacy post missing");
     }

@@ -60,7 +60,13 @@ pub(crate) fn resolve_config_and_cred_id(
     // 1. Try legacy per-repo array first.
     if let Some(repo) = repos.repos.iter().find(|r| r.id == repo_id) {
         let config = PathBuf::from(&repo.path).join(".postlane/config.json");
-        return Ok((config, repo_id.to_string()));
+        // If this legacy repo's project_id matches a registered workspace, use the workspace
+        // project_id as the credential key. Credentials saved via workspace settings are stored
+        // under the workspace ID, so legacy repos associated with that workspace must match it.
+        let cred_id = read_project_id_from_config(&config)
+            .filter(|pid| repos.workspaces.iter().any(|w| w.active && &w.id == pid))
+            .unwrap_or_else(|| repo_id.to_string());
+        return Ok((config, cred_id));
     }
 
     // 2. Search workspace children.
@@ -358,6 +364,50 @@ mod tests {
             .expect("must resolve legacy repo");
         assert_eq!(config_path, repo_path.join(".postlane/config.json"));
         assert_eq!(cred_id, "legacy-id", "credential id must be repo_id for legacy repos");
+    }
+
+    /// 22.10.7 — legacy repo whose config.json project_id matches a workspace uses the
+    /// workspace project_id as its credential key, not the repo's own ID. This allows
+    /// credentials saved through the workspace settings to work for associated legacy repos.
+    #[test]
+    fn test_resolve_config_and_cred_id_legacy_repo_uses_workspace_project_id_when_matching() {
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        let repo_path = tmp.path().join("my-repo");
+        std::fs::create_dir_all(repo_path.join(".postlane")).expect("create .postlane");
+        // Write config.json with project_id matching the workspace id
+        let config_json = serde_json::json!({ "project_id": "ws-proj-abc" });
+        std::fs::write(
+            repo_path.join(".postlane/config.json"),
+            serde_json::to_string(&config_json).unwrap(),
+        ).expect("write config.json");
+
+        let ws_path = tmp.path().join("workspace");
+        let repos_config = crate::storage::ReposConfig {
+            version: 2,
+            workspaces: vec![crate::workspace_entry::WorkspaceEntry {
+                id: "ws-proj-abc".to_string(),
+                name: "my-workspace".to_string(),
+                workspace_path: ws_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![crate::storage::Repo {
+                id: "legacy-repo-id".to_string(),
+                name: "my-repo".to_string(),
+                path: repo_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let state = crate::app_state::AppState::new_with_path(
+            repos_config,
+            tmp.path().join("repos.json"),
+        );
+        let (config_path, cred_id) = resolve_config_and_cred_id("legacy-repo-id", &state)
+            .expect("must resolve");
+        assert_eq!(config_path, repo_path.join(".postlane/config.json"));
+        assert_eq!(cred_id, "ws-proj-abc",
+            "cred_id must be workspace project_id when legacy repo's project_id matches a workspace");
     }
 
     /// list_connected_platforms_impl with workspace project_id as cred key returns

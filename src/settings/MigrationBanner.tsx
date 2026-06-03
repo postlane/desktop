@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '../ipc/invoke';
 import WorkspaceMissingBanner, { useWorkspaceStatus } from './WorkspaceMissingBanner';
+import MigrationFlow from './MigrationFlow';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -166,6 +167,9 @@ export function MigrationBannersBlock({ projectId }: { projectId: string }) {
           onDismiss={dismissMigration}
           onSetupWorkspace={() => setShowMigrationFlow(true)}
         />
+      )}
+      {showMigrationFlow && (
+        <MigrationFlow projectId={projectId} onDone={() => setShowMigrationFlow(false)} />
       )}
       {journalStatuses.map((j) => (
         <RecoveryBannerContent

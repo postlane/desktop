@@ -10,6 +10,7 @@ import { RepoListSection } from './RepoTable';
 import type { RepoConnectionStatus, RowActions } from './RepoTable';
 import type { WorkspaceSetupResult } from './WorkspaceConfirmModal';
 import { useMigrationStatus } from './MigrationBanner';
+import MigrationFlow from './MigrationFlow';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -211,16 +212,27 @@ function useWorkspacePath(projectId: string) {
   return workspacePath;
 }
 
-// ── Migration re-entry (22.5.9) ───────────────────────────────────────────────
+// ── Migration re-entry (22.5.9 / 22.10.9) ────────────────────────────────────
 
-function MigrateWorkspaceButton() {
+function MigrateWorkspaceButton({ projectId }: { projectId: string }) {
   const { status } = useMigrationStatus();
+  const [showFlow, setShowFlow] = useState(false);
   const hasLegacyRepos = (status?.total_legacy_repos.length ?? 0) > 0;
   if (!hasLegacyRepos) return null;
+  if (showFlow) {
+    return (
+      <div className="mt-1">
+        <MigrationFlow projectId={projectId} onDone={() => setShowFlow(false)} />
+      </div>
+    );
+  }
   return (
     <button
       className="button is-small is-warning mt-2"
-      onClick={() => invoke('note_migration_reentered').catch(() => {})}
+      onClick={() => {
+        invoke('note_migration_reentered').catch(() => {});
+        setShowFlow(true);
+      }}
     >
       Migrate to workspace...
     </button>
@@ -266,7 +278,7 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
           {rescan.result && <RescanResultView result={rescan.result} />}
           {ws.wsToast && <p className="is-size-7 has-text-info mt-2" role="status">{ws.wsToast}</p>}
           {ws.wsError && <p role="alert" className="is-size-7 has-text-danger mt-2">{ws.wsError}</p>}
-          <MigrateWorkspaceButton />
+          <MigrateWorkspaceButton projectId={projectId} />
         </>
       )}
 

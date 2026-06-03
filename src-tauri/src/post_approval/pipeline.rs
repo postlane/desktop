@@ -87,11 +87,11 @@ pub(super) fn append_unsplash_attribution(content: &str, meta: &PostMeta) -> Str
     }
     let unsplash_url = format!("{}?{}", UNSPLASH_BASE, UNSPLASH_UTM);
     if attr.photographer_url.is_empty() {
-        return format!("{}\n\nPhoto by {} on Unsplash ({})", content, attr.photographer_name, unsplash_url);
+        return format!("{}\n\nPhoto by {} on Unsplash {}", content, attr.photographer_name, unsplash_url);
     }
     let photographer_url = format!("{}?{}", attr.photographer_url, UNSPLASH_UTM);
     format!(
-        "{}\n\nPhoto by {} ({}) on Unsplash ({})",
+        "{}\n\nPhoto by {} {} on Unsplash {}",
         content, attr.photographer_name, photographer_url, unsplash_url
     )
 }

@@ -208,4 +208,47 @@ mod project_id_tests {
             "project_id must come from workspace config, not child config",
         );
     }
+
+    /// 22.10.8 — child repo whose config.json contains a different project_id must
+    /// still use the workspace project_id in the queue (22.1.3 invariant).
+    #[test]
+    fn drafts_from_workspace_entry_ignores_conflicting_child_project_id() {
+        let ws = tempfile::TempDir::new().expect("ws dir");
+        let child = ws.path().join("repo-b");
+        std::fs::create_dir_all(child.join(".postlane")).expect("create .postlane");
+        // Child has its own project_id that differs from the workspace.
+        std::fs::write(
+            child.join(".postlane/config.json"),
+            r#"{"project_id":"child-different-proj","schema_version":1}"#,
+        ).expect("write child config");
+        std::fs::write(
+            ws.path().join("config.json"),
+            r#"{"project_id":"ws-proj-xyz","schema_version":4}"#,
+        ).expect("write ws config");
+
+        let ws_repos = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![RepoEntry {
+                id: "child-b-id".to_string(), name: "repo-b".to_string(),
+                path: child.to_str().unwrap().to_string(),
+                posts_dir: "repo-b".to_string(),
+                active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        write_workspace_repos(&ws.path().join("repos.json"), &ws_repos).expect("write ws repos");
+        write_workspace_draft_simple(ws.path(), "repo-b", "child-post", "bluesky");
+
+        let ws_entry = crate::workspace_entry::WorkspaceEntry {
+            id: "ws-proj-xyz".to_string(), name: "ws".to_string(),
+            workspace_path: ws.path().to_str().unwrap().to_string(),
+            active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let drafts = drafts_from_workspace_entry(&ws_entry);
+
+        assert_eq!(drafts.len(), 1, "draft must appear");
+        assert_eq!(
+            drafts[0].project_id.as_deref(), Some("ws-proj-xyz"),
+            "workspace project_id must win over child's conflicting project_id",
+        );
+    }
 }
