@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-mod post_location;
+pub(crate) mod post_location;
 pub(super) use post_location::{PostLocation, validate_repo_path};
 
 use crate::post_meta::{PostMeta, PostStatus};

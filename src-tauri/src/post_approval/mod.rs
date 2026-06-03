@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-mod pipeline;
+pub(crate) mod pipeline;
 
 use crate::app_state::AppState;
 use crate::post_meta::PostMeta;

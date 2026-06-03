@@ -615,3 +615,50 @@ use std::path::Path;
             entry["scheduler_id"]
         );
     }
+
+    /// 22.10.5 — after workspace approval, meta.json is written to the workspace posts path,
+    /// not to the child repo's own .postlane/posts/ directory.
+    #[tokio::test]
+    async fn test_approve_post_writes_meta_json_to_workspace_path_not_child_repo() {
+        let ws = tempfile::TempDir::new().expect("create ws dir");
+        let child = ws.path().join("my-repo");
+        std::fs::create_dir_all(&child).expect("create child dir");
+        let canonical_child = std::fs::canonicalize(&child).expect("canonicalize child");
+        let canonical_ws = std::fs::canonicalize(ws.path()).expect("canonicalize ws");
+
+        let state = make_workspace_state(
+            canonical_ws.to_str().unwrap(),
+            canonical_child.to_str().unwrap(),
+            "my-repo",
+        );
+        write_workspace_post(&canonical_ws, "my-repo", "test-post");
+
+        let result = approve_post_impl(
+            canonical_child.to_str().unwrap(),
+            "test-post",
+            "x",
+            &state,
+            None,
+            false,
+        ).await;
+        assert!(result.is_ok(), "workspace approve must succeed: {:?}", result);
+
+        // meta.json must be updated at the workspace posts path
+        let ws_meta = canonical_ws.join("posts").join("my-repo").join("test-post").join("meta.json");
+        assert!(ws_meta.exists(), "meta.json must exist at workspace posts path: {}", ws_meta.display());
+        let meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&ws_meta).expect("read meta.json")
+        ).expect("parse meta.json");
+        assert!(
+            meta.get("sent_platforms").is_some(),
+            "meta.json at workspace path must have sent_platforms written by approve pipeline",
+        );
+
+        // meta.json must NOT be written to the child repo's own .postlane/posts/ directory
+        let legacy_meta = canonical_child.join(".postlane").join("posts").join("test-post").join("meta.json");
+        assert!(
+            !legacy_meta.exists(),
+            "meta.json must NOT be written to child repo legacy path: {}",
+            legacy_meta.display(),
+        );
+    }
