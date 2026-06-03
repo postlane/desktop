@@ -142,6 +142,7 @@ pub(super) fn apply_scheduler_result(
     sent_at: &str,
 ) {
     meta.sent_platforms.insert(platform.to_string(), sent_at.to_string());
+    meta.error = None;
     // Intentional: status=Sent is written when the FIRST platform is approved, not all.
     // This signals engagement_sync that the post is in-flight. Per-platform completion
     // is tracked accurately in sent_platforms — use that for "all platforms sent" queries.

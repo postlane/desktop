@@ -102,7 +102,7 @@ pub async fn approve_post_impl(
             repo_name: repo_name.clone(),
             post_folder: post_folder.to_string(),
             platform: platform.to_string(),
-            scheduler_id: meta.sent_platforms.get(platform).cloned().unwrap_or_default(),
+            scheduler_id: meta.scheduler_ids.get(platform).cloned().unwrap_or_default(),
         };
         if let Err(e) = crate::workspace_history::append_sent_entry(&hist_dir, &entry) {
             log::warn!("[approve_post] failed to write sent.jsonl: {}", e);
