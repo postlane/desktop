@@ -107,6 +107,36 @@ describe('22.6.2: Disconnect confirmation dialog', () => {
       expect(mockInvoke).toHaveBeenCalledWith('disconnect_workspace', { workspaceId: 'ws-1' })
     );
   });
+
+  it('modal closes after disconnect succeeds (22.10.14)', async () => {
+    await openDisconnect();
+    fireEvent.click(screen.getByTestId('modal-confirm-disconnect-btn'));
+    await waitFor(() =>
+      expect(screen.queryByText(/leaves your files intact/i)).toBeNull()
+    );
+  });
+
+  it('calls onDisconnected after successful disconnect (22.10.14)', async () => {
+    const onDisconnected = vi.fn();
+    render(<DangerZone workspaceId="ws-1" isOwner onDisconnected={onDisconnected} />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /^Disconnect$/i }));
+    await waitFor(() => screen.getByTestId('modal-confirm-disconnect-btn'));
+    fireEvent.click(screen.getByTestId('modal-confirm-disconnect-btn'));
+    await waitFor(() => expect(onDisconnected).toHaveBeenCalledOnce());
+  });
+
+  it('shows error message when disconnect_workspace fails (22.10.14)', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_workspace_info') return Promise.resolve(defaultInfo());
+      if (cmd === 'disconnect_workspace') return Promise.reject('Network error');
+      return Promise.resolve(null);
+    });
+    await openDisconnect();
+    fireEvent.click(screen.getByTestId('modal-confirm-disconnect-btn'));
+    await waitFor(() => expect(screen.getByText('Network error')).toBeDefined());
+    expect(screen.queryByText(/leaves your files intact/i)).not.toBeNull();
+  });
 });
 
 // ── 22.6.10/22.6.11: Delete two-step confirmation ────────────────────────────

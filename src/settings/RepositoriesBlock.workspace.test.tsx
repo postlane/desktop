@@ -329,7 +329,7 @@ describe('RepositoriesBlock — multi-repo confirmation modal (22.3.3)', () => {
 
 // ── 22.3.17 / 22.3.20 — Rescan workspace button ───────────────────────────────
 
-describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
+describe('RepositoriesBlock — Rescan workspace button visibility (22.3.17)', () => {
   beforeEach(() => {
     mockInvoke.mockImplementation(async (cmd) => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
@@ -347,7 +347,9 @@ describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
     await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /Rescan workspace/i })).not.toBeInTheDocument()
   })
+})
 
+describe('RepositoriesBlock — Rescan workspace results (22.3.20)', () => {
   it('calls rescan_workspace with the correct workspaceId', async () => {
     mockInvoke.mockImplementation(async (cmd) => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
@@ -381,6 +383,19 @@ describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
     render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/Added: 1/i)).toBeInTheDocument())
+  })
+
+  it('refreshes the repo list after rescan completes (22.10.12)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_repo_connection_status') return [makeRow()]
+      if (cmd === 'rescan_workspace') return { added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] }
+      return null
+    })
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
+    await waitFor(() => expect(screen.getByText(/Added: 1/i)).toBeInTheDocument())
+    const statusCalls = mockInvoke.mock.calls.filter(c => c[0] === 'get_repo_connection_status')
+    expect(statusCalls.length).toBeGreaterThan(1)
   })
 
   it('shows deactivated count when repos go missing', async () => {

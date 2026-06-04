@@ -6,7 +6,7 @@ import { invoke } from '../ipc/invoke';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props { workspaceId: string; isOwner: boolean; }
+interface Props { workspaceId: string; isOwner: boolean; onDisconnected?: () => void; }
 interface WorkspaceInfo { workspace_path: string; name: string; }
 type Modal = 'none' | 'disconnect' | 'delete';
 type DeleteStep = 'warning' | 'journal' | 'confirm';
@@ -25,8 +25,9 @@ function useWorkspaceInfo(workspaceId: string) {
 
 // ── Disconnect modal (22.6.2) ─────────────────────────────────────────────────
 
-function DisconnectModal({ workspaceId, name, onDone, onCancel }: {
+function DisconnectModal({ workspaceId, name, onDone, onCancel, onDisconnected }: {
   workspaceId: string; name: string; onDone: () => void; onCancel: () => void;
+  onDisconnected?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,7 @@ function DisconnectModal({ workspaceId, name, onDone, onCancel }: {
     try {
       await invoke('disconnect_workspace', { workspaceId });
       onDone();
+      onDisconnected?.();
     } catch (e) {
       setError(typeof e === 'string' ? e : 'Disconnect failed');
     } finally { setLoading(false); }
@@ -170,7 +172,7 @@ function DeleteModal({ workspaceId, info, onDone, onCancel }: {
 
 // ── Main component (22.6.1 / 22.10.14 / 22.10.15) ───────────────────────────
 
-export default function DangerZone({ workspaceId, isOwner }: Props) {
+export default function DangerZone({ workspaceId, isOwner, onDisconnected }: Props) {
   const info = useWorkspaceInfo(workspaceId);
   const [modal, setModal] = useState<Modal>('none');
 
@@ -195,7 +197,8 @@ export default function DangerZone({ workspaceId, isOwner }: Props) {
       </div>
       {modal === 'disconnect' && (
         <DisconnectModal workspaceId={workspaceId} name={info?.name ?? workspaceId}
-          onDone={() => setModal('none')} onCancel={() => setModal('none')} />
+          onDone={() => setModal('none')} onCancel={() => setModal('none')}
+          onDisconnected={onDisconnected} />
       )}
       {modal === 'delete' && info && (
         <DeleteModal workspaceId={workspaceId} info={info}

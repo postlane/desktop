@@ -146,6 +146,26 @@ pub fn check_all_workspace_paths_impl(repos_path: &Path) -> Vec<WorkspaceCheckRe
         .collect()
 }
 
+/// Updates `workspace_path` and `name` for the given workspace in the in-memory
+/// `AppState.repos` mutex. No-op if `workspace_id` is not found.
+pub fn update_workspace_path_in_memory(
+    state: &crate::app_state::AppState,
+    workspace_id: &str,
+    new_path: &str,
+) {
+    let name = Path::new(new_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(new_path)
+        .to_string();
+    if let Ok(mut repos) = state.lock_repos() {
+        if let Some(ws) = repos.workspaces.iter_mut().find(|w| w.id == workspace_id) {
+            ws.workspace_path = new_path.to_string();
+            ws.name = name;
+        }
+    }
+}
+
 /// Updates `workspace_path` and `name` for the given workspace in repos.json.
 /// The new name is derived from `basename(new_path)`.
 /// Does NOT start file watchers — the caller is responsible for that.
@@ -255,6 +275,7 @@ pub fn update_workspace_path(
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     update_workspace_path_impl(&state.repos_path, &workspace_id, &new_path)?;
+    update_workspace_path_in_memory(&state, &workspace_id, &new_path);
     crate::repo_mgmt::start_repo_watcher(&workspace_id, &new_path, &state, app);
     let consent = crate::app_state::read_app_state().telemetry_consent;
     record_workspace_path_recovered(&state, consent, "auto");
@@ -273,6 +294,7 @@ pub fn locate_workspace_folder(
 ) -> Result<(), String> {
     validate_workspace_folder_impl(&state.repos_path, &workspace_id, &folder_path)?;
     update_workspace_path_impl(&state.repos_path, &workspace_id, &folder_path)?;
+    update_workspace_path_in_memory(&state, &workspace_id, &folder_path);
     crate::repo_mgmt::start_repo_watcher(&workspace_id, &folder_path, &state, app);
     let consent = crate::app_state::read_app_state().telemetry_consent;
     record_workspace_path_recovered(&state, consent, "manual");

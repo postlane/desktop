@@ -132,11 +132,15 @@ function OrgHistoryView({ projectId }: {
   return <PostTable posts={posts} isHistory={true} onSelect={setSelectedPost} timezone={tz} />;
 }
 
-function OrgSettingsDispatch({ projectId }: { projectId: string }) {
-  const { projects } = useProjectsContext();
+function OrgSettingsDispatch({ projectId, onNavigate }: { projectId: string; onNavigate: (_sel: ViewSelection) => void }) {
+  const { projects, refresh: refreshProjects } = useProjectsContext();
   const project = projects.find(p => p.id === projectId);
   if (!project) return <LoadingView />;
-  return <OrgSettingsView org={project} />;
+  function handleDisconnected() {
+    refreshProjects();
+    onNavigate({ view: 'no_orgs' });
+  }
+  return <OrgSettingsView org={project} onDisconnected={handleDisconnected} />;
 }
 
 function GlobalSettingsDispatch({ section, onTimezoneChange, onSignedOut }: {
@@ -174,7 +178,7 @@ export function MainContent({
     );
   }
   if (view.view === 'org_history') return <OrgHistoryView projectId={view.projectId} />;
-  if (view.view === 'org_settings') return <OrgSettingsDispatch projectId={view.projectId} />;
+  if (view.view === 'org_settings') return <OrgSettingsDispatch projectId={view.projectId} onNavigate={onNavigate} />;
   if (view.view === 'global_settings') {
     return (
       <GlobalSettingsDispatch section={view.section}

@@ -153,6 +153,64 @@ fn test_rescan_workspace_deactivates_missing_repo() {
     assert!(!entry_b.active, "child-b must be deactivated");
 }
 
+// ── 22.10.12 — rescan assigns collision-safe posts_dir ───────────────────────
+
+/// When a workspace already has repos with `posts_dir: "frontend"` and
+/// `posts_dir: "frontend-2"`, a newly cloned repo whose basename is also
+/// "frontend" must receive `posts_dir: "frontend-3"`.
+#[test]
+fn test_rescan_assigns_collision_safe_posts_dir_for_duplicate_basename() {
+    let ws = TempDir::new().unwrap();
+    let repos_dir = TempDir::new().unwrap();
+    let repos_path = repos_dir.path().join("repos.json");
+
+    write_global_repos_with_workspace(&repos_path, "proj-rescan-col", ws.path().to_str().unwrap());
+
+    // Two existing repos at different absolute paths, both with basename "frontend"
+    let dir_a = ws.path().join("org-a").join("frontend");
+    let dir_b = ws.path().join("org-b").join("frontend");
+    make_git_repo(&dir_a);
+    make_git_repo(&dir_b);
+
+    // Only dir_a is directly inside the workspace (1 level deep); place a
+    // third "frontend" at workspace root level for discover_child_repos to find.
+    let dir_c = ws.path().join("frontend");
+    make_git_repo(&dir_c);
+
+    // Pre-populate workspace repos.json with two entries whose posts_dir values
+    // already occupy "frontend" and "frontend-2".
+    let mut entry_a = make_repo_entry("frontend", dir_a.to_str().unwrap());
+    entry_a.posts_dir = "frontend".to_string();
+    let mut entry_b = make_repo_entry("frontend", dir_b.to_str().unwrap());
+    entry_b.posts_dir = "frontend-2".to_string();
+    write_workspace_repos(ws.path(), vec![entry_a, entry_b]);
+
+    // dir_c is at workspace root — discover_child_repos will find it.
+    let result = rescan_workspace_impl(&repos_path, "proj-rescan-col")
+        .expect("rescan must succeed");
+
+    assert!(
+        result.added.contains(&"frontend".to_string()),
+        "frontend (dir_c) must be added; got: {:?}",
+        result.added
+    );
+
+    let written: crate::workspace_repos::WorkspaceReposConfig = serde_json::from_str(
+        &std::fs::read_to_string(ws.path().join("repos.json")).unwrap(),
+    )
+    .unwrap();
+
+    let new_entry = written.repos.iter()
+        .find(|e| e.path == dir_c.to_str().unwrap())
+        .expect("new entry for dir_c must exist in repos.json");
+
+    assert_eq!(
+        new_entry.posts_dir, "frontend-3",
+        "new repo must receive posts_dir 'frontend-3' to avoid collision; got '{}'",
+        new_entry.posts_dir
+    );
+}
+
 // ── 22.9.11: workspace_rescan telemetry ──────────────────────────────────────
 
 #[test]

@@ -12,9 +12,10 @@ import type { Project } from '../types';
 
 interface Props {
   org: Project;
+  onDisconnected?: () => void;
 }
 
-export default function OrgSettingsView({ org }: Props) {
+export default function OrgSettingsView({ org, onDisconnected }: Props) {
   const isOwner = org.is_owner;
   return (
     <div className="px-5 py-4" style={{ maxWidth: '48rem' }}>
@@ -27,7 +28,7 @@ export default function OrgSettingsView({ org }: Props) {
         <VoiceGuideBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <MembersBlock />
         <BillingBlock project={org} isOwner={isOwner} />
-        <DangerZone workspaceId={org.id} isOwner={isOwner} />
+        <DangerZone workspaceId={org.id} isOwner={isOwner} onDisconnected={onDisconnected} />
       </div>
     </div>
   );

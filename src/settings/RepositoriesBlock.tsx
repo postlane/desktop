@@ -191,13 +191,15 @@ function useDisconnect(projectId: string, refresh: () => void) {
 }
 
 
-function useRescanWorkspace(workspaceId: string) {
+function useRescanWorkspace(workspaceId: string, refresh: () => void) {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<RescanResult | null>(null);
   async function rescan() {
     setScanning(true);
-    try { setResult(await invoke<RescanResult>('rescan_workspace', { workspaceId })); }
-    finally { setScanning(false); }
+    try {
+      setResult(await invoke<RescanResult>('rescan_workspace', { workspaceId }));
+      refresh();
+    } finally { setScanning(false); }
   }
   return { scanning, result, rescan };
 }
@@ -246,7 +248,7 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
   const actions = useRepoActions(rows, refresh);
   const disconnect = useDisconnect(projectId, refresh);
   const ws = useWorkspaceFlow(projectId, refresh);
-  const rescan = useRescanWorkspace(projectId);
+  const rescan = useRescanWorkspace(projectId, refresh);
   const workspacePath = useWorkspacePath(projectId);
 
   const hasGitHubApp = rows.some((r) => r.github_app_connected);
