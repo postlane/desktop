@@ -6,7 +6,7 @@ import { invoke } from '../ipc/invoke';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props { workspaceId: string; isOwner: boolean; onDisconnected?: () => void; }
+interface Props { workspaceId: string; isOwner: boolean; onDisconnected?: () => void; onDeleted?: () => void; }
 interface WorkspaceInfo { workspace_path: string; name: string; }
 type Modal = 'none' | 'disconnect' | 'delete';
 type DeleteStep = 'warning' | 'journal' | 'confirm';
@@ -108,8 +108,9 @@ function DeleteJournalStep({ onConfirm, onCancel }: { onConfirm: () => void; onC
   );
 }
 
-function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
+function DeleteConfirmStep({ workspaceId, info, onDone, onCancel, onDeleted }: {
   workspaceId: string; info: WorkspaceInfo; onDone: () => void; onCancel: () => void;
+  onDeleted?: () => void;
 }) {
   const [nameInput, setNameInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -122,6 +123,7 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
     try {
       await invoke('delete_workspace', { workspaceId });
       onDone();
+      onDeleted?.();
     } catch (e) {
       setError(typeof e === 'string' ? e : 'Delete failed');
     } finally { setLoading(false); }
@@ -155,8 +157,9 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
 
 // ── Delete modal — step machine ────────────────────────────────────────────────
 
-function DeleteModal({ workspaceId, info, onDone, onCancel }: {
+function DeleteModal({ workspaceId, info, onDone, onCancel, onDeleted }: {
   workspaceId: string; info: WorkspaceInfo; onDone: () => void; onCancel: () => void;
+  onDeleted?: () => void;
 }) {
   const [step, setStep] = useState<DeleteStep>('warning');
 
@@ -167,12 +170,12 @@ function DeleteModal({ workspaceId, info, onDone, onCancel }: {
 
   if (step === 'warning') return <DeleteWarningStep onContinue={handleContinue} onCancel={onCancel} />;
   if (step === 'journal') return <DeleteJournalStep onConfirm={() => setStep('confirm')} onCancel={onCancel} />;
-  return <DeleteConfirmStep workspaceId={workspaceId} info={info} onDone={onDone} onCancel={onCancel} />;
+  return <DeleteConfirmStep workspaceId={workspaceId} info={info} onDone={onDone} onCancel={onCancel} onDeleted={onDeleted} />;
 }
 
 // ── Main component (22.6.1 / 22.10.14 / 22.10.15) ───────────────────────────
 
-export default function DangerZone({ workspaceId, isOwner, onDisconnected }: Props) {
+export default function DangerZone({ workspaceId, isOwner, onDisconnected, onDeleted }: Props) {
   const info = useWorkspaceInfo(workspaceId);
   const [modal, setModal] = useState<Modal>('none');
 
@@ -202,7 +205,7 @@ export default function DangerZone({ workspaceId, isOwner, onDisconnected }: Pro
       )}
       {modal === 'delete' && info && (
         <DeleteModal workspaceId={workspaceId} info={info}
-          onDone={() => setModal('none')} onCancel={() => setModal('none')} />
+          onDone={() => setModal('none')} onCancel={() => setModal('none')} onDeleted={onDeleted} />
       )}
       {modal === 'delete' && !info && (
         <div className="modal is-active">

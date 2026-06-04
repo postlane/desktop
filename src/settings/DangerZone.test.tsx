@@ -286,3 +286,32 @@ describe('22.6.12a: journal warning before Step 2', () => {
     await waitFor(() => expect(screen.getByLabelText(/type the workspace name/i)).toBeDefined());
   });
 });
+
+// ── 22.10.15: post-delete callback ───────────────────────────────────────────
+
+async function openDeleteStep2WithCallback(onDeleted?: () => void) {
+  render(<DangerZone workspaceId="ws-1" isOwner onDeleted={onDeleted} />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
+  await act(async () => {});
+  await waitFor(() => screen.getByRole('button', { name: /Continue/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+  await act(async () => {});
+  await waitFor(() => screen.getByLabelText(/type the workspace name/i));
+  fireEvent.change(screen.getByLabelText(/type the workspace name/i), { target: { value: 'myorg' } });
+}
+
+describe('22.10.15: post-delete callback', () => {
+  it('calls onDeleted after successful delete', async () => {
+    const onDeleted = vi.fn();
+    await openDeleteStep2WithCallback(onDeleted);
+    fireEvent.click(screen.getByTestId('modal-confirm-delete-btn'));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
+  });
+
+  it('modal closes after delete succeeds', async () => {
+    await openDeleteStep2WithCallback();
+    fireEvent.click(screen.getByTestId('modal-confirm-delete-btn'));
+    await waitFor(() => expect(screen.queryByText(/Confirm permanent deletion/i)).toBeNull());
+  });
+});

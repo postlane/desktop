@@ -140,7 +140,11 @@ function OrgSettingsDispatch({ projectId, onNavigate }: { projectId: string; onN
     refreshProjects();
     onNavigate({ view: 'no_orgs' });
   }
-  return <OrgSettingsView org={project} onDisconnected={handleDisconnected} />;
+  function handleDeleted() {
+    refreshProjects();
+    onNavigate({ view: 'no_orgs' });
+  }
+  return <OrgSettingsView org={project} onDisconnected={handleDisconnected} onDeleted={handleDeleted} />;
 }
 
 function GlobalSettingsDispatch({ section, onTimezoneChange, onSignedOut }: {
