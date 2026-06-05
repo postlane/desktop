@@ -377,3 +377,23 @@ describe('MainContent — org_settings post-delete navigation (22.10.15)', () =>
     expect(refreshProjects).toHaveBeenCalled()
   })
 })
+
+// ── org_settings: post-action toasts (B13) ────────────────────────────────────
+
+describe('MainContent — org_settings post-action toasts (B13)', () => {
+  it('shows toast "Workspace and all content deleted" when workspace is deleted', () => {
+    const onToast = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onToast={onToast} />)
+    fireEvent.click(screen.getByTestId('trigger-deleted'))
+    expect(onToast).toHaveBeenCalledWith('Workspace and all content deleted')
+  })
+
+  it('shows toast "Workspace disconnected" when workspace is disconnected', () => {
+    const onToast = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onToast={onToast} />)
+    fireEvent.click(screen.getByTestId('trigger-disconnected'))
+    expect(onToast).toHaveBeenCalledWith('Workspace disconnected')
+  })
+})

@@ -315,3 +315,48 @@ describe('22.10.15: post-delete callback', () => {
     await waitFor(() => expect(screen.queryByText(/Confirm permanent deletion/i)).toBeNull());
   });
 });
+
+// ── B14: cloud-only project (no local workspace path) ─────────────────────────
+
+describe('B14: cloud-only project fallback', () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_workspace_info') return Promise.reject(new Error('not found'));
+      if (cmd === 'check_workspace_journal') return Promise.resolve(false);
+      if (cmd === 'delete_workspace') return Promise.resolve(false);
+      return Promise.resolve(null);
+    });
+  });
+
+  it('shows Step 1 warning when get_workspace_info fails', async () => {
+    render(<DangerZone workspaceId="cloud-id" isOwner workspaceName="my-project" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
+    await act(async () => {});
+    expect(screen.getByText(/cannot be undone/i)).toBeDefined();
+  });
+
+  it('does not show monospace path block when workspace has no local directory', async () => {
+    render(<DangerZone workspaceId="cloud-id" isOwner workspaceName="my-project" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    await act(async () => {});
+    await waitFor(() => screen.getByLabelText(/type the workspace name/i));
+    expect(screen.queryByText('/home/user')).toBeNull();
+  });
+
+  it('Delete button activates when workspaceName is typed for cloud-only project', async () => {
+    render(<DangerZone workspaceId="cloud-id" isOwner workspaceName="my-project" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    await act(async () => {});
+    await waitFor(() => screen.getByLabelText(/type the workspace name/i));
+    fireEvent.change(screen.getByLabelText(/type the workspace name/i), { target: { value: 'my-project' } });
+    expect((screen.getByTestId('modal-confirm-delete-btn') as HTMLButtonElement).disabled).toBe(false);
+  });
+});

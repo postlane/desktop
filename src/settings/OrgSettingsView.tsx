@@ -29,7 +29,7 @@ export default function OrgSettingsView({ org, onDisconnected, onDeleted }: Prop
         <VoiceGuideBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <MembersBlock />
         <BillingBlock project={org} isOwner={isOwner} />
-        <DangerZone workspaceId={org.id} isOwner={isOwner} onDisconnected={onDisconnected} onDeleted={onDeleted} />
+        <DangerZone workspaceId={org.id} isOwner={isOwner} workspaceName={org.name} onDisconnected={onDisconnected} onDeleted={onDeleted} />
       </div>
     </div>
   );

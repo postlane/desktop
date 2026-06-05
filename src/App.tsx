@@ -132,17 +132,23 @@ function OrgHistoryView({ projectId }: {
   return <PostTable posts={posts} isHistory={true} onSelect={setSelectedPost} timezone={tz} />;
 }
 
-function OrgSettingsDispatch({ projectId, onNavigate }: { projectId: string; onNavigate: (_sel: ViewSelection) => void }) {
+function OrgSettingsDispatch({ projectId, onNavigate, onToast }: {
+  projectId: string;
+  onNavigate: (_sel: ViewSelection) => void;
+  onToast: (_msg: string) => void;
+}) {
   const { projects, refresh: refreshProjects } = useProjectsContext();
   const project = projects.find(p => p.id === projectId);
   if (!project) return <LoadingView />;
   function handleDisconnected() {
     refreshProjects();
     onNavigate({ view: 'no_orgs' });
+    onToast('Workspace disconnected');
   }
   function handleDeleted() {
     refreshProjects();
     onNavigate({ view: 'no_orgs' });
+    onToast('Workspace and all content deleted');
   }
   return <OrgSettingsView org={project} onDisconnected={handleDisconnected} onDeleted={handleDeleted} />;
 }
@@ -182,7 +188,7 @@ export function MainContent({
     );
   }
   if (view.view === 'org_history') return <OrgHistoryView projectId={view.projectId} />;
-  if (view.view === 'org_settings') return <OrgSettingsDispatch projectId={view.projectId} onNavigate={onNavigate} />;
+  if (view.view === 'org_settings') return <OrgSettingsDispatch projectId={view.projectId} onNavigate={onNavigate} onToast={onToast} />;
   if (view.view === 'global_settings') {
     return (
       <GlobalSettingsDispatch section={view.section}

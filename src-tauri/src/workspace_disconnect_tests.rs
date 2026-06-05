@@ -281,6 +281,22 @@ fn test_mastodon_keyring_keys_with_instance_returns_three_keys() {
     assert!(keys.contains(&token_key), "must include access_token key for the instance");
 }
 
+// ── B14: remove_workspace_entry is a no-op for unknown id ────────────────────
+
+#[test]
+fn test_remove_workspace_entry_noop_for_unknown_id() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    write_repos_with_workspace(&repos_path, make_workspace_entry("ws-known", "/tmp/known"));
+
+    let remaining = remove_workspace_entry(&repos_path, "ws-unknown").expect("should not error");
+    assert_eq!(remaining, 1, "existing workspace must be preserved");
+
+    let config = storage::read_repos_with_recovery(&repos_path).expect("read repos");
+    assert_eq!(config.workspaces.len(), 1);
+    assert_eq!(config.workspaces[0].id, "ws-known");
+}
+
 // ── migration_journal_exists ──────────────────────────────────────────────────
 
 #[test]

@@ -6,20 +6,20 @@ import { invoke } from '../ipc/invoke';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props { workspaceId: string; isOwner: boolean; onDisconnected?: () => void; onDeleted?: () => void; }
+interface Props { workspaceId: string; isOwner: boolean; workspaceName?: string; onDisconnected?: () => void; onDeleted?: () => void; }
 interface WorkspaceInfo { workspace_path: string; name: string; }
 type Modal = 'none' | 'disconnect' | 'delete';
 type DeleteStep = 'warning' | 'journal' | 'confirm';
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-function useWorkspaceInfo(workspaceId: string) {
+function useWorkspaceInfo(workspaceId: string, workspaceName: string) {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   useEffect(() => {
     invoke<WorkspaceInfo>('get_workspace_info', { workspaceId })
       .then(setInfo)
-      .catch(() => {});
-  }, [workspaceId]);
+      .catch(() => setInfo({ workspace_path: '', name: workspaceName }));
+  }, [workspaceId, workspaceName]);
   return info;
 }
 
@@ -137,7 +137,9 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel, onDeleted }: {
           <p className="modal-card-title has-text-danger">Confirm permanent deletion</p>
         </header>
         <section className="modal-card-body">
-          <p className="is-family-monospace has-background-light p-2 mb-3">{info.workspace_path}</p>
+          {info.workspace_path && (
+            <p className="is-family-monospace has-background-light p-2 mb-3">{info.workspace_path}</p>
+          )}
           <label className="label" htmlFor="delete-confirm-input">To confirm, type the workspace name:</label>
           <input
             id="delete-confirm-input" aria-label="type the workspace name"
@@ -175,8 +177,8 @@ function DeleteModal({ workspaceId, info, onDone, onCancel, onDeleted }: {
 
 // ── Main component (22.6.1 / 22.10.14 / 22.10.15) ───────────────────────────
 
-export default function DangerZone({ workspaceId, isOwner, onDisconnected, onDeleted }: Props) {
-  const info = useWorkspaceInfo(workspaceId);
+export default function DangerZone({ workspaceId, isOwner, workspaceName = '', onDisconnected, onDeleted }: Props) {
+  const info = useWorkspaceInfo(workspaceId, workspaceName);
   const [modal, setModal] = useState<Modal>('none');
 
   if (!isOwner) return null;
