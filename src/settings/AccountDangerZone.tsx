@@ -66,7 +66,7 @@ function DeleteModal({ userEmail, onDeleted, onCancel, deleteWorkspaceDirsValue,
             Postlane&apos;s servers. This cannot be undone.
           </p>
           <WorkspaceDirCheckbox checked={deleteWorkspaceDirsValue} onChange={onDeleteWorkspaceDirsChange} />
-          <label className="label" htmlFor="account-delete-email">To confirm, type your account email:</label>
+          <label className="label" htmlFor="account-delete-email">To confirm, type <strong>{userEmail}</strong>:</label>
           <input
             id="account-delete-email" className="input" type="email"
             placeholder="Type your account email to confirm"
