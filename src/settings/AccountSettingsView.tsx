@@ -50,8 +50,8 @@ export default function AccountSettingsView({ onSignedOut }: Props) {
           Sign out
         </button>
       </div>
-      {email && (
-        <AccountDangerZone userEmail={email} onDeleted={onSignedOut} />
+      {(email || displayName) && (
+        <AccountDangerZone userEmail={email ?? displayName ?? ''} onDeleted={onSignedOut} />
       )}
     </div>
   );
