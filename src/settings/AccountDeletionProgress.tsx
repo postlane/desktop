@@ -28,15 +28,20 @@ interface ErrorPanelProps {
 
 function ErrorPanel({ error, onRetry, onSkip, onAbort }: ErrorPanelProps) {
   const isCritical = !error.skippable;
+  // Phase 0 is the pre-flight session check. Its failure message (sign-in guidance) is
+  // self-explanatory — do not append the Step-5-specific "cannot be skipped" explanation.
+  const isPreflightFailure = error.phase === 0;
   return (
     <div>
       <ErrorCode code={error.code} message={error.message} />
       {isCritical ? (
         <>
-          <p className="is-size-7 mb-2">
-            This step cannot be skipped. Skipping would leave your account record on
-            Postlane&apos;s servers in an unrecoverable state.
-          </p>
+          {!isPreflightFailure && (
+            <p className="is-size-7 mb-2">
+              This step cannot be skipped. Skipping would leave your account record on
+              Postlane&apos;s servers in an unrecoverable state.
+            </p>
+          )}
           <div className="is-flex" style={{ gap: '0.5rem' }}>
             <button className="button is-small is-danger" onClick={onRetry}>Retry</button>
             <button className="button is-small" onClick={onAbort}>Abort</button>

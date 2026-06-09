@@ -190,6 +190,39 @@ describe('22.7.19a / 22.7.21a: Phase 5 critical — Retry and Abort only', () =>
   });
 });
 
+// ── B17: Phase 0 pre-flight failure ──────────────────────────────────────────
+
+describe('B17: Phase 0 pre-flight failure — session expired / no token', () => {
+  async function triggerPhase0Error(message = 'Your session has expired. Sign out and sign back in to continue.') {
+    mockInvoke.mockImplementation(() =>
+      Promise.reject({ phase: 0, code: 'PL-DEL-000', message, skippable: false })
+    );
+    render(<AccountDeletionProgress {...defaultProps} />);
+    await waitFor(() => screen.getByRole('button', { name: /Retry/i }));
+  }
+
+  it('does NOT show Skip button for phase 0 failure', async () => {
+    await triggerPhase0Error();
+    expect(screen.queryByRole('button', { name: /Skip/i })).toBeNull();
+  });
+
+  it('shows Retry and Abort for phase 0 failure', async () => {
+    await triggerPhase0Error();
+    expect(screen.queryByRole('button', { name: /Retry/i })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /Abort/i })).not.toBeNull();
+  });
+
+  it('does NOT show the Step-5 "cannot be skipped" copy for phase 0 failure', async () => {
+    await triggerPhase0Error();
+    expect(screen.queryByText(/cannot be skipped/i)).toBeNull();
+  });
+
+  it('shows the error message from Rust (sign-in guidance) for phase 0 failure', async () => {
+    await triggerPhase0Error();
+    expect(screen.queryByText(/sign out and sign back in/i)).not.toBeNull();
+  });
+});
+
 // ── 22.7.8: completion navigates to wizard ────────────────────────────────────
 
 describe('22.7.8: completion', () => {
