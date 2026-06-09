@@ -63,7 +63,7 @@ jobs:
         id: cache-apt
         uses: actions/cache@v4
         with:
-          path: /var/cache/apt/archives
+          path: /var/cache/apt/archives/*.deb
           key: ${{ runner.os }}-apt-webkit2gtk-4.1-librsvg2-patchelf
 
       - name: Install system dependencies
