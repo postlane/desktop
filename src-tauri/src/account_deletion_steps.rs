@@ -101,8 +101,7 @@ fn run_phase_7(do_delete: bool, state: &crate::app_state::AppState) -> DeletionP
 
 #[tauri::command]
 pub async fn run_deletion_phase(phase: u8, delete_workspace_dirs: bool, app: tauri::AppHandle, state: tauri::State<'_, crate::app_state::AppState>) -> Result<DeletionPhaseResult, DeletionPhaseError> {
-    let token = app.keyring().get_password("postlane", "license").ok().flatten()
-        .ok_or_else(|| phase_err(0, "PL-DEL-000", "Your session has expired. Sign out and sign back in to continue.".to_string()))?;
+    let token = resolve_license_token(app.keyring().get_password("postlane", "license"))?;
     let client = crate::providers::scheduling::build_client();
     match phase {
         0 => run_phase_0(&token, &client, &state).await,
@@ -123,9 +122,39 @@ impl crate::app_state::AppState {
     pub fn repos_path_ref(&self) -> &std::path::Path { &self.repos_path }
 }
 
+fn resolve_license_token<E: std::fmt::Display>(result: Result<Option<String>, E>) -> Result<String, DeletionPhaseError> {
+    match result {
+        Ok(Some(t)) => Ok(t),
+        Ok(None) => Err(phase_err(0, "PL-DEL-000", "Your session has expired. Sign out and sign back in to continue.".to_string())),
+        Err(e) => Err(phase_err(0, "PL-DEL-KEYCHAIN", format!("Keychain error: {e}. Check macOS Keychain Access and ensure Postlane has permission."))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_resolve_token_returns_token_on_success() {
+        let result: Result<Option<String>, String> = Ok(Some("tok".to_string()));
+        assert_eq!(resolve_license_token(result).unwrap(), "tok");
+    }
+
+    #[test]
+    fn test_resolve_token_session_expired_on_no_entry() {
+        let result: Result<Option<String>, String> = Ok(None);
+        let err = resolve_license_token(result).unwrap_err();
+        assert_eq!(err.code, "PL-DEL-000");
+        assert!(err.message.to_lowercase().contains("sign"));
+    }
+
+    #[test]
+    fn test_resolve_token_keychain_error_on_access_denied() {
+        let result: Result<Option<String>, String> = Err("access denied".to_string());
+        let err = resolve_license_token(result).unwrap_err();
+        assert_eq!(err.code, "PL-DEL-KEYCHAIN");
+        assert!(err.message.to_lowercase().contains("keychain"));
+    }
 
     #[test]
     fn test_phase_5_not_skippable() { assert!(!is_skippable(5)); }
