@@ -31,7 +31,7 @@ pub fn phase_message(phase: u8) -> &'static str {
     }
 }
 
-pub fn is_skippable(phase: u8) -> bool { phase != 5 }
+pub fn is_skippable(phase: u8) -> bool { phase != 0 && phase != 5 }
 pub const TOTAL_PHASES: u8 = 8;
 
 fn next_phase(phase: u8) -> Option<u8> { if phase + 1 < TOTAL_PHASES { Some(phase + 1) } else { None } }
@@ -102,7 +102,7 @@ fn run_phase_7(do_delete: bool, state: &crate::app_state::AppState) -> DeletionP
 #[tauri::command]
 pub async fn run_deletion_phase(phase: u8, delete_workspace_dirs: bool, app: tauri::AppHandle, state: tauri::State<'_, crate::app_state::AppState>) -> Result<DeletionPhaseResult, DeletionPhaseError> {
     let token = app.keyring().get_password("postlane", "license").ok().flatten()
-        .ok_or_else(|| phase_err(phase, "PL-DEL-000", "No license token".to_string()))?;
+        .ok_or_else(|| phase_err(0, "PL-DEL-000", "Your session has expired. Sign out and sign back in to continue.".to_string()))?;
     let client = crate::providers::scheduling::build_client();
     match phase {
         0 => run_phase_0(&token, &client, &state).await,
@@ -131,8 +131,19 @@ mod tests {
     fn test_phase_5_not_skippable() { assert!(!is_skippable(5)); }
 
     #[test]
+    fn test_phase_0_not_skippable() { assert!(!is_skippable(0)); }
+
+    #[test]
     fn test_all_other_phases_skippable() {
-        for p in [0u8, 1, 2, 3, 4, 6, 7] { assert!(is_skippable(p), "Phase {p} must be skippable"); }
+        for p in [1u8, 2, 3, 4, 6, 7] { assert!(is_skippable(p), "Phase {p} must be skippable"); }
+    }
+
+    #[test]
+    fn test_no_license_token_error_is_non_skippable_with_sign_in_message() {
+        // phase_err(0, ...) must produce skippable:false and a message that tells the user to sign in.
+        let err = phase_err(0, "PL-DEL-000", "Your session has expired. Sign out and sign back in to continue.".to_string());
+        assert!(!err.skippable, "pre-flight failure must not be skippable");
+        assert!(err.message.to_lowercase().contains("sign"), "message must tell user to sign in");
     }
 
     #[test]
