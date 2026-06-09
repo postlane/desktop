@@ -85,6 +85,20 @@ describe('AccountSettingsView — sign out', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
   })
+
+  it('calls onSignedOut even when sign_out command errors (keyring entry already gone)', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_license_display_name') return 'alice@example.com'
+      if (cmd === 'get_license_email') return 'alice@example.com'
+      if (cmd === 'get_deletion_incomplete') return false
+      if (cmd === 'sign_out') throw new Error('Failed to sign out: No matching entry found in secure storage')
+      return null
+    })
+    const onSignedOut = vi.fn()
+    render(<AccountSettingsView onSignedOut={onSignedOut} />)
+    fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
+    await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
+  })
 })
 
 // ── Account danger zone visibility ────────────────────────────────────────────
