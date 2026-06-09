@@ -36,6 +36,16 @@ impl PostLocation {
             Self::Legacy { canonical } | Self::Workspace { canonical, .. } => canonical,
         }
     }
+
+    /// The root path to use for reading scheduler config and account IDs.
+    /// Legacy posts: the canonical repo path (config lives at `{root}/.postlane/config.json`).
+    /// Workspace posts: the workspace path (config lives at `{root}/config.json`).
+    pub fn config_root(&self) -> &str {
+        match self {
+            Self::Legacy { canonical } => canonical,
+            Self::Workspace { workspace_path, .. } => workspace_path,
+        }
+    }
 }
 
 /// Validates `repo_path` and resolves the post location (22.2.7).
@@ -55,10 +65,8 @@ pub fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<PostLocat
         .lock()
         .map_err(|e| format!("Failed to lock repos: {}", e))?;
 
-    if repos.repos.iter().any(|r| r.path == canonical_str) {
-        return Ok(PostLocation::Legacy { canonical: canonical_str });
-    }
-
+    // Check workspace children first — workspace takes precedence over legacy
+    // registrations when a repo appears in both (workspace is the current model).
     for ws_entry in repos.workspaces.iter().filter(|w| w.active) {
         let ws_repos_path = std::path::Path::new(&ws_entry.workspace_path).join("repos.json");
         let ws_repos = match crate::workspace_repos::read_workspace_repos(&ws_repos_path) {
@@ -75,5 +83,101 @@ pub fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<PostLocat
         }
     }
 
+    if repos.repos.iter().any(|r| r.path == canonical_str) {
+        return Ok(PostLocation::Legacy { canonical: canonical_str });
+    }
+
     Err(format!("Repo '{}' is not registered", canonical_str))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace_entry::WorkspaceEntry;
+    use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
+
+    fn make_state_with_both(
+        ws_path: &std::path::Path,
+        child_path: &str,
+        posts_dir: &str,
+    ) -> AppState {
+        let ws_repos = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![RepoEntry {
+                id: "child-id".to_string(),
+                name: "child".to_string(),
+                path: child_path.to_string(),
+                posts_dir: posts_dir.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        write_workspace_repos(&ws_path.join("repos.json"), &ws_repos).expect("write ws repos");
+
+        let repos_config = crate::storage::ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "proj-1".to_string(),
+                name: "ws".to_string(),
+                workspace_path: ws_path.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![crate::storage::Repo {
+                id: "legacy-id".to_string(),
+                name: "child".to_string(),
+                path: child_path.to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let tmp = tempfile::NamedTempFile::new().expect("tmp file");
+        crate::app_state::AppState::new_with_path(repos_config, tmp.path().to_path_buf())
+    }
+
+    /// When a repo appears in both the legacy `repos` array and a workspace's `repos.json`,
+    /// the workspace location must be returned. Legacy must not shadow workspace.
+    #[test]
+    fn validate_repo_path_prefers_workspace_over_legacy_when_in_both() {
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        let child_dir = tmp.path().join("repo-a");
+        std::fs::create_dir_all(&child_dir).expect("create child dir");
+        let child_path = std::fs::canonicalize(&child_dir)
+            .expect("canonicalize")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let state = make_state_with_both(tmp.path(), &child_path, "repo-a");
+        let result = validate_repo_path(&child_path, &state).expect("must resolve");
+
+        match result {
+            PostLocation::Workspace { posts_dir, .. } => {
+                assert_eq!(posts_dir, "repo-a",
+                    "posts_dir must come from workspace repos.json");
+            }
+            PostLocation::Legacy { canonical } => {
+                panic!(
+                    "workspace must take precedence over legacy, but got Legacy({})",
+                    canonical
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_workspace_config_root_is_workspace_path() {
+        let loc = PostLocation::Workspace {
+            canonical: "/ws/repo-a".to_string(),
+            workspace_path: "/ws".to_string(),
+            posts_dir: "repo-a".to_string(),
+            repo_name: "repo-a".to_string(),
+        };
+        assert_eq!(loc.config_root(), "/ws");
+    }
+
+    #[test]
+    fn test_legacy_config_root_is_canonical() {
+        let loc = PostLocation::Legacy { canonical: "/repos/my-repo".to_string() };
+        assert_eq!(loc.config_root(), "/repos/my-repo");
+    }
 }

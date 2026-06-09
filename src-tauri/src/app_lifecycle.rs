@@ -53,6 +53,7 @@ pub fn spawn_http_server(
         activation_tx: Some(activation_tx),
         watcher_tx: Some(watcher_tx),
         projects,
+        app_handle: Some(app_handle.clone()),
     };
 
     // Bind synchronously so the port file is written before setup_app returns.
@@ -73,7 +74,8 @@ pub fn spawn_http_server(
         }
     });
     spawn_activation_listener(activation_rx, app_handle.clone());
-    spawn_watcher_listener(watcher_rx, app_handle);
+    spawn_watcher_listener(watcher_rx, app_handle.clone());
+    crate::startup_projects::spawn_startup_projects_refresh(app_handle);
     Ok(())
 }
 
@@ -183,11 +185,13 @@ pub fn spawn_telemetry_flush(app_handle: tauri::AppHandle) {
 pub fn spawn_startup_account_sync(
     app_handle: tauri::AppHandle,
     repos: Vec<crate::storage::Repo>,
+    workspaces: Vec<crate::workspace_entry::WorkspaceEntry>,
 ) {
     tauri::async_runtime::spawn(async move {
         use tauri_plugin_keyring::KeyringExt;
         let result = crate::scheduler_account_sync::refresh_scheduler_accounts_impl(
             &repos,
+            &workspaces,
             &|provider, project_id| {
                 let key = crate::scheduler_credentials::get_credential_keyring_key(provider, project_id);
                 app_handle.keyring().get_password("postlane", &key).unwrap_or(None)

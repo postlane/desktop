@@ -1,9 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use postlane_desktop_lib::app_state::AppState;
 use postlane_desktop_lib::post_editor::{update_post_content_impl, update_post_image_impl, is_direct_image_url};
+use postlane_desktop_lib::storage::ReposConfig;
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
 use tempfile::TempDir;
+
+fn make_state(repos: Vec<postlane_desktop_lib::storage::Repo>) -> AppState {
+    AppState::new_with_path(
+        ReposConfig { version: 1, workspaces: vec![], repos },
+        std::env::temp_dir().join(format!("pl_test_state_{}.json", std::process::id())),
+    )
+}
 
 fn make_post_dir(temp_dir: &TempDir, post_folder: &str) -> std::path::PathBuf {
     let post_path = temp_dir.path().join(".postlane/posts").join(post_folder);
@@ -181,10 +190,12 @@ mod update_post_image_tests {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_meta(&temp_dir, "post-img-01", None);
 
+        let state = make_state(vec![]);
         let result = update_post_image_impl(
             repo_path.to_str().unwrap(),
             "post-img-01",
             Some("https://example.com/image.png"),
+            &state,
         );
 
         assert!(result.is_ok());
@@ -200,10 +211,12 @@ mod update_post_image_tests {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_meta(&temp_dir, "post-img-02", Some("https://old.com/img.png"));
 
+        let state = make_state(vec![]);
         let result = update_post_image_impl(
             repo_path.to_str().unwrap(),
             "post-img-02",
             None,
+            &state,
         );
 
         assert!(result.is_ok());
@@ -219,10 +232,12 @@ mod update_post_image_tests {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_meta(&temp_dir, "post-img-03", None);
 
+        let state = make_state(vec![]);
         let result = update_post_image_impl(
             repo_path.to_str().unwrap(),
             "post-img-03",
             Some("http://example.com/image.png"),
+            &state,
         );
 
         assert!(result.is_err());
@@ -234,10 +249,12 @@ mod update_post_image_tests {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_meta(&temp_dir, "post-img-04", None);
 
+        let state = make_state(vec![]);
         let result = update_post_image_impl(
             repo_path.to_str().unwrap(),
             "post-img-04",
             Some("not-a-url"),
+            &state,
         );
 
         assert!(result.is_err());
@@ -247,10 +264,12 @@ mod update_post_image_tests {
     fn test_rejects_post_folder_with_path_traversal() {
         let temp_dir = TempDir::new().unwrap();
 
+        let state = make_state(vec![]);
         let result = update_post_image_impl(
             temp_dir.path().to_str().unwrap(),
             "../outside",
             Some("https://example.com/image.png"),
+            &state,
         );
 
         assert!(result.is_err());
@@ -262,10 +281,12 @@ mod update_post_image_tests {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_meta(&temp_dir, "post-img-05", None);
 
+        let state = make_state(vec![]);
         update_post_image_impl(
             repo_path.to_str().unwrap(),
             "post-img-05",
             Some("https://example.com/image.png"),
+            &state,
         ).unwrap();
 
         let tmp = repo_path.join(".postlane/posts/post-img-05/meta.json.tmp");
@@ -276,10 +297,12 @@ mod update_post_image_tests {
     fn test_returns_error_when_post_folder_missing() {
         let temp_dir = TempDir::new().unwrap();
 
+        let state = make_state(vec![]);
         let result = update_post_image_impl(
             temp_dir.path().to_str().unwrap(),
             "nonexistent",
             Some("https://example.com/image.png"),
+            &state,
         );
 
         assert!(result.is_err());

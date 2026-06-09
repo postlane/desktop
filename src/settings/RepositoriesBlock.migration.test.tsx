@@ -39,7 +39,7 @@ async function renderBlock(
   }));
 
   const { default: RepositoriesBlock } = await import('./RepositoriesBlock');
-  return render(<RepositoriesBlock projectId={projectId} projectName="Test" isOwner />);
+  return render(<RepositoriesBlock projectId={projectId} isOwner />);
 }
 
 // ── 22.5.9: button visible when legacy repos exist ────────────────────────────
@@ -73,6 +73,32 @@ describe('22.5.9: "Migrate to workspace..." button', () => {
     await renderBlock(status);
     await waitFor(() => {
       expect(screen.queryByText(/migrate to workspace/i)).not.toBeNull();
+    });
+  });
+});
+
+// ── 22.10.9: clicking button opens MigrationFlow ────────────────────────────
+
+describe('22.10.9: clicking "Migrate to workspace..." opens migration flow', () => {
+  beforeEach(() => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_repo_connection_status') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+  });
+
+  it('renders MigrationFlow after button click', async () => {
+    // Stub MigrationFlow so we avoid real IPC calls inside it.
+    vi.doMock('./MigrationFlow', () => ({
+      default: () => <div data-testid="migration-flow-sentinel" />,
+    }));
+
+    const status = makeStatus(1, 1);
+    await renderBlock(status);
+    const btn = await screen.findByText(/migrate to workspace/i);
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(screen.queryByTestId('migration-flow-sentinel')).not.toBeNull();
     });
   });
 });

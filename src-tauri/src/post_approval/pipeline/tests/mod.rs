@@ -122,6 +122,14 @@ fn test_apply_scheduler_result_sets_sent_status() {
     );
 }
 
+#[test]
+fn test_apply_scheduler_result_clears_error_field_on_success() {
+    let mut meta = PostMeta::default();
+    meta.error = Some("No project linked to this repo. Run `postlane init` to connect it.".to_string());
+    apply_scheduler_result(&mut meta, "bluesky", "sched-1", None, "2026-06-02T10:00:00Z");
+    assert!(meta.error.is_none(), "apply_scheduler_result must clear meta.error so stale errors don't persist after retry");
+}
+
 // --- §failed_status ---
 
 #[test]
@@ -272,7 +280,8 @@ fn test_read_platform_content_returns_err_when_file_missing() {
 fn test_load_account_ids_returns_empty_map_when_no_account_ids_key() {
     let dir = tempfile::TempDir::new().expect("create temp dir");
     crate::test_fixtures::write_config(dir.path(), r#"{"scheduler": {}}"#);
-    let result = load_account_ids(dir.path());
+    let config_path = dir.path().join(".postlane/config.json");
+    let result = load_account_ids(&config_path);
     assert!(result.unwrap().is_empty());
 }
 
@@ -283,7 +292,8 @@ fn test_load_account_ids_returns_map_when_present() {
         dir.path(),
         r#"{"scheduler": {"account_ids": {"x": "acc123"}}}"#,
     );
-    let map = load_account_ids(dir.path()).unwrap();
+    let config_path = dir.path().join(".postlane/config.json");
+    let map = load_account_ids(&config_path).unwrap();
     assert_eq!(map.get("x").and_then(|v| v.as_str()), Some("acc123"));
 }
 

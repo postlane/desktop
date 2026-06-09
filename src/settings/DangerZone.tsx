@@ -6,27 +6,28 @@ import { invoke } from '../ipc/invoke';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props { workspaceId: string; isOwner: boolean; }
+interface Props { workspaceId: string; isOwner: boolean; workspaceName?: string; onDisconnected?: () => void; onDeleted?: () => void; }
 interface WorkspaceInfo { workspace_path: string; name: string; }
 type Modal = 'none' | 'disconnect' | 'delete';
 type DeleteStep = 'warning' | 'journal' | 'confirm';
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-function useWorkspaceInfo(workspaceId: string) {
+function useWorkspaceInfo(workspaceId: string, workspaceName: string) {
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   useEffect(() => {
     invoke<WorkspaceInfo>('get_workspace_info', { workspaceId })
       .then(setInfo)
-      .catch(() => {});
-  }, [workspaceId]);
+      .catch(() => setInfo({ workspace_path: '', name: workspaceName }));
+  }, [workspaceId, workspaceName]);
   return info;
 }
 
 // ── Disconnect modal (22.6.2) ─────────────────────────────────────────────────
 
-function DisconnectModal({ workspaceId, name, onDone, onCancel }: {
+function DisconnectModal({ workspaceId, name, onDone, onCancel, onDisconnected }: {
   workspaceId: string; name: string; onDone: () => void; onCancel: () => void;
+  onDisconnected?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,7 @@ function DisconnectModal({ workspaceId, name, onDone, onCancel }: {
     try {
       await invoke('disconnect_workspace', { workspaceId });
       onDone();
+      onDisconnected?.();
     } catch (e) {
       setError(typeof e === 'string' ? e : 'Disconnect failed');
     } finally { setLoading(false); }
@@ -54,7 +56,7 @@ function DisconnectModal({ workspaceId, name, onDone, onCancel }: {
           {error && <p className="has-text-danger mt-2">{error}</p>}
         </section>
         <footer className="modal-card-foot" style={{ gap: '0.5rem' }}>
-          <button className="button is-danger" onClick={handleConfirm} disabled={loading}>Disconnect</button>
+          <button data-testid="modal-confirm-disconnect-btn" className="button is-danger" onClick={handleConfirm} disabled={loading}>Disconnect</button>
           <button className="button" onClick={onCancel}>Cancel</button>
         </footer>
       </div>
@@ -106,8 +108,9 @@ function DeleteJournalStep({ onConfirm, onCancel }: { onConfirm: () => void; onC
   );
 }
 
-function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
+function DeleteConfirmStep({ workspaceId, info, onDone, onCancel, onDeleted }: {
   workspaceId: string; info: WorkspaceInfo; onDone: () => void; onCancel: () => void;
+  onDeleted?: () => void;
 }) {
   const [nameInput, setNameInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -120,6 +123,7 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
     try {
       await invoke('delete_workspace', { workspaceId });
       onDone();
+      onDeleted?.();
     } catch (e) {
       setError(typeof e === 'string' ? e : 'Delete failed');
     } finally { setLoading(false); }
@@ -133,7 +137,9 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
           <p className="modal-card-title has-text-danger">Confirm permanent deletion</p>
         </header>
         <section className="modal-card-body">
-          <p className="is-family-monospace has-background-light p-2 mb-3">{info.workspace_path}</p>
+          {info.workspace_path && (
+            <p className="is-family-monospace has-background-light p-2 mb-3">{info.workspace_path}</p>
+          )}
           <label className="label" htmlFor="delete-confirm-input">To confirm, type the workspace name:</label>
           <input
             id="delete-confirm-input" aria-label="type the workspace name"
@@ -143,7 +149,7 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
           {error && <p className="has-text-danger mt-2">{error}</p>}
         </section>
         <footer className="modal-card-foot" style={{ gap: '0.5rem' }}>
-          <button className="button is-danger" onClick={handleDelete} disabled={!confirmed || loading}>Delete</button>
+          <button data-testid="modal-confirm-delete-btn" className="button is-danger" onClick={handleDelete} disabled={!confirmed || loading}>Delete</button>
           <button className="button" onClick={onCancel}>Cancel</button>
         </footer>
       </div>
@@ -153,8 +159,9 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel }: {
 
 // ── Delete modal — step machine ────────────────────────────────────────────────
 
-function DeleteModal({ workspaceId, info, onDone, onCancel }: {
+function DeleteModal({ workspaceId, info, onDone, onCancel, onDeleted }: {
   workspaceId: string; info: WorkspaceInfo; onDone: () => void; onCancel: () => void;
+  onDeleted?: () => void;
 }) {
   const [step, setStep] = useState<DeleteStep>('warning');
 
@@ -165,47 +172,42 @@ function DeleteModal({ workspaceId, info, onDone, onCancel }: {
 
   if (step === 'warning') return <DeleteWarningStep onContinue={handleContinue} onCancel={onCancel} />;
   if (step === 'journal') return <DeleteJournalStep onConfirm={() => setStep('confirm')} onCancel={onCancel} />;
-  return <DeleteConfirmStep workspaceId={workspaceId} info={info} onDone={onDone} onCancel={onCancel} />;
+  return <DeleteConfirmStep workspaceId={workspaceId} info={info} onDone={onDone} onCancel={onCancel} onDeleted={onDeleted} />;
 }
 
-// ── Main component (22.6.1) ───────────────────────────────────────────────────
+// ── Main component (22.6.1 / 22.10.14 / 22.10.15) ───────────────────────────
 
-export default function DangerZone({ workspaceId, isOwner }: Props) {
-  const info = useWorkspaceInfo(workspaceId);
-  const [expanded, setExpanded] = useState(false);
+export default function DangerZone({ workspaceId, isOwner, workspaceName = '', onDisconnected, onDeleted }: Props) {
+  const info = useWorkspaceInfo(workspaceId, workspaceName);
   const [modal, setModal] = useState<Modal>('none');
 
   if (!isOwner) return null;
 
   return (
-    <div className="mt-4" style={{ border: '1px solid #f14668', borderRadius: 4 }}>
-      <button
-        className="button is-ghost has-text-danger is-fullwidth"
-        style={{ justifyContent: 'flex-start', padding: '0.5rem 1rem' }}
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        Danger Zone {expanded ? '▲' : '▼'}
-      </button>
-      {expanded && (
-        <div className="p-3">
-          <div className="is-flex" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button className="button is-small is-light has-text-danger" onClick={() => setModal('disconnect')}>
-              Disconnect this workspace
-            </button>
-            <button className="button is-small is-danger" onClick={() => setModal('delete')}>
-              Delete workspace and all content
-            </button>
-          </div>
+    <div style={{ border: '1px solid #f14668', borderRadius: 4, padding: '1rem' }}>
+      <p className="is-size-7 has-text-weight-medium has-text-danger mb-3">Danger zone</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="is-flex is-align-items-center is-justify-content-space-between">
+          <span className="is-size-7">Disconnect this workspace</span>
+          <button className="button is-warning is-size-7" onClick={() => setModal('disconnect')}>
+            Disconnect
+          </button>
         </div>
-      )}
+        <div className="is-flex is-align-items-center is-justify-content-space-between">
+          <span className="is-size-7">Delete this workspace</span>
+          <button className="button is-danger is-size-7" onClick={() => setModal('delete')}>
+            Delete
+          </button>
+        </div>
+      </div>
       {modal === 'disconnect' && (
         <DisconnectModal workspaceId={workspaceId} name={info?.name ?? workspaceId}
-          onDone={() => setModal('none')} onCancel={() => setModal('none')} />
+          onDone={() => setModal('none')} onCancel={() => setModal('none')}
+          onDisconnected={onDisconnected} />
       )}
       {modal === 'delete' && info && (
         <DeleteModal workspaceId={workspaceId} info={info}
-          onDone={() => setModal('none')} onCancel={() => setModal('none')} />
+          onDone={() => setModal('none')} onCancel={() => setModal('none')} onDeleted={onDeleted} />
       )}
       {modal === 'delete' && !info && (
         <div className="modal is-active">

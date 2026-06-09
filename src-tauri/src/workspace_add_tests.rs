@@ -231,3 +231,50 @@ fn test_workspace_created_no_event_when_consent_not_given() {
     record_workspace_created(&state, false, 2);
     assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
 }
+
+// ── 22.10.5: AppState updated after add_workspace_impl ───────────────────────
+
+/// After `add_workspace_impl` registers a workspace, `sync_workspace_to_app_state`
+/// must update AppState so `get_all_drafts_impl` finds the workspace immediately
+/// without requiring an app restart.
+#[test]
+fn get_all_drafts_finds_workspace_after_add_and_app_state_sync() {
+    let ws_dir = tempfile::TempDir::new().expect("create ws dir");
+    let child_dir = ws_dir.path().join("repo-a");
+    std::fs::create_dir_all(child_dir.join(".git")).expect("create .git");
+    // Write a draft post at {workspace}/posts/repo-a/my-post/
+    let post_dir = ws_dir.path().join("posts").join("repo-a").join("my-post");
+    std::fs::create_dir_all(&post_dir).expect("create post dir");
+    std::fs::write(post_dir.join("bluesky.md"), "draft content").expect("write draft");
+    std::fs::write(post_dir.join("meta.json"), "{}").expect("write meta");
+
+    let repos_file = tempfile::NamedTempFile::new().expect("temp repos file");
+    // Start with an AppState that has no workspaces registered.
+    let initial_config = crate::storage::ReposConfig {
+        version: 2,
+        workspaces: vec![],
+        repos: vec![],
+    };
+    let state = crate::app_state::AppState::new_with_path(
+        initial_config,
+        repos_file.path().to_path_buf(),
+    );
+    let pl_dir = tempfile::TempDir::new().expect("create postlane dir");
+
+    let result = add_workspace_impl(
+        ws_dir.path(),
+        repos_file.path(),
+        pl_dir.path(),
+        "proj-test",
+    ).expect("add_workspace_impl must succeed");
+
+    // Before sync: AppState has no workspaces → drafts return empty.
+    let before = crate::draft_queries::get_all_drafts_impl(&state).expect("get drafts");
+    assert!(before.is_empty(), "drafts must be empty before AppState sync");
+
+    // After sync: AppState updated → draft appears.
+    sync_workspace_to_app_state(&result, &state);
+    let after = crate::draft_queries::get_all_drafts_impl(&state).expect("get drafts");
+    assert!(!after.is_empty(), "draft must appear after sync_workspace_to_app_state");
+    assert_eq!(after[0].platform, "bluesky");
+}

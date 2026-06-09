@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react';
 import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -263,6 +263,19 @@ async function syncAccounts(
   }
 }
 
+type SyncStatus = { ok: boolean; message: string };
+
+function useSyncStatus(): { syncStatus: SyncStatus | null; showSyncStatus: (s: SyncStatus | null) => void } {
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null> = useRef(null);
+  const showSyncStatus = useCallback((s: SyncStatus | null) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setSyncStatus(s);
+    if (s) { timerRef.current = setTimeout(() => setSyncStatus(null), 5000); }
+  }, []);
+  return { syncStatus, showSyncStatus };
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SchedulerBlock({ projectId, isOwner }: Props) {
@@ -270,7 +283,7 @@ export default function SchedulerBlock({ projectId, isOwner }: Props) {
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const { syncStatus, showSyncStatus } = useSyncStatus();
 
   const loadProfiles = useCallback(() => {
     invoke<string[]>('list_connected_providers', { repoId: projectId }).then(setConnected).catch(() => setConnected([]));
@@ -286,18 +299,19 @@ export default function SchedulerBlock({ projectId, isOwner }: Props) {
       <div className="is-flex is-align-items-center mb-3">
         <p className="is-size-6 has-text-weight-medium" style={{ flex: 1 }}>Scheduler</p>
         {connected.length > 0 && (
-          <button className="button is-small is-ghost" onClick={() => syncAccounts(projectId, setLoading, setSyncStatus, loadProfiles)} disabled={loading} aria-label="Sync accounts">
+          <button className="button is-small is-ghost" onClick={() => syncAccounts(projectId, setLoading, showSyncStatus, loadProfiles)} disabled={loading} aria-label="Sync accounts">
             Sync accounts
           </button>
         )}
       </div>
       {syncStatus && (
-        <p
+        <div
           role="alert"
-          className={`is-size-7 mb-2 ${syncStatus.ok ? 'has-text-success' : 'has-text-danger'}`}
+          className={`notification is-light is-size-7 py-2 px-3 mb-2 ${syncStatus.ok ? 'is-success' : 'is-danger'}`}
         >
+          <button className="delete is-small" onClick={() => showSyncStatus(null)} aria-label="Dismiss" />
           {syncStatus.message}
-        </p>
+        </div>
       )}
       {connected.length === 0 && (
         <p className="is-size-7 has-text-grey mb-2">No scheduler connected.</p>

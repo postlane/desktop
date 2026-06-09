@@ -63,6 +63,20 @@ describe('22.7.2: email confirmation input', () => {
     await waitFor(() => expect(screen.getByPlaceholderText(/Type your account email to confirm/i)).toBeDefined());
   });
 
+  it('shows the account identifier in the confirmation label', async () => {
+    await expandAndOpen();
+    await waitFor(() => expect(screen.getByText(USER_EMAIL)).not.toBeNull());
+  });
+
+  it('wraps the identifier in quotes so the colon is not mistakenly included', async () => {
+    await expandAndOpen();
+    await waitFor(() =>
+      expect(screen.queryByText((_, el) =>
+        el?.tagName === 'LABEL' && (el?.textContent ?? '').includes(`"${USER_EMAIL}"`)
+      )).not.toBeNull()
+    );
+  });
+
   it('Delete button disabled when input is empty', async () => {
     await expandAndOpen();
     await waitFor(() => screen.getByPlaceholderText(/Type your account email/i));

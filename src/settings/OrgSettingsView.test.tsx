@@ -72,4 +72,15 @@ describe('OrgSettingsView', () => {
     render(<OrgSettingsView org={makeProject({ is_owner: false })} />)
     expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
   })
+
+  it('renders DangerZone rows for owner below billing', async () => {
+    render(<OrgSettingsView org={makeProject()} />)
+    await screen.findByText(/Disconnect this workspace/i)
+    expect(screen.getByText(/Delete this workspace/i)).toBeInTheDocument()
+  })
+
+  it('does not render DangerZone rows for non-owner', () => {
+    render(<OrgSettingsView org={makeProject({ is_owner: false })} />)
+    expect(screen.queryByText(/Disconnect this workspace/i)).not.toBeInTheDocument()
+  })
 })

@@ -37,7 +37,7 @@ export default function ConflictDiffView({ repoName, conflicts, onConfirm, onCan
         </tbody>
       </table>
       <div className="is-flex" style={{ gap: '0.5rem' }}>
-        <button className="button is-small is-primary" onClick={onConfirm} aria-label="Confirm">
+        <button className="button is-small is-primary" onClick={onConfirm} aria-label="Confirm and migrate">
           Confirm and migrate
         </button>
         <button className="button is-small is-light" onClick={onCancel} aria-label="Cancel">

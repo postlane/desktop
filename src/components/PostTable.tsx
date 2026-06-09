@@ -129,8 +129,9 @@ function GroupCard({ group, onSelect, connectedPlatforms, onConnectPlatform }: {
   const label = firstPost?.trigger ?? group.post_folder;
   return (
     <div style={{ borderLeft: '3px solid var(--bulma-link)', marginBottom: '0.75rem' }}>
-      <div data-testid="group-label" className="px-4 pt-2 pb-2 is-size-7 has-text-weight-medium has-background-white-ter">
-        {label}
+      <div className="px-4 pt-2 pb-1 has-background-white-ter is-flex is-align-items-baseline" style={{ gap: '0.5rem' }}>
+        <span data-testid="group-label" className="is-size-7 has-text-weight-medium">{label}</span>
+        <span data-testid="group-repo-name" className="is-size-7 has-text-grey-light" style={{ flexShrink: 0 }}>{firstPost?.repo_name}</span>
       </div>
       <div className="px-4 py-2 has-background-white-ter is-flex is-align-items-center"
         style={{ gap: '0.5rem', borderTop: '1px solid var(--bulma-border-weak)' }}>

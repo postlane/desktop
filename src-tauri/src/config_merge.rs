@@ -75,10 +75,16 @@ fn apply_local_overrides(merged: &mut serde_json::Value, local: &serde_json::Val
 /// validated against [`PERMITTED_LOCAL_FIELDS`]; unrecognised fields are rejected
 /// with an error that names the offending field.
 pub fn read_merged_repo_config(repo_path: &Path) -> Result<serde_json::Value, String> {
-    let config_path = repo_path.join(".postlane").join("config.json");
+    // Workspace configs use a flat layout ({root}/config.json).
+    // Legacy repo configs use {root}/.postlane/config.json.
+    let postlane_dir = repo_path.join(".postlane");
+    let (config_path, local_path) = if postlane_dir.is_dir() {
+        (postlane_dir.join("config.json"), postlane_dir.join("config.local.json"))
+    } else {
+        (repo_path.join("config.json"), repo_path.join("config.local.json"))
+    };
     let mut merged: serde_json::Value = read_json_file(&config_path)?;
 
-    let local_path = repo_path.join(".postlane").join("config.local.json");
     if !local_path.exists() {
         return Ok(merged);
     }
@@ -183,6 +189,28 @@ mod tests {
         assert!(PERMITTED_LOCAL_FIELDS.contains(&"scheduler.provider"));
         assert!(PERMITTED_LOCAL_FIELDS.contains(&"scheduler.api_key_hint"));
         assert!(PERMITTED_LOCAL_FIELDS.contains(&"scheduler.fallback_order"));
+    }
+
+    #[test]
+    fn test_read_merged_repo_config_handles_workspace_flat_layout() {
+        // Workspace configs have no .postlane/ — config.json sits directly at the root.
+        let dir = tempfile::TempDir::new().expect("tmp dir");
+        fs::write(
+            dir.path().join("config.json"),
+            r#"{"project_id":"ws-proj","scheduler":{"account_ids":{"bluesky":"postlane"}},"schema_version":4}"#,
+        ).expect("write config.json");
+        fs::write(
+            dir.path().join("config.local.json"),
+            r#"{"scheduler":{"provider":"upload_post"}}"#,
+        ).expect("write config.local.json");
+
+        let merged = read_merged_repo_config(dir.path()).expect("flat layout must succeed");
+        assert_eq!(merged["project_id"].as_str(), Some("ws-proj"));
+        assert_eq!(merged["scheduler"]["provider"].as_str(), Some("upload_post"));
+        assert_eq!(
+            merged["scheduler"]["account_ids"]["bluesky"].as_str(),
+            Some("postlane"),
+        );
     }
 
     #[test]

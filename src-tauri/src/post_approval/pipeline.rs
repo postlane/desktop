@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-mod post_location;
+pub(crate) mod post_location;
 pub(super) use post_location::{PostLocation, validate_repo_path};
 
 use crate::post_meta::{PostMeta, PostStatus};
@@ -87,11 +87,11 @@ pub(super) fn append_unsplash_attribution(content: &str, meta: &PostMeta) -> Str
     }
     let unsplash_url = format!("{}?{}", UNSPLASH_BASE, UNSPLASH_UTM);
     if attr.photographer_url.is_empty() {
-        return format!("{}\n\nPhoto by {} on Unsplash ({})", content, attr.photographer_name, unsplash_url);
+        return format!("{}\n\nPhoto by {} on Unsplash {}", content, attr.photographer_name, unsplash_url);
     }
     let photographer_url = format!("{}?{}", attr.photographer_url, UNSPLASH_UTM);
     format!(
-        "{}\n\nPhoto by {} ({}) on Unsplash ({})",
+        "{}\n\nPhoto by {} {} on Unsplash {}",
         content, attr.photographer_name, photographer_url, unsplash_url
     )
 }
@@ -108,11 +108,21 @@ pub(super) fn read_platform_content(post_path: &Path, platform: &str) -> Result<
         .map_err(|e| format!("Failed to read {}.md: {}", platform, e))
 }
 
+/// Returns the path to config.json for `config_root`, handling both layout types.
+/// Legacy repos: `{root}/.postlane/config.json`. Workspace: `{root}/config.json`.
+pub(super) fn resolve_config_json(config_root: &Path) -> std::path::PathBuf {
+    let postlane = config_root.join(".postlane");
+    if postlane.is_dir() {
+        postlane.join("config.json")
+    } else {
+        config_root.join("config.json")
+    }
+}
+
 pub(super) fn load_account_ids(
-    canonical_path: &Path,
+    config_path: &Path,
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
-    let config_path = canonical_path.join(".postlane/config.json");
-    let content = std::fs::read_to_string(&config_path)
+    let content = std::fs::read_to_string(config_path)
         .map_err(|e| format!("Failed to read config.json: {}", e))?;
     let config: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {}", e))?;
@@ -132,6 +142,7 @@ pub(super) fn apply_scheduler_result(
     sent_at: &str,
 ) {
     meta.sent_platforms.insert(platform.to_string(), sent_at.to_string());
+    meta.error = None;
     // Intentional: status=Sent is written when the FIRST platform is approved, not all.
     // This signals engagement_sync that the post is in-flight. Per-platform completion
     // is tracked accurately in sent_platforms — use that for "all platforms sent" queries.
@@ -157,7 +168,8 @@ pub(super) fn record_scheduler_failure(meta: &mut PostMeta, error: &str) {
 pub(super) struct SendPaths<'a> {
     pub post_folder: &'a str,
     pub post_path: &'a std::path::Path,
-    pub canonical_path: &'a std::path::Path,
+    /// Root used for config lookups — workspace root for workspace posts, canonical path for legacy.
+    pub config_root: std::path::PathBuf,
     pub meta_path: &'a std::path::Path,
 }
 
@@ -175,7 +187,7 @@ pub(super) async fn run_send_pipeline(
     sent_at: &str,
 ) -> Result<(), String> {
     if let Some(app_handle) = app {
-        match call_scheduler(app_handle, platform, paths.post_path, meta, paths.canonical_path).await {
+        match call_scheduler(app_handle, platform, paths.post_path, meta, &paths.config_root).await {
             Ok((scheduler_id, platform_url)) => {
                 apply_scheduler_result(meta, platform, &scheduler_id, platform_url.as_deref(), sent_at);
                 log::info!("[approve_post] sent '{}' to '{}' via scheduler", paths.post_folder, platform);
@@ -285,12 +297,10 @@ async fn call_mastodon_direct(
     Ok((result.scheduler_id, result.platform_url))
 }
 
-/// Fetches the account_id for `platform` from the provider when it is missing
-/// from config.json, then caches it for future approvals.
 pub(super) async fn fetch_and_cache_account_id(
     platform: &str,
     provider: &dyn crate::providers::scheduling::SchedulingProvider,
-    canonical_path: &Path,
+    config_path: &Path,
 ) -> Option<String> {
     let profiles = match provider.list_profiles().await {
         Ok(p) => p,
@@ -300,8 +310,7 @@ pub(super) async fn fetch_and_cache_account_id(
         }
     };
     let profile = profiles.iter().find(|p| p.platforms.contains(&platform.to_string()))?;
-    let config_path = canonical_path.join(".postlane/config.json");
-    let _ = crate::account_id_store::save_account_id_impl(&config_path, platform, &profile.id);
+    let _ = crate::account_id_store::save_account_id_impl(config_path, platform, &profile.id);
     Some(profile.id.clone())
 }
 
@@ -310,22 +319,22 @@ pub(super) async fn call_scheduler(
     platform: &str,
     post_path: &Path,
     meta: &PostMeta,
-    canonical_path: &Path,
+    config_root: &Path,
 ) -> Result<(String, Option<String>), String> {
-    let config_path = canonical_path.join(".postlane/config.json");
+    let config_path = resolve_config_json(config_root);
     let project_id = read_project_id_from_config(&config_path)?;
     if platform == "mastodon" {
         return call_mastodon_direct(app, post_path, meta, &project_id).await;
     }
     let cred = crate::scheduling::credential_router::get_scheduler_credential_with_fallback(
-        canonical_path,
+        config_root,
         &project_id,
         app,
     )
     .await?;
     let raw_content = read_platform_content(post_path, platform)?;
     let content = append_unsplash_attribution(&raw_content, meta);
-    let account_ids = load_account_ids(canonical_path).unwrap_or_default();
+    let account_ids = load_account_ids(&config_path).unwrap_or_default();
     let scheduled_for = meta
         .scheduled_for
         .as_deref()
@@ -334,7 +343,7 @@ pub(super) async fn call_scheduler(
     let provider = crate::scheduling::credential_router::build_provider(&cred.provider, cred.api_key)?;
     let resolved_id = match account_ids.get(platform).and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
         Some(id) => Some(id.to_string()),
-        None => fetch_and_cache_account_id(platform, &*provider, canonical_path).await,
+        None => fetch_and_cache_account_id(platform, &*provider, &config_path).await,
     };
     let result = provider
         .schedule_post(&content, platform, scheduled_for, meta.image_url.as_deref(), resolved_id.as_deref())

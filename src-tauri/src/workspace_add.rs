@@ -171,6 +171,34 @@ pub fn add_workspace_impl(
     })
 }
 
+/// Updates the in-memory `AppState.repos.workspaces` after `add_workspace_impl`
+/// writes the workspace to `repos.json`. Without this call, `get_all_drafts_impl`
+/// cannot find the workspace until the next app restart.
+pub fn sync_workspace_to_app_state(
+    result: &WorkspaceSetupResult,
+    state: &crate::app_state::AppState,
+) {
+    let entry = crate::workspace_entry::WorkspaceEntry {
+        id: result.workspace_id.clone(),
+        name: result.workspace_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("workspace")
+            .to_string(),
+        workspace_path: result.workspace_path
+            .to_str()
+            .unwrap_or("")
+            .to_string(),
+        active: true,
+        added_at: chrono::Utc::now().to_rfc3339(),
+    };
+    if let Ok(mut repos) = state.lock_repos() {
+        if !repos.workspaces.iter().any(|w| w.id == entry.id) {
+            repos.workspaces.push(entry);
+        }
+    }
+}
+
 /// Tauri command: registers `folder_path` as a new workspace for `project_id`.
 ///
 /// Does NOT start the file watcher — the caller must invoke a separate
@@ -192,6 +220,7 @@ pub fn add_workspace(
     let pl_dir = postlane_dir()?;
     let path = PathBuf::from(&folder_path);
     let result = add_workspace_impl(&path, &state.repos_path, &pl_dir, &project_id)?;
+    sync_workspace_to_app_state(&result, &state);
     let consent = crate::app_state::read_app_state().telemetry_consent;
     record_workspace_created(&state, consent, result.discovered_repos.len());
     Ok(result)

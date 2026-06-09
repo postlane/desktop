@@ -252,6 +252,51 @@ fn test_safelist_validate_path_comes_from_registry() {
     }
 }
 
+// ── 22.10.14: keyring key coverage ───────────────────────────────────────────
+
+#[test]
+fn test_scheduler_keyring_keys_covers_all_providers() {
+    let keys = crate::workspace_disconnect::scheduler_keyring_keys("proj-abc");
+    assert!(keys.contains(&"zernio/proj-abc".to_string()), "must include zernio key");
+    assert!(keys.contains(&"upload_post/proj-abc".to_string()), "must include upload_post key");
+    assert!(keys.contains(&"ayrshare/proj-abc".to_string()), "must include ayrshare key");
+    assert_eq!(keys.len(), 3, "must cover exactly 3 scheduler providers");
+}
+
+#[test]
+fn test_mastodon_keyring_keys_without_instance_returns_two_keys() {
+    let keys = crate::workspace_disconnect::mastodon_keyring_keys("proj-abc", None);
+    assert_eq!(keys.len(), 2, "no active instance → 2 keys (instance + username)");
+    let instance_key = crate::mastodon_connection::active_instance_key("proj-abc");
+    let username_key = crate::mastodon_connection::active_username_key("proj-abc");
+    assert!(keys.contains(&instance_key), "must include active_instance key");
+    assert!(keys.contains(&username_key), "must include active_username key");
+}
+
+#[test]
+fn test_mastodon_keyring_keys_with_instance_returns_three_keys() {
+    let keys = crate::workspace_disconnect::mastodon_keyring_keys("proj-abc", Some("mastodon.social"));
+    assert_eq!(keys.len(), 3, "active instance → 3 keys (instance + username + access token)");
+    let token_key = crate::mastodon_connection::access_token_key("proj-abc", "mastodon.social");
+    assert!(keys.contains(&token_key), "must include access_token key for the instance");
+}
+
+// ── B14: remove_workspace_entry is a no-op for unknown id ────────────────────
+
+#[test]
+fn test_remove_workspace_entry_noop_for_unknown_id() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    write_repos_with_workspace(&repos_path, make_workspace_entry("ws-known", "/tmp/known"));
+
+    let remaining = remove_workspace_entry(&repos_path, "ws-unknown").expect("should not error");
+    assert_eq!(remaining, 1, "existing workspace must be preserved");
+
+    let config = storage::read_repos_with_recovery(&repos_path).expect("read repos");
+    assert_eq!(config.workspaces.len(), 1);
+    assert_eq!(config.workspaces[0].id, "ws-known");
+}
+
 // ── migration_journal_exists ──────────────────────────────────────────────────
 
 #[test]

@@ -76,11 +76,18 @@ pub async fn delete_workspace(
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<bool, String> {
     let rp = state.repos_path.clone();
-    let ws_path = workspace_path_from_repos(&rp, &workspace_id)
-        .ok_or_else(|| format!("Workspace '{}' not found in registry", workspace_id))?;
-    let canonical = safelist_validate_delete_path(&ws_path, &rp)?;
 
-    crate::watcher::stop_watcher(&workspace_id, &state.watchers);
+    // Validate and stop watchers only when a local workspace directory exists.
+    // Cloud-only projects (no local workspace) skip file operations but still
+    // complete the API + keyring steps.
+    let canonical_opt = match workspace_path_from_repos(&rp, &workspace_id) {
+        Some(ws_path) => {
+            let canonical = safelist_validate_delete_path(&ws_path, &rp)?;
+            crate::watcher::stop_watcher(&workspace_id, &state.watchers);
+            Some(canonical)
+        }
+        None => None,
+    };
 
     if !workspace_id.is_empty() {
         let token = license_token(&app)?;
@@ -100,8 +107,10 @@ pub async fn delete_workspace(
         clear_project_keyring(&workspace_id, &app);
     }
 
-    std::fs::remove_dir_all(&canonical)
-        .map_err(|e| format!("Failed to delete workspace directory: {}", e))?;
+    if let Some(canonical) = canonical_opt {
+        std::fs::remove_dir_all(&canonical)
+            .map_err(|e| format!("Failed to delete workspace directory: {}", e))?;
+    }
 
     record_event("workspace_deleted", &state);
     Ok(remaining > 0)
@@ -116,9 +125,10 @@ pub fn check_workspace_journal(
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<bool, String> {
     let rp = state.repos_path.clone();
-    let ws_path = workspace_path_from_repos(&rp, &workspace_id)
-        .ok_or_else(|| format!("Workspace '{}' not found", workspace_id))?;
-    Ok(migration_journal_exists(&ws_path))
+    match workspace_path_from_repos(&rp, &workspace_id) {
+        Some(ws_path) => Ok(migration_journal_exists(&ws_path)),
+        None => Ok(false),
+    }
 }
 
 // ── Helper: resolve workspace path from id ────────────────────────────────────

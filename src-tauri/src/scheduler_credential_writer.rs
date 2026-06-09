@@ -37,12 +37,58 @@ pub struct CredentialEnv<'a> {
 /// Writes the credential to the keyring, syncs account IDs into each repo's
 /// `config.json`, syncs `connected_platforms`, and returns the merged
 /// `account_names` map. No `AppHandle` or `State` parameters.
+/// Writes account IDs into per-repo and workspace configs after a credential is saved.
+/// Returns warnings for non-fatal failures. Returns `Err` only for hard failures
+/// (e.g. Upload Post username not recognised).
+async fn sync_account_ids_to_paths(
+    provider: &str,
+    api_key: &str,
+    username: Option<&str>,
+    matching_paths: &[std::path::PathBuf],
+    workspace_config_paths: &[std::path::PathBuf],
+) -> Result<Vec<String>, String> {
+    let mut warnings = Vec::new();
+    if provider == "upload_post" {
+        if let Some(uname) = username {
+            use crate::providers::scheduling::upload_post::UploadPostProvider;
+            let up = UploadPostProvider::new(api_key.to_string());
+            let platforms = up.validate_profile(uname).await
+                .map_err(|e| format!("Username '{}' not recognised by Upload Post: {}", uname, e))?;
+            for repo_path in matching_paths {
+                warnings.extend(crate::account_config::write_upload_post_account(
+                    uname, &platforms, &repo_path.join(".postlane/config.json"),
+                ));
+            }
+            for config_path in workspace_config_paths {
+                warnings.extend(crate::account_config::write_upload_post_account(
+                    uname, &platforms, config_path,
+                ));
+            }
+        }
+    } else {
+        if let Err(e) = crate::account_config::sync_accounts_for_provider(
+            provider, api_key, matching_paths.to_vec(),
+        ).await {
+            warnings.push(format!("account sync for '{}' failed — scheduler may use stale account IDs: {}", provider, e));
+        }
+        if !workspace_config_paths.is_empty() {
+            if let Err(e) = crate::scheduler_account_sync::sync_profiles_to_config_paths(
+                provider, api_key, workspace_config_paths,
+            ).await {
+                warnings.push(format!("workspace account sync for '{}' failed: {}", provider, e));
+            }
+        }
+    }
+    Ok(warnings)
+}
+
 pub async fn save_scheduler_credential_core(
     provider: &str,
     api_key: &str,
     repo_id: &str,
     username: Option<&str>,
     matching_paths: &[std::path::PathBuf],
+    workspace_config_paths: &[std::path::PathBuf],
     env: &CredentialEnv<'_>,
 ) -> Result<CredentialSaveResult, String> {
     let mut warnings: Vec<String> = Vec::new();
@@ -55,26 +101,9 @@ pub async fn save_scheduler_credential_core(
     // Soft fail: account sync writes account IDs into repo config.json files.
     // A failure here means the scheduler will fall back to the account it had
     // before — the user's connection is live, so we warn but do not abort.
-    if provider == "upload_post" {
-        if let Some(uname) = username {
-            use crate::providers::scheduling::upload_post::UploadPostProvider;
-            let up = UploadPostProvider::new(api_key.to_string());
-            let platforms = up.validate_profile(uname).await
-                .map_err(|e| format!("Username '{}' not recognised by Upload Post: {}", uname, e))?;
-            for repo_path in matching_paths {
-                let config_path = repo_path.join(".postlane/config.json");
-                let path_warnings = crate::account_config::write_upload_post_account(
-                    uname, &platforms, &config_path,
-                );
-                warnings.extend(path_warnings);
-            }
-        }
-    } else {
-        let path_bufs: Vec<std::path::PathBuf> = matching_paths.to_vec();
-        if let Err(e) = crate::account_config::sync_accounts_for_provider(provider, api_key, path_bufs).await {
-            warnings.push(format!("account sync for '{}' failed — scheduler may use stale account IDs: {}", provider, e));
-        }
-    }
+    warnings.extend(
+        sync_account_ids_to_paths(provider, api_key, username, matching_paths, workspace_config_paths).await?
+    );
 
     // Soft fail: connected_platforms sync updates the display state in config.json.
     // A write failure here means the queue may show stale badge state — log and continue.
@@ -120,7 +149,7 @@ mod tests {
             has_keyring_key: &|_| false,
         };
         let result = save_scheduler_credential_core(
-            "zernio", "key", "repo-id", None, &[dir.path().to_path_buf()], &env,
+            "zernio", "key", "repo-id", None, &[dir.path().to_path_buf()], &[], &env,
         ).await;
 
         assert!(result.is_ok(), "credential save must succeed even when platform sync fails");
@@ -139,7 +168,7 @@ mod tests {
             has_keyring_key: &|_| false,
         };
         let result = save_scheduler_credential_core(
-            "zernio", "key", "repo-id", None, &[], &env,
+            "zernio", "key", "repo-id", None, &[], &[], &env,
         ).await;
         assert!(result.is_ok());
         assert!(result.unwrap().warnings.is_empty(), "expected no warnings with no paths");
@@ -159,7 +188,7 @@ mod tests {
             has_keyring_key: &|_| false,
         };
         let result = save_scheduler_credential_core(
-            "zernio", "test-api-key", "repo-abc", None, &[], &env,
+            "zernio", "test-api-key", "repo-abc", None, &[], &[], &env,
         ).await;
         assert!(result.is_ok(), "expected Ok, got {:?}", result);
         let calls = keyring_calls.lock().unwrap();
@@ -174,10 +203,31 @@ mod tests {
             has_keyring_key: &|_| false,
         };
         let result = save_scheduler_credential_core(
-            "zernio", "test-api-key", "repo-abc", None, &[], &env,
+            "zernio", "test-api-key", "repo-abc", None, &[], &[], &env,
         ).await;
         assert!(result.is_ok());
         assert!(result.unwrap().account_names.is_empty());
+    }
+
+    /// Workspace config paths (already resolved) must also receive account_ids
+    /// when a zernio credential is saved — workspace configs use config.json at
+    /// the workspace root, not {repo}/.postlane/config.json.
+    #[tokio::test]
+    async fn test_save_credential_core_does_not_crash_with_workspace_config_paths() {
+        let env = CredentialEnv {
+            set_keyring: &|_, _| Ok(()),
+            has_mastodon_active: &|_| false,
+            has_keyring_key: &|_| false,
+        };
+        let dir = tempfile::TempDir::new().expect("tmp dir");
+        let ws_config = dir.path().join("config.json");
+        std::fs::write(&ws_config, r#"{"project_id":"proj-ws","schema_version":4}"#)
+            .expect("write ws config");
+        // Passing a workspace config path must not panic or hard-fail.
+        let result = save_scheduler_credential_core(
+            "zernio", "key", "proj-ws", None, &[], &[ws_config], &env,
+        ).await;
+        assert!(result.is_ok(), "workspace config path must not cause hard failure: {:?}", result);
     }
 
     #[tokio::test]
@@ -188,7 +238,7 @@ mod tests {
             has_keyring_key: &|_| false,
         };
         let result = save_scheduler_credential_core(
-            "zernio", "test-api-key", "repo-abc", None, &[], &env,
+            "zernio", "test-api-key", "repo-abc", None, &[], &[], &env,
         ).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to store credential"));

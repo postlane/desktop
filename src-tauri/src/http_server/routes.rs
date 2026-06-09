@@ -58,6 +58,7 @@ mod tests {
             repos_path,
             activation_tx: None,
             watcher_tx: None,
+            app_handle: None,
             projects: empty_projects(),
         }
     }
@@ -149,6 +150,7 @@ mod tests {
             repos_path,
             activation_tx: None,
             watcher_tx: None,
+            app_handle: None,
             projects: empty_projects(),
         };
         let app = create_router(state);
@@ -164,6 +166,41 @@ mod tests {
         ).await.unwrap();
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED, "correct token must pass auth");
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// 22.3.4 / 22.4.8: /register-workspace sends workspace path to watcher_tx so the file
+    /// watcher starts immediately without requiring an app restart.
+    #[tokio::test]
+    async fn test_register_workspace_starts_watcher() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, String)>(4);
+        let state = super::super::ServerState {
+            token: "ws-token".to_string(),
+            repos: std::sync::Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+                version: 1, workspaces: vec![], repos: vec![],
+            })),
+            repos_path,
+            activation_tx: None,
+            watcher_tx: Some(tx),
+            app_handle: None,
+            projects: empty_projects(),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/register-workspace")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer ws-token")
+                .body(axum::body::Body::from(
+                    r#"{"workspace_path":"/my/workspace","name":"my-workspace","project_id":"proj-watcher-test"}"#,
+                ))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let msg = rx.try_recv().expect("watcher_tx must receive a message after workspace registration");
+        assert_eq!(msg.0, "proj-watcher-test", "watcher message id must be the project_id");
+        assert_eq!(msg.1, "/my/workspace", "watcher message path must be the workspace_path");
     }
 
     /// Security: token comparison must use constant-time equality to prevent timing attacks.

@@ -37,7 +37,14 @@ vi.mock('./components/EditPostView', () => ({
     </div>
   ),
 }))
-vi.mock('./settings/OrgSettingsView', () => ({ default: () => <div>OrgSettingsView</div> }))
+vi.mock('./settings/OrgSettingsView', () => ({
+  default: ({ onDisconnected, onDeleted }: { onDisconnected?: () => void; onDeleted?: () => void }) => (
+    <div>OrgSettingsView
+      <button data-testid="trigger-disconnected" onClick={onDisconnected}>Disconnected</button>
+      <button data-testid="trigger-deleted" onClick={onDeleted}>Deleted</button>
+    </div>
+  ),
+}))
 vi.mock('./settings/AccountSettingsView', () => ({ default: () => <div>AccountSettingsView</div> }))
 vi.mock('./settings/PreferencesSettingsView', () => ({ default: () => <div>PreferencesSettingsView</div> }))
 vi.mock('./settings/SystemSettingsView', () => ({ default: () => <div>SystemSettingsView</div> }))
@@ -324,5 +331,69 @@ describe('MainContent — no_orgs', () => {
     )
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith({ view: 'org_settings', projectId: 'p1', section: 'queue' }))
     expect(onWizardNudgeHandled).toHaveBeenCalled()
+  })
+})
+
+// ── org_settings: post-disconnect navigation (22.10.14) ───────────────────────
+
+describe('MainContent — org_settings post-disconnect navigation (22.10.14)', () => {
+  it('navigates to no_orgs when workspace is disconnected', async () => {
+    const onNavigate = vi.fn()
+    const refreshProjects = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: refreshProjects, clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onNavigate={onNavigate} />)
+    fireEvent.click(screen.getByTestId('trigger-disconnected'))
+    expect(onNavigate).toHaveBeenCalledWith({ view: 'no_orgs' })
+  })
+
+  it('refreshes projects when workspace is disconnected', async () => {
+    const onNavigate = vi.fn()
+    const refreshProjects = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: refreshProjects, clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onNavigate={onNavigate} />)
+    fireEvent.click(screen.getByTestId('trigger-disconnected'))
+    expect(refreshProjects).toHaveBeenCalled()
+  })
+})
+
+// ── org_settings: post-delete navigation (22.10.15) ───────────────────────────
+
+describe('MainContent — org_settings post-delete navigation (22.10.15)', () => {
+  it('navigates to no_orgs when workspace is deleted', async () => {
+    const onNavigate = vi.fn()
+    const refreshProjects = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: refreshProjects, clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onNavigate={onNavigate} />)
+    fireEvent.click(screen.getByTestId('trigger-deleted'))
+    expect(onNavigate).toHaveBeenCalledWith({ view: 'no_orgs' })
+  })
+
+  it('refreshes projects when workspace is deleted', async () => {
+    const onNavigate = vi.fn()
+    const refreshProjects = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: refreshProjects, clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onNavigate={onNavigate} />)
+    fireEvent.click(screen.getByTestId('trigger-deleted'))
+    expect(refreshProjects).toHaveBeenCalled()
+  })
+})
+
+// ── org_settings: post-action toasts (B13) ────────────────────────────────────
+
+describe('MainContent — org_settings post-action toasts (B13)', () => {
+  it('shows toast "Workspace and all content deleted" when workspace is deleted', () => {
+    const onToast = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onToast={onToast} />)
+    fireEvent.click(screen.getByTestId('trigger-deleted'))
+    expect(onToast).toHaveBeenCalledWith('Workspace and all content deleted')
+  })
+
+  it('shows toast "Workspace disconnected" when workspace is disconnected', () => {
+    const onToast = vi.fn()
+    mockUseProjectsContext.mockReturnValue({ projects: [MOCK_PROJECT], loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
+    render(<MainContent {...baseProps({ view: 'org_settings', projectId: 'p1', section: 'settings' })} onToast={onToast} />)
+    fireEvent.click(screen.getByTestId('trigger-disconnected'))
+    expect(onToast).toHaveBeenCalledWith('Workspace disconnected')
   })
 })

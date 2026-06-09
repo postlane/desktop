@@ -118,11 +118,14 @@ mod tests {
         server.mock(|when, then| {
             when.method(GET).path("/uploadposts/users/myhandle");
             then.status(200).json_body(serde_json::json!({
-                "username": "myhandle",
-                "social_accounts": [
-                    {"platform": "bluesky"},
-                    {"platform": "x"}
-                ]
+                "profile": {
+                    "username": "myhandle",
+                    "social_accounts": {
+                        "bluesky": {"display_name": "myhandle.bsky.social"},
+                        "x": {"display_name": "myhandle"}
+                    }
+                },
+                "success": true
             }));
         });
 
@@ -179,8 +182,13 @@ mod tests {
         server.mock(|when, then| {
             when.method(GET).path("/uploadposts/users/trimmed");
             then.status(200).json_body(serde_json::json!({
-                "username": "trimmed",
-                "social_accounts": [{"platform": "bluesky"}]
+                "profile": {
+                    "username": "trimmed",
+                    "social_accounts": {
+                        "bluesky": {"display_name": "trimmed.bsky.social"}
+                    }
+                },
+                "success": true
             }));
         });
 

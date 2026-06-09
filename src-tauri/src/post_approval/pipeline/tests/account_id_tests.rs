@@ -62,7 +62,7 @@ async fn test_fetch_and_cache_returns_id_when_profile_found() {
         }]),
     };
 
-    let result = fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+    let result = fetch_and_cache_account_id("bluesky", &provider, &dir.path().join(".postlane/config.json")).await;
     assert_eq!(result, Some("acc-bs-1".to_string()));
 }
 
@@ -77,7 +77,7 @@ async fn test_fetch_and_cache_writes_id_to_config_json() {
         }]),
     };
 
-    fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+    fetch_and_cache_account_id("bluesky", &provider, &dir.path().join(".postlane/config.json")).await;
 
     let config: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(dir.path().join(".postlane/config.json")).expect("read"),
@@ -101,7 +101,7 @@ async fn test_fetch_and_cache_returns_none_when_no_matching_platform() {
         }]),
     };
 
-    let result = fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+    let result = fetch_and_cache_account_id("bluesky", &provider, &dir.path().join(".postlane/config.json")).await;
     assert_eq!(result, None, "no bluesky profile → None");
 }
 
@@ -118,7 +118,7 @@ async fn test_fetch_and_cache_returns_id_from_multi_platform_profile() {
         }]),
     };
 
-    let result = fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+    let result = fetch_and_cache_account_id("bluesky", &provider, &dir.path().join(".postlane/config.json")).await;
     assert_eq!(
         result,
         Some("myhandle".to_string()),
@@ -142,7 +142,7 @@ async fn test_fetch_and_cache_returns_none_when_list_profiles_fails() {
         profiles: Err("HTTP 401 Unauthorized".to_string()),
     };
 
-    let result = fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+    let result = fetch_and_cache_account_id("bluesky", &provider, &dir.path().join(".postlane/config.json")).await;
     assert_eq!(result, None, "list_profiles error must not panic — returns None");
 }
 
@@ -159,7 +159,7 @@ async fn test_fetch_and_cache_preserves_existing_account_ids_when_caching() {
         }]),
     };
 
-    fetch_and_cache_account_id("bluesky", &provider, dir.path()).await;
+    fetch_and_cache_account_id("bluesky", &provider, &dir.path().join(".postlane/config.json")).await;
 
     let config: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(dir.path().join(".postlane/config.json")).expect("read"),

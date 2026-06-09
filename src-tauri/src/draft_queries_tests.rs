@@ -4,7 +4,7 @@
 use super::*;
 use crate::test_fixtures::{make_state, make_repo, write_config, write_meta, write_workspace_config};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
     fn write_md(dir: &Path, folder: &str, platform: &str, text: &str) {
         fs::create_dir_all(dir.join(".git")).expect("create .git");
@@ -438,4 +438,117 @@ use std::path::Path;
         assert_eq!(frontend_post.platform, "x");
         let backend_post = result.iter().find(|p| p.repo_name == "backend").expect("backend post");
         assert_eq!(backend_post.platform, "bluesky");
+    }
+
+    /// 22.10.7 — legacy per-repo entry in `repos[]` still shows posts alongside a workspace entry.
+    /// Backward compat: upgrading to v1.4 must not break existing repos that were never migrated.
+    #[test]
+    fn test_legacy_repo_queue_coexists_with_workspace() {
+        use crate::storage::ReposConfig;
+        use crate::workspace_entry::WorkspaceEntry;
+
+        // Workspace with one post
+        let ws = tempfile::TempDir::new().expect("create ws");
+        let ws_child = ws.path().join("ws-child");
+        fs::create_dir_all(ws_child.join(".git")).expect("git");
+        write_workspace_repos_json(ws.path(), "ws-r1", "ws-child", ws_child.to_str().unwrap(), "ws-child");
+        write_workspace_draft(ws.path(), "ws-child", "ws-post", "bluesky", "Workspace content");
+
+        // Legacy repo with a post at {repo}/.postlane/posts/
+        let legacy = tempfile::TempDir::new().expect("create legacy");
+        write_md(legacy.path(), "legacy-post", "x", "Legacy content");
+
+        let repos_path = std::env::temp_dir().join(
+            format!("repos_coexist_{}.json", std::process::id()),
+        );
+        let config = ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "ws-1".to_string(),
+                name: "myorg".to_string(),
+                workspace_path: ws.path().to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![make_repo("legacy-r1", legacy.path().to_str().unwrap())],
+        };
+        let state = crate::app_state::AppState::new_with_path(config, repos_path);
+
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2, "both workspace and legacy posts must appear");
+        assert!(result.iter().any(|p| p.text == "Workspace content"), "workspace post missing");
+        assert!(result.iter().any(|p| p.text == "Legacy content"), "legacy post missing");
+    }
+
+    /// 22.10.10 — two workspace child repos with the same folder name (e.g. both named
+    /// "frontend" from different parent orgs) get distinct posts_dir values ("frontend"
+    /// and "frontend-2"). Drafts from each appear in the queue under the correct subdir
+    /// with the correct repo name — no cross-contamination.
+    #[test]
+    fn test_collision_repos_both_appear_in_queue_with_distinct_posts_dir() {
+        use crate::storage::ReposConfig;
+        use crate::workspace_entry::WorkspaceEntry;
+        use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
+
+        let ws = tempfile::TempDir::new().expect("create ws");
+
+        // Two child repos whose folder name is both "frontend" (different parent paths).
+        let child_a = ws.path().join("org-a").join("frontend");
+        let child_b = ws.path().join("org-b").join("frontend");
+        fs::create_dir_all(child_a.join(".git")).expect("git a");
+        fs::create_dir_all(child_b.join(".git")).expect("git b");
+
+        // Simulate assign_posts_dir result: "frontend" and "frontend-2".
+        let ws_repos = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![
+                RepoEntry {
+                    id: "r-a".to_string(), name: "org-a/frontend".to_string(),
+                    path: child_a.to_str().unwrap().to_string(),
+                    posts_dir: "frontend".to_string(),
+                    active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+                RepoEntry {
+                    id: "r-b".to_string(), name: "org-b/frontend".to_string(),
+                    path: child_b.to_str().unwrap().to_string(),
+                    posts_dir: "frontend-2".to_string(),
+                    active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+            ],
+        };
+        write_workspace_repos(&ws.path().join("repos.json"), &ws_repos).expect("write repos.json");
+
+        write_workspace_draft(ws.path(), "frontend",   "post-a", "bluesky", "Post from org-a");
+        write_workspace_draft(ws.path(), "frontend-2", "post-b", "bluesky", "Post from org-b");
+
+        let config = ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "ws-1".to_string(), name: "myorg".to_string(),
+                workspace_path: ws.path().to_str().unwrap().to_string(),
+                active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![],
+        };
+        let repos_path = std::env::temp_dir()
+            .join(format!("repos_collision_{}.json", std::process::id()));
+        let state = crate::app_state::AppState::new_with_path(config, repos_path);
+
+        let result = get_all_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 2, "both collision repos must appear in queue");
+
+        let post_a = result.iter().find(|p| p.text == "Post from org-a")
+            .expect("org-a post missing");
+        let post_b = result.iter().find(|p| p.text == "Post from org-b")
+            .expect("org-b post missing");
+
+        assert_eq!(post_a.repo_name, "org-a/frontend", "repo_name must identify org-a");
+        assert_eq!(post_b.repo_name, "org-b/frontend", "repo_name must identify org-b");
+
+        // Posts must be in separate subdirectories — no cross-contamination.
+        // repo_path is the child repo path; post_folder is the post name.
+        // The actual file lives at {workspace}/posts/{posts_dir}/{post_folder}/.
+        assert_eq!(post_a.post_folder, "post-a", "org-a post_folder must be post-a");
+        assert_eq!(post_b.post_folder, "post-b", "org-b post_folder must be post-b");
+        assert_ne!(post_a.repo_path, post_b.repo_path, "child repo paths must differ");
     }

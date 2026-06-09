@@ -26,6 +26,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockInvoke.mockImplementation(async (cmd) => {
     if (cmd === 'get_license_display_name') return 'alice@example.com'
+    if (cmd === 'get_license_email') return 'alice@example.com'
+    if (cmd === 'get_deletion_incomplete') return false
     if (cmd === 'sign_out') return undefined
     return null
   })
@@ -82,6 +84,23 @@ describe('AccountSettingsView — sign out', () => {
     render(<AccountSettingsView onSignedOut={onSignedOut} />)
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
+  })
+})
+
+// ── Account danger zone visibility ────────────────────────────────────────────
+
+describe('AccountSettingsView — account danger zone', () => {
+  it('renders the danger zone when email is null but display name is available', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_license_display_name') return 'throwaway-user'
+      if (cmd === 'get_license_email') return null
+      if (cmd === 'get_deletion_incomplete') return false
+      return undefined
+    })
+    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Danger Zone/i })).toBeInTheDocument()
+    )
   })
 })
 

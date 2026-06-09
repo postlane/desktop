@@ -203,6 +203,25 @@ describe('PostTable — history mode', () => {
   })
 })
 
+describe('PostTable — queue mode — repo name (22.10.10)', () => {
+  it('shows repo_name in each group card', () => {
+    const draft = makeDraft({ repo_name: 'org-a/frontend' })
+    render(<PostTable posts={[draft]} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    expect(screen.getByTestId('group-repo-name')).toHaveTextContent('org-a/frontend')
+  })
+
+  it('shows distinct repo names for two groups from different repos', () => {
+    const drafts = [
+      makeDraft({ repo_path: '/repo-set-a/frontend', post_folder: 'post-from-a', repo_name: 'org-a/frontend' }),
+      makeDraft({ repo_path: '/repo-set-b/frontend', post_folder: 'post-from-b', repo_name: 'org-b/frontend' }),
+    ]
+    render(<PostTable posts={drafts} isHistory={false} onSelect={vi.fn()} timezone="UTC" />)
+    const names = screen.getAllByTestId('group-repo-name').map(el => el.textContent)
+    expect(names).toContain('org-a/frontend')
+    expect(names).toContain('org-b/frontend')
+  })
+})
+
 describe('PostTable — queue mode — unknown platform', () => {
   it('falls back to platform string for badge label when platform is not in PLATFORM_CFG', () => {
     const draft = makeDraft({ platform: 'unknown-platform-xyz' })

@@ -1,27 +1,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import AddRepoModal from '../wizard/AddRepoModal';
 import WorkspaceConfirmModal from './WorkspaceConfirmModal';
 import VoiceGuideHint from './VoiceGuideHint';
 import { RepoListSection } from './RepoTable';
 import type { RepoConnectionStatus, RowActions } from './RepoTable';
 import type { WorkspaceSetupResult } from './WorkspaceConfirmModal';
 import { useMigrationStatus } from './MigrationBanner';
-import DangerZone from './DangerZone';
+import MigrationFlow from './MigrationFlow';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props { projectId: string; projectName: string; isOwner: boolean; }
-
-interface DiscoveryResult {
-  added: string[];
-  already_registered: string[];
-  not_found_on_disk: string[];
-  failed_to_register: [string, string][];
-}
+interface Props { projectId: string; isOwner: boolean; }
 
 interface RescanResult { added: string[]; deactivated: string[]; unchanged: string[]; }
 
@@ -46,22 +39,6 @@ function DisconnectConfirm({ onConfirm, onCancel, loading }: {
   );
 }
 
-function ScanResult({ result, onAddManually }: { result: DiscoveryResult; onAddManually: () => void }) {
-  return (
-    <div className="mt-2 is-size-7">
-      {result.added.length > 0 && <p className="has-text-success">Added: {result.added.join(', ')}</p>}
-      {result.not_found_on_disk.length > 0 && (
-        <div>
-          <p className="has-text-grey">Not found on disk: {result.not_found_on_disk.join(', ')}</p>
-          <button className="button is-small is-light mt-1" onClick={onAddManually}>Add folder manually</button>
-        </div>
-      )}
-      {result.failed_to_register.map(([, err], i) => (
-        <p key={i} className="has-text-danger">{err}</p>
-      ))}
-    </div>
-  );
-}
 
 function RescanResultView({ result }: { result: RescanResult }) {
   if (result.added.length === 0 && result.deactivated.length === 0) {
@@ -77,24 +54,19 @@ function RescanResultView({ result }: { result: RescanResult }) {
 
 // ── Owner action bar ──────────────────────────────────────────────────────────
 
-function OwnerActionBar({ hasGitHubApp, scanning, rescanScanning, disconnectPending,
-  onAddWorkspace, onAddRepo, onScan, onRescan, onDisconnect }: {
-  hasGitHubApp: boolean; scanning: boolean; rescanScanning: boolean; disconnectPending: boolean;
-  onAddWorkspace: () => void; onAddRepo: () => void; onScan: () => void;
-  onRescan: () => void; onDisconnect: () => void;
+function OwnerActionBar({ hasGitHubApp, rescanScanning, disconnectPending,
+  onAddWorkspace, onRescan, onDisconnect }: {
+  hasGitHubApp: boolean; rescanScanning: boolean; disconnectPending: boolean;
+  onAddWorkspace: () => void; onRescan: () => void; onDisconnect: () => void;
 }) {
   return (
     <div className="is-flex mt-3" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-      <button className="button is-small is-light" onClick={onAddWorkspace}>Add workspace</button>
-      <button className="button is-small is-light" onClick={onAddRepo}>Add individual repository</button>
-      <button className="button is-small is-light" onClick={onScan} disabled={scanning}>
-        {scanning ? 'Scanning…' : 'Scan for repos'}
-      </button>
-      <button className="button is-small is-light" onClick={onRescan} disabled={rescanScanning}>
+      <button className="button is-small is-success" onClick={onAddWorkspace}>Add workspace</button>
+      <button className="button is-small is-success" onClick={onRescan} disabled={rescanScanning}>
         {rescanScanning ? 'Rescanning…' : 'Rescan workspace'}
       </button>
       {hasGitHubApp && !disconnectPending && (
-        <button className="button is-small is-ghost has-text-danger" onClick={onDisconnect}>
+        <button className="button is-small is-danger" onClick={onDisconnect}>
           Disconnect GitHub App
         </button>
       )}
@@ -127,8 +99,6 @@ function useConnectionStatus(projectId: string) {
 function useRepoActions(rows: RepoConnectionStatus[], refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-
   async function handleConfirmRemove() {
     if (!pendingRemoveId) return;
     setRemoveLoading(true);
@@ -142,7 +112,7 @@ function useRepoActions(rows: RepoConnectionStatus[], refresh: () => void) {
   }
 
   const pendingName = rows.find((r) => r.repo_id === pendingRemoveId)?.display_name ?? '';
-  return { pendingRemoveId, setPendingRemoveId, removeLoading, pendingName, showAddModal, setShowAddModal, handleConfirmRemove };
+  return { pendingRemoveId, setPendingRemoveId, removeLoading, pendingName, handleConfirmRemove };
 }
 
 function useWorkspaceFlow(projectId: string, refresh: () => void) {
@@ -159,11 +129,18 @@ function useWorkspaceFlow(projectId: string, refresh: () => void) {
       const result = await invoke<WorkspaceSetupResult>('add_workspace', { folderPath: selected, projectId });
       if (result.discovered_repos.length === 1) {
         const repoName = result.discovered_repos[0].name;
-        setWsToast(`Creating workspace at ${result.workspace_path} — Postlane files will be added to ${repoName}/`);
-        await invoke('confirm_workspace_repos', {
-          workspaceId: result.workspace_id,
-          selectedPaths: result.discovered_repos.map((r) => r.path),
+        // flushSync ensures the toast paints before the confirm call starts,
+        // preventing React 18 from batching the set+clear into a single render.
+        flushSync(() => {
+          setWsToast(`Creating workspace at ${result.workspace_path} — Postlane files will be added to ${repoName}/`);
         });
+        await Promise.all([
+          invoke('confirm_workspace_repos', {
+            workspaceId: result.workspace_id,
+            selectedPaths: result.discovered_repos.map((r) => r.path),
+          }),
+          new Promise<void>(resolve => setTimeout(resolve, 1500)),
+        ]);
         setWsToast(null);
         setWsSuccess(result);
         refresh();
@@ -213,31 +190,16 @@ function useDisconnect(projectId: string, refresh: () => void) {
   return { pending, setPending, loading, confirm };
 }
 
-function useScan(projectId: string, refresh: () => void) {
-  const [scanning, setScanning] = useState(false);
-  const [result, setResult] = useState<DiscoveryResult | null>(null);
 
-  async function scan() {
-    setScanning(true);
-    try {
-      const r = await invoke<DiscoveryResult>('discover_repos', { projectId });
-      setResult(r);
-      refresh();
-    } finally {
-      setScanning(false);
-    }
-  }
-
-  return { scanning, result, scan };
-}
-
-function useRescanWorkspace(workspaceId: string) {
+function useRescanWorkspace(workspaceId: string, refresh: () => void) {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<RescanResult | null>(null);
   async function rescan() {
     setScanning(true);
-    try { setResult(await invoke<RescanResult>('rescan_workspace', { workspaceId })); }
-    finally { setScanning(false); }
+    try {
+      setResult(await invoke<RescanResult>('rescan_workspace', { workspaceId }));
+      refresh();
+    } finally { setScanning(false); }
   }
   return { scanning, result, rescan };
 }
@@ -252,16 +214,27 @@ function useWorkspacePath(projectId: string) {
   return workspacePath;
 }
 
-// ── Migration re-entry (22.5.9) ───────────────────────────────────────────────
+// ── Migration re-entry (22.5.9 / 22.10.9) ────────────────────────────────────
 
-function MigrateWorkspaceButton() {
+function MigrateWorkspaceButton({ projectId }: { projectId: string }) {
   const { status } = useMigrationStatus();
+  const [showFlow, setShowFlow] = useState(false);
   const hasLegacyRepos = (status?.total_legacy_repos.length ?? 0) > 0;
   if (!hasLegacyRepos) return null;
+  if (showFlow) {
+    return (
+      <div className="mt-1">
+        <MigrationFlow projectId={projectId} onDone={() => setShowFlow(false)} />
+      </div>
+    );
+  }
   return (
     <button
-      className="button is-small is-light mt-2"
-      onClick={() => invoke('note_migration_reentered').catch(() => {})}
+      className="button is-small is-warning mt-2"
+      onClick={() => {
+        invoke('note_migration_reentered').catch(() => {});
+        setShowFlow(true);
+      }}
     >
       Migrate to workspace...
     </button>
@@ -270,13 +243,12 @@ function MigrateWorkspaceButton() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
+export default function RepositoriesBlock({ projectId, isOwner }: Props) {
   const { rows, loading, refresh } = useConnectionStatus(projectId);
   const actions = useRepoActions(rows, refresh);
   const disconnect = useDisconnect(projectId, refresh);
-  const scan = useScan(projectId, refresh);
   const ws = useWorkspaceFlow(projectId, refresh);
-  const rescan = useRescanWorkspace(projectId);
+  const rescan = useRescanWorkspace(projectId, refresh);
   const workspacePath = useWorkspacePath(projectId);
 
   const hasGitHubApp = rows.some((r) => r.github_app_connected);
@@ -296,23 +268,19 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
 
       {isOwner && (
         <>
-          <OwnerActionBar hasGitHubApp={hasGitHubApp} scanning={scan.scanning}
+          <OwnerActionBar hasGitHubApp={hasGitHubApp}
             rescanScanning={rescan.scanning} disconnectPending={disconnect.pending}
             onAddWorkspace={ws.handleAddWorkspace}
-            onAddRepo={() => actions.setShowAddModal(true)}
-            onScan={scan.scan}
             onRescan={rescan.rescan}
             onDisconnect={() => disconnect.setPending(true)} />
           {disconnect.pending && (
             <DisconnectConfirm onConfirm={disconnect.confirm}
               onCancel={() => disconnect.setPending(false)} loading={disconnect.loading} />
           )}
-          {scan.result && <ScanResult result={scan.result} onAddManually={() => actions.setShowAddModal(true)} />}
           {rescan.result && <RescanResultView result={rescan.result} />}
           {ws.wsToast && <p className="is-size-7 has-text-info mt-2" role="status">{ws.wsToast}</p>}
           {ws.wsError && <p role="alert" className="is-size-7 has-text-danger mt-2">{ws.wsError}</p>}
-          <MigrateWorkspaceButton />
-          <DangerZone workspaceId={projectId} isOwner={isOwner} />
+          <MigrateWorkspaceButton projectId={projectId} />
         </>
       )}
 
@@ -326,10 +294,6 @@ export default function RepositoriesBlock({ projectId, projectName, isOwner }: P
         <WorkspaceConfirmModal result={ws.wsResult}
           onConfirm={ws.handleConfirmWorkspace}
           onCancel={() => ws.setWsResult(null)} />
-      )}
-      {actions.showAddModal && (
-        <AddRepoModal projectId={projectId} projectName={projectName}
-          onClose={() => { actions.setShowAddModal(false); refresh(); }} />
       )}
     </div>
   );

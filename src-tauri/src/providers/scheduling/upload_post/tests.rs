@@ -77,8 +77,19 @@ async fn test_list_profiles_success() {
             "success": true,
             "plan": "Basic",
             "profiles": [
-                {"username": "myhandle", "platforms": ["bluesky", "x"]},
-                {"username": "workaccount", "platforms": ["linkedin"]}
+                {
+                    "username": "myhandle",
+                    "social_accounts": {
+                        "bluesky": {"display_name": "myhandle.bsky.social", "handle": "myhandle.bsky.social"},
+                        "x": {"display_name": "myhandle", "handle": "@myhandle"}
+                    }
+                },
+                {
+                    "username": "workaccount",
+                    "social_accounts": {
+                        "linkedin": {"display_name": "Work Account"}
+                    }
+                }
             ]
         }));
     });
@@ -224,11 +235,14 @@ async fn test_validate_profile_valid_username_returns_platforms() {
             .path("/uploadposts/users/myhandle")
             .header("Authorization", "Apikey test-key");
         then.status(200).json_body(serde_json::json!({
-            "username": "myhandle",
-            "social_accounts": [
-                {"platform": "bluesky"},
-                {"platform": "x"}
-            ]
+            "profile": {
+                "username": "myhandle",
+                "social_accounts": {
+                    "bluesky": {"display_name": "myhandle.bsky.social", "handle": "myhandle.bsky.social"},
+                    "x": {"display_name": "myhandle", "handle": "@myhandle"}
+                }
+            },
+            "success": true
         }));
     });
 
@@ -301,21 +315,95 @@ async fn test_validate_profile_returns_empty_when_no_social_accounts() {
 }
 
 #[tokio::test]
-async fn test_validate_profile_parses_flat_platforms_array() {
+async fn test_validate_profile_skips_disconnected_platforms() {
     use httpmock::prelude::*;
 
     let server = MockServer::start();
     server.mock(|when, then| {
-        when.method(GET).path("/uploadposts/users/handle2");
+        when.method(GET).path("/uploadposts/users/multiplatform");
         then.status(200).json_body(serde_json::json!({
-            "username": "handle2",
-            "platforms": ["linkedin", "bluesky"]
+            "profile": {
+                "username": "multiplatform",
+                "social_accounts": {
+                    "bluesky": {"display_name": "multiplatform.bsky.social"},
+                    "tiktok": "",
+                    "x": {"display_name": "multiplatform"}
+                }
+            },
+            "success": true
         }));
     });
 
     let mut provider = UploadPostProvider::new("test-key".to_string());
     provider.base_url = server.base_url();
 
-    let platforms = provider.validate_profile("handle2").await.unwrap();
-    assert_eq!(platforms, vec!["linkedin", "bluesky"]);
+    let platforms = provider.validate_profile("multiplatform").await.unwrap();
+    assert_eq!(platforms, vec!["bluesky", "x"], "empty-string entries must be excluded");
+}
+
+#[tokio::test]
+async fn test_validate_profile_real_api_response_format() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/uploadposts/users/postlane");
+        then.status(200).json_body(serde_json::json!({
+            "profile": {
+                "created_at": "Tue, 26 May 2026 20:33:37 GMT",
+                "social_accounts": {
+                    "bluesky": {
+                        "display_name": "postlane.bsky.social",
+                        "handle": "postlane.bsky.social",
+                        "reauth_required": false,
+                        "username": "postlane.bsky.social"
+                    },
+                    "tiktok": ""
+                },
+                "username": "postlane"
+            },
+            "success": true
+        }));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let platforms = provider.validate_profile("postlane").await.unwrap();
+    assert_eq!(platforms, vec!["bluesky"], "tiktok empty string must be excluded");
+}
+
+#[tokio::test]
+async fn test_list_profiles_real_api_response_format() {
+    use httpmock::prelude::*;
+
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/uploadposts/users");
+        then.status(200).json_body(serde_json::json!({
+            "limit": 2,
+            "plan": "default",
+            "profiles": [{
+                "blocked": false,
+                "social_accounts": {
+                    "bluesky": {
+                        "display_name": "postlane.bsky.social",
+                        "handle": "postlane.bsky.social",
+                        "reauth_required": false
+                    },
+                    "tiktok": ""
+                },
+                "username": "postlane"
+            }],
+            "success": true
+        }));
+    });
+
+    let mut provider = UploadPostProvider::new("test-key".to_string());
+    provider.base_url = server.base_url();
+
+    let profiles = provider.list_profiles().await.unwrap();
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].id, "postlane");
+    assert_eq!(profiles[0].platforms, vec!["bluesky"], "tiktok empty string must be excluded");
 }

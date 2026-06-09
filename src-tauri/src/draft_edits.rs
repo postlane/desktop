@@ -5,6 +5,7 @@
 use crate::app_state::AppState;
 use crate::init::atomic_write;
 use crate::platform_constants::POST_META_LOCKS;
+use crate::post_approval::pipeline::post_location::{PostLocation, validate_repo_path};
 use crate::post_meta::PostMeta;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,13 +23,23 @@ pub async fn save_post_draft_impl(
     text: &str,
     state: &AppState,
 ) -> Result<(), String> {
-    let is_registered = {
-        let repos = state.lock_repos()?;
-        repos.repos.iter().any(|r| r.path == repo_path)
+    // Workspace children first — validate_repo_path canonicalizes and checks
+    // workspace repos.json entries. Fall back to a raw-path legacy check so
+    // that existing repos.repos[] entries stored without canonicalization still work.
+    let location = match validate_repo_path(repo_path, state) {
+        Ok(loc @ PostLocation::Workspace { .. }) => loc,
+        _ => {
+            let is_registered = {
+                let repos = state.lock_repos()?;
+                repos.repos.iter().any(|r| r.path == repo_path)
+            };
+            if !is_registered {
+                return Err(format!("Path '{}' is not in the registered repos list", repo_path));
+            }
+            PostLocation::Legacy { canonical: repo_path.to_string() }
+        }
     };
-    if !is_registered {
-        return Err(format!("Path '{}' is not in the registered repos list", repo_path));
-    }
+
     if Path::new(post_folder).components().count() != 1 {
         return Err(format!("post_folder '{}' must be a single path component", post_folder));
     }
@@ -42,16 +53,14 @@ pub async fn save_post_draft_impl(
         return Err(format!("text exceeds 15,000-byte safety cap (got {} bytes)", text.len()));
     }
 
-    let lock_key = format!("{}\x00{}", repo_path, post_folder);
+    let lock_key = format!("{}\x00{}", location.canonical(), post_folder);
     let lock = POST_META_LOCKS
         .entry(lock_key)
         .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
         .clone();
     let _guard = lock.lock().await;
 
-    let post_dir = Path::new(repo_path)
-        .join(".postlane/posts")
-        .join(post_folder);
+    let post_dir = location.posts_base(post_folder);
     std::fs::create_dir_all(&post_dir)
         .map_err(|e| format!("Failed to create post directory: {}", e))?;
 
@@ -59,7 +68,7 @@ pub async fn save_post_draft_impl(
     atomic_write(&platform_file, text.as_bytes())
         .map_err(|e| format!("Failed to write draft text: {}", e))?;
 
-    let meta_path = PostMeta::path_for(Path::new(repo_path), post_folder);
+    let meta_path = post_dir.join("meta.json");
     let mut meta = PostMeta::load(&meta_path)?;
     let ep = meta.edited_platforms.get_or_insert_with(Vec::new);
     if !ep.contains(&platform.to_string()) {
@@ -200,6 +209,72 @@ mod tests {
         let result = save_post_draft_impl(dir.path().to_str().unwrap(), "../etc", "x", "Draft.", &state).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("single path component"));
+    }
+
+    /// 22.10.5 — save_post_draft must accept workspace child repo paths and write
+    /// to the workspace posts layout, not the legacy per-repo layout.
+    #[tokio::test]
+    async fn test_save_post_draft_accepts_workspace_child_and_writes_to_workspace_path() {
+        use crate::storage::ReposConfig;
+        use crate::workspace_entry::WorkspaceEntry;
+        use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
+
+        let ws = tempfile::TempDir::new().expect("create ws dir");
+        let child = ws.path().join("my-repo");
+        std::fs::create_dir_all(&child).expect("create child dir");
+        let canonical_child = std::fs::canonicalize(&child).expect("canonicalize child");
+        let canonical_ws = std::fs::canonicalize(ws.path()).expect("canonicalize ws");
+
+        // Write workspace repos.json
+        let ws_repos = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![RepoEntry {
+                id: "child-id".to_string(),
+                name: "my-repo".to_string(),
+                path: canonical_child.to_str().unwrap().to_string(),
+                posts_dir: "my-repo".to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        write_workspace_repos(&canonical_ws.join("repos.json"), &ws_repos).expect("write ws repos");
+
+        // Pre-create the workspace post
+        let post_dir = canonical_ws.join("posts").join("my-repo").join("ws-post");
+        std::fs::create_dir_all(&post_dir).expect("create post dir");
+        std::fs::write(post_dir.join("bluesky.md"), "Original content").expect("write md");
+        std::fs::write(post_dir.join("meta.json"), "{}").expect("write meta");
+
+        let config = ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "ws-proj".to_string(),
+                name: "my-workspace".to_string(),
+                workspace_path: canonical_ws.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![],
+        };
+        let repos_path = std::env::temp_dir().join(format!("draft_edits_ws_{}.json", std::process::id()));
+        let state = crate::app_state::AppState::new_with_path(config, repos_path);
+
+        let result = save_post_draft_impl(
+            canonical_child.to_str().unwrap(),
+            "ws-post",
+            "bluesky",
+            "Edited content",
+            &state,
+        ).await;
+        assert!(result.is_ok(), "save_post_draft must accept workspace child repo: {:?}", result);
+
+        // Content must be written to workspace path, not legacy child path
+        let ws_file = post_dir.join("bluesky.md");
+        let content = std::fs::read_to_string(&ws_file).expect("read workspace file");
+        assert_eq!(content, "Edited content", "file must be updated in workspace posts dir");
+
+        let legacy_file = canonical_child.join(".postlane/posts/ws-post/bluesky.md");
+        assert!(!legacy_file.exists(), "must NOT write to legacy child repo path");
     }
 
     #[tokio::test]

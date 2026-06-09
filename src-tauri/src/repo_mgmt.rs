@@ -234,7 +234,10 @@ pub fn start_repo_watcher(
                 if let Err(emit_err) = app_handle.emit("meta-changed", payload.clone()) {
                     log::warn!("Failed to emit meta-changed: {}", emit_err);
                 }
-                crate::tray::refresh_tray(&app_handle);
+                let app_for_tray = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::tray::refresh_tray(&app_for_tray);
+                });
             }
         },
     ) {

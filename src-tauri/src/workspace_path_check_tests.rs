@@ -275,3 +275,47 @@ fn test_path_recovered_no_event_without_consent() {
     record_workspace_path_recovered(&state, false, "auto");
     assert_eq!(state.telemetry.queue_len(), 0);
 }
+
+// ── 22.10.11: update_workspace_path updates in-memory AppState ───────────────
+
+#[test]
+fn test_update_workspace_path_updates_in_memory_state() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    let old_path = dir.path().join("workspace");
+    let new_path = dir.path().join("workspace-renamed");
+
+    let entry = make_workspace_entry("proj-1", "workspace", &old_path);
+    write_global_repos(&repos_path, &[entry.clone()]);
+
+    let state = crate::app_state::AppState::new_with_path(
+        crate::storage::ReposConfig { version: 2, workspaces: vec![entry], repos: vec![] },
+        repos_path.clone(),
+    );
+
+    update_workspace_path_in_memory(&state, "proj-1", &new_path.to_string_lossy());
+
+    let repos = state.lock_repos().unwrap();
+    let ws = repos.workspaces.iter().find(|w| w.id == "proj-1").unwrap();
+    assert_eq!(ws.workspace_path, new_path.to_string_lossy().as_ref());
+    assert_eq!(ws.name, "workspace-renamed");
+}
+
+#[test]
+fn test_update_workspace_path_in_memory_is_noop_for_unknown_id() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    let old_path = dir.path().join("workspace");
+
+    let entry = make_workspace_entry("proj-1", "workspace", &old_path);
+    let state = crate::app_state::AppState::new_with_path(
+        crate::storage::ReposConfig { version: 2, workspaces: vec![entry], repos: vec![] },
+        repos_path,
+    );
+
+    // Should not panic for an unknown workspace_id
+    update_workspace_path_in_memory(&state, "unknown-id", "/some/new/path");
+
+    let repos = state.lock_repos().unwrap();
+    assert_eq!(repos.workspaces[0].workspace_path, old_path.to_string_lossy().as_ref());
+}

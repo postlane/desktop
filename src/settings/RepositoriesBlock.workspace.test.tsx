@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
@@ -103,21 +103,20 @@ describe('RepositoriesBlock — Add workspace CTA (22.3.1)', () => {
   })
 
   it('shows "Add workspace" as primary CTA for owners', async () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /^Add workspace$/i })).toBeInTheDocument()
     )
   })
 
-  it('shows "Add individual repository" option for owners', async () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Add individual repository/i })).toBeInTheDocument()
-    )
+  it('does not show "Add individual repository" (removed in favour of workspace flow)', async () => {
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /Add workspace/i })).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Add individual repository/i })).not.toBeInTheDocument()
   })
 
   it('does not show a button labeled "Add repository" alone', async () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /^Add repository$/i })).not.toBeInTheDocument()
     )
@@ -133,7 +132,7 @@ describe('RepositoriesBlock — Add workspace folder picker (22.3.7)', () => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() => expect(mockOpen).toHaveBeenCalledWith({ directory: true }))
   })
@@ -145,7 +144,7 @@ describe('RepositoriesBlock — Add workspace folder picker (22.3.7)', () => {
       if (cmd === 'add_workspace') return singleResult
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('add_workspace', {
@@ -161,7 +160,7 @@ describe('RepositoriesBlock — Add workspace folder picker (22.3.7)', () => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() => expect(mockOpen).toHaveBeenCalled())
     expect(mockInvoke).not.toHaveBeenCalledWith('add_workspace', expect.anything())
@@ -173,7 +172,7 @@ describe('RepositoriesBlock — Add workspace folder picker (22.3.7)', () => {
 describe('RepositoriesBlock — single-repo auto-confirm (22.3.5)', () => {
   it('calls confirm_workspace_repos automatically for single-repo workspace', async () => {
     setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('confirm_workspace_repos', {
@@ -185,7 +184,7 @@ describe('RepositoriesBlock — single-repo auto-confirm (22.3.5)', () => {
 
   it('does not show WorkspaceConfirmModal for single-repo workspace', async () => {
     setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('confirm_workspace_repos', expect.anything())
@@ -194,19 +193,49 @@ describe('RepositoriesBlock — single-repo auto-confirm (22.3.5)', () => {
   })
 
   it('refreshes the repo list after single-repo auto-confirm', async () => {
-    setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
-    await waitFor(() => {
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+      await vi.advanceTimersByTimeAsync(2000)
       const calls = mockInvoke.mock.calls.filter((c) => c[0] === 'get_repo_connection_status')
       expect(calls.length).toBeGreaterThan(1)
-    })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
 // ── 22.3.11 — Single-repo informational toast ─────────────────────────────────
 
 describe('RepositoriesBlock — single-repo toast (22.3.11)', () => {
+  it('toast remains visible for minimum duration even when confirm resolves instantly', async () => {
+    vi.useFakeTimers()
+    try {
+      mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'get_repo_connection_status') return [makeRow()]
+        if (cmd === 'add_workspace') return singleResult
+        if (cmd === 'confirm_workspace_repos') return null   // resolves instantly
+        return null
+      })
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+
+      // Advance 100ms — toast should still be visible (before 1500ms minimum)
+      await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+      expect(screen.getByText(/Creating workspace at/i)).toBeInTheDocument()
+
+      // Advance past minimum — toast clears, success shows
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+      expect(screen.queryByText(/Creating workspace at/i)).not.toBeInTheDocument()
+      expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows informational toast text before auto-registering', async () => {
     mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
     let resolveConfirm: (v: null) => void = () => {};
@@ -216,7 +245,7 @@ describe('RepositoriesBlock — single-repo toast (22.3.11)', () => {
       if (cmd === 'confirm_workspace_repos') return new Promise<null>((res) => { resolveConfirm = res; })
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() =>
       expect(screen.getByText(/Creating workspace at/i)).toBeInTheDocument()
@@ -230,26 +259,37 @@ describe('RepositoriesBlock — single-repo toast (22.3.11)', () => {
 
 describe('RepositoriesBlock — voice guide hint (22.3.5a, 22.3.5c)', () => {
   it('shows voice guide hint after single-repo workspace creation', async () => {
-    setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
-    await waitFor(() => expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument())
-    expect(screen.getByTestId('voice-guide-hint'))
-      .toHaveAttribute('data-workspace-path', '/Users/hugo/code/myorg')
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(screen.getByTestId('voice-guide-hint'))
+        .toHaveAttribute('data-workspace-path', '/Users/hugo/code/myorg')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('dismisses voice guide hint on close', async () => {
-    setupSingleRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
-    await waitFor(() => expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: /Dismiss hint/i }))
-    expect(screen.queryByTestId('voice-guide-hint')).not.toBeInTheDocument()
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+      expect(screen.getByTestId('voice-guide-hint')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /Dismiss hint/i }))
+      expect(screen.queryByTestId('voice-guide-hint')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows voice guide hint after multi-repo workspace confirmation', async () => {
     setupMultiRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() => expect(screen.getByTestId('workspace-confirm-modal')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /^Confirm all$/i }))
@@ -262,7 +302,7 @@ describe('RepositoriesBlock — voice guide hint (22.3.5a, 22.3.5c)', () => {
 describe('RepositoriesBlock — multi-repo confirmation modal (22.3.3)', () => {
   it('shows WorkspaceConfirmModal when multiple repos are discovered', async () => {
     setupMultiRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() =>
       expect(screen.getByTestId('workspace-confirm-modal')).toBeInTheDocument()
@@ -271,7 +311,7 @@ describe('RepositoriesBlock — multi-repo confirmation modal (22.3.3)', () => {
 
   it('does not auto-call confirm_workspace_repos before user confirms multi-repo', async () => {
     setupMultiRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() => expect(screen.getByTestId('workspace-confirm-modal')).toBeInTheDocument())
     expect(mockInvoke).not.toHaveBeenCalledWith('confirm_workspace_repos', expect.anything())
@@ -279,7 +319,7 @@ describe('RepositoriesBlock — multi-repo confirmation modal (22.3.3)', () => {
 
   it('hides WorkspaceConfirmModal after user cancels', async () => {
     setupMultiRepoMock()
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /^Add workspace$/i })))
     await waitFor(() => expect(screen.getByTestId('workspace-confirm-modal')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Cancel workspace/i }))
@@ -289,7 +329,7 @@ describe('RepositoriesBlock — multi-repo confirmation modal (22.3.3)', () => {
 
 // ── 22.3.17 / 22.3.20 — Rescan workspace button ───────────────────────────────
 
-describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
+describe('RepositoriesBlock — Rescan workspace button visibility (22.3.17)', () => {
   beforeEach(() => {
     mockInvoke.mockImplementation(async (cmd) => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
@@ -298,23 +338,25 @@ describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
   })
 
   it('shows "Rescan workspace" button for owners', async () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => expect(screen.getByRole('button', { name: /Rescan workspace/i })).toBeInTheDocument())
   })
 
   it('hides "Rescan workspace" button for non-owners', async () => {
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={false} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={false} />)
     await waitFor(() => expect(screen.getByText('MyRepo')).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: /Rescan workspace/i })).not.toBeInTheDocument()
   })
+})
 
+describe('RepositoriesBlock — Rescan workspace results (22.3.20)', () => {
   it('calls rescan_workspace with the correct workspaceId', async () => {
     mockInvoke.mockImplementation(async (cmd) => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
       if (cmd === 'rescan_workspace') return { added: [], deactivated: [], unchanged: ['MyRepo'] }
       return null
     })
-    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('rescan_workspace', { workspaceId: 'proj-42' })
@@ -327,7 +369,7 @@ describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
       if (cmd === 'rescan_workspace') return { added: [], deactivated: [], unchanged: ['MyRepo'] }
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/All repos up to date/i)).toBeInTheDocument())
   })
@@ -338,9 +380,22 @@ describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
       if (cmd === 'rescan_workspace') return { added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] }
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/Added: 1/i)).toBeInTheDocument())
+  })
+
+  it('refreshes the repo list after rescan completes (22.10.12)', async () => {
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === 'get_repo_connection_status') return [makeRow()]
+      if (cmd === 'rescan_workspace') return { added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] }
+      return null
+    })
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
+    await waitFor(() => expect(screen.getByText(/Added: 1/i)).toBeInTheDocument())
+    const statusCalls = mockInvoke.mock.calls.filter(c => c[0] === 'get_repo_connection_status')
+    expect(statusCalls.length).toBeGreaterThan(1)
   })
 
   it('shows deactivated count when repos go missing', async () => {
@@ -349,7 +404,7 @@ describe('RepositoriesBlock — Rescan workspace (22.3.17, 22.3.20)', () => {
       if (cmd === 'rescan_workspace') return { added: [], deactivated: ['gone-repo'], unchanged: [] }
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/No longer found: 1/i)).toBeInTheDocument())
   })
@@ -364,7 +419,7 @@ describe('22.3.22a: permanent voice guide hint', () => {
       if (cmd === 'get_workspace_path') return '/Users/hugo/code/myorg'
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => {
       const hint = screen.getByTestId('voice-guide-hint')
       expect(hint).toBeInTheDocument()
@@ -378,19 +433,22 @@ describe('22.3.22a: permanent voice guide hint', () => {
       if (cmd === 'get_workspace_path') return null
       return null
     })
-    render(<RepositoriesBlock projectId="proj-1" projectName="Test Org" isOwner={true} />)
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => expect(screen.queryByTestId('voice-guide-hint')).not.toBeInTheDocument())
   })
 
   it('shows creation hint with dismiss over permanent hint after workspace creation', async () => {
-    setupSingleRepoMock()
-    mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
-    render(<RepositoriesBlock projectId="proj-42" projectName="Test Org" isOwner={true} />)
-    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Add workspace/i })))
-    await waitFor(() => {
+    vi.useFakeTimers()
+    try {
+      setupSingleRepoMock()
+      mockOpen.mockResolvedValue('/Users/hugo/code/myorg')
+      render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
+      fireEvent.click(screen.getByRole('button', { name: /Add workspace/i }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
       const hint = screen.getByTestId('voice-guide-hint')
-      // The creation hint is shown — it has a dismiss button via the mock
       expect(hint.getAttribute('data-workspace-path')).toBe('/Users/hugo/code/myorg')
-    })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
