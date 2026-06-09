@@ -27,12 +27,13 @@ export default function AccountSettingsView({ onSignedOut }: Props) {
     setSignOutLoading(true);
     try {
       await invoke('sign_out');
-      clearProjects();
-      clearDrafts();
-      onSignedOut();
-    } finally {
-      setSignOutLoading(false);
+    } catch {
+      // keyring entry may already be absent (expired session); proceed with sign-out
     }
+    clearProjects();
+    clearDrafts();
+    setSignOutLoading(false);
+    onSignedOut();
   }
 
   return (

@@ -22,8 +22,9 @@ pub fn get_license_signed_in(app_handle: tauri::AppHandle) -> bool {
 #[tauri::command]
 pub fn sign_out(app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_keyring::KeyringExt;
-    app_handle.keyring().delete_password("postlane", "license")
-        .map_err(|e| format!("Failed to sign out: {}", e))
+    // Ignore "no entry" errors — if the token is already gone the user is already signed out.
+    app_handle.keyring().delete_password("postlane", "license").ok();
+    Ok(())
 }
 
 /// Returns the display name from the license cache, or None if not signed in.
