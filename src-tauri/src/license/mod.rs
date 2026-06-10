@@ -18,12 +18,14 @@ pub fn get_license_signed_in(app_handle: tauri::AppHandle) -> bool {
     )
 }
 
-/// Removes the license token from the OS keyring, signing the user out.
+/// Removes the license token from the OS keyring and clears the license cache,
+/// signing the user out completely.
 #[tauri::command]
 pub fn sign_out(app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_keyring::KeyringExt;
     // Ignore "no entry" errors — if the token is already gone the user is already signed out.
     app_handle.keyring().delete_password("postlane", "license").ok();
+    validator::clear_license_cache();
     Ok(())
 }
 

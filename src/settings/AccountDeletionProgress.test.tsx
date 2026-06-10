@@ -30,7 +30,8 @@ function phaseErr(phase: number, skippable = true): PhaseError {
 }
 
 function setupAllSuccess() {
-  mockInvoke.mockImplementation((_cmd: string, args: { phase: number }) => {
+  mockInvoke.mockImplementation((cmd: string, args?: { phase: number }) => {
+    if (cmd === 'sign_out' || args === undefined) return Promise.resolve();
     const phase = args.phase;
     return Promise.resolve(phaseOk(phase, phase < 7 ? phase + 1 : null));
   });
@@ -107,7 +108,8 @@ describe('22.7.7 / 22.7.19: step failure Retry and Skip', () => {
 
   it('clicking Retry re-runs the same phase and continues on success', async () => {
     let phase1Calls = 0;
-    mockInvoke.mockImplementation((_cmd: string, args: { phase: number }) => {
+    mockInvoke.mockImplementation((cmd: string, args?: { phase: number }) => {
+      if (cmd === 'sign_out' || args === undefined) return Promise.resolve();
       if (args.phase === 1) {
         phase1Calls++;
         if (phase1Calls === 1) return Promise.reject(phaseErr(1));
@@ -232,5 +234,23 @@ describe('22.7.8: completion', () => {
     await waitFor(() =>
       expect(screen.queryByText(/credentials and server data have been removed/i)).not.toBeNull()
     );
+  });
+
+  it('calls sign_out before onDeleted after all phases complete (B22)', async () => {
+    const order: string[] = [];
+    mockInvoke.mockImplementation((cmd: string, args?: { phase: number }) => {
+      if (cmd === 'run_deletion_phase' && args !== undefined) {
+        return Promise.resolve(phaseOk(args.phase, args.phase < 7 ? args.phase + 1 : null));
+      }
+      if (cmd === 'sign_out') {
+        order.push('sign_out');
+        return Promise.resolve();
+      }
+      return Promise.resolve();
+    });
+    const onDeleted = vi.fn(() => { order.push('onDeleted'); });
+    render(<AccountDeletionProgress deleteWorkspaceDirs={false} onDeleted={onDeleted} onAbort={vi.fn()} />);
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+    expect(order).toEqual(['sign_out', 'onDeleted']);
   });
 });

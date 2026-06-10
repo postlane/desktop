@@ -82,6 +82,12 @@ pub fn write_license_cache(cache: &LicenseCache) -> Result<(), String> {
         .map_err(|e| format!("Failed to write license cache: {}", e))
 }
 
+pub fn clear_license_cache() {
+    if let Ok(path) = cache_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn warn_on_cache_write(result: Result<(), String>) {
     if let Err(e) = result {
         eprintln!("[license] failed to write cache: {}", e);
