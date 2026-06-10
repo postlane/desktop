@@ -77,7 +77,7 @@ export default function AccountDeletionProgress({ deleteWorkspaceDirs, onDeleted
         runPhase(result.next_phase);
       } else {
         setStepState({ kind: 'done' });
-        onDeleted();
+        invoke('sign_out').catch(() => {}).finally(() => onDeleted());
       }
     } catch (e) {
       const err = e as PhaseError;

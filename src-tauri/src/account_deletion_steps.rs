@@ -78,7 +78,11 @@ async fn run_phase_5(token: &str, client: &reqwest::Client) -> Result<DeletionPh
 
 fn run_phase_4(app: &tauri::AppHandle, repos_path: &std::path::Path) -> DeletionPhaseResult {
     let pids = workspace_ids(repos_path);
-    for key in global_keyring_keys() { let _ = app.keyring().delete_password("postlane", key); }
+    // "license" is intentionally excluded — phase 5 (server delete) still needs it.
+    // The license token is removed by sign_out once the user exits the deletion flow.
+    for key in global_keyring_keys() {
+        if *key != "license" { let _ = app.keyring().delete_password("postlane", key); }
+    }
     for pid in &pids { for key in project_keyring_keys(pid) { let _ = app.keyring().delete_password("postlane", &key); } }
     ok(4)
 }
@@ -182,6 +186,18 @@ mod tests {
         assert!(phase_message(5).contains("account record"));
         assert!(phase_message(6).contains("local files"));
         assert!(phase_message(7).contains("workspace files"));
+    }
+
+    #[test]
+    fn test_phase_4_does_not_include_license_in_global_keys() {
+        // B20: phase 4 must preserve the "license" key so phase 5 can still authenticate.
+        use crate::credential_store::global_keyring_keys;
+        let keys_cleared_by_phase_4: Vec<&str> = global_keyring_keys()
+            .iter()
+            .copied()
+            .filter(|k| *k != "license")
+            .collect();
+        assert!(!keys_cleared_by_phase_4.contains(&"license"), "license must not be deleted in phase 4");
     }
 
     #[test]
