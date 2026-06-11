@@ -109,8 +109,26 @@ pub fn clear_project_keyring(
 
 // ── Hard-delete safelist validation (22.6.13) ─────────────────────────────────
 
-/// Validates `workspace_path` against the three safelist conditions.
+/// Depth and home-dir safety checks only — no registry lookup.
+/// Used by account deletion step 9, where repos.json has already been wiped.
+pub fn canonicalize_deletion_target(workspace_path: &Path) -> Result<PathBuf, String> {
+    let canonical = std::fs::canonicalize(workspace_path)
+        .map_err(|_| "PL-DEL-002: Cannot delete this directory".to_string())?;
+    if canonical.components().count() < 4 {
+        return Err("PL-DEL-002: Cannot delete this directory".to_string());
+    }
+    let home = dirs::home_dir().ok_or_else(|| "PL-DEL-002: Cannot delete this directory".to_string())?;
+    let canonical_home = std::fs::canonicalize(&home).unwrap_or(home);
+    if canonical == canonical_home || canonical_home.starts_with(&canonical) {
+        return Err("PL-DEL-002: Cannot delete this directory".to_string());
+    }
+    Ok(canonical)
+}
+
+/// Validates `workspace_path` against registry membership + safety conditions.
 /// Returns the canonical path on success, or `Err("PL-DEL-002: …")` on failure.
+/// Use this for workspace disconnect. For account deletion step 9, use
+/// `canonicalize_deletion_target` — repos.json is wiped before step 9 runs.
 pub fn safelist_validate_delete_path(
     workspace_path: &Path,
     repos_path: &Path,
@@ -123,18 +141,7 @@ pub fn safelist_validate_delete_path(
     if !in_registry {
         return Err("PL-DEL-002: Cannot delete this directory".to_string());
     }
-    let canonical = std::fs::canonicalize(workspace_path)
-        .map_err(|_| "PL-DEL-002: Cannot delete this directory".to_string())?;
-    if canonical.components().count() < 4 {
-        return Err("PL-DEL-002: Cannot delete this directory".to_string());
-    }
-    let home = dirs::home_dir().ok_or_else(|| "PL-DEL-002: Cannot delete this directory".to_string())?;
-    let canonical_home = std::fs::canonicalize(&home)
-        .unwrap_or(home);
-    if canonical == canonical_home || canonical_home.starts_with(&canonical) {
-        return Err("PL-DEL-002: Cannot delete this directory".to_string());
-    }
-    Ok(canonical)
+    canonicalize_deletion_target(workspace_path)
 }
 
 // ── Migration journal check (22.6.12a) ────────────────────────────────────────

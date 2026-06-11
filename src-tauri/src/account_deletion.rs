@@ -213,12 +213,12 @@ pub fn wipe_postlane_files(postlane_dir: &Path) -> Result<(), String> {
 
 pub fn delete_workspace_dirs(
     workspace_snapshot: &[WorkspaceEntry],
-    repos_path: &Path,
+    _repos_path: &Path,
 ) -> Vec<String> {
     let mut failures = Vec::new();
     for ws in workspace_snapshot {
         let ws_path = std::path::Path::new(&ws.workspace_path);
-        match crate::workspace_disconnect::safelist_validate_delete_path(ws_path, repos_path) {
+        match crate::workspace_disconnect::canonicalize_deletion_target(ws_path) {
             Err(e) => failures.push(format!("{}: {}", ws.workspace_path, e)),
             Ok(canonical) => {
                 if let Err(e) = std::fs::remove_dir_all(&canonical) {

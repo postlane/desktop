@@ -226,6 +226,26 @@ fn test_wipe_postlane_files_succeeds_when_files_absent() {
     assert!(wipe_postlane_files(tmp.path()).is_ok());
 }
 
+// ── B23: Step 9 deletes dirs even after repos.json wiped by step 6 ──────────
+
+#[test]
+fn test_delete_workspace_dirs_succeeds_after_repos_json_wiped() {
+    let tmp = TempDir::new().unwrap();
+    let repos_path = tmp.path().join("repos.json");
+    let ws_dir = tmp.path().join("my-workspace").join("inner").join("deep").join("ws");
+    fs::create_dir_all(&ws_dir).unwrap();
+
+    // Simulate step 6: repos.json is wiped to empty before step 9 runs
+    storage::write_repos(&repos_path, &ReposConfig { version: 2, workspaces: vec![], repos: vec![] }).unwrap();
+
+    // Snapshot was captured at phase 0, before the wipe
+    let snapshot = vec![make_entry("ws-1", ws_dir.to_str().unwrap())];
+
+    let failures = delete_workspace_dirs(&snapshot, &repos_path);
+    assert!(failures.is_empty(), "dirs must be deleted even after repos.json is wiped: {:?}", failures);
+    assert!(!ws_dir.exists(), "workspace directory must be gone after checkbox=true");
+}
+
 // ── 22.7.20: Step 9 — workspace dirs deleted when checkbox checked ────────────
 
 #[test]
