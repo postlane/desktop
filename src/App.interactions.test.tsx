@@ -40,6 +40,8 @@ vi.mock('./nav/LeftNav', () => ({
         <button data-testid="leftnav-queue" onClick={() => onNavigate?.({ view: 'org_queue', projectId })} />
         <button data-testid="leftnav-add-org" onClick={() => onAddWorkspace?.()} />
         <button data-testid="leftnav-settings" onClick={() => onSettingsOpen?.()} />
+        <button data-testid="leftnav-account" onClick={() => onNavigate?.({ view: 'global_settings', section: 'account' } as never)} />
+        <button data-testid="leftnav-system" onClick={() => onNavigate?.({ view: 'global_settings', section: 'system' } as never)} />
       </>
     );
   },
@@ -233,6 +235,16 @@ describe('App — global settings', () => {
     render(<App />)
     await waitFor(() => screen.getByText('LeftNav'))
     await userEvent.setup().click(screen.getByTestId('leftnav-settings'))
+    await waitFor(() => expect(screen.getByText('AccountSettingsView')).toBeInTheDocument())
+  })
+
+  it('navigating from System to Account switches view', async () => {
+    signedInInvoke()
+    render(<App />)
+    await waitFor(() => screen.getByText('LeftNav'))
+    await userEvent.setup().click(screen.getByTestId('leftnav-system'))
+    await waitFor(() => expect(screen.getByText('SystemSettingsView')).toBeInTheDocument())
+    await userEvent.setup().click(screen.getByTestId('leftnav-account'))
     await waitFor(() => expect(screen.getByText('AccountSettingsView')).toBeInTheDocument())
   })
 })
