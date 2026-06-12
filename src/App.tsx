@@ -256,6 +256,7 @@ function isSameView(a: ViewSelection, b: ViewSelection): boolean {
   if (a.view === 'org_queue' && b.view === 'org_queue') return a.projectId === b.projectId;
   if (a.view === 'org_history' && b.view === 'org_history') return a.projectId === b.projectId;
   if (a.view === 'org_settings' && b.view === 'org_settings') return a.projectId === b.projectId;
+  if (a.view === 'global_settings' && b.view === 'global_settings') return a.section === b.section;
   return true;
 }
 
