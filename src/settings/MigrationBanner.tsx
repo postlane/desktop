@@ -149,12 +149,30 @@ export function MigrationBannerContent({ status, onDismiss, onSetupWorkspace }: 
 
 // ── Composite block used by OrgQueueView ─────────────────────────────────────
 
+export function CleanupSuccessMessage({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <article className="message is-success mb-3" role="status" aria-label="Cleanup complete">
+      <div className="message-body is-flex is-align-items-center" style={{ gap: '0.75rem' }}>
+        <span style={{ flex: 1 }}>Cleanup complete. Original files removed.</span>
+        <button className="button is-small is-light" onClick={onDismiss}>Dismiss</button>
+      </div>
+    </article>
+  );
+}
+
 export function MigrationBannersBlock({ projectId }: { projectId: string }) {
   const { result: wsStatus, clearStatus } = useWorkspaceStatus(projectId);
   const [wsDismissed, setWsDismissed] = useState(false);
   const { status: migrationStatus, dismiss: dismissMigration } = useMigrationStatus();
   const { statuses: journalStatuses, resume: resumeJournal, dismissSession: dismissJournal } = useJournalStatuses();
   const [showMigrationFlow, setShowMigrationFlow] = useState(false);
+  const [completedWorkspaces, setCompletedWorkspaces] = useState<string[]>([]);
+
+  const handleResume = useCallback(async (workspaceId: string) => {
+    await resumeJournal(workspaceId);
+    setCompletedWorkspaces((prev) => [...prev, workspaceId]);
+  }, [resumeJournal]);
+
   return (
     <>
       {wsStatus && wsStatus.status.tag !== 'ok' && !wsDismissed && (
@@ -171,11 +189,17 @@ export function MigrationBannersBlock({ projectId }: { projectId: string }) {
       {showMigrationFlow && (
         <MigrationFlow projectId={projectId} onDone={() => setShowMigrationFlow(false)} />
       )}
+      {completedWorkspaces.map((id) => (
+        <CleanupSuccessMessage
+          key={id}
+          onDismiss={() => setCompletedWorkspaces((prev) => prev.filter((i) => i !== id))}
+        />
+      ))}
       {journalStatuses.map((j) => (
         <RecoveryBannerContent
           key={j.workspace_id}
           journal={j}
-          onResume={resumeJournal}
+          onResume={handleResume}
           onDismiss={dismissJournal}
         />
       ))}
