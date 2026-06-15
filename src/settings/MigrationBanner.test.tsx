@@ -6,6 +6,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import {
   MigrationBannerContent,
   RecoveryBannerContent,
+  CleanupSuccessMessage,
 } from './MigrationBanner';
 import type { MigrationStatus, JournalStatus, MigrationJournalEntry } from './MigrationBanner';
 
@@ -188,6 +189,22 @@ describe('22.5.22/22.5.25: RecoveryBannerContent', () => {
       />
     );
     expect(screen.getByText(/cannot be cleaned up until you resume/i)).toBeDefined();
+  });
+});
+
+// ── 22.10.18: CleanupSuccessMessage after resume ──────────────────────────────
+
+describe('22.10.18: CleanupSuccessMessage', () => {
+  it('renders "Cleanup complete. Original files removed."', () => {
+    render(<CleanupSuccessMessage onDismiss={vi.fn()} />);
+    expect(screen.getByText('Cleanup complete. Original files removed.')).toBeDefined();
+  });
+
+  it('calls onDismiss when Dismiss is clicked', () => {
+    const onDismiss = vi.fn();
+    render(<CleanupSuccessMessage onDismiss={onDismiss} />);
+    fireEvent.click(screen.getByText('Dismiss'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
 
