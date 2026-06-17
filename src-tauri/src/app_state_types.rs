@@ -87,6 +87,10 @@ pub struct AppStateFile {
     /// Set to true at the start of Step 1; cleared when Step 5 succeeds (22.7.7a).
     #[serde(default)]
     pub deletion_incomplete: bool,
+    /// Set to true when the user dismisses the voice guide hint (22.3.22a).
+    /// Persists across launches so the hint is shown once per app installation.
+    #[serde(default)]
+    pub voice_guide_hint_dismissed: bool,
 }
 
 fn default_notifications_enabled() -> bool { true }
@@ -120,6 +124,7 @@ impl Default for AppStateFile {
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
             deletion_incomplete: false,
+            voice_guide_hint_dismissed: false,
         }
     }
 }
@@ -231,5 +236,20 @@ mod tests {
         let json = serde_json::to_string(&state).expect("serialize");
         let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
         assert!(loaded.credential_migration_v1, "must survive round-trip");
+    }
+
+    #[test]
+    fn test_voice_guide_hint_dismissed_defaults_to_false() {
+        let json = r#"{"version":1,"window":{"width":1100,"height":700,"x":0,"y":0},"nav":{"last_view":"all_repos","last_repo_id":null,"last_section":"drafts","expanded_repos":[]},"wizard_completed":false,"timezone":"","telemetry_consent":false,"consent_asked":false}"#;
+        let loaded: AppStateFile = serde_json::from_str(json).expect("should parse");
+        assert!(!loaded.voice_guide_hint_dismissed, "missing field must default to false");
+    }
+
+    #[test]
+    fn test_voice_guide_hint_dismissed_round_trips() {
+        let state = AppStateFile { voice_guide_hint_dismissed: true, ..AppStateFile::default() };
+        let json = serde_json::to_string(&state).expect("serialize");
+        let loaded: AppStateFile = serde_json::from_str(&json).expect("deserialize");
+        assert!(loaded.voice_guide_hint_dismissed, "voice_guide_hint_dismissed must survive round-trip");
     }
 }

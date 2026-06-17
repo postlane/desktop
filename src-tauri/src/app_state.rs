@@ -184,6 +184,7 @@ mod tests {
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
             deletion_incomplete: false,
+            voice_guide_hint_dismissed: false,
         };
 
         let path = dir.path().join("app_state.json");
@@ -271,6 +272,7 @@ mod tests {
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
             deletion_incomplete: false,
+            voice_guide_hint_dismissed: false,
         };
 
         write_app_state(&state).expect("Failed to write app_state");
@@ -338,6 +340,7 @@ mod tests {
             repos_schema_v2: false,
             workspace_migration_dismissed: false,
             deletion_incomplete: false,
+            voice_guide_hint_dismissed: false,
         };
 
         let json = serde_json::to_string_pretty(&state).expect("Failed to serialize");
