@@ -116,9 +116,12 @@ pub fn rescan_workspace_impl(repos_path: &Path, workspace_id: &str) -> Result<Re
 }
 
 pub(crate) fn record_workspace_rescan(
-    state: &crate::app_state::AppState, consent: bool, added: usize, removed: usize,
+    state: &crate::app_state::AppState, consent: bool, workspace_id: &str, repo_count: usize,
 ) {
-    state.telemetry.record(consent, "workspace_rescan", serde_json::json!({ "added": added, "removed": removed }));
+    state.telemetry.record(consent, "workspace_rescan", serde_json::json!({
+        "workspace_id": workspace_id,
+        "repo_count": repo_count,
+    }));
 }
 
 /// Tauri command: rescans the workspace for new or removed repos and updates
@@ -131,7 +134,8 @@ pub fn rescan_workspace(
 ) -> Result<RescanResult, String> {
     let result = rescan_workspace_impl(&state.repos_path, &workspace_id)?;
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    record_workspace_rescan(&state, consent, result.added.len(), result.deactivated.len());
+    let repo_count = result.added.len() + result.unchanged.len();
+    record_workspace_rescan(&state, consent, &workspace_id, repo_count);
 
     if !result.added.is_empty() {
         let workspace_path =

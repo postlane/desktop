@@ -205,9 +205,12 @@ pub fn sync_workspace_to_app_state(
 /// confirmation command (22.3.4) which starts the watcher after the user
 /// confirms (or deselects) the discovered repos.
 pub(crate) fn record_workspace_created(
-    state: &crate::app_state::AppState, consent: bool, repo_count: usize,
+    state: &crate::app_state::AppState, consent: bool, workspace_id: &str, repo_count: usize,
 ) {
-    state.telemetry.record(consent, "workspace_created", serde_json::json!({ "repo_count": repo_count }));
+    state.telemetry.record(consent, "workspace_created", serde_json::json!({
+        "workspace_id": workspace_id,
+        "repo_count": repo_count,
+    }));
 }
 
 #[tauri::command]
@@ -222,7 +225,7 @@ pub fn add_workspace(
     let result = add_workspace_impl(&path, &state.repos_path, &pl_dir, &project_id)?;
     sync_workspace_to_app_state(&result, &state);
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    record_workspace_created(&state, consent, result.discovered_repos.len());
+    record_workspace_created(&state, consent, &project_id, result.discovered_repos.len());
     Ok(result)
 }
 

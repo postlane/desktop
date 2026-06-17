@@ -294,14 +294,14 @@ describe('LeftNav — empty and error states', () => {
     expect(screen.getByText(/no workspaces/i)).toBeInTheDocument()
   })
 
-  it('shows Add org button in empty state', () => {
+  it('shows Add workspace button in empty state', () => {
     renderNav()
-    expect(screen.getByRole('button', { name: /add.*org/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /add.*workspace/i })).toBeInTheDocument()
   })
 
-  it('Add org button is enabled', () => {
+  it('Add workspace button is enabled', () => {
     renderNav()
-    expect(screen.getByRole('button', { name: /add.*org/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /add.*workspace/i })).not.toBeDisabled()
   })
 
   it('shows load error when projects.error is set', () => {

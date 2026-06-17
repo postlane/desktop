@@ -73,10 +73,12 @@ describe('OrgSettingsView', () => {
     expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
   })
 
-  it('renders DangerZone rows for owner below billing', async () => {
+  it('renders DangerZone toggle for owner below billing', async () => {
     render(<OrgSettingsView org={makeProject()} />)
-    await screen.findByText(/Disconnect this workspace/i)
-    expect(screen.getByText(/Delete this workspace/i)).toBeInTheDocument()
+    const toggle = await screen.findByRole('button', { name: /Danger zone/i })
+    expect(toggle).toBeInTheDocument()
+    // rows are hidden until expanded
+    expect(screen.queryByText(/Disconnect this workspace/i)).not.toBeInTheDocument()
   })
 
   it('does not render DangerZone rows for non-owner', () => {

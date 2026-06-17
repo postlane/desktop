@@ -165,26 +165,35 @@ function DeleteModal({ workspaceId, info, onDone, onCancel, onDeleted }: {
 export default function DangerZone({ workspaceId, isOwner, workspaceName = '', onDisconnected, onDeleted }: Props) {
   const info = useWorkspaceInfo(workspaceId, workspaceName);
   const [modal, setModal] = useState<Modal>('none');
+  const [expanded, setExpanded] = useState(false);
 
   if (!isOwner) return null;
 
   return (
     <div style={{ border: '1px solid #f14668', borderRadius: 4, padding: '1rem' }}>
-      <p className="is-size-7 has-text-weight-medium has-text-danger mb-3">Danger zone</p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div className="is-flex is-align-items-center is-justify-content-space-between">
-          <span className="is-size-7">Disconnect this workspace</span>
-          <button className="button is-warning is-size-7" onClick={() => setModal('disconnect')}>
-            Disconnect
-          </button>
+      <button
+        className="button is-ghost is-fullwidth is-justify-content-flex-start has-text-danger has-text-weight-medium is-size-7 p-0"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        Danger zone {expanded ? '▲' : '▼'}
+      </button>
+      {expanded && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.75rem' }}>
+          <div className="is-flex is-align-items-center is-justify-content-space-between">
+            <span className="is-size-7">Disconnect this workspace</span>
+            <button className="button is-warning is-size-7" onClick={() => setModal('disconnect')}>
+              Disconnect
+            </button>
+          </div>
+          <div className="is-flex is-align-items-center is-justify-content-space-between">
+            <span className="is-size-7">Delete this workspace</span>
+            <button className="button is-danger is-size-7" onClick={() => setModal('delete')}>
+              Delete
+            </button>
+          </div>
         </div>
-        <div className="is-flex is-align-items-center is-justify-content-space-between">
-          <span className="is-size-7">Delete this workspace</span>
-          <button className="button is-danger is-size-7" onClick={() => setModal('delete')}>
-            Delete
-          </button>
-        </div>
-      </div>
+      )}
       {modal === 'disconnect' && (
         <DisconnectModal workspaceId={workspaceId} name={info?.name ?? workspaceId}
           onDone={() => setModal('none')} onCancel={() => setModal('none')}
