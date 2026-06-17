@@ -39,37 +39,40 @@ describe('22.6.1: owner-only visibility', () => {
   });
 });
 
-// ── 22.10.14/22.10.15: always-visible two-row layout ─────────────────────────
+// ── collapsed by default (H3) ────────────────────────────────────────────────
 
-describe('always-visible two-row layout', () => {
-  it('does not render an expand toggle button', async () => {
+describe('collapsed by default', () => {
+  it('renders a "Danger zone" expand toggle button', async () => {
     render(<DangerZone workspaceId="ws-1" isOwner />);
     await act(async () => {});
-    expect(screen.queryByRole('button', { name: /Danger Zone/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /Danger zone/i })).toBeDefined();
   });
 
-  it('disconnect row label is visible without interaction', async () => {
+  it('toggle has aria-expanded=false before first click', async () => {
     render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    expect(screen.getByRole('button', { name: /Danger zone/i }).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('hides disconnect row before expanding', async () => {
+    render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    expect(screen.queryByText(/Disconnect this workspace/i)).toBeNull();
+  });
+
+  it('hides delete row before expanding', async () => {
+    render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    expect(screen.queryByText(/Delete this workspace/i)).toBeNull();
+  });
+
+  it('shows rows after clicking the toggle', async () => {
+    render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
     await act(async () => {});
     expect(screen.getByText(/Disconnect this workspace/i)).toBeDefined();
-  });
-
-  it('delete row label is visible without interaction', async () => {
-    render(<DangerZone workspaceId="ws-1" isOwner />);
-    await act(async () => {});
     expect(screen.getByText(/Delete this workspace/i)).toBeDefined();
-  });
-
-  it('shows "Disconnect" action button', async () => {
-    render(<DangerZone workspaceId="ws-1" isOwner />);
-    await act(async () => {});
-    expect(screen.getByRole('button', { name: /^Disconnect$/i })).toBeDefined();
-  });
-
-  it('shows "Delete" action button', async () => {
-    render(<DangerZone workspaceId="ws-1" isOwner />);
-    await act(async () => {});
-    expect(screen.getByRole('button', { name: /^Delete$/i })).toBeDefined();
   });
 });
 
@@ -78,6 +81,8 @@ describe('always-visible two-row layout', () => {
 describe('22.6.2: Disconnect confirmation dialog', () => {
   async function openDisconnect() {
     render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /^Disconnect$/i }));
     await waitFor(() => screen.getByRole('dialog', { name: /Disconnect workspace/i }));
@@ -120,6 +125,8 @@ describe('22.6.2: Disconnect confirmation dialog', () => {
     const onDisconnected = vi.fn();
     render(<DangerZone workspaceId="ws-1" isOwner onDisconnected={onDisconnected} />);
     await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
+    await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /^Disconnect$/i }));
     await waitFor(() => screen.getByTestId('modal-confirm-disconnect-btn'));
     fireEvent.click(screen.getByTestId('modal-confirm-disconnect-btn'));
@@ -144,6 +151,8 @@ describe('22.6.2: Disconnect confirmation dialog', () => {
 describe('22.6.10/22.6.11: Delete two-step confirmation', () => {
   async function openDeleteStep1() {
     render(<DangerZone workspaceId="ws-1" isOwner />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
     await act(async () => {});
@@ -178,6 +187,8 @@ describe('22.6.10/22.6.11: Delete two-step confirmation', () => {
 
 async function openDeleteStep2() {
   render(<DangerZone workspaceId="ws-1" isOwner />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
   await act(async () => {});
   fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
   await act(async () => {});
@@ -256,6 +267,8 @@ async function openDeleteWithJournal() {
   });
   render(<DangerZone workspaceId="ws-1" isOwner />);
   await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
+  await act(async () => {});
   fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
   await act(async () => {});
   await waitFor(() => screen.getByRole('button', { name: /Continue/i }));
@@ -291,6 +304,8 @@ describe('22.6.12a: journal warning before Step 2', () => {
 
 async function openDeleteStep2WithCallback(onDeleted?: () => void) {
   render(<DangerZone workspaceId="ws-1" isOwner onDeleted={onDeleted} />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
   await act(async () => {});
   fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
   await act(async () => {});
@@ -332,6 +347,8 @@ describe('B14: cloud-only project fallback', () => {
   it('shows Step 1 warning when get_workspace_info fails', async () => {
     render(<DangerZone workspaceId="cloud-id" isOwner workspaceName="my-project" />);
     await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
+    await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
     await act(async () => {});
     expect(screen.getByText(/cannot be undone/i)).toBeDefined();
@@ -339,6 +356,8 @@ describe('B14: cloud-only project fallback', () => {
 
   it('does not show monospace path block when workspace has no local directory', async () => {
     render(<DangerZone workspaceId="cloud-id" isOwner workspaceName="my-project" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
     await act(async () => {});
@@ -350,6 +369,8 @@ describe('B14: cloud-only project fallback', () => {
 
   it('Delete button activates when workspaceName is typed for cloud-only project', async () => {
     render(<DangerZone workspaceId="cloud-id" isOwner workspaceName="my-project" />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /Danger zone/i }));
     await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
     await act(async () => {});

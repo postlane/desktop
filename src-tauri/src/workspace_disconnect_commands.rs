@@ -24,9 +24,26 @@ fn license_token(app: &tauri::AppHandle) -> Result<String, String> {
         .ok_or_else(|| "No license token — sign in at postlane.dev/login".to_string())
 }
 
-fn record_event(event: &str, state: &tauri::State<'_, crate::app_state::AppState>) {
-    let consent = crate::app_state::read_app_state().telemetry_consent;
-    state.telemetry.record(consent, event, serde_json::json!({}));
+pub(crate) fn record_workspace_disconnected_event(
+    workspace_id: &str,
+    consent: bool,
+    state: &crate::app_state::AppState,
+) {
+    state.telemetry.record(consent, "workspace_disconnected", serde_json::json!({
+        "workspace_id": workspace_id,
+    }));
+}
+
+pub(crate) fn record_workspace_deleted_event(
+    workspace_id: &str,
+    optional_deletion_checked: bool,
+    consent: bool,
+    state: &crate::app_state::AppState,
+) {
+    state.telemetry.record(consent, "workspace_deleted", serde_json::json!({
+        "workspace_id": workspace_id,
+        "optional_deletion_checked": optional_deletion_checked,
+    }));
 }
 
 // ── Soft-remove ───────────────────────────────────────────────────────────────
@@ -61,7 +78,8 @@ pub async fn disconnect_workspace(
         clear_project_keyring(&workspace_id, &app);
     }
 
-    record_event("workspace_disconnected", &state);
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_workspace_disconnected_event(&workspace_id, consent, &state);
     Ok(remaining > 0)
 }
 
@@ -107,12 +125,14 @@ pub async fn delete_workspace(
         clear_project_keyring(&workspace_id, &app);
     }
 
+    let had_local_dir = canonical_opt.is_some();
     if let Some(canonical) = canonical_opt {
         std::fs::remove_dir_all(&canonical)
             .map_err(|e| format!("Failed to delete workspace directory: {}", e))?;
     }
 
-    record_event("workspace_deleted", &state);
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_workspace_deleted_event(&workspace_id, had_local_dir, consent, &state);
     Ok(remaining > 0)
 }
 
@@ -162,4 +182,42 @@ pub fn get_workspace_info(
 pub struct WorkspaceInfo {
     pub workspace_path: String,
     pub name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state() -> crate::app_state::AppState {
+        crate::test_fixtures::make_state(vec![])
+    }
+
+    #[test]
+    fn test_workspace_disconnected_records_workspace_id() {
+        let state = make_state();
+        record_workspace_disconnected_event("ws-abc", true, &state);
+        assert_eq!(state.telemetry.queue_len(), 1);
+        let ev = &state.telemetry.peek_queue()[0];
+        assert_eq!(ev.name, "workspace_disconnected");
+        assert_eq!(ev.properties["workspace_id"], "ws-abc");
+    }
+
+    #[test]
+    fn test_workspace_deleted_records_workspace_id_and_optional_checked() {
+        let state = make_state();
+        record_workspace_deleted_event("ws-def", true, true, &state);
+        assert_eq!(state.telemetry.queue_len(), 1);
+        let ev = &state.telemetry.peek_queue()[0];
+        assert_eq!(ev.name, "workspace_deleted");
+        assert_eq!(ev.properties["workspace_id"], "ws-def");
+        assert_eq!(ev.properties["optional_deletion_checked"], true);
+    }
+
+    #[test]
+    fn test_workspace_deleted_optional_checked_false_for_cloud_only() {
+        let state = make_state();
+        record_workspace_deleted_event("ws-cloud", false, true, &state);
+        let ev = &state.telemetry.peek_queue()[0];
+        assert_eq!(ev.properties["optional_deletion_checked"], false);
+    }
 }

@@ -214,19 +214,19 @@ fn test_rescan_assigns_collision_safe_posts_dir_for_duplicate_basename() {
 // ── 22.9.11: workspace_rescan telemetry ──────────────────────────────────────
 
 #[test]
-fn test_workspace_rescan_records_telemetry_with_counts() {
+fn test_workspace_rescan_records_workspace_id_and_repo_count() {
     let state = crate::test_fixtures::make_state(vec![]);
-    record_workspace_rescan(&state, true, 2, 1);
+    record_workspace_rescan(&state, true, "proj-xyz", 5);
     assert_eq!(state.telemetry.queue_len(), 1, "workspace_rescan must be queued");
     let events = state.telemetry.peek_queue();
     assert_eq!(events[0].name, "workspace_rescan");
-    assert_eq!(events[0].properties["added"], 2);
-    assert_eq!(events[0].properties["removed"], 1);
+    assert_eq!(events[0].properties["workspace_id"], "proj-xyz");
+    assert_eq!(events[0].properties["repo_count"], 5);
 }
 
 #[test]
 fn test_workspace_rescan_no_event_without_consent() {
     let state = crate::test_fixtures::make_state(vec![]);
-    record_workspace_rescan(&state, false, 1, 0);
+    record_workspace_rescan(&state, false, "proj-xyz", 3);
     assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
 }

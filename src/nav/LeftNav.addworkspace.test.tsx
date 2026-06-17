@@ -42,7 +42,7 @@ describe('LeftNav — Add org button', () => {
         onAddWorkspace={vi.fn()}
       />,
     );
-    expect(screen.getByRole('button', { name: /add.*org/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /add.*workspace/i })).not.toBeDisabled();
   });
 
   it('test_add_org_button_calls_onAddWorkspace_when_clicked', async () => {
@@ -55,7 +55,7 @@ describe('LeftNav — Add org button', () => {
         onAddWorkspace={onAddWorkspace}
       />,
     );
-    await userEvent.setup().click(screen.getByRole('button', { name: /add.*org/i }));
+    await userEvent.setup().click(screen.getByRole('button', { name: /add.*workspace/i }));
     expect(onAddWorkspace).toHaveBeenCalledOnce();
   });
 });
