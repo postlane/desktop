@@ -35,6 +35,15 @@ pub fn read_json_file<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
 }
 
+/// Serialises `value` as pretty-printed JSON and writes it atomically. Both
+/// the serialise and write error messages include the file path.
+pub fn write_json_file(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialize {}: {}", path.display(), e))?;
+    atomic_write(path, json.as_bytes())
+        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
 /// Atomic write: writes content to a unique .tmp file then renames to target.
 /// Each call uses a unique tmp name (pid + monotonic counter) so parallel
 /// callers writing to the same target do not race on a shared .tmp file.
@@ -202,6 +211,45 @@ mod tests {
 
     #[derive(serde::Deserialize)]
     struct TestConfig { name: String }
+
+    #[test]
+    fn test_write_json_file_creates_and_reads_back() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("test.json");
+        let data = serde_json::json!({"hello": "world", "num": 42});
+        write_json_file(&path, &data).expect("must succeed");
+        let v: serde_json::Value = read_json_file(&path).expect("must read back");
+        assert_eq!(v, data);
+    }
+
+    #[test]
+    fn test_write_json_file_overwrites_existing() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("test.json");
+        write_json_file(&path, &serde_json::json!({"v": 1})).expect("first write");
+        write_json_file(&path, &serde_json::json!({"v": 2})).expect("second write");
+        let v: serde_json::Value = read_json_file(&path).expect("read back");
+        assert_eq!(v["v"].as_i64(), Some(2));
+    }
+
+    #[test]
+    fn test_write_json_file_creates_parent_directory() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("subdir/nested/test.json");
+        write_json_file(&path, &serde_json::json!({"key": "val"})).expect("must succeed");
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_write_json_file_error_includes_path() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("test.json");
+        let result = write_json_file(&path, &serde_json::json!({"v": 1}));
+        if result.is_err() {
+            let msg = result.unwrap_err();
+            assert!(msg.contains("test.json"), "error must name file, got: {}", msg);
+        }
+    }
 
     #[test]
     fn test_read_json_file_deserialises_into_typed_struct() {

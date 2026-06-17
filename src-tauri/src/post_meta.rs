@@ -100,10 +100,7 @@ impl PostMeta {
         if !path.exists() {
             return Ok(PostMeta::default());
         }
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse {:?}: {}", path, e))
+        crate::init::read_json_file(path)
     }
 
     /// Atomically write meta.json: merge self's fields into existing JSON, then write via `.tmp`.

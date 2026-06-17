@@ -552,3 +552,74 @@ use std::path::{Path, PathBuf};
         assert_eq!(post_b.post_folder, "post-b", "org-b post_folder must be post-b");
         assert_ne!(post_a.repo_path, post_b.repo_path, "child repo paths must differ");
     }
+
+    // ── drafts_from_workspace_entry error branches ───────────────────────────
+
+    /// When repos.json is absent, read_workspace_repos returns Err → drafts_from_workspace_entry
+    /// logs a warning and returns an empty vec (lines 24-26 in draft_queries.rs).
+    #[test]
+    fn test_drafts_from_workspace_entry_returns_empty_when_repos_json_missing() {
+        let ws = tempfile::TempDir::new().expect("create ws");
+        // No repos.json written → read_workspace_repos will fail
+        let ws_entry = crate::workspace_entry::WorkspaceEntry {
+            id: "ws-1".to_string(),
+            name: "ws".to_string(),
+            workspace_path: ws.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let result = drafts_from_workspace_entry(&ws_entry);
+        assert!(result.is_empty(), "missing repos.json must yield empty draft list");
+    }
+
+    /// When repos.json exists but contains invalid JSON, read_workspace_repos returns Err →
+    /// drafts_from_workspace_entry returns empty (lines 24-26 in draft_queries.rs).
+    #[test]
+    fn test_drafts_from_workspace_entry_returns_empty_when_repos_json_malformed() {
+        let ws = tempfile::TempDir::new().expect("create ws");
+        fs::write(ws.path().join("repos.json"), b"not valid json at all")
+            .expect("write malformed repos.json");
+        let ws_entry = crate::workspace_entry::WorkspaceEntry {
+            id: "ws-1".to_string(),
+            name: "ws".to_string(),
+            workspace_path: ws.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let result = drafts_from_workspace_entry(&ws_entry);
+        assert!(result.is_empty(), "malformed repos.json must yield empty draft list");
+    }
+
+    /// When repos.json is valid but the posts subdir for a repo entry does not exist,
+    /// drafts_from_workspace_entry returns empty for that entry (line 37 in draft_queries.rs).
+    #[test]
+    fn test_drafts_from_workspace_entry_returns_empty_when_posts_subdir_missing() {
+        use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
+        let ws = tempfile::TempDir::new().expect("create ws");
+        let child = ws.path().join("repo-a");
+        // repos.json lists the repo entry, but posts/repo-a/ is never created
+        let config = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![RepoEntry {
+                id: "r1".to_string(),
+                name: "repo-a".to_string(),
+                path: child.to_str().unwrap().to_string(),
+                posts_dir: "repo-a".to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        write_workspace_repos(&ws.path().join("repos.json"), &config)
+            .expect("write repos.json");
+        // posts/repo-a/ intentionally not created → posts_subdir.exists() == false
+
+        let ws_entry = crate::workspace_entry::WorkspaceEntry {
+            id: "ws-1".to_string(),
+            name: "ws".to_string(),
+            workspace_path: ws.path().to_str().unwrap().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let result = drafts_from_workspace_entry(&ws_entry);
+        assert!(result.is_empty(), "missing posts subdir must yield empty draft list");
+    }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { flushSync } from 'react-dom';
 import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -98,16 +99,13 @@ function useConnectionStatus(projectId: string) {
 
 function useRepoActions(rows: RepoConnectionStatus[], refresh: () => void) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const [removeLoading, setRemoveLoading] = useState(false);
+  const { loading: removeLoading, run: runRemove } = useAsyncCommand();
   async function handleConfirmRemove() {
     if (!pendingRemoveId) return;
-    setRemoveLoading(true);
-    try {
-      await invoke('unregister_repo', { repoId: pendingRemoveId });
+    const result = await runRemove(async () => { await invoke('unregister_repo', { repoId: pendingRemoveId }); return true; });
+    if (result !== null) {
       setPendingRemoveId(null);
       refresh();
-    } finally {
-      setRemoveLoading(false);
     }
   }
 
@@ -173,17 +171,14 @@ function useWorkspaceFlow(projectId: string, refresh: () => void) {
 
 function useDisconnect(projectId: string, refresh: () => void) {
   const [pending, setPending] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useAsyncCommand();
 
   async function confirm() {
-    setLoading(true);
-    try {
-      await invoke('disconnect_github_app', { projectId });
+    const result = await run(async () => { await invoke('disconnect_github_app', { projectId }); return true; });
+    setPending(false);
+    if (result !== null) {
       refresh();
       window.open('https://github.com/settings/installations', '_blank');
-    } finally {
-      setLoading(false);
-      setPending(false);
     }
   }
 
@@ -192,14 +187,14 @@ function useDisconnect(projectId: string, refresh: () => void) {
 
 
 function useRescanWorkspace(workspaceId: string, refresh: () => void) {
-  const [scanning, setScanning] = useState(false);
+  const { loading: scanning, run } = useAsyncCommand();
   const [result, setResult] = useState<RescanResult | null>(null);
   async function rescan() {
-    setScanning(true);
-    try {
-      setResult(await invoke<RescanResult>('rescan_workspace', { workspaceId }));
+    const data = await run(() => invoke<RescanResult>('rescan_workspace', { workspaceId }));
+    if (data !== null) {
+      setResult(data);
       refresh();
-    } finally { setScanning(false); }
+    }
   }
   return { scanning, result, rescan };
 }

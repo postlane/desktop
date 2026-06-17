@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '../ipc/invoke';
 import { useProjectsContext } from '../context/ProjectsProvider';
@@ -14,7 +15,7 @@ interface Props {
 export default function AccountSettingsView({ onSignedOut }: Props) {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
-  const [signOutLoading, setSignOutLoading] = useState(false);
+  const { loading: signOutLoading, run } = useAsyncCommand();
   const { clear: clearProjects } = useProjectsContext();
   const { clear: clearDrafts } = useDraftPostsContext();
 
@@ -24,15 +25,9 @@ export default function AccountSettingsView({ onSignedOut }: Props) {
   }, []);
 
   async function handleSignOut() {
-    setSignOutLoading(true);
-    try {
-      await invoke('sign_out');
-    } catch {
-      // keyring entry may already be absent (expired session); proceed with sign-out
-    }
+    await run(() => invoke('sign_out'));
     clearProjects();
     clearDrafts();
-    setSignOutLoading(false);
     onSignedOut();
   }
 

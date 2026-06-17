@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import WizardShell from './WizardShell';
 
 type WorkspaceType = 'personal' | 'organization' | 'client';
@@ -63,21 +64,23 @@ function WorkspaceForm({ name, workspaceType, error, onNameChange, onTypeChange 
 export default function ModalWorkspace({ onNext, onBack, onPricingGate, onSkipToApp }: Props) {
   const [name, setName] = useState('');
   const [workspaceType, setWorkspaceType] = useState<WorkspaceType>('personal');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, error, run } = useAsyncCommand();
 
   async function handleNext() {
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await invoke<CreateProjectResult>('create_project', { name: name.trim(), workspaceType });
+    let pricingGate = false;
+    const result = await run(async () => {
+      try {
+        return await invoke<CreateProjectResult>('create_project', { name: name.trim(), workspaceType });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('No free project slot')) pricingGate = true;
+        throw err;
+      }
+    });
+    if (result !== null) {
       onNext(result.project_id);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('No free project slot')) { onPricingGate(); }
-      else { setError(`Failed to create workspace: ${msg}`); }
-    } finally {
-      setLoading(false);
+    } else if (pricingGate) {
+      onPricingGate();
     }
   }
 

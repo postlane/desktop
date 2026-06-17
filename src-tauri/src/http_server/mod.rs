@@ -437,4 +437,54 @@ mod tests {
         assert!(addr.ip().is_loopback(), "must bind to 127.0.0.1");
         assert_ne!(addr.port(), 0);
     }
+
+    fn make_minimal_state(repos_path: std::path::PathBuf) -> ServerState {
+        let repos = Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+            version: 1,
+            workspaces: vec![],
+            repos: vec![],
+        }));
+        ServerState {
+            token: "tok".to_string(),
+            repos,
+            repos_path,
+            activation_tx: None,
+            watcher_tx: None,
+            app_handle: None,
+            projects: Arc::new(tokio::sync::RwLock::new(vec![])),
+        }
+    }
+
+    // mod.rs lines 130, 134-148: serve_on_listener rejects non-loopback addresses.
+    // Binding to 0.0.0.0 (wildcard) is not loopback — the function must reject it.
+    #[tokio::test]
+    async fn test_serve_on_listener_rejects_non_loopback_address() {
+        let listener = std::net::TcpListener::bind("0.0.0.0:0")
+            .expect("bind wildcard listener");
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = make_minimal_state(repos_path);
+        let result = serve_on_listener(state, listener).await;
+        assert!(result.is_err(), "non-loopback listener must be rejected");
+        let err = result.expect_err("checked above");
+        assert!(
+            err.to_string().contains("loopback"),
+            "error must mention loopback restriction: {}",
+            err
+        );
+    }
+
+    // mod.rs lines 130, 134-148: serve_on_listener accepts a loopback listener.
+    #[tokio::test]
+    async fn test_serve_on_listener_accepts_loopback_address() {
+        // bind_listener already sets non-blocking, which tokio::net::TcpListener::from_std requires.
+        let listener = bind_listener(0).expect("bind loopback listener");
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = make_minimal_state(repos_path);
+        let result = serve_on_listener(state, listener).await;
+        assert!(result.is_ok(), "loopback listener must be accepted: {:?}", result);
+    }
 }

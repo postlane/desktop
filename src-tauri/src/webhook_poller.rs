@@ -19,8 +19,7 @@ pub struct PendingEvent {
 /// Returns `None` when config is absent or the field is not set.
 pub fn project_id_from_config(repo_path: &Path) -> Option<String> {
     let config_path = repo_path.join(".postlane").join("config.json");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let val: serde_json::Value = crate::init::read_json_file(&config_path).ok()?;
     val.get("project_id")?.as_str().map(|s| s.to_string())
 }
 

@@ -80,15 +80,18 @@ vi.mock('./components/PostTable', () => ({
     })}>Select Post</button>
   ),
 }))
-vi.mock('./components/EditPostView', () => ({
-  default: ({ onDirtyChange }: {
-    onDirtyChange?: (_d: boolean) => void;
-  }) => (
-    <div data-testid="edit-post-view">
-      <button data-testid="set-dirty" onClick={() => onDirtyChange?.(true)}>Dirty</button>
-    </div>
-  ),
-}))
+vi.mock('./components/EditPostView', async () => {
+  const { useEditGuard } = await import('./context/EditGuardContext')
+  function MockEditPostView() {
+    const { setDirty } = useEditGuard()
+    return (
+      <div data-testid="edit-post-view">
+        <button data-testid="set-dirty" onClick={() => setDirty(true)}>Dirty</button>
+      </div>
+    )
+  }
+  return { default: MockEditPostView }
+})
 vi.mock('./components/OrgUpgradeBanner', () => ({ default: () => null }))
 vi.mock('./components/OrgLinkModal', () => ({ default: () => null }))
 

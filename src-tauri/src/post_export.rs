@@ -40,10 +40,7 @@ fn post_folder_csv_row(repo_name: &str, post_folder: &Path) -> Option<String> {
 }
 
 pub fn export_history_csv_impl(state: &AppState) -> Result<String, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let mut csv = String::from("repo,slug,platforms,scheduler,model,sent_at,likes,reposts,replies,impressions,view_urls\n");
 

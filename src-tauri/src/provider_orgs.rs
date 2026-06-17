@@ -285,4 +285,45 @@ mod tests {
         ).await;
         assert!(result.expect("should succeed").is_empty());
     }
+
+    #[tokio::test]
+    async fn test_list_linked_providers_returns_error_on_network_failure() {
+        // Port 19994 is expected to be closed; no server listens there.
+        let result = list_linked_providers_with_client(
+            &build_test_client(), "http://127.0.0.1:19994", "tok",
+        ).await;
+        assert!(result.is_err(), "network failure must return Err");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("Network error"), "got: {}", msg);
+    }
+
+    #[tokio::test]
+    async fn test_list_linked_providers_returns_error_on_unexpected_status() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/account/providers");
+            then.status(500);
+        });
+        let result = list_linked_providers_with_client(
+            &build_test_client(), &server.base_url(), "tok",
+        ).await;
+        assert!(result.is_err(), "unexpected 5xx must return Err");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("500"), "error must include the status code, got: {}", msg);
+    }
+
+    #[tokio::test]
+    async fn test_list_provider_orgs_returns_error_on_unexpected_status_5xx() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/provider/orgs");
+            then.status(503);
+        });
+        let result = list_provider_orgs_with_client(
+            "github", &build_test_client(), &server.base_url(), "tok",
+        ).await;
+        assert!(result.is_err(), "unexpected 5xx must return Err");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("503"), "error must include the status code, got: {}", msg);
+    }
 }

@@ -662,3 +662,24 @@ use std::path::Path;
             legacy_meta.display(),
         );
     }
+
+    // --- §post_folder_missing ---
+
+    /// When the repo is registered but the post folder does not exist on disk, approve_post
+    /// must return Err. PostMeta::load returns default for a missing file, so we reach
+    /// the `if !post_path.exists()` guard (line 82 of approve_post_impl).
+    #[tokio::test]
+    async fn test_approve_post_returns_err_when_post_folder_does_not_exist() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        // Repo is registered but no post folder is created
+        let state = make_state(&canonical_str);
+        let result = approve_post_impl(&canonical_str, "no-such-post", "x", &state, None, false).await;
+        assert!(result.is_err(), "must fail when post folder does not exist");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("does not exist"),
+            "error must describe the missing folder, got: {}", msg
+        );
+    }

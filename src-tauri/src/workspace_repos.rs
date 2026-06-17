@@ -68,18 +68,12 @@ pub fn read_workspace_repos(path: &Path) -> Result<WorkspaceReposConfig, String>
     if !path.exists() {
         return Ok(WorkspaceReposConfig { version: 1, repos: vec![] });
     }
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("failed to parse {}: {}", path.display(), e))
+    crate::init::read_json_file(path)
 }
 
 /// Writes `{workspace}/repos.json` atomically (tmp → rename).
 pub fn write_workspace_repos(path: &Path, config: &WorkspaceReposConfig) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(config)
-        .map_err(|e| format!("failed to serialise workspace repos: {}", e))?;
-    crate::init::atomic_write(path, json.as_bytes())
-        .map_err(|e| format!("failed to write {}: {}", path.display(), e))
+    crate::init::write_json_file(path, config)
 }
 
 /// Returns the posts directory for a workspace child repo.
@@ -268,5 +262,24 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         super::create_workspace_dirs(dir.path()).expect("first call");
         super::create_workspace_dirs(dir.path()).expect("second call must not error");
+    }
+
+    // ── workspace_posts_dir ──────────────────────────────────────────────────
+
+    /// workspace_posts_dir returns `{workspace}/posts/{posts_dir}`.
+    /// Exercises lines 87-88.
+    #[test]
+    fn test_workspace_posts_dir_returns_correct_path() {
+        let workspace = Path::new("/code/myorg");
+        let result = super::workspace_posts_dir(workspace, "frontend");
+        assert_eq!(result, std::path::PathBuf::from("/code/myorg/posts/frontend"));
+    }
+
+    /// workspace_posts_dir handles a posts_dir with a suffix (collision-safe name).
+    #[test]
+    fn test_workspace_posts_dir_handles_suffixed_posts_dir() {
+        let workspace = Path::new("/code/myorg");
+        let result = super::workspace_posts_dir(workspace, "frontend-2");
+        assert_eq!(result, std::path::PathBuf::from("/code/myorg/posts/frontend-2"));
     }
 }

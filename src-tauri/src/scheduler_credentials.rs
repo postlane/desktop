@@ -198,7 +198,7 @@ pub async fn refresh_scheduler_accounts(
     // Rebuild connected_platforms in config.json for repos in this project
     for repo_path in collect_matching_repo_paths(&repo_id, &state) {
         let config_path = repo_path.join(".postlane/config.json");
-        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
+        let project_id = crate::config_paths::read_project_id_from_config(&config_path);
         let mastodon_active = project_id.as_deref().map(|pid| {
             use crate::mastodon_connection::{active_instance_key, KEYRING_SERVICE};
             matches!(app.keyring().get_password(KEYRING_SERVICE, &active_instance_key(pid)), Ok(Some(_)))
@@ -372,5 +372,31 @@ mod tests {
         assert!(key_b.contains("proj-beta"), "key must embed the project id");
     }
 
+    #[test]
+    fn test_check_libsecret_availability_returns_true_when_app_is_none() {
+        // The None branch returns true immediately without touching the keyring.
+        assert!(
+            check_libsecret_availability(None),
+            "check_libsecret_availability(None) must return true"
+        );
+    }
 
+    #[test]
+    fn test_check_libsecret_before_save_returns_ok_when_none() {
+        // None means "unknown / not Linux" — must pass without error.
+        assert!(check_libsecret_before_save(None).is_ok());
+    }
+
+    #[test]
+    fn test_get_scheduler_credential_rejects_unknown_provider() {
+        let result = get_scheduler_credential_impl("not_a_real_provider");
+        assert!(result.is_err(), "unknown provider must return Err");
+        let msg = result.unwrap_err();
+        assert!(msg.contains("Unknown provider"), "got: {}", msg);
+        assert!(
+            msg.contains("not_a_real_provider"),
+            "error must name the offending provider, got: {}",
+            msg
+        );
+    }
 }

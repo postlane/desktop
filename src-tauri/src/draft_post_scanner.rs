@@ -155,3 +155,187 @@ pub(crate) fn drafts_from_repo_path(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::post_meta::{PostMeta, PostStatus};
+    use crate::storage::Repo;
+    use std::fs;
+
+    fn make_repo(id: &str, path: &str) -> Repo {
+        Repo {
+            id: id.to_string(),
+            name: id.to_string(),
+            path: path.to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    // ── is_single_component ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_single_component_returns_true_for_plain_name() {
+        assert!(is_single_component("my-post"));
+        assert!(is_single_component("post_2026_04"));
+    }
+
+    #[test]
+    fn test_is_single_component_returns_false_for_path_traversal() {
+        assert!(!is_single_component("../evil"));
+    }
+
+    #[test]
+    fn test_is_single_component_returns_false_for_multi_segment_path() {
+        assert!(!is_single_component("sub/dir"));
+    }
+
+    // ── status_str ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_status_str_returns_ready_when_status_is_none() {
+        let meta = PostMeta::default();
+        assert_eq!(status_str(&meta), "ready");
+    }
+
+    #[test]
+    fn test_status_str_returns_ready_when_status_is_ok() {
+        let mut meta = PostMeta::default();
+        meta.status = Some(PostStatus::Ok);
+        assert_eq!(status_str(&meta), "ready");
+    }
+
+    #[test]
+    fn test_status_str_returns_failed_when_status_is_failed() {
+        let mut meta = PostMeta::default();
+        meta.status = Some(PostStatus::Failed);
+        assert_eq!(status_str(&meta), "failed");
+    }
+
+    // ── build_draft ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_draft_sets_platform_and_text() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let meta = PostMeta::default();
+        let draft = build_draft(&repo, "my-post", "x", "Hello world".to_string(), &meta, None);
+        assert_eq!(draft.post_folder, "my-post");
+        assert_eq!(draft.platform, "x");
+        assert_eq!(draft.text, "Hello world");
+        assert_eq!(draft.status, "ready");
+        assert!(draft.project_id.is_none());
+    }
+
+    #[test]
+    fn test_build_draft_propagates_project_id() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let meta = PostMeta::default();
+        let draft = build_draft(
+            &repo,
+            "my-post",
+            "bluesky",
+            String::new(),
+            &meta,
+            Some("proj-123".to_string()),
+        );
+        assert_eq!(draft.project_id, Some("proj-123".to_string()));
+        assert_eq!(draft.platform, "bluesky");
+    }
+
+    #[test]
+    fn test_build_draft_sets_failed_status_from_meta() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let mut meta = PostMeta::default();
+        meta.status = Some(PostStatus::Failed);
+        meta.error = Some("scheduler timeout".to_string());
+        let draft = build_draft(&repo, "fail-post", "x", String::new(), &meta, None);
+        assert_eq!(draft.status, "failed");
+        assert_eq!(draft.error.as_deref(), Some("scheduler timeout"));
+    }
+
+    // ── drafts_from_folder ───────────────────────────────────────────────────
+
+    /// When folder_path is a file rather than a directory, read_dir returns Err
+    /// and drafts_from_folder returns empty (line 72 in draft_post_scanner.rs).
+    #[test]
+    fn test_drafts_from_folder_returns_empty_when_folder_is_a_file() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let file_path = dir.path().join("not-a-dir");
+        fs::write(&file_path, b"I am a file").expect("write file");
+
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let result = drafts_from_folder(&repo, &file_path, "not-a-dir", None);
+        assert!(result.is_empty(), "read_dir on a file must return empty vec");
+    }
+
+    // ── drafts_from_posts_dir ────────────────────────────────────────────────
+
+    /// Non-existent posts_dir returns empty immediately (line 108 in draft_post_scanner.rs).
+    #[test]
+    fn test_drafts_from_posts_dir_returns_empty_when_directory_does_not_exist() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let missing = dir.path().join("does-not-exist");
+
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let result = drafts_from_posts_dir(&repo, &missing, None);
+        assert!(result.is_empty(), "non-existent posts_dir must return empty vec");
+    }
+
+    /// When posts_dir exists as a file rather than a directory, exists() returns true
+    /// but read_dir returns Err, so drafts_from_posts_dir returns empty (line 111).
+    #[test]
+    fn test_drafts_from_posts_dir_returns_empty_when_dir_is_a_file() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let file_path = dir.path().join("posts-as-file");
+        fs::write(&file_path, b"I am a file").expect("write file");
+
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let result = drafts_from_posts_dir(&repo, &file_path, None);
+        assert!(result.is_empty(), "posts_dir as file must return empty vec");
+    }
+
+    #[test]
+    fn test_drafts_from_posts_dir_returns_drafts_from_valid_folder() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let posts_dir = dir.path().join("posts");
+        let post_folder = posts_dir.join("my-post");
+        fs::create_dir_all(&post_folder).expect("create post folder");
+        fs::write(post_folder.join("x.md"), "Hello X").expect("write x.md");
+
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let result = drafts_from_posts_dir(&repo, &posts_dir, Some("proj-1".to_string()));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].platform, "x");
+        assert_eq!(result[0].text, "Hello X");
+        assert_eq!(result[0].project_id, Some("proj-1".to_string()));
+    }
+
+    // ── drafts_from_repo_path ────────────────────────────────────────────────
+
+    /// When .postlane/posts exists as a file, exists() is true but read_dir returns Err
+    /// so drafts_from_repo_path returns empty (line 140 in draft_post_scanner.rs).
+    #[test]
+    fn test_drafts_from_repo_path_returns_empty_when_posts_dir_is_a_file() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let dot_postlane = dir.path().join(".postlane");
+        fs::create_dir_all(&dot_postlane).expect("create .postlane");
+        fs::write(dot_postlane.join("posts"), b"file not dir").expect("write posts as file");
+
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let result = drafts_from_repo_path(&repo, dir.path(), None);
+        assert!(result.is_empty(), ".postlane/posts as file must return empty vec");
+    }
+
+    #[test]
+    fn test_drafts_from_repo_path_returns_empty_when_posts_dir_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // No .postlane/posts directory created
+        let repo = make_repo("r1", dir.path().to_str().unwrap());
+        let result = drafts_from_repo_path(&repo, dir.path(), None);
+        assert!(result.is_empty(), "absent posts dir must return empty vec");
+    }
+}

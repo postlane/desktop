@@ -13,6 +13,7 @@ vi.mock('../context/DraftPostsProvider', () => ({ useDraftPostsContext: vi.fn() 
 import { invoke } from '../ipc/invoke'
 import { useDraftPostsContext } from '../context/DraftPostsProvider'
 import EditPostView, { type EditPostViewProps } from './EditPostView'
+import { EditGuardContext, type EditGuardContextValue } from '../context/EditGuardContext'
 
 const mockInvoke = vi.mocked(invoke)
 const mockCtx = vi.mocked(useDraftPostsContext)
@@ -51,14 +52,20 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 
 const DEFAULT_NAV_SEL: ViewSelection = { view: 'org_queue', projectId: 'proj-1' }
 
-function renderEdit(overrides: Partial<EditPostViewProps> = {}) {
+function makeGuardCtx(overrides: Partial<EditGuardContextValue> = {}): EditGuardContextValue {
+  return { resetSignal: 0, setDirty: vi.fn(), pendingNavSel: null, onNavCancelled: vi.fn(), ...overrides };
+}
+
+function renderEdit(overrides: Partial<EditPostViewProps> = {}, ctxOverrides: Partial<EditGuardContextValue> = {}) {
   return render(
-    <EditPostView
-      post={makeDraft()} project={makeProject()} isHistory={false}
-      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-      onNavigate={vi.fn()} pendingNavSel={null} onNavCancelled={vi.fn()}
-      {...overrides}
-    />,
+    <EditGuardContext.Provider value={makeGuardCtx(ctxOverrides)}>
+      <EditPostView
+        post={makeDraft()} project={makeProject()} isHistory={false}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
+        onNavigate={vi.fn()}
+        {...overrides}
+      />
+    </EditGuardContext.Provider>,
   )
 }
 
@@ -104,11 +111,12 @@ describe('EditPostView — Approve error', () => {
 describe('EditPostView — nav guard clean navigation', () => {
   it('calls onNavigate immediately when pendingNavSel is set and content is clean', () => {
     const onNavigate = vi.fn()
-    const { rerender } = renderEdit({ pendingNavSel: null, onNavigate })
+    const { rerender } = renderEdit({ onNavigate })
     rerender(
-      <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-        onNavigate={onNavigate} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
+      <EditGuardContext.Provider value={makeGuardCtx({ pendingNavSel: DEFAULT_NAV_SEL })}>
+        <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
+          timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onNavigate={onNavigate} />
+      </EditGuardContext.Provider>,
     )
     expect(onNavigate).toHaveBeenCalledWith(DEFAULT_NAV_SEL)
   })
@@ -175,21 +183,21 @@ describe('EditPostView — OG image fetch error', () => {
   })
 })
 
-// ── onDirtyChange callback ─────────────────────────────────────────────────────
+// ── setDirty callback ──────────────────────────────────────────────────────────
 
-describe('EditPostView — onDirtyChange', () => {
-  it('calls onDirtyChange(true) when text becomes dirty', () => {
-    const onDirtyChange = vi.fn()
-    renderEdit({ onDirtyChange })
+describe('EditPostView — setDirty', () => {
+  it('calls setDirty(true) when text becomes dirty', () => {
+    const setDirty = vi.fn()
+    renderEdit({}, { setDirty })
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
-    expect(onDirtyChange).toHaveBeenCalledWith(true)
+    expect(setDirty).toHaveBeenCalledWith(true)
   })
 
-  it('calls onDirtyChange(false) on unmount', () => {
-    const onDirtyChange = vi.fn()
-    const { unmount } = renderEdit({ onDirtyChange })
+  it('calls setDirty(false) on unmount', () => {
+    const setDirty = vi.fn()
+    const { unmount } = renderEdit({}, { setDirty })
     unmount()
-    expect(onDirtyChange).toHaveBeenCalledWith(false)
+    expect(setDirty).toHaveBeenCalledWith(false)
   })
 })
 

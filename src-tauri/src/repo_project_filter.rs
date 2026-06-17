@@ -25,10 +25,7 @@ fn read_config_project_id(repo_path: &str) -> Result<Option<String>, String> {
     if !config_path.exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json for '{}': {}", repo_path, e))?;
-    let v: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json for '{}': {}", repo_path, e))?;
+    let v: serde_json::Value = crate::init::read_json_file(&config_path)?;
     Ok(v["project_id"].as_str().map(str::to_string))
 }
 

@@ -38,10 +38,7 @@ fn tally_post_folder(post_path: &std::path::Path, resp: &mut ModelStatsResponse)
 }
 
 pub fn get_model_stats_impl(state: &AppState, home_dir: Option<&std::path::Path>) -> Result<ModelStatsResponse, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let mut resp = ModelStatsResponse {
         edit_rate: 0.0,

@@ -11,6 +11,7 @@ use super::{
     dismiss_migration_journal_session, find_qualifying_legacy_repos,
     get_migration_status_impl, read_migration_journal,
     set_migration_dismissed, write_migration_journal,
+    read_app_state_from,
 };
 use crate::workspace_migration_execute::{execute_migration, resume_migration_journal};
 
@@ -657,4 +658,282 @@ fn test_dismiss_migration_journal_session_increments_count() {
     dismiss_migration_journal_session(tmp.path()).unwrap();
     let loaded = read_migration_journal(&journal_path).unwrap();
     assert_eq!(loaded.dismiss_count, 1);
+}
+
+// ── check_migration_journals with pending entries (lines 207-214) ─────────────
+
+/// A workspace whose journal has at least one entry with originals_deleted: false
+/// must appear in check_migration_journals results.
+#[test]
+fn test_check_migration_journals_returns_status_for_workspace_with_pending_journal() {
+    let postlane_tmp = TempDir::new().unwrap();
+    let ws_tmp = TempDir::new().unwrap();
+
+    make_repos_json_with_workspace(
+        postlane_tmp.path(),
+        &[],
+        "proj-pending",
+        ws_tmp.path().to_str().unwrap(),
+    );
+
+    let journal = MigrationJournal {
+        entries: vec![MigrationJournalEntry {
+            repo_path: "/some/repo".to_string(),
+            posts_dir: "repo".to_string(),
+            registry_updated: true,
+            originals_deleted: false,
+        }],
+        dismiss_count: 2,
+    };
+    write_migration_journal(
+        &ws_tmp.path().join(".migration-journal.json"),
+        &journal,
+    ).expect("write journal");
+
+    let statuses = check_migration_journals(&postlane_tmp.path().join("repos.json"));
+
+    assert_eq!(statuses.len(), 1, "must find one workspace with a pending journal");
+    let status = &statuses[0];
+    assert_eq!(status.workspace_id, "proj-pending");
+    assert_eq!(status.pending_entries.len(), 1, "must have one pending entry");
+    assert!(!status.pending_entries[0].originals_deleted, "entry must be pending");
+    assert_eq!(status.dismiss_count, 2, "dismiss_count must be carried through");
+}
+
+/// A journal where all entries already have originals_deleted: true has no pending
+/// entries, so the workspace must not appear in check_migration_journals results.
+#[test]
+fn test_check_migration_journals_ignores_fully_completed_journal() {
+    let postlane_tmp = TempDir::new().unwrap();
+    let ws_tmp = TempDir::new().unwrap();
+
+    make_repos_json_with_workspace(
+        postlane_tmp.path(),
+        &[],
+        "proj-done",
+        ws_tmp.path().to_str().unwrap(),
+    );
+
+    let journal = MigrationJournal {
+        entries: vec![MigrationJournalEntry {
+            repo_path: "/some/repo".to_string(),
+            posts_dir: "repo".to_string(),
+            registry_updated: true,
+            originals_deleted: true,
+        }],
+        dismiss_count: 0,
+    };
+    write_migration_journal(
+        &ws_tmp.path().join(".migration-journal.json"),
+        &journal,
+    ).expect("write journal");
+
+    let statuses = check_migration_journals(&postlane_tmp.path().join("repos.json"));
+    assert!(
+        statuses.is_empty(),
+        "workspace with only completed entries must not appear in pending statuses"
+    );
+}
+
+// ── read_app_state_from (line 281) ─────────────────────────────────────────────
+
+/// read_app_state_from returns a default AppStateFile when the path does not exist.
+/// Exercises the early return on line 281.
+#[test]
+fn test_read_app_state_from_returns_default_when_file_absent() {
+    let tmp = TempDir::new().unwrap();
+    let absent = tmp.path().join("nonexistent_app_state.json");
+    let result = read_app_state_from(&absent);
+    assert!(
+        !result.workspace_migration_dismissed,
+        "default state must have workspace_migration_dismissed: false"
+    );
+}
+
+// ── Error branches when repos.json has an unsupported version ─────────────────
+
+fn write_unsupported_version_repos_json(path: &std::path::Path) {
+    fs::write(path, r#"{"version": 999, "workspaces": [], "repos": []}"#)
+        .expect("write repos.json with unsupported version");
+}
+
+/// find_qualifying_legacy_repos returns empty when repos.json has an unsupported
+/// version that causes read_repos_with_recovery to return Err. Exercises line 110.
+#[test]
+fn test_find_qualifying_repos_returns_empty_when_repos_version_unsupported() {
+    let tmp = TempDir::new().unwrap();
+    let repos_path = tmp.path().join("repos.json");
+    write_unsupported_version_repos_json(&repos_path);
+
+    let result = find_qualifying_legacy_repos(&repos_path);
+    assert!(
+        result.is_empty(),
+        "unsupported repos.json version must return empty qualifying repos"
+    );
+}
+
+/// check_migration_journals returns empty when repos.json has an unsupported
+/// version. Exercises line 201.
+#[test]
+fn test_check_migration_journals_returns_empty_when_repos_version_unsupported() {
+    let tmp = TempDir::new().unwrap();
+    let repos_path = tmp.path().join("repos.json");
+    write_unsupported_version_repos_json(&repos_path);
+
+    let statuses = check_migration_journals(&repos_path);
+    assert!(
+        statuses.is_empty(),
+        "unsupported repos.json version must return empty journal statuses"
+    );
+}
+
+/// find_all_legacy_repos returns empty when repos.json has an unsupported version.
+/// Exercises line 296.
+#[test]
+fn test_find_all_legacy_repos_returns_empty_when_repos_version_unsupported() {
+    let tmp = TempDir::new().unwrap();
+    let repos_path = tmp.path().join("repos.json");
+    write_unsupported_version_repos_json(&repos_path);
+
+    let result = super::find_all_legacy_repos(&repos_path);
+    assert!(
+        result.is_empty(),
+        "unsupported repos.json version must return empty legacy repos"
+    );
+}
+
+// ── execute_migration: collision-safe posts_dir when workspace has existing repos ─
+
+/// When the workspace already has a repo whose posts_dir equals the basename of the
+/// repo being migrated, the new repo must receive a collision-safe posts_dir (e.g.
+/// "basename-2"). Exercises the struct-initialisation closure on lines 80-81 of
+/// workspace_migration_execute.rs.
+#[test]
+fn test_execute_migration_with_existing_workspace_repos_assigns_collision_safe_posts_dir() {
+    let postlane_tmp = TempDir::new().unwrap();
+    let ws_tmp = TempDir::new().unwrap();
+    // The migrating repo's directory must be named "my-repo" so basename == "my-repo"
+    let repo_parent_tmp = TempDir::new().unwrap();
+    let repo_path = repo_parent_tmp.path().join("my-repo");
+    let ws_path = ws_tmp.path();
+
+    make_workspace(ws_path, "proj-abc");
+    make_legacy_repo(&repo_path, "proj-abc", 1);
+    make_repos_json(postlane_tmp.path(), &[("r1", "my-repo", repo_path.to_str().unwrap())]);
+
+    // Pre-populate {workspace}/repos.json with an entry that already uses "my-repo"
+    // as posts_dir — this forces the migrating repo to receive "my-repo-2".
+    let ws_repos = crate::workspace_repos::WorkspaceReposConfig {
+        version: 1,
+        repos: vec![crate::workspace_repos::RepoEntry {
+            id: "existing-id".to_string(),
+            name: "other-repo".to_string(),
+            path: "/other/path".to_string(),
+            posts_dir: "my-repo".to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }],
+    };
+    crate::workspace_repos::write_workspace_repos(&ws_path.join("repos.json"), &ws_repos)
+        .expect("write pre-existing workspace repos");
+
+    let repos = vec![LegacyRepoInfo {
+        id: "r1".into(),
+        name: "my-repo".into(),
+        path: repo_path.to_str().unwrap().to_string(),
+    }];
+    let result = execute_migration(
+        &repos,
+        ws_path,
+        "proj-abc",
+        &postlane_tmp.path().join("repos.json"),
+    );
+
+    assert_eq!(result.results.len(), 1);
+    match &result.results[0].status {
+        crate::workspace_migration::RepoMigrationStatus::Success { posts_dir } => {
+            assert_eq!(
+                posts_dir, "my-repo-2",
+                "posts_dir must be collision-safe when 'my-repo' is taken; got '{}'",
+                posts_dir
+            );
+        }
+        other => panic!("expected Success, got {:?}", other),
+    }
+}
+
+// ── execute_migration abort: non-Success results preserved (line 220) ─────────
+
+/// When journal write fails during migration and results contain both a pre-existing
+/// failure (from steps 1-3) and a success, the abort path must preserve the failure
+/// result via the `_ => r` arm (line 220 of workspace_migration_execute.rs).
+/// Only runs on Unix where we can control directory permissions.
+#[cfg(unix)]
+#[test]
+fn test_execute_migration_abort_path_preserves_non_success_results() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let postlane_tmp = TempDir::new().unwrap();
+    let ws_tmp = TempDir::new().unwrap();
+    let repo_good_tmp = TempDir::new().unwrap();
+    let ws_path = ws_tmp.path();
+    let repo_good_path = repo_good_tmp.path();
+
+    make_workspace(ws_path, "proj-abc");
+    make_legacy_repo(repo_good_path, "proj-abc", 1);
+    make_repos_json(postlane_tmp.path(), &[
+        ("r1", "bad-repo",  "/nonexistent/repo/path"),
+        ("r2", "good-repo", repo_good_path.to_str().unwrap()),
+    ]);
+
+    // Pre-create ws_path/posts/ so the copy for good-repo can succeed
+    // even after ws_path itself becomes read-only.
+    fs::create_dir_all(ws_path.join("posts")).expect("create posts dir");
+
+    // Make ws_path root read-only so journal write fails; posts/ remains writable.
+    fs::set_permissions(ws_path, fs::Permissions::from_mode(0o555))
+        .expect("set read-only permissions on workspace root");
+
+    let repos = vec![
+        LegacyRepoInfo {
+            id: "r1".into(),
+            name: "bad-repo".into(),
+            path: "/nonexistent/repo/path".to_string(),
+        },
+        LegacyRepoInfo {
+            id: "r2".into(),
+            name: "good-repo".into(),
+            path: repo_good_path.to_str().unwrap().to_string(),
+        },
+    ];
+
+    let repos_path = postlane_tmp.path().join("repos.json");
+    let result = execute_migration(&repos, ws_path, "proj-abc", &repos_path);
+
+    // Restore permissions so TempDir cleanup works
+    fs::set_permissions(ws_path, fs::Permissions::from_mode(0o755))
+        .expect("restore permissions on workspace root");
+
+    assert_eq!(result.results.len(), 2, "must have 2 results");
+
+    // bad-repo failed steps 1-3; abort must preserve it unchanged via `_ => r`.
+    assert!(
+        matches!(
+            &result.results[0].status,
+            crate::workspace_migration::RepoMigrationStatus::VerificationFailed { .. }
+        ),
+        "bad-repo must stay VerificationFailed after abort; got {:?}",
+        result.results[0].status
+    );
+
+    // good-repo succeeded steps 1-3 but journal write failed → PL-MIG-002.
+    assert!(
+        matches!(
+            &result.results[1].status,
+            crate::workspace_migration::RepoMigrationStatus::VerificationFailed { error }
+            if error.contains("PL-MIG-002")
+        ),
+        "good-repo must become PL-MIG-002 on journal write failure; got {:?}",
+        result.results[1].status
+    );
 }

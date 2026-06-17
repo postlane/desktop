@@ -60,10 +60,7 @@ where
 
 fn has_provider_in_local_config(repo_path: &std::path::Path, provider: &str) -> bool {
     let config_path = repo_path.join(".postlane/config.local.json");
-    let Ok(content) = std::fs::read_to_string(&config_path) else {
-        return false;
-    };
-    let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) else {
+    let Ok(config) = crate::init::read_json_file::<serde_json::Value>(&config_path) else {
         return false;
     };
     if config["scheduler"]["provider"].as_str() == Some(provider) {
@@ -73,13 +70,6 @@ fn has_provider_in_local_config(repo_path: &std::path::Path, provider: &str) -> 
         return arr.iter().any(|v| v.as_str() == Some(provider));
     }
     false
-}
-
-fn read_project_id_from_repo(repo_path: &std::path::Path) -> Option<String> {
-    let config_path = repo_path.join(".postlane/config.json");
-    let content = std::fs::read_to_string(&config_path).ok()?;
-    let config: serde_json::Value = serde_json::from_str(&content).ok()?;
-    config["project_id"].as_str().map(str::to_string)
 }
 
 fn get_project_ids_for_provider(
@@ -96,7 +86,7 @@ fn get_project_ids_for_provider(
         if !has_provider_in_local_config(&repo_path, provider) {
             continue;
         }
-        if let Some(pid) = read_project_id_from_repo(&repo_path) {
+        if let Some(pid) = crate::config_paths::read_project_id_from_config(&repo_path.join(".postlane/config.json")) {
             if !project_ids.contains(&pid) {
                 project_ids.push(pid);
             }
@@ -211,43 +201,6 @@ mod tests {
         let cfg_path = dir.path().join(".postlane/config.local.json");
         write_json(&cfg_path, "not json");
         assert!(!has_provider_in_local_config(dir.path(), "zernio"));
-    }
-
-    // read_project_id_from_repo — returns Some when project_id present
-    #[test]
-    fn test_read_project_id_from_repo_returns_id_when_present() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let cfg_path = dir.path().join(".postlane/config.json");
-        write_json(&cfg_path, r#"{"project_id":"proj-abc"}"#);
-        assert_eq!(
-            read_project_id_from_repo(dir.path()),
-            Some("proj-abc".to_string())
-        );
-    }
-
-    // read_project_id_from_repo — file absent → None
-    #[test]
-    fn test_read_project_id_from_repo_returns_none_when_file_absent() {
-        let dir = tempfile::TempDir::new().unwrap();
-        assert_eq!(read_project_id_from_repo(dir.path()), None);
-    }
-
-    // read_project_id_from_repo — project_id field missing → None
-    #[test]
-    fn test_read_project_id_from_repo_returns_none_when_field_missing() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let cfg_path = dir.path().join(".postlane/config.json");
-        write_json(&cfg_path, r#"{"some_other_field":"value"}"#);
-        assert_eq!(read_project_id_from_repo(dir.path()), None);
-    }
-
-    // read_project_id_from_repo — invalid JSON → None
-    #[test]
-    fn test_read_project_id_from_repo_returns_none_on_bad_json() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let cfg_path = dir.path().join(".postlane/config.json");
-        write_json(&cfg_path, "{ bad json }");
-        assert_eq!(read_project_id_from_repo(dir.path()), None);
     }
 
     // get_project_ids_for_provider — empty repos → empty vec
@@ -466,5 +419,71 @@ mod tests {
 
         assert!(result, "migration ran (nothing to migrate)");
         assert!(!delete_called.get(), "delete must not be called when no bare key exists");
+    }
+
+    #[test]
+    fn test_migration_returns_err_when_write_scoped_key_fails() {
+        let result = run_v1_impl(
+            MigrationContext {
+                already_migrated: false,
+                lock_acquired: true,
+                providers: &["zernio"],
+            },
+            |_| Some("secret".to_string()),
+            |_| vec!["proj-1".to_string()],
+            |_, _| false,
+            |_, _, _| Err("disk full".to_string()),
+            |_| Ok(()),
+        );
+        let err = result.expect_err("Err from write_scoped_key must propagate");
+        assert!(err.contains("disk full"), "error message must be preserved, got: {}", err);
+    }
+
+    #[test]
+    fn test_migration_returns_err_when_delete_bare_key_fails() {
+        let result = run_v1_impl(
+            MigrationContext {
+                already_migrated: false,
+                lock_acquired: true,
+                providers: &["zernio"],
+            },
+            |_| Some("secret".to_string()),
+            |_| vec!["proj-1".to_string()],
+            |_, _| false,
+            |_, _, _| Ok(()),
+            |_| Err("permission denied".to_string()),
+        );
+        let err = result.expect_err("Err from delete_bare_key must propagate");
+        assert!(
+            err.contains("permission denied"),
+            "error message must be preserved, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_migration_processes_multiple_providers_independently() {
+        let written: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(vec![]);
+        let result = run_v1_impl(
+            MigrationContext {
+                already_migrated: false,
+                lock_acquired: true,
+                providers: &["zernio", "publer"],
+            },
+            |p| Some(format!("{}-secret", p)),
+            |p| vec![format!("proj-{}", p)],
+            |_, _| false,
+            |prov, _, _| {
+                written.borrow_mut().push(prov.to_string());
+                Ok(())
+            },
+            |_| Ok(()),
+        )
+        .expect("migration with two providers must not error");
+        assert!(result, "migration must return true when it ran");
+        let keys = written.borrow();
+        assert_eq!(keys.len(), 2, "both providers must be written");
+        assert!(keys.contains(&"zernio".to_string()), "zernio must be written");
+        assert!(keys.contains(&"publer".to_string()), "publer must be written");
     }
 }

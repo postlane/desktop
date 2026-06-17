@@ -109,7 +109,7 @@ pub async fn save_scheduler_credential_core(
     // A write failure here means the queue may show stale badge state — log and continue.
     for repo_path in matching_paths {
         let config_path = repo_path.join(".postlane/config.json");
-        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
+        let project_id = crate::config_paths::read_project_id_from_config(&config_path);
         let mastodon_active = project_id.as_deref().map(env.has_mastodon_active).unwrap_or(false);
         if let Err(e) = crate::platform_config_sync::sync_connected_platforms_to_config_impl(
             &config_path, repo_id, mastodon_active, env.has_keyring_key,
@@ -242,5 +242,29 @@ mod tests {
         ).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Failed to store credential"));
+    }
+
+    #[tokio::test]
+    async fn test_save_credential_core_upload_post_with_no_username_skips_validation() {
+        // With username = None the upload_post branch is entered but profile validation
+        // is skipped — no network call is made and the function must return Ok.
+        let env = CredentialEnv {
+            set_keyring: &|_, _| Ok(()),
+            has_mastodon_active: &|_| false,
+            has_keyring_key: &|_| false,
+        };
+        let result = save_scheduler_credential_core(
+            "upload_post", "any-key", "repo-id", None, &[], &[], &env,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "upload_post with no username must not fail: {:?}",
+            result
+        );
+        assert!(
+            result.unwrap().warnings.is_empty(),
+            "no paths, no username → no warnings expected"
+        );
     }
 }

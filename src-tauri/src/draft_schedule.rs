@@ -95,8 +95,7 @@ fn seed_to_offset(seed: &str) -> i64 {
 fn config_for_meta(meta_path: &std::path::Path) -> Option<serde_json::Value> {
     // meta.json lives at {repo}/.postlane/posts/{folder}/meta.json — 4 levels up is repo root
     let repo_root = meta_path.parent()?.parent()?.parent()?.parent()?;
-    let content = std::fs::read_to_string(repo_root.join(".postlane/config.json")).ok()?;
-    serde_json::from_str(&content).ok()
+    crate::init::read_json_file(&repo_root.join(".postlane/config.json")).ok()
 }
 
 fn project_id_for_meta(meta_path: &std::path::Path) -> Option<String> {

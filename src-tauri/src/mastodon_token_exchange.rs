@@ -66,7 +66,7 @@ fn sync_mastodon_connected_platforms(project_id: &str, app: &tauri::AppHandle, s
     };
     for repo in &repos.repos {
         let config_path = std::path::PathBuf::from(&repo.path).join(".postlane/config.json");
-        if crate::connected_platforms::read_project_id_from_config(&config_path).as_deref() != Some(project_id) {
+        if crate::config_paths::read_project_id_from_config(&config_path).as_deref() != Some(project_id) {
             continue;
         }
         let _ = crate::project_config_ops::sync_connected_platforms_to_config_impl(

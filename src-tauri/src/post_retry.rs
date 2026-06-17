@@ -22,10 +22,7 @@ pub fn retry_post_impl(
         .to_str()
         .ok_or("Invalid path: not valid UTF-8")?;
     let is_registered = {
-        let repos = state
-            .repos
-            .lock()
-            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        let repos = state.lock_repos()?;
         repos.repos.iter().any(|r| r.path == canonical_str)
     };
 

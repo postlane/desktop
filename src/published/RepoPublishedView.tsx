@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { invoke } from '../ipc/invoke';
 import { useTimezone, formatTimestamp } from '../TimezoneContext';
 import type { PublishedPost } from '../types';
@@ -14,22 +15,24 @@ interface Props {
 }
 
 function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancelled: () => void; tz: string }) {
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
+  const { loading: cancelling, error: cancelError, run } = useAsyncCommand();
 
   const firstPlatform = post.platforms[0] ?? 'x';
   const postId = post.scheduler_ids?.[firstPlatform] ?? '';
 
   async function handleCancel() {
-    setCancelling(true);
-    setCancelError(null);
-    try {
-      await invoke('cancel_post_command', { repoPath: post.repo_path, postFolder: post.post_folder, postId, platform: firstPlatform });
+    const result = await run(async () => {
+      try {
+        await invoke('cancel_post_command', { repoPath: post.repo_path, postFolder: post.post_folder, postId, platform: firstPlatform });
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(msg.toLowerCase().includes('not supported') ? 'Cancel via dashboard' : msg);
+      }
+    });
+    if (result !== null) {
       onCancelled();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setCancelError(msg.toLowerCase().includes('not supported') ? 'Cancel via dashboard' : msg);
-    } finally { setCancelling(false); }
+    }
   }
 
   return (

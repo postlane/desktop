@@ -23,8 +23,7 @@ pub fn update_post_schedule_impl(
     let canonical_str = canonical.to_str().ok_or("Path contains invalid UTF-8")?;
 
     let registered = {
-        let repos = state.repos.lock()
-            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        let repos = state.lock_repos()?;
         repos.repos.iter().any(|r| r.path == canonical_str)
     };
     if !registered {

@@ -11,6 +11,7 @@ vi.mock('../context/DraftPostsProvider', () => ({ useDraftPostsContext: vi.fn() 
 import { invoke } from '../ipc/invoke'
 import { useDraftPostsContext } from '../context/DraftPostsProvider'
 import EditPostView, { type EditPostViewProps } from './EditPostView'
+import { EditGuardContext, type EditGuardContextValue } from '../context/EditGuardContext'
 
 const mockInvoke = vi.mocked(invoke)
 const mockCtx = vi.mocked(useDraftPostsContext)
@@ -49,14 +50,20 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 
 const DEFAULT_NAV_SEL: ViewSelection = { view: 'org_queue', projectId: 'proj-1' }
 
-function renderEdit(overrides: Partial<EditPostViewProps> = {}) {
+function makeGuardCtx(overrides: Partial<EditGuardContextValue> = {}): EditGuardContextValue {
+  return { resetSignal: 0, setDirty: vi.fn(), pendingNavSel: null, onNavCancelled: vi.fn(), ...overrides };
+}
+
+function renderEdit(overrides: Partial<EditPostViewProps> = {}, ctxOverrides: Partial<EditGuardContextValue> = {}) {
   return render(
-    <EditPostView
-      post={makeDraft()} project={makeProject()} isHistory={false}
-      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-      onNavigate={vi.fn()} pendingNavSel={null} onNavCancelled={vi.fn()}
-      {...overrides}
-    />,
+    <EditGuardContext.Provider value={makeGuardCtx(ctxOverrides)}>
+      <EditPostView
+        post={makeDraft()} project={makeProject()} isHistory={false}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
+        onNavigate={vi.fn()}
+        {...overrides}
+      />
+    </EditGuardContext.Provider>,
   )
 }
 
@@ -250,24 +257,26 @@ describe('EditPostView — Back discard guard', () => {
 
 describe('EditPostView — LeftNav navigation guard', () => {
   it('shows discard prompt when pendingNavSel is set while dirty', () => {
-    const { rerender } = renderEdit({ pendingNavSel: null })
+    const { rerender } = renderEdit()
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
     rerender(
-      <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-        onNavigate={vi.fn()} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
+      <EditGuardContext.Provider value={makeGuardCtx({ pendingNavSel: DEFAULT_NAV_SEL })}>
+        <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
+          timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onNavigate={vi.fn()} />
+      </EditGuardContext.Provider>,
     )
     expect(screen.getByText(/Discard unsaved changes/i)).toBeInTheDocument()
   })
 
   it('calls onNavCancelled when Cancel is clicked in nav discard prompt', () => {
     const onNavCancelled = vi.fn()
-    const { rerender } = renderEdit({ pendingNavSel: null, onNavCancelled })
+    const { rerender } = renderEdit({}, { onNavCancelled })
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
     rerender(
-      <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-        onNavigate={vi.fn()} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={onNavCancelled} />,
+      <EditGuardContext.Provider value={makeGuardCtx({ pendingNavSel: DEFAULT_NAV_SEL, onNavCancelled })}>
+        <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
+          timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onNavigate={vi.fn()} />
+      </EditGuardContext.Provider>,
     )
     fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
     expect(onNavCancelled).toHaveBeenCalled()
@@ -275,12 +284,13 @@ describe('EditPostView — LeftNav navigation guard', () => {
 
   it('calls onNavigate with dest when Discard is confirmed for nav guard', () => {
     const onNavigate = vi.fn()
-    const { rerender } = renderEdit({ pendingNavSel: null, onNavigate })
+    const { rerender } = renderEdit({ onNavigate })
     fireEvent.change(screen.getByRole('textbox', { name: /post content/i }), { target: { value: 'changed' } })
     rerender(
-      <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
-        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-        onNavigate={onNavigate} pendingNavSel={DEFAULT_NAV_SEL} onNavCancelled={vi.fn()} />,
+      <EditGuardContext.Provider value={makeGuardCtx({ pendingNavSel: DEFAULT_NAV_SEL })}>
+        <EditPostView post={makeDraft()} project={makeProject()} isHistory={false}
+          timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()} onNavigate={onNavigate} />
+      </EditGuardContext.Provider>,
     )
     fireEvent.click(screen.getByRole('button', { name: /^Discard$/i }))
     expect(onNavigate).toHaveBeenCalledWith(DEFAULT_NAV_SEL)

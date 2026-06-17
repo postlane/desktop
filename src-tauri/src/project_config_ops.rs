@@ -7,10 +7,8 @@
 //! only on paths that are already registered in `repos.json` (Security Rule 2).
 
 use crate::app_state::AppState;
-use crate::init::atomic_write;
 use crate::project_validation::{reject_if_symlink, validate_project_id};
 use crate::storage::ReposConfig;
-use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 
@@ -60,10 +58,7 @@ pub fn read_project_id_from_path_impl(path: &str, repos: &ReposConfig) -> Result
     if !config_path.exists() {
         return Ok(None);
     }
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let config: serde_json::Value = crate::init::read_json_file(&config_path)?;
     Ok(config["project_id"].as_str().map(str::to_string))
 }
 
@@ -91,19 +86,11 @@ pub fn write_project_id_to_config_impl(
         ));
     }
 
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let mut config: serde_json::Value = crate::init::read_json_file(&config_path)?;
 
     config["project_id"] = serde_json::json!(project_id);
 
-    let serialized = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config.json: {}", e))?;
-
-    atomic_write(&config_path, serialized.as_bytes())
-        .map_err(|e| format!("Failed to write config.json: {}", e))?;
+    crate::init::write_json_file(&config_path, &config)?;
 
     Ok("We've added a project_id to .postlane/config.json — commit this so your team can access this project.".to_string())
 }
@@ -123,10 +110,7 @@ pub fn write_project_id_to_config(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     validate_project_id(&project_id)?;
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     write_project_id_to_config_impl(&repo_path, &project_id, &repos)
 }
 
@@ -136,10 +120,7 @@ pub fn get_repo_remote_name(
     repo_path: String,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     get_repo_remote_name_impl(&repo_path, &repos)
 }
 

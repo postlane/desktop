@@ -101,10 +101,7 @@ pub fn cancel_redraft_impl(
 /// Tauri command — cancels any pending redraft for the given repo.
 #[tauri::command]
 pub fn cancel_redraft(repo_path: String, state: State<AppState>) -> Result<(), String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     cancel_redraft_impl(&repo_path, &repos)
 }
 
@@ -116,10 +113,7 @@ pub fn queue_redraft(
     instruction: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     queue_redraft_impl(&repo_path, &post_folder, &instruction, &repos)
 }
 

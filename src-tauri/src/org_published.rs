@@ -273,4 +273,60 @@ mod tests {
         let _ = fs::remove_dir_all(&dir1);
         let _ = fs::remove_dir_all(&dir2);
     }
+
+    // ── Unit tests for private helpers ───────────────────────────────────────
+
+    #[test]
+    fn test_is_within_home_returns_true_for_path_under_home() {
+        let home = Path::new("/Users/test");
+        let path = Path::new("/Users/test/projects/my-repo");
+        assert!(is_within_home(path, home));
+    }
+
+    #[test]
+    fn test_is_within_home_returns_false_for_path_outside_home() {
+        let home = Path::new("/Users/test");
+        let path = Path::new("/tmp/not-home");
+        assert!(!is_within_home(path, home));
+    }
+
+    #[test]
+    fn test_is_within_home_returns_false_for_relative_path() {
+        let home = Path::new("/Users/test");
+        let path = Path::new("relative/path");
+        assert!(!is_within_home(path, home), "relative paths must not be treated as within home");
+    }
+
+    #[test]
+    fn test_is_single_component_returns_true_for_plain_name() {
+        assert!(is_single_component("my-post"));
+        assert!(is_single_component("post_2026_04"));
+    }
+
+    #[test]
+    fn test_is_single_component_returns_false_for_path_with_traversal() {
+        assert!(!is_single_component("../evil"));
+    }
+
+    #[test]
+    fn test_is_single_component_returns_false_for_multi_segment_path() {
+        assert!(!is_single_component("sub/dir"));
+    }
+
+    /// When .postlane/posts exists as a file rather than a directory, std::fs::read_dir
+    /// returns Err and collect_from_repo returns empty (lines 87-89 in org_published.rs).
+    #[test]
+    fn test_get_org_published_returns_empty_when_posts_dir_is_a_file() {
+        let dir = home_tmp("gop_posts_as_file");
+        write_config(&dir, r#"{"project_id":"proj-abc"}"#);
+        let dot_postlane = dir.join(".postlane");
+        fs::create_dir_all(&dot_postlane).expect("create .postlane");
+        // Write a plain file at .postlane/posts → read_dir will fail
+        fs::write(dot_postlane.join("posts"), b"not a directory").expect("write posts as file");
+
+        let state = make_state(vec![make_repo("r1", dir.to_str().unwrap())]);
+        let result = get_org_published_impl("proj-abc", &state).expect("ok");
+        assert!(result.is_empty(), "posts path as file must yield empty result");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

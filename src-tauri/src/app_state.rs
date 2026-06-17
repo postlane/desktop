@@ -59,7 +59,9 @@ impl AppState {
     }
 
     pub fn lock_repos(&self) -> Result<MutexGuard<'_, ReposConfig>, String> {
-        self.repos.lock().map_err(|e| format!("Failed to lock repos: {}", e))
+        self.repos.lock()
+            .map_err(|_| crate::errors::PostlaneError::MutexPoisoned("repos"))
+            .map_err(String::from)
     }
 
     /// Creates a new `AppState` with an explicit repos path.
@@ -240,7 +242,7 @@ mod tests {
         })
         .join();
         let err = state.lock_repos().unwrap_err();
-        assert!(err.contains("Failed to lock repos"), "error was: {}", err);
+        assert!(err.contains("repos"), "error was: {}", err);
     }
 
     #[test]

@@ -76,8 +76,7 @@ pub(crate) fn collect_posts_from_dir<T>(
 /// Returns `None` if the file is absent, unreadable, or the field is missing.
 pub(crate) fn read_repo_config_provider(repo_path: &str) -> Option<String> {
     let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
-    let content = fs::read_to_string(config_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let v: serde_json::Value = crate::init::read_json_file(&config_path).ok()?;
     v.get("scheduler")
         .and_then(|s| s.get("provider"))
         .and_then(|p| p.as_str())

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { invoke } from '../ipc/invoke';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
@@ -44,21 +45,14 @@ export function useWorkspaceStatus(projectId: string) {
 // ── Shared locate-folder logic ────────────────────────────────────────────────
 
 function useLocateFolder(workspaceId: string, onResolved: () => void) {
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, error, run } = useAsyncCommand();
 
   async function locate() {
     const selected = await openDialog({ directory: true });
     if (typeof selected !== 'string') return;
-    setLoading(true);
-    setError(null);
-    try {
-      await invoke('locate_workspace_folder', { workspaceId, folderPath: selected });
+    const result = await run(async () => { await invoke('locate_workspace_folder', { workspaceId, folderPath: selected }); return true; });
+    if (result !== null) {
       onResolved();
-    } catch (e) {
-      setError(typeof e === 'string' ? e : 'Failed to locate workspace folder');
-    } finally {
-      setLoading(false);
     }
   }
   return { locate, loading, error };
@@ -71,16 +65,13 @@ function SingleRenameBanner({ result, candidate, onResolved }: {
   candidate: RenamedCandidate;
   onResolved: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useAsyncCommand();
   const { locate, loading: locLoading, error: locError } = useLocateFolder(result.workspace_id, onResolved);
 
   async function handleUpdate() {
-    setLoading(true);
-    try {
-      await invoke('update_workspace_path', { workspaceId: result.workspace_id, newPath: candidate.path });
+    const r = await run(async () => { await invoke('update_workspace_path', { workspaceId: result.workspace_id, newPath: candidate.path }); return true; });
+    if (r !== null) {
       onResolved();
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -111,16 +102,13 @@ function MultipleRenamesBanner({ result, candidates, onResolved }: {
 }) {
   const sorted = [...candidates].sort((a, b) => b.modified_secs - a.modified_secs);
   const [selected, setSelected] = useState(sorted[0]?.path ?? '');
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useAsyncCommand();
   const { locate, loading: locLoading, error: locError } = useLocateFolder(result.workspace_id, onResolved);
 
   async function handleUpdate() {
-    setLoading(true);
-    try {
-      await invoke('update_workspace_path', { workspaceId: result.workspace_id, newPath: selected });
+    const r = await run(async () => { await invoke('update_workspace_path', { workspaceId: result.workspace_id, newPath: selected }); return true; });
+    if (r !== null) {
       onResolved();
-    } finally {
-      setLoading(false);
     }
   }
 

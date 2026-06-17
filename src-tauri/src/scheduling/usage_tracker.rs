@@ -317,4 +317,45 @@ mod tests {
         assert_eq!(get_usage_at("outstand", &path, 4, 2026).unwrap().count, 3);
 
     }
+
+    #[test]
+    fn test_default_store_path_filename_is_scheduler_usage_json() {
+        let path = default_store_path().expect("default_store_path must succeed when HOME is set");
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("scheduler_usage.json"),
+            "filename component must be scheduler_usage.json"
+        );
+        assert!(path.is_absolute(), "default_store_path must return an absolute path");
+    }
+
+    #[test]
+    fn test_is_near_limit_via_public_api_returns_false_for_unlimited_provider() {
+        // "zernio" has no known limit; is_near_limit short-circuits before touching
+        // the real filesystem, so this test is safe in any environment.
+        assert!(
+            !is_near_limit("zernio"),
+            "unlimited provider must never be near limit via public API"
+        );
+    }
+
+    #[test]
+    fn test_is_at_limit_via_public_api_returns_false_for_unlimited_provider() {
+        assert!(
+            !is_at_limit("zernio"),
+            "unlimited provider must never be at limit via public API"
+        );
+    }
+
+    #[test]
+    fn test_get_usage_returns_zeroed_record_for_absent_provider() {
+        // Uses a fabricated provider name that will never appear in the real usage file.
+        let record = get_usage("__test_only_absent_provider__")
+            .expect("get_usage must not fail for an absent provider");
+        assert_eq!(record.count, 0, "absent provider must return count=0");
+        assert_eq!(
+            record.provider, "__test_only_absent_provider__",
+            "returned record must carry the requested provider name"
+        );
+    }
 }

@@ -8,6 +8,12 @@ import type { DraftPost, Project } from './types';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock('./context/EditGuardContext', () => ({
+  useEditGuard: vi.fn().mockReturnValue({
+    resetSignal: 0, setDirty: vi.fn(), pendingNavSel: null, onNavCancelled: vi.fn(),
+  }),
+  EditGuardContext: { Provider: ({ children }: { children: ReactNode }) => children },
+}));
 
 vi.mock('./context/DraftPostsProvider', () => ({
   useDraftPostsContext: vi.fn(),
@@ -45,12 +51,8 @@ vi.mock('./settings/SystemSettingsView', () => ({
   default: () => <div data-testid="SystemSettingsView">SystemSettingsView</div>,
 }));
 vi.mock('./components/EditPostView', () => ({
-  default: ({ onDirtyChange }: { onDirtyChange?: (_d: boolean) => void }) => (
-    <div data-testid="EditPostView">
-      <button data-testid="make-dirty" onClick={() => onDirtyChange?.(true)}>
-        Make dirty
-      </button>
-    </div>
+  default: () => (
+    <div data-testid="EditPostView" />
   ),
 }));
 vi.mock('./TimezoneContext', () => ({
@@ -87,7 +89,6 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 const defaultProps = {
   onNavigate: vi.fn(),
   onToast: vi.fn(),
-  onDirtyChange: vi.fn(),
   onTimezoneChange: vi.fn(),
   onRepoChange: vi.fn(),
   onSignedOut: vi.fn(),
@@ -189,23 +190,3 @@ describe('MainContent — queue error', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// onDirtyChange propagation
-// ---------------------------------------------------------------------------
-
-describe('MainContent — dirty state propagation', () => {
-  it('calls onDirtyChange(true) when EditPostView becomes dirty', async () => {
-    vi.mocked(useDraftPostsContext).mockReturnValue({
-      drafts: [makeDraft()], loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
-    });
-    vi.mocked(useProjectsContext).mockReturnValue({
-      projects: [makeProject()], loading: false, error: null, refresh: vi.fn(), clear: vi.fn(),
-    });
-    const onDirtyChange = vi.fn();
-    render(<MainContent view={{ view: 'org_queue', projectId: 'p1' }} {...defaultProps} onDirtyChange={onDirtyChange} />);
-    fireEvent.click(screen.getByTestId('select-post'));
-    await waitFor(() => screen.getByTestId('EditPostView'));
-    fireEvent.click(screen.getByTestId('make-dirty'));
-    expect(onDirtyChange).toHaveBeenCalledWith(true);
-  });
-});

@@ -19,10 +19,7 @@ pub fn dismiss_post_impl(
         .ok_or("Repo path is not valid UTF-8")?
         .to_string();
     {
-        let repos = state
-            .repos
-            .lock()
-            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        let repos = state.lock_repos()?;
         if !repos.repos.iter().any(|r| r.path == canonical_str) {
             return Err(format!("Repo '{}' is not registered", canonical_str));
         }
@@ -84,10 +81,7 @@ pub fn delete_post_impl(
         .ok_or("Repo path is not valid UTF-8")?
         .to_string();
     {
-        let repos = state
-            .repos
-            .lock()
-            .map_err(|e| format!("Failed to lock repos: {}", e))?;
+        let repos = state.lock_repos()?;
         if !repos.repos.iter().any(|r| r.path == canonical_str) {
             return Err(format!("Repo '{}' is not registered", canonical_str));
         }

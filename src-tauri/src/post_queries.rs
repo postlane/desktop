@@ -42,10 +42,7 @@ fn collect_repo_drafts(repo_path: &str, out: &mut Vec<PostMeta>) {
 /// Returns all drafts with status `"ready"` or `"failed"` across all active repos.
 /// Results are sorted: `"failed"` before `"ready"`, then by `created_at` descending.
 pub fn get_drafts_impl(state: &AppState) -> Result<Vec<PostMeta>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let mut all_drafts = Vec::new();
     for repo in &repos.repos {
@@ -323,5 +320,39 @@ mod tests {
         let some_count = result.iter().filter(|p| p.created_at.is_some()).count();
         assert_eq!(none_count, 2);
         assert_eq!(some_count, 1);
+    }
+
+    /// When the posts directory exists as a file rather than a directory,
+    /// fs::read_dir fails and collect_repo_drafts returns without adding anything
+    /// (lines 17-19 in post_queries.rs).
+    #[test]
+    fn test_get_drafts_returns_empty_when_posts_dir_is_a_file() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let dot_postlane = dir.path().join(".postlane");
+        fs::create_dir_all(&dot_postlane).expect("create .postlane dir");
+        // Place a plain file where .postlane/posts would be → read_dir returns Err
+        fs::write(dot_postlane.join("posts"), b"not a directory").expect("write posts as file");
+
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert!(result.is_empty(), "posts path as file must yield empty result");
+    }
+
+    /// When meta.json exists as a directory rather than a file, fs::read_to_string
+    /// fails and collect_repo_drafts logs a warning and skips that entry
+    /// (line 37 in post_queries.rs).
+    #[test]
+    fn test_get_drafts_skips_meta_json_when_it_is_a_directory() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // meta.json as a directory → fs::read_to_string returns Err
+        let meta_as_dir = dir.path().join(".postlane/posts/bad-post/meta.json");
+        fs::create_dir_all(&meta_as_dir).expect("create meta.json as directory");
+        // Also a valid post to confirm scanning continues past the broken entry
+        write_draft(dir.path(), "good-post", r#"{"status":"ready","platforms":["x"]}"#);
+
+        let (state, _tmp_repos) = make_drafts_state(dir.path().to_str().unwrap());
+        let result = get_drafts_impl(&state).expect("ok");
+        assert_eq!(result.len(), 1, "unreadable meta.json must be skipped");
+        assert_eq!(result[0].status, "ready");
     }
 }

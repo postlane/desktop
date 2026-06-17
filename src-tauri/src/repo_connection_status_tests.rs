@@ -89,6 +89,26 @@ fn test_check_cli_malformed_config_treated_as_initialized() {
     assert!(!mismatch, "project_id_mismatch must not fire when json cannot be parsed");
 }
 
+// config.json path exists as a directory (so `read_to_string` fails) →
+// treated as initialised with no project_id mismatch (covers the Err branch in check_cli_state).
+#[test]
+fn test_check_cli_config_json_is_dir_treated_as_initialized() {
+    let tmp = TempDir::new().unwrap();
+    // Create `.postlane/config.json` as a *directory*, not a file.
+    // `Path::exists()` returns true, but `read_to_string` returns an error.
+    std::fs::create_dir_all(tmp.path().join(".postlane").join("config.json"))
+        .expect("create config.json as directory");
+    let (init, mismatch) = check_cli_state(tmp.path(), "proj-1");
+    assert!(
+        init,
+        "cli_initialized must be true when config.json path exists (even as a directory)"
+    );
+    assert!(
+        !mismatch,
+        "project_id_mismatch must be false when the file cannot be read"
+    );
+}
+
 // ── merge_into_rows ───────────────────────────────────────────────────────────
 
 // Repo only in GitHub App (no local clone, not registered) → one row, correct flags.

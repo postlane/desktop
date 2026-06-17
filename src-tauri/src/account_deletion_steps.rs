@@ -205,4 +205,176 @@ mod tests {
         assert_eq!(next_phase(6), Some(7));
         assert_eq!(next_phase(7), None);
     }
+
+    // ── phase_message remaining arms ─────────────────────────────────────────
+
+    #[test]
+    fn test_phase_message_phases_2_and_3_match_spec() {
+        assert!(
+            phase_message(2).contains("Removing project data"),
+            "phase 2 must say 'Removing project data', got: {}",
+            phase_message(2)
+        );
+        assert!(
+            phase_message(3).contains("Revoking"),
+            "phase 3 must say 'Revoking', got: {}",
+            phase_message(3)
+        );
+    }
+
+    #[test]
+    fn test_phase_message_phase_4_contains_clearing() {
+        assert!(
+            phase_message(4).contains("Clearing"),
+            "phase 4 must mention 'Clearing', got: {}",
+            phase_message(4)
+        );
+    }
+
+    #[test]
+    fn test_phase_message_unknown_phase_returns_finishing() {
+        assert!(
+            phase_message(99).contains("Finishing"),
+            "unknown phase must fall through to 'Finishing', got: {}",
+            phase_message(99)
+        );
+    }
+
+    // ── next_phase full coverage ──────────────────────────────────────────────
+
+    #[test]
+    fn test_next_phase_returns_some_for_phases_0_through_6() {
+        for p in 0u8..7 {
+            assert_eq!(
+                next_phase(p),
+                Some(p + 1),
+                "next_phase({p}) must be Some({})", p + 1
+            );
+        }
+    }
+
+    // ── ok() result fields ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ok_result_has_correct_phase_and_next_phase() {
+        let result = ok(3);
+        assert_eq!(result.phase, 3);
+        assert_eq!(result.next_phase, Some(4));
+        assert!(!result.message.is_empty(), "message must not be empty");
+    }
+
+    #[test]
+    fn test_ok_result_for_last_phase_has_no_next() {
+        let result = ok(7);
+        assert_eq!(result.phase, 7);
+        assert!(result.next_phase.is_none(), "last phase must have next_phase = None");
+    }
+
+    // ── workspace_ids ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_workspace_ids_returns_empty_for_nonexistent_repos_path() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let missing = tmp.path().join("does_not_exist").join("repos.json");
+        let ids = workspace_ids(&missing);
+        assert!(ids.is_empty(), "nonexistent repos.json must return empty Vec, got: {:?}", ids);
+    }
+
+    #[test]
+    fn test_workspace_ids_returns_ids_from_repos_json() {
+        use crate::workspace_entry::WorkspaceEntry;
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let config = crate::storage::ReposConfig {
+            version: 2,
+            workspaces: vec![
+                WorkspaceEntry {
+                    id: "id-alpha".to_string(), name: "alpha".to_string(),
+                    workspace_path: "/a/b/c".to_string(), active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+                WorkspaceEntry {
+                    id: "id-beta".to_string(), name: "beta".to_string(),
+                    workspace_path: "/d/e/f".to_string(), active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+            ],
+            repos: vec![],
+        };
+        crate::storage::write_repos(&repos_path, &config).expect("write repos.json");
+        let ids = workspace_ids(&repos_path);
+        assert_eq!(ids.len(), 2, "must return 2 IDs");
+        assert!(ids.contains(&"id-alpha".to_string()), "must include id-alpha");
+        assert!(ids.contains(&"id-beta".to_string()), "must include id-beta");
+    }
+
+    #[test]
+    fn test_workspace_ids_filters_out_entries_with_empty_id() {
+        use crate::workspace_entry::WorkspaceEntry;
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let config = crate::storage::ReposConfig {
+            version: 2,
+            workspaces: vec![
+                WorkspaceEntry {
+                    id: "".to_string(), name: "empty-id".to_string(),
+                    workspace_path: "/a/b/c".to_string(), active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+                WorkspaceEntry {
+                    id: "real-id".to_string(), name: "real".to_string(),
+                    workspace_path: "/d/e/f".to_string(), active: true,
+                    added_at: "2026-01-01T00:00:00Z".to_string(),
+                },
+            ],
+            repos: vec![],
+        };
+        crate::storage::write_repos(&repos_path, &config).expect("write repos.json");
+        let ids = workspace_ids(&repos_path);
+        assert_eq!(ids.len(), 1, "entry with empty id must be filtered out");
+        assert!(ids.contains(&"real-id".to_string()), "non-empty id must be included");
+    }
+
+    // ── run_phase_6 ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_run_phase_6_returns_ok_and_phase_6_result() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let config = crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] };
+        crate::storage::write_repos(&repos_path, &config).expect("write repos.json");
+
+        let result = run_phase_6(&repos_path).expect("run_phase_6 must succeed on valid dir");
+        assert_eq!(result.phase, 6);
+        assert_eq!(result.next_phase, Some(7), "phase 6 must be followed by phase 7");
+    }
+
+    // ── run_phase_7 ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_run_phase_7_returns_phase_7_with_no_next_when_not_deleting() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let state = crate::app_state::AppState::new_with_path(
+            crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] },
+            repos_path,
+        );
+        let result = run_phase_7(false, &state);
+        assert_eq!(result.phase, 7);
+        assert!(result.next_phase.is_none(), "phase 7 is the last phase; next_phase must be None");
+    }
+
+    #[test]
+    fn test_run_phase_7_with_do_delete_true_and_empty_snapshot_returns_phase_7() {
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let state = crate::app_state::AppState::new_with_path(
+            crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] },
+            repos_path,
+        );
+        // deletion_snapshot is empty (default), so no dirs are deleted
+        let result = run_phase_7(true, &state);
+        assert_eq!(result.phase, 7);
+        assert!(result.next_phase.is_none());
+    }
 }

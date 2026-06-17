@@ -1,0 +1,10 @@
+# Files excluded because they contain only Tauri app-lifecycle wiring,
+# system tray callbacks, or OS-level instance management that cannot be
+# exercised by cargo test --lib without a running Tauri runtime.
+exclude_files = [
+    "src/app_lifecycle.rs",
+    "src/tray.rs",
+    "src/lib.rs",
+    "src/instance_guard.rs",
+    "src/command_registry.rs",
+]

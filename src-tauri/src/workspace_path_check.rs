@@ -63,10 +63,7 @@ fn scan_siblings(parent_dir: &Path, project_id: &str, original_path: &Path) -> V
         if !path.is_dir() || path == original_path {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(path.join("config.json")) else {
-            continue;
-        };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+        let Ok(json) = crate::init::read_json_file::<serde_json::Value>(&path.join("config.json")) else {
             continue;
         };
         if json["project_id"].as_str() == Some(project_id) {

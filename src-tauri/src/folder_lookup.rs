@@ -44,10 +44,7 @@ pub fn find_project_for_folder_impl(
         return Ok(None);
     }
 
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Cannot read '{}': {}", config_path.display(), e))?;
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Cannot parse '{}': {}", config_path.display(), e))?;
+    let json: serde_json::Value = crate::init::read_json_file(&config_path)?;
 
     Ok(json
         .get("project_id")

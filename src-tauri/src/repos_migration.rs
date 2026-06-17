@@ -49,10 +49,7 @@ pub fn migrate_repos_to_v2(repos_path: &Path, app_state_path: &Path) -> Result<(
 /// Creates the file if absent (using defaults for all other fields).
 fn set_repos_schema_v2_flag(app_state_path: &Path) -> Result<(), String> {
     let mut state = if app_state_path.exists() {
-        let content = std::fs::read_to_string(app_state_path)
-            .map_err(|e| format!("failed to read app_state.json: {}", e))?;
-        serde_json::from_str::<serde_json::Value>(&content)
-            .map_err(|e| format!("failed to parse app_state.json: {}", e))?
+        crate::init::read_json_file::<serde_json::Value>(app_state_path)?
     } else {
         let default = crate::app_state_types::AppStateFile::default();
         serde_json::to_value(&default)
@@ -61,10 +58,7 @@ fn set_repos_schema_v2_flag(app_state_path: &Path) -> Result<(), String> {
 
     state["repos_schema_v2"] = serde_json::json!(true);
 
-    let json = serde_json::to_string_pretty(&state)
-        .map_err(|e| format!("failed to serialise app_state.json: {}", e))?;
-    crate::init::atomic_write(app_state_path, json.as_bytes())
-        .map_err(|e| format!("failed to write app_state.json: {}", e))
+    crate::init::write_json_file(app_state_path, &state)
 }
 
 #[cfg(test)]

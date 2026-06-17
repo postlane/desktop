@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,19 +30,11 @@ function DisconnectModal({ workspaceId, name, onDone, onCancel, onDisconnected }
   workspaceId: string; name: string; onDone: () => void; onCancel: () => void;
   onDisconnected?: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { loading, error, run } = useAsyncCommand();
 
   async function handleConfirm() {
-    setLoading(true);
-    setError(null);
-    try {
-      await invoke('disconnect_workspace', { workspaceId });
-      onDone();
-      onDisconnected?.();
-    } catch (e) {
-      setError(typeof e === 'string' ? e : 'Disconnect failed');
-    } finally { setLoading(false); }
+    const ok = await run(() => invoke('disconnect_workspace', { workspaceId }));
+    if (ok !== null) { onDone(); onDisconnected?.(); }
   }
 
   return (
@@ -113,20 +106,12 @@ function DeleteConfirmStep({ workspaceId, info, onDone, onCancel, onDeleted }: {
   onDeleted?: () => void;
 }) {
   const [nameInput, setNameInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { loading, error, run } = useAsyncCommand();
   const confirmed = nameInput === info.name;
 
   async function handleDelete() {
-    setLoading(true);
-    setError(null);
-    try {
-      await invoke('delete_workspace', { workspaceId });
-      onDone();
-      onDeleted?.();
-    } catch (e) {
-      setError(typeof e === 'string' ? e : 'Delete failed');
-    } finally { setLoading(false); }
+    const ok = await run(() => invoke('delete_workspace', { workspaceId }));
+    if (ok !== null) { onDone(); onDeleted?.(); }
   }
 
   return (

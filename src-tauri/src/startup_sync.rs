@@ -28,7 +28,7 @@ pub(crate) fn sync_all_repos_on_startup(
 ) {
     for repo in repos.iter().filter(|r| r.active) {
         let config_path = Path::new(&repo.path).join(".postlane").join("config.json");
-        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path);
+        let project_id = crate::config_paths::read_project_id_from_config(&config_path);
         let mastodon_active = project_id.as_deref()
             .map(is_mastodon_active)
             .unwrap_or(false);
