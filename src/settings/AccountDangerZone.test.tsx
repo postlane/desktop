@@ -19,7 +19,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockInvoke.mockImplementation((cmd: string) => {
     if (cmd === 'get_deletion_incomplete') return Promise.resolve(false);
-    if (cmd === 'delete_account') return Promise.resolve(undefined);
     return Promise.resolve(null);
   });
 });
