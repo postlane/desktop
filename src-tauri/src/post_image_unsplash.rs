@@ -25,7 +25,7 @@ pub fn update_post_image_unsplash_impl(
             image_url
         ));
     }
-    if crate::security::ssrf_check::is_private_url(image_url) {
+    if crate::ssrf_validation::is_private_url(image_url) {
         return Err("Invalid image URL: resolves to a private or reserved address".to_string());
     }
     if !download_location.starts_with("https://api.unsplash.com/") {

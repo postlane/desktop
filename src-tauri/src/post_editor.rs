@@ -107,7 +107,7 @@ pub fn update_post_image_impl(
                 url
             ));
         }
-        if crate::security::ssrf_check::is_private_url(url) {
+        if crate::ssrf_validation::is_private_url(url) {
             return Err("Invalid image URL: resolves to a private or reserved address".to_string());
         }
     }

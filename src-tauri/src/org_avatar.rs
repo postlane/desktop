@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use crate::security::ssrf_check::is_private_url;
+use crate::ssrf_validation::is_private_url;
 use std::time::Duration;
 
 fn build_client() -> reqwest::Client {
