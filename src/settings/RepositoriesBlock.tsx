@@ -8,6 +8,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import WorkspaceConfirmModal from './WorkspaceConfirmModal';
 import VoiceGuideHint from './VoiceGuideHint';
 import { RepoListSection } from './RepoTable';
+import type { AppStateFile } from '../types';
 import type { RepoConnectionStatus, RowActions } from './RepoTable';
 import type { WorkspaceSetupResult } from './WorkspaceConfirmModal';
 import { useMigrationStatus } from './MigrationBanner';
@@ -209,6 +210,27 @@ function useWorkspacePath(projectId: string) {
   return workspacePath;
 }
 
+function useVoiceGuideHintDismiss() {
+  const [dismissed, setDismissed] = useState(false);
+  const [appState, setAppState] = useState<AppStateFile | null>(null);
+
+  useEffect(() => {
+    invoke<AppStateFile>('get_app_state')
+      .then((s) => { setAppState(s); setDismissed(s?.voice_guide_hint_dismissed ?? false); })
+      .catch(() => {});
+  }, []);
+
+  async function dismiss() {
+    setDismissed(true);
+    if (!appState) return;
+    const updated: AppStateFile = { ...appState, voice_guide_hint_dismissed: true };
+    setAppState(updated);
+    await invoke('save_app_state_command', { state: updated }).catch(() => {});
+  }
+
+  return { dismissed, dismiss };
+}
+
 // ── Migration re-entry (22.5.9 / 22.10.9) ────────────────────────────────────
 
 function MigrateWorkspaceButton({ projectId }: { projectId: string }) {
@@ -245,6 +267,7 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
   const ws = useWorkspaceFlow(projectId, refresh);
   const rescan = useRescanWorkspace(projectId, refresh);
   const workspacePath = useWorkspacePath(projectId);
+  const { dismissed: hintDismissed, dismiss: dismissHint } = useVoiceGuideHintDismiss();
 
   const hasGitHubApp = rows.some((r) => r.github_app_connected);
 
@@ -279,11 +302,12 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
         </>
       )}
 
-      {ws.wsSuccess && (
-        <VoiceGuideHint workspacePath={ws.wsSuccess.workspace_path} onDismiss={ws.dismissSuccess} />
+      {ws.wsSuccess && !hintDismissed && (
+        <VoiceGuideHint workspacePath={ws.wsSuccess.workspace_path}
+          onDismiss={() => { ws.dismissSuccess(); void dismissHint(); }} />
       )}
-      {!ws.wsSuccess && workspacePath && (
-        <VoiceGuideHint workspacePath={workspacePath} />
+      {!ws.wsSuccess && workspacePath && !hintDismissed && (
+        <VoiceGuideHint workspacePath={workspacePath} onDismiss={dismissHint} />
       )}
       {ws.wsResult && (
         <WorkspaceConfirmModal result={ws.wsResult}

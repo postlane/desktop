@@ -49,6 +49,7 @@ export interface AppStateFile {
   dismissed_unassigned_draft_warning?: boolean;
   post_wizard_completed?: boolean;
   org_upgrade_banner_dismissed_v1_2?: boolean;
+  voice_guide_hint_dismissed?: boolean;
 }
 
 /** Mirrors analytics::PostAnalytics */
