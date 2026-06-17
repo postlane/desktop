@@ -243,7 +243,7 @@ pub fn run() {
                     file_name: Some("app".to_string()),
                 }))
                 .max_file_size(5 * 1_024 * 1_024)
-                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(1))
                 .build()
         })
         .manage(state)
