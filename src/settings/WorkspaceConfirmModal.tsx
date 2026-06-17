@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 
 export interface RepoSummary {
   name: string;
@@ -37,8 +38,7 @@ function useConfirmWorkspace(result: WorkspaceSetupResult, onConfirm: (paths: st
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(result.discovered_repos.map((r) => r.path))
   );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { loading, error, run } = useAsyncCommand();
 
   function toggle(path: string, checked: boolean) {
     setSelected((prev) => {
@@ -50,15 +50,9 @@ function useConfirmWorkspace(result: WorkspaceSetupResult, onConfirm: (paths: st
 
   async function handleConfirm() {
     const paths = Array.from(selected);
-    setLoading(true);
-    setError(null);
-    try {
-      await invoke('confirm_workspace_repos', { workspaceId: result.workspace_id, selectedPaths: paths });
+    const r = await run(async () => { await invoke('confirm_workspace_repos', { workspaceId: result.workspace_id, selectedPaths: paths }); return true; });
+    if (r !== null) {
       onConfirm(paths);
-    } catch (err) {
-      setError(typeof err === 'string' ? err : 'Failed to confirm workspace');
-    } finally {
-      setLoading(false);
     }
   }
 

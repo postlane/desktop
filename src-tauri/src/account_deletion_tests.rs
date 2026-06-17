@@ -438,3 +438,207 @@ async fn test_gitlab_ssrf_valid_https_url_calls_endpoint() {
     assert!(result.is_ok(), "valid GitLab URL must succeed: {:?}", result);
     m.assert();
 }
+
+// ── 22.7.10b: Step 1 — 5xx server response returns Err ───────────────────────
+
+#[tokio::test]
+async fn test_delete_all_projects_returns_error_on_5xx() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(httpmock::Method::DELETE).path("/v1/projects/proj-x");
+        then.status(500);
+    });
+    let ids = vec!["proj-x".to_string()];
+    let result = delete_all_projects(&server.base_url(), "tok", &ids, &build_client()).await;
+    assert!(result.is_err(), "5xx from project delete must return Err");
+    let msg = result.unwrap_err();
+    assert!(msg.contains("PL-DEL-001"), "error must include PL-DEL-001, got: {msg}");
+    assert!(msg.contains("500"), "error must mention status 500, got: {msg}");
+}
+
+// ── 22.7.25b: delete_account_impl with delete_workspace_dirs = true ──────────
+
+#[tokio::test]
+async fn test_delete_account_impl_with_delete_workspace_dirs_true_deletes_dirs() {
+    let tmp = TempDir::new().expect("create temp dir");
+    let server = MockServer::start();
+    full_mock(&server);
+
+    let ws_dir = tmp.path().join("some").join("deep").join("workspace").join("repo");
+    fs::create_dir_all(&ws_dir).expect("create workspace dir");
+
+    make_repos(&tmp, vec![make_entry("ws-1", ws_dir.to_str().expect("path to str"))]);
+
+    let params = DeleteAccountParams {
+        postlane_dir: tmp.path().to_path_buf(),
+        api_base: server.base_url(),
+        token: "tok".to_string(),
+        project_ids: vec!["proj-1".to_string()],
+        project_ids_with_github_app: vec![],
+        gitlab_instance_url: None,
+        delete_workspace_dirs: true,
+    };
+    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    assert!(result.is_ok(), "delete with workspace dirs must succeed: {:?}", result);
+    assert!(!ws_dir.exists(), "workspace directory must be removed when delete_workspace_dirs=true");
+}
+
+// ── 22.7.25c: snapshot_workspaces missing repos.json returns empty — line 103 ─
+
+#[tokio::test]
+async fn test_delete_account_impl_missing_repos_json_still_succeeds() {
+    let tmp = TempDir::new().expect("create temp dir");
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/auth/session");
+        then.status(200).json_body(serde_json::json!({"valid": true}));
+    });
+    server.mock(|when, then| {
+        when.method(httpmock::Method::POST).path("/v1/account/delete");
+        then.status(200);
+    });
+    // repos.json intentionally absent — snapshot_workspaces must return Ok(vec![])
+    let params = DeleteAccountParams {
+        postlane_dir: tmp.path().to_path_buf(),
+        api_base: server.base_url(),
+        token: "tok".to_string(),
+        project_ids: vec![],
+        project_ids_with_github_app: vec![],
+        gitlab_instance_url: None,
+        delete_workspace_dirs: false,
+    };
+    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    assert!(result.is_ok(), "absent repos.json must not abort deletion: {:?}", result);
+}
+
+// ── 22.7.15b: Step 5 — account/delete 401 returns Err (line 182) ─────────────
+
+#[tokio::test]
+async fn test_delete_account_record_returns_error_on_401() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/auth/session");
+        then.status(200).json_body(serde_json::json!({"valid": true}));
+    });
+    server.mock(|when, then| {
+        when.method(httpmock::Method::DELETE)
+            .path_matches(regex::Regex::new("/v1/projects/").expect("regex"));
+        then.status(204);
+    });
+    server.mock(|when, then| {
+        when.method(httpmock::Method::POST).path("/v1/account/delete");
+        then.status(401);
+    });
+    let tmp = TempDir::new().expect("create temp dir");
+    make_repos(&tmp, vec![]);
+    let params = DeleteAccountParams {
+        postlane_dir: tmp.path().to_path_buf(),
+        api_base: server.base_url(),
+        token: "tok".to_string(),
+        project_ids: vec![],
+        project_ids_with_github_app: vec![],
+        gitlab_instance_url: None,
+        delete_workspace_dirs: false,
+    };
+    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    assert!(result.is_err(), "401 from account/delete must return Err");
+    let msg = result.unwrap_err();
+    assert!(msg.contains("PL-DEL-004"), "error must include PL-DEL-004, got: {msg}");
+}
+
+// ── 22.7.15c: Step 5 — account/delete 5xx returns Err (line 183) ─────────────
+
+#[tokio::test]
+async fn test_delete_account_record_returns_error_on_5xx() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/auth/session");
+        then.status(200).json_body(serde_json::json!({"valid": true}));
+    });
+    server.mock(|when, then| {
+        when.method(httpmock::Method::DELETE)
+            .path_matches(regex::Regex::new("/v1/projects/").expect("regex"));
+        then.status(204);
+    });
+    server.mock(|when, then| {
+        when.method(httpmock::Method::POST).path("/v1/account/delete");
+        then.status(500);
+    });
+    let tmp = TempDir::new().expect("create temp dir");
+    make_repos(&tmp, vec![]);
+    let params = DeleteAccountParams {
+        postlane_dir: tmp.path().to_path_buf(),
+        api_base: server.base_url(),
+        token: "tok".to_string(),
+        project_ids: vec![],
+        project_ids_with_github_app: vec![],
+        gitlab_instance_url: None,
+        delete_workspace_dirs: false,
+    };
+    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    assert!(result.is_err(), "5xx from account/delete must return Err");
+    let msg = result.unwrap_err();
+    assert!(msg.contains("PL-DEL-004"), "error must include PL-DEL-004, got: {msg}");
+    assert!(msg.contains("500"), "error must mention status 500, got: {msg}");
+}
+
+// ── 22.7.13c: Step 3 — GitLab non-2xx response returns Err (line 166) ─────────
+
+#[tokio::test]
+async fn test_revoke_gitlab_returns_error_on_non_2xx() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(httpmock::Method::DELETE).path("/oauth/token");
+        then.status(403);
+    });
+    let result = revoke_gitlab_token(Some(&server.base_url()), &build_client(), accept_any_url).await;
+    assert!(result.is_err(), "non-2xx GitLab response must return Err");
+    let msg = result.unwrap_err();
+    assert!(msg.contains("PL-DEL-003"), "error must include PL-DEL-003, got: {msg}");
+    assert!(msg.contains("403"), "error must mention status 403, got: {msg}");
+}
+
+// ── 22.7.8b: preflight_session direct branch tests ────────────────────────────
+
+#[tokio::test]
+async fn test_preflight_session_200_returns_ok() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/auth/session");
+        then.status(200).json_body(serde_json::json!({"valid": true}));
+    });
+    let result = preflight_session(&server.base_url(), "tok", &build_client()).await;
+    assert!(result.is_ok(), "200 must return Ok: {:?}", result);
+}
+
+#[tokio::test]
+async fn test_preflight_session_401_returns_session_expired_message() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/auth/session");
+        then.status(401);
+    });
+    let result = preflight_session(&server.base_url(), "tok", &build_client()).await;
+    assert!(result.is_err());
+    let msg = result.unwrap_err();
+    assert!(
+        msg.to_lowercase().contains("session") || msg.to_lowercase().contains("sign"),
+        "401 must return session-expired message, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn test_preflight_session_5xx_returns_server_error_message() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/auth/session");
+        then.status(500);
+    });
+    let result = preflight_session(&server.base_url(), "tok", &build_client()).await;
+    assert!(result.is_err());
+    let msg = result.unwrap_err();
+    assert!(
+        msg.contains("500") || msg.to_lowercase().contains("connection") || msg.to_lowercase().contains("verify"),
+        "5xx must return server-error message mentioning status or connection, got: {msg}"
+    );
+}

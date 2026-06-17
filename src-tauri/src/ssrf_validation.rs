@@ -242,4 +242,137 @@ mod tests {
     fn test_is_private_ip_v6_public() {
         assert!(!is_private_ip(&"2001:db8::1".parse().unwrap()));
     }
+
+    // ── Additional edge cases ─────────────────────────────────────────────────
+
+    fn mock_resolver_empty(_host: &str) -> Result<Vec<IpAddr>, String> {
+        Ok(vec![])
+    }
+
+    fn mock_resolver_dns_error(_host: &str) -> Result<Vec<IpAddr>, String> {
+        Err("DNS resolution failed for 'example.com': timeout".to_string())
+    }
+
+    #[test]
+    fn test_rejects_ftp_scheme() {
+        let res = validate_ssrf_url_with_resolver(
+            "ftp://example.com/file",
+            mock_resolver_public,
+        );
+        assert!(res.is_err(), "ftp:// must be rejected");
+        assert!(res.unwrap_err().contains("PL-DEL-003"));
+    }
+
+    #[test]
+    fn test_rejects_bare_ipv4_172_16() {
+        let res = validate_ssrf_url_with_resolver(
+            "https://172.16.0.1/path",
+            mock_resolver_public,
+        );
+        assert!(res.is_err(), "bare 172.16.x.x IPv4 must be rejected");
+        assert!(res.unwrap_err().contains("PL-DEL-003"));
+    }
+
+    #[test]
+    fn test_rejects_bare_ipv4_169_254() {
+        let res = validate_ssrf_url_with_resolver(
+            "https://169.254.1.1/path",
+            mock_resolver_public,
+        );
+        assert!(res.is_err(), "bare 169.254.x.x link-local IPv4 must be rejected");
+        assert!(res.unwrap_err().contains("PL-DEL-003"));
+    }
+
+    #[test]
+    fn test_rejects_bare_ipv4_public() {
+        // Policy: all bare IPv4 addresses are rejected regardless of range.
+        let res = validate_ssrf_url_with_resolver(
+            "https://8.8.8.8/dns",
+            mock_resolver_public,
+        );
+        assert!(res.is_err(), "bare public IPv4 must also be rejected");
+        assert!(res.unwrap_err().contains("PL-DEL-003"));
+    }
+
+    #[test]
+    fn test_accepts_https_when_resolver_returns_no_ips() {
+        // Empty IP list means no private address found — should pass.
+        let res = validate_ssrf_url_with_resolver(
+            "https://example.com/api",
+            mock_resolver_empty,
+        );
+        assert!(res.is_ok(), "empty resolver result must be accepted: {:?}", res);
+    }
+
+    #[test]
+    fn test_rejects_url_when_resolver_fails() {
+        let res = validate_ssrf_url_with_resolver(
+            "https://example.com/api",
+            mock_resolver_dns_error,
+        );
+        assert!(res.is_err(), "DNS resolution error must be propagated as Err");
+    }
+
+    #[test]
+    fn test_is_private_ip_unspecified_v4() {
+        assert!(
+            is_private_ip(&"0.0.0.0".parse().unwrap()),
+            "0.0.0.0 (unspecified) must be private"
+        );
+    }
+
+    #[test]
+    fn test_is_private_ip_v6_mapped_172_16() {
+        assert!(
+            is_private_ip(&"::ffff:172.16.0.1".parse().unwrap()),
+            "::ffff:172.16.0.1 is private (IPv4-mapped 172.16.x)"
+        );
+    }
+
+    #[test]
+    fn test_is_private_ip_v6_mapped_loopback() {
+        assert!(
+            is_private_ip(&"::ffff:127.0.0.1".parse().unwrap()),
+            "::ffff:127.0.0.1 is private (IPv4-mapped loopback)"
+        );
+    }
+
+    fn mock_resolver_mixed(_host: &str) -> Result<Vec<IpAddr>, String> {
+        // One public IP and one private IP — the private one must trigger rejection.
+        Ok(vec![
+            "203.0.113.1".parse().unwrap(),
+            "10.0.0.1".parse().unwrap(),
+        ])
+    }
+
+    #[test]
+    fn test_rejects_when_any_resolved_ip_is_private() {
+        let res = validate_ssrf_url_with_resolver(
+            "https://mixed.example.com/api",
+            mock_resolver_mixed,
+        );
+        assert!(res.is_err(), "any private IP in resolver results must cause rejection");
+        let msg = res.unwrap_err();
+        assert!(msg.contains("PL-DEL-003"), "got: {}", msg);
+        assert!(msg.contains("10.0.0.1"), "error must name the offending IP, got: {}", msg);
+    }
+
+    #[test]
+    fn test_rejects_invalid_url_format() {
+        let res = validate_ssrf_url_with_resolver("not-a-valid-url", mock_resolver_public);
+        assert!(res.is_err(), "malformed URL must be rejected");
+        let msg = res.unwrap_err();
+        assert!(msg.contains("invalid URL"), "got: {}", msg);
+    }
+
+    /// Documents the current implementation boundary: fd00::/8 is blocked
+    /// but fc00::/8 (the other half of the ULA fc00::/7 range) is not.
+    #[test]
+    fn test_is_private_ip_fc00_block_is_not_blocked_by_current_impl() {
+        let fc00: IpAddr = "fc00::1".parse().unwrap();
+        assert!(
+            !is_private_ip(&fc00),
+            "fc00::1 is outside the fd00::/8 check — current impl returns false"
+        );
+    }
 }

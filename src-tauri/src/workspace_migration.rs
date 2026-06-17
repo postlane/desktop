@@ -120,8 +120,7 @@ pub fn find_qualifying_legacy_repos(repos_path: &Path) -> Vec<LegacyRepoInfo> {
 
 /// Returns `true` if `workspace_migration_dismissed` is `true` in `app_state.json`.
 pub fn check_migration_dismissed(app_state_path: &Path) -> bool {
-    let Ok(content) = std::fs::read_to_string(app_state_path) else { return false; };
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else { return false; };
+    let Ok(val) = crate::init::read_json_file::<serde_json::Value>(app_state_path) else { return false; };
     val.get("workspace_migration_dismissed").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
@@ -129,10 +128,7 @@ pub fn check_migration_dismissed(app_state_path: &Path) -> bool {
 pub fn set_migration_dismissed(app_state_path: &Path) -> Result<(), String> {
     let mut state = read_app_state_from(app_state_path);
     state.workspace_migration_dismissed = true;
-    let json = serde_json::to_string_pretty(&state)
-        .map_err(|e| format!("Failed to serialize app state: {}", e))?;
-    crate::init::atomic_write(app_state_path, json.as_bytes())
-        .map_err(|e| format!("Failed to write app state: {}", e))
+    crate::init::write_json_file(app_state_path, &state)
 }
 
 /// Returns migration status: qualifying repos + whether banner is dismissed.
@@ -147,8 +143,7 @@ pub fn get_migration_status_impl(repos_path: &Path, app_state_path: &Path) -> Mi
 /// Reads `project_id` from `{repo}/.postlane/config.json`. Returns `None` when absent.
 pub fn read_repo_project_id(repo_path: &Path) -> Option<String> {
     let config = repo_path.join(".postlane").join("config.json");
-    let content = std::fs::read_to_string(&config).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let val: serde_json::Value = crate::init::read_json_file(&config).ok()?;
     val.get("project_id")?.as_str().map(|s| s.to_string())
 }
 
@@ -233,8 +228,7 @@ pub fn dismiss_migration_journal_session(workspace_path: &Path) -> Result<(), St
 /// Flattens a `{workspace}/config.json` to a `key → value` map using dot-notation.
 pub(crate) fn read_flat_config(path: PathBuf) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
-    let Ok(content) = std::fs::read_to_string(&path) else { return map; };
-    let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else { return map; };
+    let Ok(val) = crate::init::read_json_file::<serde_json::Value>(&path) else { return map; };
     flatten_json_value(&val, "", &mut map);
     map
 }

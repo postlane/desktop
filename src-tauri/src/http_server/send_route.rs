@@ -176,4 +176,129 @@ mod tests {
         let body_str = std::str::from_utf8(&body_bytes).unwrap();
         assert!(!body_str.contains("path traversal"), "valid folder name must not trigger traversal error: {}", body_str);
     }
+
+    #[tokio::test]
+    async fn test_send_returns_403_when_path_not_registered() {
+        let (state, _registered_path) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        let unregistered = tempfile::TempDir::new().expect("create unregistered tmp dir");
+        let unregistered_path = std::fs::canonicalize(unregistered.path())
+            .expect("canonicalize unregistered path");
+        let body = format!(
+            r#"{{"repo_path":"{}","post_folder":"some-post"}}"#,
+            unregistered_path.display()
+        );
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .expect("build request"),
+        ).await.expect("oneshot failed");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "unregistered path must be rejected with 403");
+    }
+
+    #[tokio::test]
+    async fn test_send_returns_400_when_post_folder_does_not_exist() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"nonexistent-folder"}}"#, path_str);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .expect("build request"),
+        ).await.expect("oneshot failed");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await
+            .expect("read response body");
+        let body_str = std::str::from_utf8(&body_bytes).expect("utf8 body");
+        assert!(body_str.contains("does not exist"), "error must state folder not found: {}", body_str);
+    }
+
+    #[tokio::test]
+    async fn test_send_returns_400_when_meta_json_missing() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let folder = "post-without-meta";
+        let post_dir = std::path::Path::new(&path_str)
+            .join(".postlane").join("posts").join(folder);
+        std::fs::create_dir_all(&post_dir).expect("create post dir without meta.json");
+        // Deliberately omit meta.json
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"{}"}}"#, path_str, folder);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .expect("build request"),
+        ).await.expect("oneshot failed");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await
+            .expect("read response body");
+        let body_str = std::str::from_utf8(&body_bytes).expect("utf8 body");
+        assert!(body_str.contains("meta.json"), "error must mention meta.json: {}", body_str);
+    }
+
+    // send_route.rs lines 50-51: read fails when path does not exist.
+    #[test]
+    fn test_mark_meta_as_sent_returns_error_when_path_does_not_exist() {
+        let missing = std::path::Path::new("/tmp/postlane-test-nonexistent-dir/meta.json");
+        let result = mark_meta_as_sent(missing);
+        assert!(result.is_err(), "missing path must return an error");
+        let (status, msg) = result.expect_err("checked above");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            msg.contains("Failed to read meta.json"),
+            "error must mention read failure: {}",
+            msg
+        );
+    }
+
+    // send_route.rs lines 53-54: JSON parse fails when file content is not valid JSON.
+    #[test]
+    fn test_mark_meta_as_sent_returns_error_when_meta_json_is_corrupt() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let meta_path = dir.path().join("meta.json");
+        std::fs::write(&meta_path, b"{ not valid json ]").expect("write corrupt meta.json");
+        let result = mark_meta_as_sent(&meta_path);
+        assert!(result.is_err(), "corrupt JSON must return an error");
+        let (status, msg) = result.expect_err("checked above");
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            msg.contains("Failed to parse meta.json"),
+            "error must mention parse failure: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_returns_200_and_marks_meta_as_sent() {
+        let (state, path_str) = make_state_with_tmp_repo();
+        let folder = "2026-01-15-launch";
+        let post_dir = std::path::Path::new(&path_str)
+            .join(".postlane").join("posts").join(folder);
+        std::fs::create_dir_all(&post_dir).expect("create post dir");
+        let meta_path = post_dir.join("meta.json");
+        std::fs::write(&meta_path, r#"{"status":"ready"}"#).expect("write meta.json");
+        let app = create_router(state);
+        let body = format!(r#"{{"repo_path":"{}","post_folder":"{}"}}"#, path_str, folder);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .method("POST").uri("/send")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(axum::body::Body::from(body))
+                .expect("build request"),
+        ).await.expect("oneshot failed");
+        assert_eq!(response.status(), StatusCode::OK, "valid request must return 200");
+        let content = std::fs::read_to_string(&meta_path).expect("read updated meta.json");
+        let meta: serde_json::Value = serde_json::from_str(&content).expect("parse updated meta.json");
+        assert_eq!(meta["status"].as_str(), Some("sent"), "status must be updated to sent");
+        assert!(meta["sent_at"].as_str().is_some(), "sent_at timestamp must be written");
+    }
 }

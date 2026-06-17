@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import type { PostAnalytics } from '../types';
 
 interface Props {
@@ -12,17 +13,15 @@ interface Props {
 
 export function AnalyticsToggleCell({ repoId, postFolder, sentAt }: Props) {
   const [analytics, setAnalytics] = useState<PostAnalytics | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useAsyncCommand();
   const [triggered, setTriggered] = useState(false);
 
   async function handleLoad() {
     setTriggered(true);
-    setLoading(true);
-    try {
-      const data = await invoke<PostAnalytics>('get_post_analytics', { repoId, postFolder });
+    const data = await run(() => invoke<PostAnalytics>('get_post_analytics', { repoId, postFolder }));
+    if (data !== null) {
       setAnalytics(data);
-    } catch { setAnalytics(null); }
-    finally { setLoading(false); }
+    }
   }
 
   if (!triggered) return (

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 function repoConnectError(err: unknown, workspaceName?: string): string {
@@ -46,39 +47,6 @@ function ModalFooter({ connectedName, loading, onDone, onCancel, onBrowse }: {
   );
 }
 
-interface BrowseOpts {
-  pickerOpenRef: { current: boolean };
-  loading: boolean;
-  setLoading: (v: boolean) => void;
-  setError: (v: string | null) => void;
-  setConnectedName: (v: string) => void;
-  projectId: string;
-  projectName: string;
-}
-
-async function runBrowse(opts: BrowseOpts) {
-  const { pickerOpenRef, loading, setLoading, setError, setConnectedName, projectId, projectName } = opts;
-  if (pickerOpenRef.current || loading) return;
-  setError(null);
-  pickerOpenRef.current = true;
-  setLoading(true);
-  const selected = await openDialog({ directory: true });
-  if (typeof selected !== 'string') {
-    pickerOpenRef.current = false;
-    setLoading(false);
-    return;
-  }
-  try {
-    const repo = await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
-    setConnectedName(repo.name);
-  } catch (err) {
-    setError(repoConnectError(err, projectName));
-  } finally {
-    pickerOpenRef.current = false;
-    setLoading(false);
-  }
-}
-
 interface Props {
   onClose: () => void;
   projectId: string;
@@ -86,8 +54,7 @@ interface Props {
 }
 
 export default function AddRepoModal({ onClose, projectId, projectName }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { loading, error, run } = useAsyncCommand();
   const [connectedName, setConnectedName] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const pickerOpenRef = useRef(false);
@@ -95,6 +62,24 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
   function guardedClose() {
     if (pickerOpenRef.current || loading) return;
     onClose();
+  }
+
+  async function handleBrowse() {
+    if (pickerOpenRef.current || loading) return;
+    pickerOpenRef.current = true;
+    const selected = await openDialog({ directory: true });
+    pickerOpenRef.current = false;
+    if (typeof selected !== 'string') return;
+    const repo = await run(async () => {
+      try {
+        return await invoke<{ name: string }>('connect_repo_from_desktop', { repoPath: selected, projectId });
+      } catch (err) {
+        throw new Error(repoConnectError(err, projectName));
+      }
+    });
+    if (repo !== null) {
+      setConnectedName(repo.name);
+    }
   }
 
   useEffect(() => {
@@ -123,7 +108,7 @@ export default function AddRepoModal({ onClose, projectId, projectName }: Props)
             loading={loading}
             onDone={onClose}
             onCancel={guardedClose}
-            onBrowse={() => runBrowse({ pickerOpenRef, loading, setLoading, setError, setConnectedName, projectId, projectName })}
+            onBrowse={handleBrowse}
           />
         </footer>
       </div>

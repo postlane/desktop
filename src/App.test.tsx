@@ -65,15 +65,7 @@ vi.mock('./components/PostTable', () => ({
   ),
 }))
 vi.mock('./components/EditPostView', () => ({
-  default: ({ onDirtyChange, onToast }: {
-    onDirtyChange?: (_d: boolean) => void;
-    onToast?: (_msg: string) => void;
-  }) => (
-    <div data-testid="edit-post-view">
-      <button data-testid="set-dirty" onClick={() => onDirtyChange?.(true)}>Dirty</button>
-      <button data-testid="show-toast" onClick={() => onToast?.('Test toast')}>Toast</button>
-    </div>
-  ),
+  default: () => <div data-testid="edit-post-view" />,
 }))
 vi.mock('./components/OrgUpgradeBanner', () => ({ default: () => null }))
 vi.mock('./components/OrgLinkModal', () => ({ default: () => null }))

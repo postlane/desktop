@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { invoke } from '../ipc/invoke';
 import { VoiceGuideForm, VoiceGuideFields, EMPTY_FIELDS, buildVoiceGuide } from './VoiceGuideForm';
 
@@ -26,8 +27,7 @@ function useVoiceGuideFields(projectId: string) {
   const [loadedFields, setLoadedFields] = useState<VoiceGuideFields>(EMPTY_FIELDS);
   const [loadError, setLoadError] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveLoading, setSaveLoading] = useState(false);
+  const { loading: saveLoading, error: saveError, run: runSave } = useAsyncCommand();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
@@ -46,14 +46,18 @@ function useVoiceGuideFields(projectId: string) {
   useEffect(() => { load(); }, [load]);
 
   const save = useCallback(async (current: VoiceGuideFields, projectName: string) => {
-    setSaveLoading(true);
-    setSaveError(null);
-    try {
-      const status = await invoke<SyncStatus>('save_project_voice_guide', {
-        projectId,
-        voiceGuide: buildVoiceGuide(current, projectName),
-        voiceGuideFields: current,
-      });
+    const status = await runSave(async () => {
+      try {
+        return await invoke<SyncStatus>('save_project_voice_guide', {
+          projectId,
+          voiceGuide: buildVoiceGuide(current, projectName),
+          voiceGuideFields: current,
+        });
+      } catch {
+        throw new Error('Failed to save voice guide. Check your connection and try again.');
+      }
+    });
+    if (status !== null) {
       setLoadedFields(current);
       const synced = status?.synced ?? [];
       const registered = status?.registered ?? 0;
@@ -63,17 +67,11 @@ function useVoiceGuideFields(projectId: string) {
         : { kind: 'no-repos' };
       setSyncState(next);
       if (timerRef.current) clearTimeout(timerRef.current);
-      // paths-missing requires user action (reconnect repo paths) — do not auto-dismiss.
-      // synced and no-repos are purely informational and can safely disappear.
       if (next.kind !== 'paths-missing') {
         timerRef.current = setTimeout(() => setSyncState(null), 2000);
       }
-    } catch {
-      setSaveError('Failed to save voice guide. Check your connection and try again.');
-    } finally {
-      setSaveLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, runSave]);
 
   const isDirty = JSON.stringify(fields) !== JSON.stringify(loadedFields);
   return { fields, setFields, loadError, syncState, setSyncState, saveError, saveLoading, load, save, isDirty };

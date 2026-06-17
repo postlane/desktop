@@ -5,10 +5,7 @@ use std::fs;
 use std::path::Path;
 
 pub(crate) fn read_post_meta(meta_path: &Path) -> Result<PostMeta, String> {
-    let content = fs::read_to_string(meta_path)
-        .map_err(|e| format!("Failed to read {}: {}", meta_path.display(), e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse {}: {}", meta_path.display(), e))
+    crate::init::read_json_file(meta_path)
 }
 
 pub(crate) fn write_post_meta(meta_path: &Path, meta: &PostMeta) -> Result<(), String> {

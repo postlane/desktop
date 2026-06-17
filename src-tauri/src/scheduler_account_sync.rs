@@ -24,7 +24,7 @@ fn group_repos_by_project(repos: &[crate::storage::Repo]) -> HashMap<String, Vec
     let mut map: HashMap<String, Vec<PathBuf>> = HashMap::new();
     for repo in repos.iter().filter(|r| r.active) {
         let config_path = PathBuf::from(&repo.path).join(".postlane/config.json");
-        let project_id = crate::connected_platforms::read_project_id_from_config(&config_path)
+        let project_id = crate::config_paths::read_project_id_from_config(&config_path)
             .unwrap_or_else(|| repo.id.clone());
         map.entry(project_id).or_default().push(PathBuf::from(&repo.path));
     }
@@ -384,5 +384,18 @@ mod tests {
         let result = sync_profiles_to_config_paths("not-a-real-provider", "key", &[config_path]).await;
         assert!(result.is_err(), "unknown provider must return Err");
         assert!(result.unwrap_err().contains("build provider"), "error must mention build provider");
+    }
+
+    #[tokio::test]
+    async fn test_refresh_scheduler_accounts_impl_returns_empty_for_no_repos_or_workspaces() {
+        let result = refresh_scheduler_accounts_impl(&[], &[], &|_, _| None).await;
+        assert!(
+            result.providers_synced.is_empty(),
+            "no repos or workspaces must produce no synced providers"
+        );
+        assert!(
+            result.errors.is_empty(),
+            "no repos or workspaces must produce no errors"
+        );
     }
 }

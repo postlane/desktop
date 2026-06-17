@@ -233,4 +233,55 @@ mod tests {
         let result = fetch_post_analytics_inner("tok", "my post & more", "license", &client, &server.base_url()).await;
         assert!(result.is_ok(), "should handle special chars: {:?}", result);
     }
+
+    #[tokio::test]
+    async fn test_fetch_site_token_malformed_json_returns_error() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/analytics/site-token");
+            then.status(200).body("not valid json");
+        });
+        let client = build_client();
+        let result = fetch_site_token_inner("repo-1", "license-tok", &client, &server.base_url()).await;
+        assert!(result.is_err(), "malformed JSON must return an error");
+        let err = result.expect_err("checked above");
+        assert!(err.contains("Invalid response"), "error message must mention invalid response: {}", err);
+    }
+
+    // client.rs lines 78-79: into_iter().next() on empty array must fall back to
+    // configured_zero, preserving configured=true because the site token exists.
+    #[tokio::test]
+    async fn test_fetch_post_analytics_empty_array_returns_configured_zero() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/analytics/posts");
+            then.status(200).json_body(serde_json::json!([]));
+        });
+        let client = build_client();
+        let result = fetch_post_analytics_inner("tok", "empty-post", "license", &client, &server.base_url()).await;
+        let analytics = result.expect("empty array must not error the caller");
+        assert!(
+            analytics.configured,
+            "site token exists so configured must be true even with no analytics rows"
+        );
+        assert_eq!(analytics.sessions, 0, "no rows must result in zero sessions");
+        assert_eq!(analytics.unique_sessions, 0, "no rows must result in zero unique_sessions");
+        assert!(analytics.top_referrer.is_none(), "no rows must result in no top_referrer");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_post_analytics_malformed_json_returns_configured_zero() {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/v1/analytics/posts");
+            then.status(200).body("{ malformed json ]");
+        });
+        let client = build_client();
+        let result = fetch_post_analytics_inner("tok", "post-1", "license", &client, &server.base_url()).await;
+        let analytics = result.expect("malformed JSON must not error the caller");
+        assert!(analytics.configured, "site token exists so configured must be true");
+        assert_eq!(analytics.sessions, 0, "malformed JSON must fall back to zero sessions");
+        assert_eq!(analytics.unique_sessions, 0, "malformed JSON must fall back to zero unique_sessions");
+        assert!(analytics.top_referrer.is_none(), "malformed JSON must fall back to no referrer");
+    }
 }

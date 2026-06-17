@@ -351,4 +351,23 @@ mod tests {
         assert_eq!(result[0].repo_name, "my-project");
         assert_eq!(result[0].repo_path, dir.path().to_str().unwrap());
     }
+
+    /// Three posts — two with sent_at and one without — guarantee the sort comparator
+    /// is called with both orderings, covering the (Some(_), None) => Less arm (line 44)
+    /// and the (None, Some(_)) => Greater arm (line 45) regardless of read_dir order.
+    #[test]
+    fn test_get_all_published_sort_covers_some_none_and_none_some_arms() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        write_published_meta(dir.path(), "aa-newer", r#"{"sent_platforms":{"x":"2026-04-20T00:00:00Z"}}"#);
+        write_published_meta(dir.path(), "bb-older", r#"{"sent_platforms":{"x":"2026-04-10T00:00:00Z"}}"#);
+        write_published_meta(dir.path(), "cc-queued", r#"{"scheduled_for":"2026-06-01T10:00:00Z"}"#);
+
+        let state = make_state(vec![make_repo("r1", "repo", dir.path().to_str().unwrap())]);
+        let result = get_all_published_impl(0, 100, &state).expect("ok");
+        assert_eq!(result.len(), 3, "all three posts must appear");
+        // None sent_at (queued) sorts before any sent post
+        assert!(result[0].sent_at.is_none(), "queued post must be first");
+        assert_eq!(result[1].post_folder, "aa-newer", "newer sent post must be second");
+        assert_eq!(result[2].post_folder, "bb-older", "older sent post must be third");
+    }
 }

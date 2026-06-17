@@ -25,8 +25,7 @@ pub(crate) fn collect_matching_repo_paths(project_id: &str, state: &AppState) ->
         .iter()
         .filter_map(|repo| {
             let config_path = Path::new(&repo.path).join(".postlane/config.json");
-            let content = std::fs::read_to_string(&config_path).ok()?;
-            let config: serde_json::Value = serde_json::from_str(&content).ok()?;
+            let config: serde_json::Value = crate::init::read_json_file(&config_path).ok()?;
             if config["project_id"].as_str() == Some(project_id) {
                 Some(PathBuf::from(&repo.path))
             } else {
@@ -260,6 +259,87 @@ mod tests {
             v["scheduler"]["provider"].as_str(),
             Some("upload_post"),
             "provider must be written to workspace config.local.json"
+        );
+    }
+
+    // ── error paths: unsupported repos.json version ───────────────────────────
+
+    /// Lines 15-16,18,20 — read_repos_with_recovery returns Err on version mismatch;
+    /// collect_matching_repo_paths must log and return empty vec, not panic.
+    #[test]
+    fn collect_matching_repo_paths_returns_empty_when_repos_json_version_unsupported() {
+        let state = make_state(vec![]);
+        std::fs::write(
+            &state.repos_path,
+            r#"{"version":99,"workspaces":[],"repos":[]}"#,
+        )
+        .expect("write repos.json with unsupported version");
+        let paths = collect_matching_repo_paths("proj-abc", &state);
+        assert!(
+            paths.is_empty(),
+            "unsupported repos.json version must return empty vec, not panic"
+        );
+    }
+
+    /// Lines 45-50 — same version-mismatch error path for the workspace variant.
+    #[test]
+    fn collect_matching_workspace_config_paths_returns_empty_when_repos_json_version_unsupported() {
+        let state = make_state(vec![]);
+        std::fs::write(
+            &state.repos_path,
+            r#"{"version":99,"workspaces":[],"repos":[]}"#,
+        )
+        .expect("write repos.json with unsupported version");
+        let paths = collect_matching_workspace_config_paths("proj-ws-abc", &state);
+        assert!(
+            paths.is_empty(),
+            "unsupported repos.json version must return empty vec, not panic"
+        );
+    }
+
+    // ── error paths: write failures in write_provider_to_matching_repos ───────
+
+    /// Lines 64,67,69 — write_scheduler_provider_to_local_config fails for a matching
+    /// repo (config.local.json blocked by a directory); function must log and not panic.
+    #[test]
+    fn write_provider_to_matching_repos_continues_gracefully_on_repo_write_failure() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane = dir.path().join(".postlane");
+        std::fs::create_dir_all(&postlane).expect("mkdir .postlane");
+        std::fs::write(postlane.join("config.json"), r#"{"project_id":"proj-repo-fail"}"#)
+            .expect("write config.json");
+        // Block atomic_write by placing a directory at config.local.json — rename cannot
+        // overwrite a directory, so write_scheduler_provider_to_local_config returns Err.
+        std::fs::create_dir_all(postlane.join("config.local.json"))
+            .expect("place dir at config.local.json");
+
+        let state = make_test_state_with_repo(dir.path().to_str().unwrap());
+        let repos = state.repos.lock().expect("lock repos").clone();
+        crate::storage::write_repos(&state.repos_path, &repos).expect("write repos.json");
+
+        write_provider_to_matching_repos("proj-repo-fail", "zernio", &state);
+
+        assert!(
+            postlane.join("config.local.json").is_dir(),
+            "directory at config.local.json must not be replaced — write was blocked"
+        );
+    }
+
+    /// Lines 76,79,81 — write_scheduler_provider_to_local_config fails for a matching
+    /// workspace; function must log and not panic.
+    #[test]
+    fn write_provider_to_matching_repos_continues_gracefully_on_workspace_write_failure() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Block atomic_write for the workspace-root config.local.json
+        std::fs::create_dir_all(dir.path().join("config.local.json"))
+            .expect("place dir at config.local.json");
+
+        let state = make_state_with_workspace(dir.path().to_str().unwrap(), "proj-ws-fail");
+        write_provider_to_matching_repos("proj-ws-fail", "zernio", &state);
+
+        assert!(
+            dir.path().join("config.local.json").is_dir(),
+            "directory at config.local.json must not be replaced — write was blocked"
         );
     }
 }

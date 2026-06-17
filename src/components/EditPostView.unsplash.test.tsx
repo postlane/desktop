@@ -11,6 +11,7 @@ vi.mock('../context/DraftPostsProvider', () => ({ useDraftPostsContext: vi.fn() 
 import { invoke } from '../ipc/invoke'
 import { useDraftPostsContext } from '../context/DraftPostsProvider'
 import EditPostView, { type EditPostViewProps } from './EditPostView'
+import { EditGuardContext, type EditGuardContextValue } from '../context/EditGuardContext'
 
 const mockInvoke = vi.mocked(invoke)
 const mockCtx = vi.mocked(useDraftPostsContext)
@@ -34,14 +35,20 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   }
 }
 
-function renderEdit(overrides: Partial<EditPostViewProps> = {}) {
+function makeGuardCtx(overrides: Partial<EditGuardContextValue> = {}): EditGuardContextValue {
+  return { resetSignal: 0, setDirty: vi.fn(), pendingNavSel: null, onNavCancelled: vi.fn(), ...overrides };
+}
+
+function renderEdit(overrides: Partial<EditPostViewProps> = {}, ctxOverrides: Partial<EditGuardContextValue> = {}) {
   return render(
-    <EditPostView
-      post={makeDraft()} project={makeProject()} isHistory={false}
-      timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
-      onNavigate={vi.fn()} pendingNavSel={null} onNavCancelled={vi.fn()}
-      {...overrides}
-    />,
+    <EditGuardContext.Provider value={makeGuardCtx(ctxOverrides)}>
+      <EditPostView
+        post={makeDraft()} project={makeProject()} isHistory={false}
+        timezone="UTC" onBack={vi.fn()} onApproved={vi.fn()}
+        onNavigate={vi.fn()}
+        {...overrides}
+      />
+    </EditGuardContext.Provider>,
   )
 }
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { UnsplashSearch } from '../drafts/PostCardImageInput';
 import type { ImageState, ImageAttribution } from '../types';
 
@@ -42,33 +43,29 @@ export function ImagePickers({ imageState, onCustomSet, onUnsplashSelect, onRemo
   onRemove: () => Promise<void>;
 }) {
   const [customUrl, setCustomUrl] = useState('');
-  const [customError, setCustomError] = useState<string | null>(null);
-  const [customLoading, setCustomLoading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const { loading: customLoading, error: asyncError, run } = useAsyncCommand();
+  const customError = validationError ?? asyncError;
   const [searchClearSignal, setSearchClearSignal] = useState(0);
   const unsplashBlocked = isUnsplashDirectUrl(customUrl);
   async function handleSet() {
     setSearchClearSignal((s) => s + 1);
-    setCustomError(null);
+    setValidationError(null);
     if (unsplashBlocked) return;
-    if (!customUrl.startsWith('https://')) { setCustomError('URL must start with https://'); return; }
-    setCustomLoading(true);
-    try {
+    if (!customUrl.startsWith('https://')) { setValidationError('URL must start with https://'); return; }
+    await run(async () => {
       await invoke('validate_url_safe', { url: customUrl });
       await onCustomSet(customUrl);
-    } catch (e: unknown) {
-      setCustomError(String(e));
-    } finally {
-      setCustomLoading(false);
-    }
+    });
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <UnsplashSearch onSelect={onUnsplashSelect} onActivity={() => setCustomError(null)} clearSignal={searchClearSignal} />
+      <UnsplashSearch onSelect={onUnsplashSelect} onActivity={() => setValidationError(null)} clearSignal={searchClearSignal} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <p className="is-size-7 has-text-weight-semibold">Add an image from a URL</p>
         <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
           <input type="url" aria-label="Add an image from a URL" value={customUrl}
-            onChange={(e) => { setCustomUrl(e.target.value); setCustomError(null); }} placeholder="https://…"
+            onChange={(e) => { setCustomUrl(e.target.value); setValidationError(null); }} placeholder="https://…"
             className="input is-small" style={{ flex: 1 }} />
           <button className="button is-small is-light" onClick={handleSet} disabled={customLoading || unsplashBlocked}
             data-testid="set-custom-image" style={{ width: '5.5rem' }}>Set image</button>

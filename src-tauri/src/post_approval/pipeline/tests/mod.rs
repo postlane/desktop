@@ -374,3 +374,58 @@ fn test_record_scheduler_failure_sets_error_message() {
     record_scheduler_failure(&mut meta, "the error");
     assert_eq!(meta.error.as_deref(), Some("the error"));
 }
+
+// --- §InFlightGuard ---
+
+#[test]
+fn test_in_flight_guard_increments_counter_on_creation() {
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let _guard = InFlightGuard::new(&counter);
+    assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 1);
+}
+
+#[test]
+fn test_in_flight_guard_decrements_counter_on_drop() {
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    {
+        let _guard = InFlightGuard::new(&counter);
+        assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 1);
+    }
+    assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 0,
+        "counter must return to 0 after guard is dropped");
+}
+
+#[test]
+fn test_in_flight_guard_multiple_guards_accumulate_and_decrement_independently() {
+    let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let g1 = InFlightGuard::new(&counter);
+    let g2 = InFlightGuard::new(&counter);
+    assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 2,
+        "two guards must give count of 2");
+    drop(g1);
+    assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 1,
+        "dropping one guard must leave count at 1");
+    drop(g2);
+    assert_eq!(counter.load(std::sync::atomic::Ordering::Acquire), 0,
+        "dropping both guards must leave count at 0");
+}
+
+// --- §resolve_config_json ---
+
+#[test]
+fn test_resolve_config_json_returns_postlane_config_when_postlane_dir_exists() {
+    let dir = tempfile::TempDir::new().expect("create temp dir");
+    std::fs::create_dir_all(dir.path().join(".postlane")).expect("create .postlane dir");
+    let result = resolve_config_json(dir.path());
+    assert_eq!(result, dir.path().join(".postlane").join("config.json"),
+        "must resolve to .postlane/config.json when .postlane dir is present");
+}
+
+#[test]
+fn test_resolve_config_json_returns_root_config_when_postlane_dir_absent() {
+    let dir = tempfile::TempDir::new().expect("create temp dir");
+    // No .postlane directory — workspace layout
+    let result = resolve_config_json(dir.path());
+    assert_eq!(result, dir.path().join("config.json"),
+        "must resolve to root config.json when .postlane dir is absent");
+}

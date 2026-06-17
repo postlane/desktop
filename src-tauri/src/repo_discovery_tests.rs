@@ -452,3 +452,49 @@ async fn test_empty_projects_returns_empty_results() {
     .await;
     assert!(results.is_empty());
 }
+
+// ── candidate_dirs ────────────────────────────────────────────────────────────
+
+// candidate_dirs returns the home directory as the first entry (when home exists).
+#[test]
+fn test_candidate_dirs_includes_home_dir() {
+    let dirs = candidate_dirs();
+    if let Some(home) = dirs::home_dir() {
+        assert!(
+            dirs.contains(&home),
+            "candidate_dirs must include the home directory; got: {:?}",
+            dirs
+        );
+    } else {
+        assert!(dirs.is_empty(), "candidate_dirs must return empty vec when home is unavailable");
+    }
+}
+
+// candidate_dirs includes every standard subdirectory under home.
+#[test]
+fn test_candidate_dirs_includes_all_standard_subdirs() {
+    let dirs = candidate_dirs();
+    if let Some(home) = dirs::home_dir() {
+        for sub in &["GitHub", "Projects", "Developer", "Code", "src", "workspace"] {
+            assert!(
+                dirs.contains(&home.join(sub)),
+                "candidate_dirs must include home/{sub}; got: {dirs:?}"
+            );
+        }
+    }
+}
+
+// candidate_dirs contains exactly 7 entries (home + 6 subdirs) when home exists.
+#[test]
+fn test_candidate_dirs_count_when_home_exists() {
+    let dirs = candidate_dirs();
+    if dirs::home_dir().is_some() {
+        assert_eq!(
+            dirs.len(),
+            7,
+            "expected home + 6 subdirs = 7 entries; got {}: {:?}",
+            dirs.len(),
+            dirs
+        );
+    }
+}

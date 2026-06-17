@@ -121,8 +121,7 @@ fn resolve_project_id(repo_path: &Path, projects: &[ProjectInfo]) -> Option<Stri
 
 fn config_project_id(repo_path: &Path) -> Option<String> {
     let path = repo_path.join(".postlane").join("config.json");
-    let content = std::fs::read_to_string(&path).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let val: serde_json::Value = crate::init::read_json_file(&path).ok()?;
     val.get("project_id")?.as_str().map(|s| s.to_string())
 }
 

@@ -124,11 +124,7 @@ pub async fn register_repo_with_project(
     let token = require_license_token(
         app.keyring().get_password("postlane", "license").map_err(|e| e.to_string())?
     )?;
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?
-        .clone();
+    let repos = state.lock_repos()?.clone();
     let client = build_client();
     register_repo_with_project_with_client(
         &project_id, &repo_path, &description, &client, POSTLANE_API_BASE, &token, &repos,

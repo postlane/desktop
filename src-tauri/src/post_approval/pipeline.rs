@@ -62,10 +62,7 @@ pub(super) fn is_platform_edited(meta: &PostMeta, platform: &str) -> bool {
 }
 
 pub(super) fn read_project_id_from_config(config_path: &Path) -> Result<String, String> {
-    let content = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json at {}: {}", config_path.display(), e))?;
-    let config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let config: serde_json::Value = crate::init::read_json_file(config_path)?;
     config["project_id"]
         .as_str()
         .map(str::to_string)
@@ -122,10 +119,7 @@ pub(super) fn resolve_config_json(config_root: &Path) -> std::path::PathBuf {
 pub(super) fn load_account_ids(
     config_path: &Path,
 ) -> Result<serde_json::Map<String, serde_json::Value>, String> {
-    let content = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let config: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let config: serde_json::Value = crate::init::read_json_file(config_path)?;
     Ok(config["scheduler"]["account_ids"]
         .as_object()
         .cloned()

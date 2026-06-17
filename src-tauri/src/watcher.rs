@@ -398,4 +398,29 @@ mod tests {
         assert_eq!(watchers.lock().unwrap().len(), 1, "one watcher entry per workspace repo_id");
         stop_all_watchers(&watchers);
     }
+
+    /// Lines 91-94: when the repo path exists but `.postlane/` is absent,
+    /// watch_repo must return Ok and register no watcher (silent no-op).
+    #[test]
+    fn test_watch_repo_skips_silently_when_postlane_dir_absent() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // .git present so is_workspace_root returns false (this is a single repo).
+        // .postlane is deliberately absent to trigger the guard at lines 91-94.
+        fs::create_dir_all(dir.path().join(".git")).expect("create .git");
+
+        let watchers: WatcherMap = Mutex::new(HashMap::new());
+        let result = watch_repo(
+            "no-postlane-repo".to_string(),
+            dir.path(),
+            &watchers,
+            |_| {},
+        );
+
+        assert!(result.is_ok(), "watch_repo must return Ok when .postlane/ is absent");
+        assert_eq!(
+            watchers.lock().expect("lock watchers").len(),
+            0,
+            "no watcher must be registered when .postlane/ is absent"
+        );
+    }
 }

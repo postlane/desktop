@@ -319,3 +319,140 @@ fn test_update_workspace_path_in_memory_is_noop_for_unknown_id() {
     let repos = state.lock_repos().unwrap();
     assert_eq!(repos.workspaces[0].workspace_path, old_path.to_string_lossy().as_ref());
 }
+
+// ── scan_siblings edge cases ─────────────────────────────────────────────────
+
+/// Sibling directory with no config.json must not appear as a rename candidate.
+/// This exercises the `continue` on line 67 of workspace_path_check.rs.
+#[test]
+fn test_sibling_without_config_json_is_not_a_candidate() {
+    let dir = TempDir::new().unwrap();
+    let old_path = dir.path().join("myorg");
+    let sibling = dir.path().join("myorg-no-config");
+
+    // Sibling exists but has NO config.json
+    fs::create_dir_all(&sibling).expect("create sibling dir");
+
+    let entry = make_workspace_entry("proj-1", "myorg", &old_path);
+    let result = check_workspace_path(&entry);
+
+    assert!(
+        matches!(result.status, WorkspacePathStatus::Missing),
+        "sibling without config.json must not be a candidate; got {:?}",
+        result.status
+    );
+}
+
+/// Sibling directory with invalid (non-JSON) config.json must not appear as a candidate.
+/// This exercises the `continue` on line 70 of workspace_path_check.rs.
+#[test]
+fn test_sibling_with_invalid_json_config_is_not_a_candidate() {
+    let dir = TempDir::new().unwrap();
+    let old_path = dir.path().join("myorg");
+    let sibling = dir.path().join("myorg-bad-config");
+
+    fs::create_dir_all(&sibling).expect("create sibling dir");
+    // Write non-JSON bytes to config.json
+    fs::write(sibling.join("config.json"), b"not valid json {{{").expect("write bad config");
+
+    let entry = make_workspace_entry("proj-1", "myorg", &old_path);
+    let result = check_workspace_path(&entry);
+
+    assert!(
+        matches!(result.status, WorkspacePathStatus::Missing),
+        "sibling with invalid JSON config must not be a candidate; got {:?}",
+        result.status
+    );
+}
+
+/// When the parent directory is not readable, scan_siblings returns empty and
+/// the workspace is reported as Missing. Exercises the early return on line 58.
+#[cfg(unix)]
+#[test]
+fn test_scan_siblings_returns_empty_when_parent_dir_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let parent = dir.path().join("parent");
+    fs::create_dir_all(&parent).expect("create parent dir");
+    let old_path = parent.join("myorg");
+
+    // Add a sibling with matching project_id — it must not be found
+    let sibling = parent.join("myorg-sibling");
+    fs::create_dir_all(&sibling).expect("create sibling dir");
+    write_config_json(&sibling, "proj-1");
+
+    // Make parent unreadable and non-traversable
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o000))
+        .expect("set permissions");
+
+    let entry = make_workspace_entry("proj-1", "myorg", &old_path);
+    let result = check_workspace_path(&entry);
+
+    // Restore before assertions so TempDir cleanup works
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o755))
+        .expect("restore permissions");
+
+    assert!(
+        matches!(result.status, WorkspacePathStatus::Missing),
+        "unreadable parent must produce Missing, not Renamed; got {:?}",
+        result.status
+    );
+}
+
+// ── check_all_workspace_paths_impl ──────────────────────────────────────────
+
+/// check_all_workspace_paths_impl returns Ok status for an active workspace
+/// whose path exists on disk. Exercises lines 138-145.
+#[test]
+fn test_check_all_workspace_paths_impl_returns_ok_for_existing_path() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    let ws_path = dir.path().join("workspace");
+    fs::create_dir_all(&ws_path).expect("create workspace dir");
+
+    write_global_repos(&repos_path, &[make_workspace_entry("proj-1", "workspace", &ws_path)]);
+
+    let results = check_all_workspace_paths_impl(&repos_path);
+
+    assert_eq!(results.len(), 1, "must return one result for the active workspace");
+    assert_eq!(results[0].workspace_id, "proj-1");
+    assert!(
+        matches!(results[0].status, WorkspacePathStatus::Ok),
+        "existing workspace must have Ok status; got {:?}",
+        results[0].status
+    );
+}
+
+/// check_all_workspace_paths_impl skips inactive workspaces (active: false).
+/// Exercises the `.filter(|w| w.active)` on line 144.
+#[test]
+fn test_check_all_workspace_paths_impl_skips_inactive_workspace() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    let ws_path = dir.path().join("workspace");
+    fs::create_dir_all(&ws_path).expect("create workspace dir");
+
+    let mut inactive_entry = make_workspace_entry("proj-1", "workspace", &ws_path);
+    inactive_entry.active = false;
+    write_global_repos(&repos_path, &[inactive_entry]);
+
+    let results = check_all_workspace_paths_impl(&repos_path);
+
+    assert!(
+        results.is_empty(),
+        "inactive workspace must be excluded from results; got {:?}",
+        results
+    );
+}
+
+/// check_all_workspace_paths_impl with an empty repos.json returns empty results.
+#[test]
+fn test_check_all_workspace_paths_impl_returns_empty_when_no_workspaces() {
+    let dir = TempDir::new().unwrap();
+    let repos_path = dir.path().join("repos.json");
+    write_global_repos(&repos_path, &[]);
+
+    let results = check_all_workspace_paths_impl(&repos_path);
+    assert!(results.is_empty(), "no workspaces must produce empty results");
+}

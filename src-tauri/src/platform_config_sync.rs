@@ -3,8 +3,6 @@
 //! Writes the `connected_platforms` field in `.postlane/config.json` to reflect
 //! the current set of connected platforms for a repo.
 
-use crate::init::atomic_write;
-use std::fs;
 use std::path::Path;
 
 /// Updates the `connected_platforms` field in `.postlane/config.json` to reflect
@@ -23,15 +21,9 @@ pub(crate) fn sync_connected_platforms_to_config_impl(
     let platforms = crate::connected_platforms::list_connected_platforms_impl(
         config_path, repo_id, mastodon_active, has_keyring_key,
     );
-    let content = fs::read_to_string(config_path)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    let mut config: serde_json::Value = crate::init::read_json_file(config_path)?;
     config["connected_platforms"] = serde_json::json!(platforms);
-    let bytes = serde_json::to_vec_pretty(&config)
-        .map_err(|e| format!("Failed to serialise config.json: {}", e))?;
-    atomic_write(config_path, &bytes)
-        .map_err(|e| format!("Failed to write config.json: {}", e))
+    crate::init::write_json_file(config_path, &config)
 }
 
 #[cfg(test)]

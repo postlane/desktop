@@ -31,7 +31,8 @@ pub fn set_default_post_time_impl(dpt: Option<DefaultPostTime>) -> Result<(), St
     let _guard = APP_STATE_WRITE_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .map_err(|e| format!("Lock poisoned: {}", e))?;
+        .map_err(|_| crate::errors::PostlaneError::MutexPoisoned("app_state_write"))
+        .map_err(String::from)?;
     let mut state = read_app_state();
     state.default_post_time = dpt;
     write_app_state(&state)
@@ -49,7 +50,8 @@ pub fn set_wizard_completed_impl() -> Result<(), String> {
     let _guard = WIZARD_WRITE_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .map_err(|e| format!("Lock poisoned: {}", e))?;
+        .map_err(|_| crate::errors::PostlaneError::MutexPoisoned("wizard_write"))
+        .map_err(String::from)?;
     let mut state = read_app_state();
     state.wizard_completed = true;
     write_app_state(&state)

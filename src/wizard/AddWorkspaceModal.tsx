@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 
 interface Props {
   onClose: () => void;
@@ -34,22 +35,21 @@ function useAddWorkspaceForm(onCreated: () => void) {
   const [name, setName] = useState('');
   const [workspaceType, setWorkspaceType] = useState<WorkspaceType>('personal');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, error: apiError, run } = useAsyncCommand();
 
   async function handleCreate() {
-    setApiError(null);
     if (name.trim().length === 0) { setValidationError('Name is required.'); return; }
     if (name.trim().length > 64) { setValidationError('Name must be 64 characters or fewer.'); return; }
     setValidationError(null);
-    setLoading(true);
-    try {
-      await invoke<CreateProjectResult>('create_project', { name: name.trim(), workspaceType });
+    const result = await run(async () => {
+      try {
+        return await invoke<CreateProjectResult>('create_project', { name: name.trim(), workspaceType });
+      } catch (err) {
+        throw new Error(apiErrorMessage(err));
+      }
+    });
+    if (result !== null) {
       onCreated();
-    } catch (err) {
-      setApiError(apiErrorMessage(err));
-    } finally {
-      setLoading(false);
     }
   }
 

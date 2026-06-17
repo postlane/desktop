@@ -60,10 +60,7 @@ pub fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<PostLocat
         .to_str()
         .ok_or("Repo path contains non-UTF-8 characters")?
         .to_string();
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     // Check workspace children first — workspace takes precedence over legacy
     // registrations when a repo appears in both (workspace is the current model).
@@ -93,6 +90,7 @@ pub fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<PostLocat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::{Repo, ReposConfig};
     use crate::workspace_entry::WorkspaceEntry;
     use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
 
@@ -179,5 +177,86 @@ mod tests {
     fn test_legacy_config_root_is_canonical() {
         let loc = PostLocation::Legacy { canonical: "/repos/my-repo".to_string() };
         assert_eq!(loc.config_root(), "/repos/my-repo");
+    }
+
+    // --- §posts_base ---
+
+    #[test]
+    fn test_posts_base_legacy_constructs_postlane_posts_path() {
+        let loc = PostLocation::Legacy { canonical: "/repos/my-repo".to_string() };
+        let result = loc.posts_base("my-post-2026");
+        assert_eq!(
+            result,
+            std::path::PathBuf::from("/repos/my-repo/.postlane/posts/my-post-2026"),
+            "legacy posts_base must join canonical + .postlane/posts + folder"
+        );
+    }
+
+    #[test]
+    fn test_posts_base_workspace_constructs_workspace_posts_path() {
+        let loc = PostLocation::Workspace {
+            canonical: "/ws/repo-a".to_string(),
+            workspace_path: "/ws".to_string(),
+            posts_dir: "repo-a".to_string(),
+            repo_name: "repo-a".to_string(),
+        };
+        let result = loc.posts_base("my-post-2026");
+        assert_eq!(
+            result,
+            std::path::PathBuf::from("/ws/posts/repo-a/my-post-2026"),
+            "workspace posts_base must join workspace_path + posts + posts_dir + folder"
+        );
+    }
+
+    // --- §validate_repo_path workspace repos.json error path ---
+
+    /// When a workspace entry's repos.json cannot be read, validation must continue
+    /// and fall through to the legacy repos check (line 74: `Err(_) => continue`).
+    #[test]
+    fn test_validate_repo_path_falls_through_to_legacy_when_workspace_repos_json_missing() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        // Workspace dir WITHOUT a repos.json — triggers the Err(_) => continue branch
+        let ws_dir = dir.path().join("workspace");
+        std::fs::create_dir_all(&ws_dir).expect("create ws dir");
+        // Child repo dir — registered as a legacy repo only
+        let repo_dir = dir.path().join("repo-a");
+        std::fs::create_dir_all(&repo_dir).expect("create repo dir");
+        let canonical_path = std::fs::canonicalize(&repo_dir)
+            .expect("canonicalize")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let repos_config = ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "ws-1".to_string(),
+                name: "ws".to_string(),
+                workspace_path: ws_dir.to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+            repos: vec![Repo {
+                id: "r1".to_string(),
+                name: "repo-a".to_string(),
+                path: canonical_path.clone(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let tmp = tempfile::NamedTempFile::new().expect("tmp file");
+        let state = crate::app_state::AppState::new_with_path(repos_config, tmp.path().to_path_buf());
+
+        let result = validate_repo_path(&canonical_path, &state)
+            .expect("must resolve via legacy fallback when workspace repos.json is missing");
+        match result {
+            PostLocation::Legacy { canonical } => {
+                assert_eq!(canonical, canonical_path,
+                    "legacy canonical must match the registered path");
+            }
+            PostLocation::Workspace { .. } => {
+                panic!("must resolve as Legacy when workspace repos.json is missing, not Workspace");
+            }
+        }
     }
 }

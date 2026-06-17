@@ -6,6 +6,12 @@ import '@testing-library/jest-dom'
 
 vi.mock('./ipc/invoke', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }))
+vi.mock('./context/EditGuardContext', () => ({
+  useEditGuard: vi.fn().mockReturnValue({
+    resetSignal: 0, setDirty: vi.fn(), pendingNavSel: null, onNavCancelled: vi.fn(),
+  }),
+  EditGuardContext: { Provider: ({ children }: { children: unknown }) => children },
+}))
 vi.mock('./context/ProjectsProvider', () => ({
   ProjectsProvider: vi.fn(),
   useProjectsContext: vi.fn(),
@@ -25,13 +31,11 @@ vi.mock('./components/PostTable', () => ({
   ),
 }))
 vi.mock('./components/EditPostView', () => ({
-  default: ({ onDirtyChange, onBack, onApproved }: {
-    onDirtyChange?: (_d: boolean) => void;
+  default: ({ onBack, onApproved }: {
     onBack?: () => void;
     onApproved?: () => void;
   }) => (
     <div data-testid="edit-post-view">
-      <button data-testid="set-dirty" onClick={() => onDirtyChange?.(true)}>Dirty</button>
       <button data-testid="post-back" onClick={onBack}>Back</button>
       <button data-testid="post-approved" onClick={onApproved}>Approved</button>
     </div>
@@ -93,7 +97,6 @@ function baseProps(view: ViewSelection = { view: 'no_orgs' }) {
     view,
     onNavigate: vi.fn(),
     onToast: vi.fn(),
-    onDirtyChange: vi.fn(),
     onTimezoneChange: vi.fn(),
     onRepoChange: vi.fn(),
     onSignedOut: vi.fn(),

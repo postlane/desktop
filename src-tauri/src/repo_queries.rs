@@ -22,18 +22,9 @@ pub struct RepoWithStatus {
     pub project_id: Option<String>,
 }
 
-fn read_project_id_from_config(repo_path: &str) -> Option<String> {
-    let config_path = PathBuf::from(repo_path).join(".postlane/config.json");
-    let content = fs::read_to_string(config_path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
-    v.get("project_id").and_then(|p| p.as_str()).map(String::from)
-}
 
 pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
 
     let result = repos
         .repos
@@ -42,7 +33,9 @@ pub fn get_repos_impl(state: &AppState) -> Result<Vec<RepoWithStatus>, String> {
             let path_exists = std::path::Path::new(&repo.path).exists();
             let (ready_count, failed_count, last_post_at) = scan_post_statuses(&repo.path);
             let provider = read_repo_config_provider(&repo.path);
-            let project_id = read_project_id_from_config(&repo.path);
+            let project_id = crate::config_paths::read_project_id_from_config(
+                &std::path::Path::new(&repo.path).join(".postlane/config.json"),
+            );
             RepoWithStatus {
                 id: repo.id.clone(),
                 name: repo.name.clone(),
@@ -122,10 +115,7 @@ pub fn get_repos(state: State<'_, AppState>) -> Result<Vec<RepoWithStatus>, Stri
 }
 
 pub fn has_active_repos_impl(state: &AppState) -> Result<bool, String> {
-    let repos = state
-        .repos
-        .lock()
-        .map_err(|e| format!("Failed to lock repos: {}", e))?;
+    let repos = state.lock_repos()?;
     Ok(repos.repos.iter().any(|r| r.active))
 }
 

@@ -348,3 +348,123 @@ fn test_read_posts_for_sync_multi_platform_creates_one_entry_per_platform() {
     assert!(platforms.contains("x"));
     assert!(platforms.contains("linkedin"));
 }
+
+#[test]
+fn test_collect_posts_for_sync_skips_inactive_repos() {
+    let tmp = TempDir::new().expect("tmp dir");
+    let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+    write_post(&tmp, "post-1", &make_sent_meta("zernio", "x", "id1", &recent));
+    let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize tmp path");
+    let repos = crate::storage::ReposConfig {
+        version: 1,
+        workspaces: vec![],
+        repos: vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "repo".to_string(),
+            path: canonical.to_string_lossy().to_string(),
+            active: false,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }],
+    };
+    let posts = collect_posts_for_sync(&repos);
+    assert!(posts.is_empty(), "inactive repo must be skipped by collect_posts_for_sync");
+}
+
+#[test]
+fn test_collect_posts_for_sync_includes_active_repos() {
+    let tmp = TempDir::new().expect("tmp dir");
+    let recent = (Utc::now() - Duration::hours(1)).to_rfc3339();
+    write_post(&tmp, "post-1", &make_sent_meta("zernio", "x", "id1", &recent));
+    let canonical = std::fs::canonicalize(tmp.path()).expect("canonicalize tmp path");
+    let repos = crate::storage::ReposConfig {
+        version: 1,
+        workspaces: vec![],
+        repos: vec![crate::storage::Repo {
+            id: "r1".to_string(),
+            name: "repo".to_string(),
+            path: canonical.to_string_lossy().to_string(),
+            active: true,
+            added_at: "2026-01-01T00:00:00Z".to_string(),
+        }],
+    };
+    let posts = collect_posts_for_sync(&repos);
+    assert_eq!(posts.len(), 1, "active repo with a valid recent post must be included");
+}
+
+#[tokio::test]
+async fn test_post_snapshots_batches_over_100_snapshots() {
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/v1/engagement/sync");
+        then.status(200).json_body(serde_json::json!({ "inserted": 1 }));
+    });
+    let client = build_client();
+    let snapshots: Vec<EngagementSnapshot> = (0..101)
+        .map(|i| EngagementSnapshot {
+            repo_uuid: "r1".into(),
+            post_folder: format!("p{}", i),
+            provider: "zernio".into(),
+            platform_post_id: format!("id{}", i),
+            platform: "x".into(),
+            likes: 0,
+            shares: 0,
+            comments: 0,
+            impressions: None,
+            fetched_at: Utc::now(),
+        })
+        .collect();
+    let result = post_snapshots(&snapshots, "tok", &client, &server.base_url()).await;
+    assert_eq!(result.expect("post_snapshots must succeed"), 101);
+    mock.assert_hits(2);
+}
+
+#[tokio::test]
+async fn test_fetch_snapshot_maps_engagement_fields_correctly() {
+    let post = PostForSync {
+        repo_uuid: "r1".into(),
+        post_folder: "p1".into(),
+        provider: "zernio".into(),
+        platform: "x".into(),
+        platform_post_id: "post-id-99".into(),
+    };
+    let provider = MockEngagementProvider { likes: 10, reposts: 5, replies: 2 };
+    let snapshot = fetch_snapshot(&post, &provider).await;
+    assert_eq!(snapshot.likes, 10, "likes must map from provider likes");
+    assert_eq!(snapshot.shares, 5, "shares must map from provider reposts");
+    assert_eq!(snapshot.comments, 2, "comments must map from provider replies");
+    assert_eq!(snapshot.impressions, Some(500), "impressions must be forwarded");
+    assert_eq!(snapshot.repo_uuid, "r1", "repo_uuid must be preserved");
+    assert_eq!(snapshot.post_folder, "p1", "post_folder must be preserved");
+    assert_eq!(snapshot.platform_post_id, "post-id-99", "platform_post_id must be preserved");
+    assert_eq!(snapshot.platform, "x", "platform must be preserved");
+}
+
+// engagement_sync line 160-161 — non-200 response must not error the caller,
+// but must not count the unsaved snapshots.
+#[tokio::test]
+async fn test_post_snapshots_returns_zero_count_when_server_returns_non_200() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/v1/engagement/sync");
+        then.status(500);
+    });
+    let client = build_client();
+    let snap = EngagementSnapshot {
+        repo_uuid: "r1".into(),
+        post_folder: "p1".into(),
+        provider: "zernio".into(),
+        platform_post_id: "id1".into(),
+        platform: "x".into(),
+        likes: 0,
+        shares: 0,
+        comments: 0,
+        impressions: None,
+        fetched_at: Utc::now(),
+    };
+    let result = post_snapshots(&[snap], "tok", &client, &server.base_url()).await;
+    assert_eq!(
+        result.expect("non-200 must not error the caller"),
+        0,
+        "non-200 response must result in zero count"
+    );
+}

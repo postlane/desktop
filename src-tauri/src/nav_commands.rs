@@ -114,20 +114,14 @@ pub fn read_attribution(config_path: &std::path::Path) -> bool {
 
 pub fn write_attribution(config_path: &std::path::Path, enabled: bool) -> Result<(), String> {
     let mut config: serde_json::Value = if config_path.exists() {
-        let content = std::fs::read_to_string(config_path)
-            .map_err(|e| format!("Failed to read global config: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse global config: {}", e))?
+        crate::init::read_json_file(config_path)?
     } else {
         serde_json::json!({})
     };
 
     config["attribution"] = serde_json::Value::Bool(enabled);
 
-    let json = serde_json::to_vec_pretty(&config)
-        .map_err(|e| format!("Failed to serialize global config: {}", e))?;
-    crate::init::atomic_write(config_path, &json)
-        .map_err(|e| format!("Failed to write global config: {}", e))
+    crate::init::write_json_file(config_path, &config)
 }
 
 #[tauri::command]

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react';
+import { useAsyncCommand } from '../hooks/useAsyncCommand';
 import { invoke } from '../ipc/invoke';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -98,21 +99,20 @@ function useConnectCredential(provider: string, repoId: string, onConnected: () 
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [uploadPostUsername, setUploadPostUsername] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { loading, error, run } = useAsyncCommand();
   const [connectedNames, setConnectedNames] = useState<Record<string, string> | null>(null);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const canConnect = apiKey && (provider !== 'upload_post' || uploadPostUsername);
 
   async function handleConnect() {
-    setLoading(true); setError(null); setSyncWarning(null);
-    try {
-      const payload = { provider, apiKey, repoId, ...(provider === 'upload_post' ? { username: uploadPostUsername } : {}) };
-      const response = await invoke<SaveCredentialResponse>('save_scheduler_credential', payload);
+    setSyncWarning(null);
+    const payload = { provider, apiKey, repoId, ...(provider === 'upload_post' ? { username: uploadPostUsername } : {}) };
+    const response = await run(() => invoke<SaveCredentialResponse>('save_scheduler_credential', payload));
+    if (response !== null) {
       setConnectedNames(response?.account_names ?? {});
       if (response?.sync_warning) setSyncWarning(response.sync_warning);
       setTimeout(() => onConnected(), 5000);
-    } catch (e: unknown) { setError(String(e)); } finally { setLoading(false); }
+    }
   }
   return { apiKey, setApiKey, showKey, setShowKey, uploadPostUsername, setUploadPostUsername, loading, error, connectedNames, syncWarning, canConnect, handleConnect };
 }

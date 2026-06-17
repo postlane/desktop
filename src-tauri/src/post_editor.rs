@@ -124,10 +124,7 @@ pub fn update_post_image_impl(
         return Err("meta.json not found in post folder".to_string());
     }
 
-    let raw = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read {}: {}", meta_path.display(), e))?;
-    let mut v: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| format!("Failed to parse {}: {}", meta_path.display(), e))?;
+    let mut v: serde_json::Value = crate::init::read_json_file(&meta_path)?;
     let obj = v.as_object_mut()
         .ok_or_else(|| format!("meta.json is not a JSON object: {}", meta_path.display()))?;
     match image_url {
