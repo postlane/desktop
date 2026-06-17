@@ -140,8 +140,7 @@ pub fn write_scheduler_provider_to_local_config(repo_path: &Path, provider: &str
 
     let json = serde_json::to_string_pretty(&local)
         .map_err(|e| format!("Failed to serialise config.local.json: {}", e))?;
-    atomic_write(&local_path, json.as_bytes())
-        .map_err(|e| format!("Failed to write config.local.json: {}", e))
+    write_local_config_0600(&local_path, &json)
 }
 
 /// Removes `provider` from the scheduler fallback list in `.postlane/config.local.json`.
@@ -188,8 +187,7 @@ pub fn remove_scheduler_provider_from_local_config(
 
     let json = serde_json::to_string_pretty(&local)
         .map_err(|e| format!("Failed to serialise config.local.json: {}", e))?;
-    atomic_write(&local_path, json.as_bytes())
-        .map_err(|e| format!("Failed to write config.local.json: {}", e))
+    write_local_config_0600(&local_path, &json)
 }
 
 #[cfg(test)]

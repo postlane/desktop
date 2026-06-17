@@ -196,3 +196,33 @@ fn test_write_workspace_local_config_uses_0600_permissions() {
     let mode = perms.mode() & 0o777;
     assert_eq!(mode, 0o600, "config.local.json must have 0600 permissions, got {:#o}", mode);
 }
+
+/// write_scheduler_provider_to_local_config must create config.local.json with 0600 permissions.
+#[cfg(unix)]
+#[test]
+fn test_write_scheduler_provider_uses_0600_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::TempDir::new().unwrap();
+    let postlane = dir.path().join(".postlane");
+    fs::create_dir_all(&postlane).unwrap();
+    super::write_scheduler_provider_to_local_config(dir.path(), "zernio").expect("write");
+    let path = postlane.join("config.local.json");
+    let mode = fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "config.local.json must be 0600, got {:#o}", mode);
+}
+
+/// remove_scheduler_provider_from_local_config must preserve 0600 permissions when rewriting.
+#[cfg(unix)]
+#[test]
+fn test_remove_scheduler_provider_preserves_0600_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::TempDir::new().unwrap();
+    let postlane = dir.path().join(".postlane");
+    fs::create_dir_all(&postlane).unwrap();
+    fs::write(postlane.join("config.local.json"), r#"{"scheduler":{"provider":"zernio"}}"#)
+        .unwrap();
+    super::remove_scheduler_provider_from_local_config(dir.path(), "zernio").expect("remove");
+    let path = postlane.join("config.local.json");
+    let mode = fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "config.local.json must be 0600 after remove, got {:#o}", mode);
+}
