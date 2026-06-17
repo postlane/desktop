@@ -2,4 +2,3 @@
 
 pub mod api_error;
 pub mod instance_url;
-pub mod ssrf_check;

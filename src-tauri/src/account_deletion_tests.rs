@@ -365,19 +365,28 @@ async fn test_gitlab_ssrf_blocked_deletion_continues() {
 
 // ── 22.9.11: account_deleted telemetry ───────────────────────────────────────
 
+// ── 22.9.11: account_deleted telemetry — spec-correct field names ─────────────
+// Spec (build brief §Telemetry events): had_github_app (bool), had_gitlab_token
+// (bool), optional_deletion_checked (bool). Not counts or renamed variants.
+
 #[test]
 fn test_account_deleted_records_all_five_payload_fields() {
     let state = crate::test_fixtures::make_state(vec![]);
     crate::account_deletion_commands::record_account_deleted(
-        &state, true, 3, 2, true, false, 3,
+        &state, true,
+        3,     // project_count
+        true,  // had_github_app
+        true,  // had_gitlab_token
+        false, // optional_deletion_checked
+        3,     // workspace_count
     );
     assert_eq!(state.telemetry.queue_len(), 1);
     let ev = &state.telemetry.peek_queue()[0];
     assert_eq!(ev.name, "account_deleted");
     assert_eq!(ev.properties["project_count"], 3);
-    assert_eq!(ev.properties["github_app_count"], 2);
-    assert_eq!(ev.properties["gitlab_connected"], true);
-    assert_eq!(ev.properties["deleted_workspace_dirs"], false);
+    assert_eq!(ev.properties["had_github_app"], true);
+    assert_eq!(ev.properties["had_gitlab_token"], true);
+    assert_eq!(ev.properties["optional_deletion_checked"], false);
     assert_eq!(ev.properties["workspace_count"], 3);
 }
 
@@ -385,7 +394,7 @@ fn test_account_deleted_records_all_five_payload_fields() {
 fn test_account_deleted_no_event_without_consent() {
     let state = crate::test_fixtures::make_state(vec![]);
     crate::account_deletion_commands::record_account_deleted(
-        &state, false, 1, 1, false, false, 1,
+        &state, false, 1, false, false, false, 1,
     );
     assert_eq!(state.telemetry.queue_len(), 0);
 }

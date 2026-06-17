@@ -46,28 +46,31 @@ fn workspace_ids(repos_path: &std::path::Path) -> Vec<String> {
 
 // ── Per-phase helpers ─────────────────────────────────────────────────────────
 
-async fn run_phase_0(token: &str, client: &reqwest::Client, state: &crate::app_state::AppState) -> Result<DeletionPhaseResult, DeletionPhaseError> {
-    preflight_session(POSTLANE_API_BASE, token, client).await.map_err(|m| phase_err(0, "PL-DEL-000", m))?;
+async fn run_phase_0(api_base: &str, token: &str, client: &reqwest::Client, state: &crate::app_state::AppState) -> Result<DeletionPhaseResult, DeletionPhaseError> {
+    preflight_session(api_base, token, client).await.map_err(|m| phase_err(0, "PL-DEL-000", m))?;
     let snapshot = crate::storage::read_repos_with_recovery(&state.repos_path).map(|c| c.workspaces).unwrap_or_default();
     if let Ok(mut snap) = state.deletion_snapshot.lock() { *snap = snapshot; }
-    crate::account_deletion_commands::set_deletion_incomplete_pub(true);
+    // NOTE: deletion_incomplete is NOT set here — phase 0 is pre-flight + snapshot only,
+    // no destructive action has occurred. The flag is set at the start of phase 1.
     Ok(ok(0))
 }
 
-async fn run_phase_1(token: &str, client: &reqwest::Client, repos_path: &std::path::Path) -> Result<DeletionPhaseResult, DeletionPhaseError> {
-    delete_all_projects(POSTLANE_API_BASE, token, &workspace_ids(repos_path), client).await
+async fn run_phase_1(api_base: &str, token: &str, client: &reqwest::Client, repos_path: &std::path::Path) -> Result<DeletionPhaseResult, DeletionPhaseError> {
+    // Set before the API call: if the app crashes mid-deletion the flag survives (22.7.7a).
+    crate::account_deletion_commands::set_deletion_incomplete_pub(true);
+    delete_all_projects(api_base, token, &workspace_ids(repos_path), client).await
         .map_err(|m| phase_err(1, "PL-DEL-001", m))?;
     Ok(ok(1))
 }
 
-async fn run_phase_2(token: &str, client: &reqwest::Client, repos_path: &std::path::Path) -> Result<DeletionPhaseResult, DeletionPhaseError> {
-    disconnect_all_github_apps(POSTLANE_API_BASE, token, &workspace_ids(repos_path), client).await
+async fn run_phase_2(api_base: &str, token: &str, client: &reqwest::Client, repos_path: &std::path::Path) -> Result<DeletionPhaseResult, DeletionPhaseError> {
+    disconnect_all_github_apps(api_base, token, &workspace_ids(repos_path), client).await
         .map_err(|m| phase_err(2, "PL-DEL-001", m))?;
     Ok(ok(2))
 }
 
-async fn run_phase_5(token: &str, client: &reqwest::Client) -> Result<DeletionPhaseResult, DeletionPhaseError> {
-    let url = format!("{}/v1/account/delete", POSTLANE_API_BASE);
+async fn run_phase_5(api_base: &str, token: &str, client: &reqwest::Client) -> Result<DeletionPhaseResult, DeletionPhaseError> {
+    let url = format!("{}/v1/account/delete", api_base);
     let resp = client.post(&url).bearer_auth(token).send().await
         .map_err(|e| phase_err(5, "PL-DEL-004", format!("Network error: {}", e)))?;
     match resp.status().as_u16() {
@@ -94,10 +97,20 @@ fn run_phase_6(repos_path: &std::path::Path) -> Result<DeletionPhaseResult, Dele
 }
 
 fn run_phase_7(do_delete: bool, state: &crate::app_state::AppState) -> DeletionPhaseResult {
+    let snapshot = state.deletion_snapshot.lock().map(|s| s.clone()).unwrap_or_default();
     if do_delete {
-        let snapshot = state.deletion_snapshot.lock().map(|s| s.clone()).unwrap_or_default();
         crate::account_deletion::delete_workspace_dirs(&snapshot, &state.repos_path);
     }
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    crate::account_deletion_commands::record_account_deleted(
+        state,
+        consent,
+        snapshot.len(),  // project_count (one project per workspace in v1.4)
+        false,           // had_github_app: phase-based flow uses None for GitLab; tracked separately in future
+        false,           // had_gitlab_token: same — approximate; improve in H1 telemetry pass
+        do_delete,       // optional_deletion_checked: the "delete workspace files" checkbox
+        snapshot.len(),  // workspace_count
+    );
     DeletionPhaseResult { phase: 7, message: phase_message(7).to_string(), next_phase: None }
 }
 
@@ -108,12 +121,12 @@ pub async fn run_deletion_phase(phase: u8, delete_workspace_dirs: bool, app: tau
     let token = resolve_license_token(app.keyring().get_password("postlane", "license"))?;
     let client = crate::providers::scheduling::build_client();
     match phase {
-        0 => run_phase_0(&token, &client, &state).await,
-        1 => run_phase_1(&token, &client, &state.repos_path).await,
-        2 => run_phase_2(&token, &client, &state.repos_path).await,
+        0 => run_phase_0(POSTLANE_API_BASE, &token, &client, &state).await,
+        1 => run_phase_1(POSTLANE_API_BASE, &token, &client, &state.repos_path).await,
+        2 => run_phase_2(POSTLANE_API_BASE, &token, &client, &state.repos_path).await,
         3 => { let _ = revoke_gitlab_token(None, &client, crate::ssrf_validation::validate_ssrf_url).await; Ok(ok(3)) }
         4 => Ok(run_phase_4(&app, &state.repos_path)),
-        5 => run_phase_5(&token, &client).await,
+        5 => run_phase_5(POSTLANE_API_BASE, &token, &client).await,
         6 => run_phase_6(&state.repos_path),
         7 => Ok(run_phase_7(delete_workspace_dirs, &state)),
         p => Err(phase_err(p, "PL-DEL-000", format!("Unknown phase {p}"))),
@@ -237,6 +250,55 @@ mod tests {
             phase_message(99).contains("Finishing"),
             "unknown phase must fall through to 'Finishing', got: {}",
             phase_message(99)
+        );
+    }
+
+    // ── C1: deletion_incomplete flag timing (22.7.7a) ────────────────────────
+    // Flag must be set at the START of phase 1, not at the end of phase 0.
+
+    #[tokio::test]
+    async fn test_phase_0_does_not_set_deletion_incomplete() {
+        let _ = crate::account_deletion_commands::drain_incomplete_spy();
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/v1/auth/session");
+            then.status(200).json_body(serde_json::json!({"valid": true}));
+        });
+        let state = crate::app_state::AppState::new_with_path(
+            crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] },
+            std::path::PathBuf::from("/nonexistent/repos.json"),
+        );
+        let client = crate::providers::scheduling::build_client();
+        let result = run_phase_0(&server.base_url(), "tok", &client, &state).await;
+        assert!(result.is_ok(), "phase 0 with valid session must succeed: {:?}", result);
+        let spy = crate::account_deletion_commands::drain_incomplete_spy();
+        assert!(
+            !spy.contains(&true),
+            "phase 0 must NOT set deletion_incomplete=true; spy recorded: {:?}", spy
+        );
+    }
+
+    #[tokio::test]
+    async fn test_phase_1_sets_deletion_incomplete_before_api_call() {
+        // Even when the API call fails, the flag must be set (proves it fires before the await).
+        let _ = crate::account_deletion_commands::drain_incomplete_spy();
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::DELETE).path_matches(
+                regex::Regex::new("/v1/projects/").unwrap(),
+            );
+            then.status(500);
+        });
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        let config = crate::storage::ReposConfig { version: 2, workspaces: vec![], repos: vec![] };
+        crate::storage::write_repos(&repos_path, &config).expect("write repos.json");
+        let client = crate::providers::scheduling::build_client();
+        let _ = run_phase_1(&server.base_url(), "tok", &client, &repos_path).await;
+        let spy = crate::account_deletion_commands::drain_incomplete_spy();
+        assert!(
+            spy.contains(&true),
+            "phase 1 must set deletion_incomplete=true before the API call; spy: {:?}", spy
         );
     }
 

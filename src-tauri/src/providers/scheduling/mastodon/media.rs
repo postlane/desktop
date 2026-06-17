@@ -29,7 +29,7 @@ pub(super) async fn validate_image_url(url: &str) -> Result<(), ProviderError> {
         .map_err(|e| ProviderError::Unknown(format!("Cannot resolve image URL host {}: {}", hostname, e)))?
         .collect();
     for socket_addr in &addrs {
-        if crate::security::ssrf_check::is_private_ip(socket_addr.ip()) {
+        if crate::ssrf_validation::is_private_ip(&socket_addr.ip()) {
             return Err(ProviderError::Unknown(format!(
                 "Image URL resolves to a private IP address ({})", socket_addr.ip()
             )));

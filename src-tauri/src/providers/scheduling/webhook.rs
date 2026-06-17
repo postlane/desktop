@@ -37,7 +37,7 @@ impl WebhookProvider {
         let parsed = url::Url::parse(url)
             .map_err(|_| ProviderError::InvalidInstance("Webhook URL is not a valid URL.".to_string()))?;
         let host = parsed.host_str().unwrap_or("");
-        if crate::security::ssrf_check::is_private_host_str(host) {
+        if crate::ssrf_validation::is_private_host_str(host) {
             return Err(ProviderError::InvalidInstance(
                 "Webhook URL must not target a private or loopback address.".to_string(),
             ));

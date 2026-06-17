@@ -122,7 +122,7 @@ pub async fn validate_instance_domain(instance: &str) -> Result<(), ProviderErro
     }
 
     for socket_addr in &addrs {
-        if crate::security::ssrf_check::is_private_ip(socket_addr.ip()) {
+        if crate::ssrf_validation::is_private_ip(&socket_addr.ip()) {
             return Err(ProviderError::InvalidInstance(format!(
                 "Instance {} resolves to a private IP address ({})",
                 instance,
