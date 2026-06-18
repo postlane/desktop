@@ -36,11 +36,16 @@ pub(crate) fn pre_populate_with_version_lookup(
     let post_dir = meta_path.parent().ok_or("meta_path has no parent directory")?;
     let folder_name = post_dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
     // post_dir is {repo}/.postlane/posts/{folder}/ → 3 parents up is {repo}/
-    let repo_root = post_dir.parent().and_then(|p| p.parent()).and_then(|p| p.parent())
-        .ok_or("meta.json is not in .postlane/posts/{folder}/ structure")?;
-    let canonical_root = std::fs::canonicalize(repo_root)
-        .unwrap_or_else(|_| repo_root.to_path_buf());
-    let lock_key = format!("{}\x00{}", canonical_root.to_str().unwrap_or(""), folder_name);
+    // When the path is shallower (e.g. a flat temp dir in tests), fall back to the
+    // full meta_path string so the lock still serialises callers for that path.
+    let lock_key = match post_dir.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+        Some(repo_root) => {
+            let canonical_root = std::fs::canonicalize(repo_root)
+                .unwrap_or_else(|_| repo_root.to_path_buf());
+            format!("{}\x00{}", canonical_root.to_str().unwrap_or(""), folder_name)
+        }
+        None => meta_path.to_str().unwrap_or("").to_string(),
+    };
     let lock = POST_META_SYNC_LOCKS
         .entry(lock_key)
         .or_insert_with(|| Arc::new(std::sync::Mutex::new(())))
