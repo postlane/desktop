@@ -326,8 +326,8 @@ mod approve_post_tests {
 mod dismiss_post_tests {
     use super::*;
 
-    #[test]
-    fn test_dismiss_post_sets_status_to_dismissed() {
+    #[tokio::test]
+    async fn test_dismiss_post_sets_status_to_dismissed() {
         // Setup: Create repo with ready post
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
@@ -377,7 +377,7 @@ mod dismiss_post_tests {
             "post1",
             &state,
             false,
-        );
+        ).await;
 
         // Assert: Should succeed
         assert!(result.is_ok());
@@ -388,8 +388,8 @@ mod dismiss_post_tests {
         assert_eq!(updated_meta.status, "dismissed");
     }
 
-    #[test]
-    fn test_dismiss_post_fails_with_missing_meta_json() {
+    #[tokio::test]
+    async fn test_dismiss_post_fails_with_missing_meta_json() {
         // Setup: Create repo with post folder but no meta.json
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
@@ -405,7 +405,7 @@ mod dismiss_post_tests {
             "post1",
             &state,
             false,
-        );
+        ).await;
 
         // Assert: Should fail
         assert!(result.is_err());
@@ -481,8 +481,8 @@ mod delete_post_tests {
 mod retry_post_tests {
     use super::*;
 
-    #[test]
-    fn test_retry_post_only_retries_failed_platforms() {
+    #[tokio::test]
+    async fn test_retry_post_only_retries_failed_platforms() {
         // Setup: Create repo with failed post (x succeeded, bluesky failed)
         let temp_dir = TempDir::new().unwrap();
         let repo_path = temp_dir.path().join("repo1");
@@ -539,7 +539,7 @@ mod retry_post_tests {
             repo_path.to_str().unwrap(),
             "post1",
             &state,
-        );
+        ).await;
 
         // Assert: Should succeed
         assert!(result.is_ok());

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useCallback } from 'react';
-import { invoke } from '../ipc/invoke';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
 import { useEditGuard } from '../context/EditGuardContext';
 import { CHAR_LIMITS } from './PreviewModal';
@@ -12,7 +10,7 @@ import EditPostDraftColumn from './EditPostDraftColumn';
 import EditPostPreviewColumn from './EditPostPreviewColumn';
 import {
   useTextState, usePostImage, useSavePost, useApproveHandlers,
-  useDeletePost, useDiscardGuard, useEditKeyboard, usePlatformTabs,
+  useDeletePost, useDiscardGuard, useEditKeyboard, usePlatformTabs, useTabSwitch,
 } from '../hooks/usePostEditor';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -93,18 +91,10 @@ export default function EditPostView({
   const count = countChars(selectedPlatform, text);
   const isOverLimit = limit > 0 && count > limit;
 
-  const handleTabSwitch = useCallback(async (newPlatform: string) => {
-    if (isDirty) {
-      await invoke('save_post_draft', {
-        repoPath: post.repo_path, postFolder: post.post_folder, platform: selectedPlatform, text,
-      });
-    }
-    const sibling = siblings.find(d => d.platform === newPlatform);
-    const newText = sibling?.text ?? '';
-    originalTextRef.current = newText;
-    setText(newText);
-    setSelectedPlatform(newPlatform);
-  }, [isDirty, post.repo_path, post.post_folder, selectedPlatform, text, siblings, originalTextRef, setSelectedPlatform, setText]);
+  const handleTabSwitch = useTabSwitch(
+    isDirty, post.repo_path, post.post_folder, selectedPlatform, text,
+    siblings, originalTextRef, setSelectedPlatform, setText,
+  );
 
   const save = useSavePost(currentPost, text, originalTextRef, refresh);
   const approve = useApproveHandlers(

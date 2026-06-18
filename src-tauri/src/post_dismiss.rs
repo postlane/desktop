@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 use crate::app_state::AppState;
+use crate::platform_constants::POST_META_LOCKS;
 use std::fs;
+use std::sync::Arc;
 use tauri::State;
 
 /// Marks a post as `"dismissed"` by updating its `meta.json`.
 /// Validates that the repo is registered before making any changes.
-pub fn dismiss_post_impl(
+pub async fn dismiss_post_impl(
     repo_path: &str,
     post_folder: &str,
     state: &AppState,
@@ -31,6 +33,13 @@ pub fn dismiss_post_impl(
         return Err("meta.json not found in post folder".to_string());
     }
 
+    let lock_key = format!("{}\x00{}", canonical_str, post_folder);
+    let lock = POST_META_LOCKS
+        .entry(lock_key)
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    let _guard = lock.lock().await;
+
     let mut meta = crate::post_mutations::read_post_meta(&meta_path)?;
     meta.status = "dismissed".to_string();
     crate::post_mutations::write_post_meta(&meta_path, &meta)?;
@@ -42,13 +51,13 @@ pub fn dismiss_post_impl(
 
 /// Tauri command — marks a post as dismissed and records telemetry if consent is given.
 #[tauri::command]
-pub fn dismiss_post(
+pub async fn dismiss_post(
     repo_path: String,
     post_folder: String,
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    dismiss_post_impl(&repo_path, &post_folder, &state, consent)
+    dismiss_post_impl(&repo_path, &post_folder, &state, consent).await
 }
 
 /// Deletes a single platform's `.md` file from a post folder.
@@ -168,8 +177,8 @@ mod tests {
         }])
     }
 
-    #[test]
-    fn test_dismiss_post_rejects_unregistered_path() {
+    #[tokio::test]
+    async fn test_dismiss_post_rejects_unregistered_path() {
         let registered = tempfile::TempDir::new().expect("create temp dir");
         let unregistered = tempfile::TempDir::new().expect("create temp dir");
         let post_dir = unregistered.path().join(".postlane/posts/post-d");
@@ -183,12 +192,12 @@ mod tests {
         let repos = make_repos_canonical(&[registered.path()]);
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(repos, _tmp_repos.path().join("repos.json"));
-        let result = dismiss_post_impl(unregistered.path().to_str().unwrap(), "post-d", &state, false);
+        let result = dismiss_post_impl(unregistered.path().to_str().unwrap(), "post-d", &state, false).await;
         assert!(result.is_err(), "dismiss_post_impl must reject unregistered path");
     }
 
-    #[test]
-    fn test_dismiss_post_canonicalizes_path() {
+    #[tokio::test]
+    async fn test_dismiss_post_canonicalizes_path() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let post_dir = dir.path().join(".postlane/posts/post-c");
         fs::create_dir_all(&post_dir).expect("create dir");
@@ -202,7 +211,7 @@ mod tests {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");
         let state = AppState::new_with_path(repos, _tmp_repos.path().join("repos.json"));
         let canonical_path = fs::canonicalize(dir.path()).expect("canonicalize");
-        let result = dismiss_post_impl(canonical_path.to_str().unwrap(), "post-c", &state, false);
+        let result = dismiss_post_impl(canonical_path.to_str().unwrap(), "post-c", &state, false).await;
         assert!(
             result.is_ok(),
             "dismiss_post_impl must accept registered canonical path: {:?}",
@@ -210,30 +219,30 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_dismiss_records_telemetry_when_consent_given() {
+    #[tokio::test]
+    async fn test_dismiss_records_telemetry_when_consent_given() {
         let (dir, path) = make_dismiss_dir("yes");
         let state = make_dismiss_state(dir.path());
-        let result = dismiss_post_impl(&path, "post-d", &state, true);
+        let result = dismiss_post_impl(&path, "post-d", &state, true).await;
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
-    #[test]
-    fn test_dismiss_telemetry_includes_platforms() {
+    #[tokio::test]
+    async fn test_dismiss_telemetry_includes_platforms() {
         let (dir, path) = make_dismiss_dir("platforms-check");
         let state = make_dismiss_state(dir.path());
-        dismiss_post_impl(&path, "post-d", &state, true).expect("dismiss must succeed");
+        dismiss_post_impl(&path, "post-d", &state, true).await.expect("dismiss must succeed");
         let events = state.telemetry.peek_queue();
         let props = &events[0].properties;
         assert!(props.get("platforms").is_some(), "telemetry must include platforms field");
     }
 
-    #[test]
-    fn test_dismiss_no_telemetry_when_consent_not_given() {
+    #[tokio::test]
+    async fn test_dismiss_no_telemetry_when_consent_not_given() {
         let (dir, path) = make_dismiss_dir("no");
         let state = make_dismiss_state(dir.path());
-        let result = dismiss_post_impl(&path, "post-d", &state, false);
+        let result = dismiss_post_impl(&path, "post-d", &state, false).await;
         assert!(result.is_ok(), "{:?}", result);
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
     }
@@ -297,8 +306,8 @@ mod tests {
         assert!(result.unwrap_err().contains("not registered"));
     }
 
-    #[test]
-    fn test_dismiss_post_errors_when_meta_json_missing() {
+    #[tokio::test]
+    async fn test_dismiss_post_errors_when_meta_json_missing() {
         // Registered path + post folder exists, but meta.json is absent.
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let post_dir = dir.path().join(".postlane/posts/post-no-meta");
@@ -306,12 +315,61 @@ mod tests {
         // Deliberately do NOT write meta.json.
         let state = make_dismiss_state(dir.path());
         let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
-        let result = dismiss_post_impl(canonical.to_str().unwrap(), "post-no-meta", &state, false);
+        let result = dismiss_post_impl(canonical.to_str().unwrap(), "post-no-meta", &state, false).await;
         assert!(result.is_err(), "must Err when meta.json is absent");
         assert!(
             result.unwrap_err().contains("meta.json not found"),
             "error must mention meta.json not found"
         );
+    }
+
+    #[tokio::test]
+    async fn test_dismiss_acquires_post_meta_lock() {
+        use crate::platform_constants::POST_META_LOCKS;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = dir.path().join(".postlane/posts/lock-dismiss");
+        fs::create_dir_all(&post_dir).expect("create dir");
+        fs::write(post_dir.join("meta.json"), r#"{"status":"ready","platforms":["x"]}"#)
+            .expect("write meta");
+
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+
+        // Pre-acquire the lock for this (repo, post_folder) pair
+        let lock_key = format!("{}\x00{}", canonical_str, "lock-dismiss");
+        let lock = POST_META_LOCKS
+            .entry(lock_key)
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
+
+        // Spawn dismiss — must block because we already hold the lock
+        let state = Arc::new(make_dismiss_state(dir.path()));
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        let canonical_clone = canonical_str.clone();
+        tokio::spawn(async move {
+            let result = dismiss_post_impl(&canonical_clone, "lock-dismiss", &state, false).await;
+            let _ = tx.send(result);
+        });
+
+        // Give the spawned task time to start and reach the lock
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        assert!(
+            rx.try_recv().is_err(),
+            "dismiss_post_impl must block while POST_META_LOCKS is held"
+        );
+
+        // Release lock — task should now complete
+        drop(_guard);
+        let result = tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .expect("dismiss did not complete after lock released")
+            .expect("channel dropped");
+        assert!(result.is_ok(), "dismiss_post_impl must succeed after acquiring lock: {:?}", result);
     }
 
     #[test]

@@ -208,6 +208,31 @@ export function useEditKeyboard(
   }, [isDirty, isHistory, isOverLimit, doSave, doApprove]);
 }
 
+export function useTabSwitch(
+  isDirty: boolean,
+  repoPath: string,
+  postFolder: string,
+  selectedPlatform: string,
+  text: string,
+  siblings: DraftPost[],
+  originalTextRef: MutableRefObject<string>,
+  setSelectedPlatform: (p: string) => void,
+  setText: (t: string) => void,
+): (newPlatform: string) => Promise<void> {
+  return useCallback(async (newPlatform: string) => {
+    if (isDirty) {
+      await invoke('save_post_draft', {
+        repoPath, postFolder, platform: selectedPlatform, text,
+      });
+    }
+    const sibling = siblings.find(d => d.platform === newPlatform);
+    const newText = sibling?.text ?? '';
+    originalTextRef.current = newText;
+    setText(newText);
+    setSelectedPlatform(newPlatform);
+  }, [isDirty, repoPath, postFolder, selectedPlatform, text, siblings, originalTextRef, setSelectedPlatform, setText]);
+}
+
 export function usePlatformTabs(
   post: DraftPost | PublishedPost, drafts: (DraftPost | PublishedPost)[],
 ) {
