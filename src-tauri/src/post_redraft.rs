@@ -28,10 +28,11 @@ pub fn queue_redraft_impl(
         return Err("Invalid post folder: must not contain path separators or '..'".to_string());
     }
 
-    if instruction.len() > 10_000 {
+    let instruction_chars = instruction.chars().count();
+    if instruction_chars > 10_000 {
         return Err(format!(
             "Instruction too long ({} chars). Maximum is 10,000 characters.",
-            instruction.len()
+            instruction_chars
         ));
     }
 
@@ -239,6 +240,37 @@ mod tests {
             result.unwrap_err().contains("Instruction too long"),
             "error must mention 'Instruction too long'"
         );
+    }
+
+    #[test]
+    fn test_queue_redraft_allows_multibyte_chars_under_char_limit() {
+        // 5,000 Chinese characters = 15,000 bytes but only 5,000 chars.
+        // The limit is 10,000 CHARACTERS — this instruction must not be rejected.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        std::fs::create_dir_all(dir.path().join(".postlane")).unwrap();
+        let repos = make_repos_canonical(&[dir.path()]);
+        let chinese_instruction = "你好".repeat(2_500); // 5,000 Chinese chars = 15,000 bytes
+        assert_eq!(chinese_instruction.chars().count(), 5_000);
+        assert!(chinese_instruction.len() > 10_000, "must be >10k bytes to test the fix");
+
+        let result = queue_redraft_impl(
+            dir.path().to_str().unwrap(), "post-folder", &chinese_instruction, &repos,
+        );
+        assert!(result.is_ok(), "5,000 Chinese chars must not be rejected: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_queue_redraft_rejects_multibyte_instruction_over_char_limit() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let repos = make_repos_canonical(&[dir.path()]);
+        let too_many = "你好".repeat(5_001); // 10,002 Chinese chars
+        assert!(too_many.chars().count() > 10_000);
+
+        let result = queue_redraft_impl(
+            dir.path().to_str().unwrap(), "post-folder", &too_many, &repos,
+        );
+        assert!(result.is_err(), "10,002 Chinese chars must be rejected");
+        assert!(result.unwrap_err().contains("Instruction too long"));
     }
 
     #[test]

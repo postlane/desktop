@@ -102,6 +102,43 @@ fn test_all_set_password_call_sites_have_keyring_pattern() {
         unexpected.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n  "));
 }
 
+// ── 22.7.15b: KEYRING_PATTERNS completeness — call-count guard ────────────────
+// Counts .set_password( calls in each known file. If a new call is added to an
+// existing file without updating KEYRING_PATTERNS, the count mismatch fails this
+// test before the new key can go unregistered.
+
+fn count_set_password_calls(path: &std::path::Path) -> usize {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .matches(".set_password(")
+        .count()
+}
+
+#[test]
+fn test_set_password_call_counts_match_expected() {
+    // Intentionally wrong count for app_lifecycle.rs to confirm RED state.
+    // This will be corrected to 1 in the GREEN step.
+    let expected: &[(&str, usize)] = &[
+        ("app_lifecycle.rs", 1),
+        ("credential_migration.rs", 1),
+        ("mastodon_app_registration.rs", 2),
+        ("mastodon_token_exchange.rs", 3),
+        ("scheduler_credentials.rs", 2),
+        ("unsplash_search.rs", 1),
+    ];
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut failures = Vec::new();
+    for (file, want) in expected {
+        let got = count_set_password_calls(&src_dir.join(file));
+        if got != *want {
+            failures.push(format!("{file}: expected {want} call(s), found {got}"));
+        }
+    }
+    assert!(failures.is_empty(),
+        "set_password() call counts changed — update KEYRING_PATTERNS then fix the count here:\n  {}",
+        failures.join("\n  "));
+}
+
 // ── project_keyring_keys generates all project-scoped keys ────────────────────
 
 #[test]

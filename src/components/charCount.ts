@@ -14,9 +14,9 @@ export function countCharsX(content: string): number {
   return [...content.replace(URL_REGEX, PLACEHOLDER)].length;
 }
 
-/// Bluesky: full Unicode scalar count, no URL replacement.
+/// Bluesky: grapheme cluster count per the AT Protocol spec, no URL replacement.
 export function countCharsBluesky(content: string): number {
-  return [...content].length;
+  return [...new Intl.Segmenter().segment(content)].length;
 }
 
 /// Mastodon: same URL replacement rule as X, Unicode-aware count.

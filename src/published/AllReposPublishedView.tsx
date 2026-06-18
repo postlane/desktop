@@ -18,6 +18,7 @@ function useAllPublished() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const loadPage = useCallback(async (pageIndex: number, append: boolean) => {
     try {
@@ -26,8 +27,9 @@ function useAllPublished() {
       const slice = raw.slice(0, PAGE_SIZE).filter(isPublishedPost);
       setPosts((prev) => (append ? [...prev, ...slice] : slice));
       setHasMore(hasMoreResults);
+      setError(null);
     } catch (e) {
-      console.error('get_all_published failed:', e);
+      setError(`Failed to load published posts: ${e instanceof Error ? e.message : String(e)}`);
     }
     setLoading(false);
   }, []);
@@ -38,7 +40,7 @@ function useAllPublished() {
     const next = page + 1; setPage(next); loadPage(next, true);
   }, [page, loadPage]);
 
-  return { posts, hasMore, loading, loadNextPage };
+  return { posts, hasMore, loading, error, loadNextPage };
 }
 
 
@@ -72,7 +74,7 @@ function PublishedPostRow({ post, onOpenLink, onNavigateToRepo }: { post: Publis
 export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [openLinkError, setOpenLinkError] = useState<string | null>(null);
-  const { posts, hasMore, loading, loadNextPage } = useAllPublished();
+  const { posts, hasMore, loading, error, loadNextPage } = useAllPublished();
 
   async function handleExport() {
     setExportStatus(null);
@@ -89,6 +91,12 @@ export default function AllReposPublishedView({ onNavigateToRepo }: Props) {
   if (loading) return (
     <div className="is-flex is-align-items-center is-justify-content-center" style={{ height: '100%' }}>
       <p className="is-size-7 has-text-grey">Loading…</p>
+    </div>
+  );
+
+  if (error) return (
+    <div role="alert" className="notification is-danger is-light mx-5 mt-5 is-size-7">
+      {error}
     </div>
   );
 

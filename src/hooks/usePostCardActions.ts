@@ -12,6 +12,7 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [dismissError, setDismissError] = useState<string | null>(null);
 
   const approve = useCallback(async () => {
     setApproving(true); setApproveError(null);
@@ -36,8 +37,9 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
   const dismiss = useCallback(async () => {
     const yes = await confirm('Delete this post? This cannot be undone.', { title: 'Delete post', kind: 'warning' });
     if (!yes) return;
+    setDismissError(null);
     try { await invoke('delete_post', { repoPath: post.repo_path, postFolder: post.post_folder }); onDismissed(); }
-    catch (e) { console.error('delete_post failed:', e); }
+    catch (e) { setDismissError(e instanceof Error ? e.message : String(e)); }
   }, [post, onDismissed]);
 
   const retry = useCallback(async () => {
@@ -47,5 +49,5 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
     finally { setRetrying(false); }
   }, [post, onApproved]);
 
-  return { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry };
+  return { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, dismissError, approve, dismiss, retry };
 }

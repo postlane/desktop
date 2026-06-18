@@ -294,12 +294,21 @@ describe('AllReposPublishedView — analytics lazy load', () => {
 // Fetch error
 // ---------------------------------------------------------------------------
 
-describe('AllReposPublishedView — fetch error', () => {
-  it('shows empty state when get_all_published fails', async () => {
-    mockInvoke.mockRejectedValue(new Error('network error'));
+describe('AllReposPublishedView — fetch error (HIGH-4)', () => {
+  it('shows an error alert when get_all_published fails', async () => {
+    mockInvoke.mockRejectedValue(new Error('DB connection lost'));
     render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
     await waitFor(() =>
-      expect(screen.getByText(/no posts published yet/i)).toBeInTheDocument(),
+      expect(screen.getByRole('alert')).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/no posts published yet/i)).not.toBeInTheDocument();
+  });
+
+  it('includes the error message in the alert', async () => {
+    mockInvoke.mockRejectedValue(new Error('DB connection lost'));
+    render(<AllReposPublishedView onNavigateToRepo={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/failed to load/i),
     );
   });
 });

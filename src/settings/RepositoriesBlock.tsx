@@ -188,7 +188,7 @@ function useDisconnect(projectId: string, refresh: () => void) {
 
 
 function useRescanWorkspace(workspaceId: string, refresh: () => void) {
-  const { loading: scanning, run } = useAsyncCommand();
+  const { loading: scanning, error, run } = useAsyncCommand();
   const [result, setResult] = useState<RescanResult | null>(null);
   async function rescan() {
     const data = await run(() => invoke<RescanResult>('rescan_workspace', { workspaceId }));
@@ -197,7 +197,7 @@ function useRescanWorkspace(workspaceId: string, refresh: () => void) {
       refresh();
     }
   }
-  return { scanning, result, rescan };
+  return { scanning, error, result, rescan };
 }
 
 function useWorkspacePath(projectId: string) {
@@ -258,6 +258,20 @@ function MigrateWorkspaceButton({ projectId }: { projectId: string }) {
   );
 }
 
+function OwnerStatusMessages({ rescanResult, rescanError, wsToast, wsError }: {
+  rescanResult: RescanResult | null; rescanError: string | null;
+  wsToast: string | null; wsError: string | null;
+}) {
+  return (
+    <>
+      {rescanResult && <RescanResultView result={rescanResult} />}
+      {rescanError && <p role="alert" className="is-size-7 has-text-danger mt-2">{rescanError}</p>}
+      {wsToast && <p className="is-size-7 has-text-info mt-2" role="status">{wsToast}</p>}
+      {wsError && <p role="alert" className="is-size-7 has-text-danger mt-2">{wsError}</p>}
+    </>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function RepositoriesBlock({ projectId, isOwner }: Props) {
@@ -295,9 +309,7 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
             <DisconnectConfirm onConfirm={disconnect.confirm}
               onCancel={() => disconnect.setPending(false)} loading={disconnect.loading} />
           )}
-          {rescan.result && <RescanResultView result={rescan.result} />}
-          {ws.wsToast && <p className="is-size-7 has-text-info mt-2" role="status">{ws.wsToast}</p>}
-          {ws.wsError && <p role="alert" className="is-size-7 has-text-danger mt-2">{ws.wsError}</p>}
+          <OwnerStatusMessages rescanResult={rescan.result} rescanError={rescan.error} wsToast={ws.wsToast} wsError={ws.wsError} />
           <MigrateWorkspaceButton projectId={projectId} />
         </>
       )}

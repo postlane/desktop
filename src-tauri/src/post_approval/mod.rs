@@ -9,6 +9,7 @@ use pipeline::{
     validate_platform, validate_post_folder, validate_repo_path,
     InFlightGuard, PostLocation, SendPaths,
 };
+use std::sync::atomic::Ordering;
 use tauri::State;
 
 /// Fires the Unsplash download trigger if applicable, then writes `image_download_triggered_at`.
@@ -65,6 +66,9 @@ pub async fn approve_post_impl(
     app: Option<&tauri::AppHandle>,
     consent: bool,
 ) -> Result<(), String> {
+    if state.license_expired.load(Ordering::Relaxed) {
+        return Err("Your Postlane license has expired. Please renew at postlane.dev.".to_string());
+    }
     let _guard = InFlightGuard::new(&state.in_flight_sends);
     validate_platform(platform)?;
     validate_post_folder(post_folder)?;

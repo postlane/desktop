@@ -42,7 +42,7 @@ describe('LeftNav — Add org button', () => {
         onAddWorkspace={vi.fn()}
       />,
     );
-    expect(screen.getByRole('button', { name: /add.*workspace/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /new workspace/i })).not.toBeDisabled();
   });
 
   it('test_add_org_button_calls_onAddWorkspace_when_clicked', async () => {
@@ -55,7 +55,20 @@ describe('LeftNav — Add org button', () => {
         onAddWorkspace={onAddWorkspace}
       />,
     );
-    await userEvent.setup().click(screen.getByRole('button', { name: /add.*workspace/i }));
+    await userEvent.setup().click(screen.getByRole('button', { name: /new workspace/i }));
     expect(onAddWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it('test_add_org_button_label_differs_from_repositories_block', () => {
+    render(
+      <LeftNav
+        currentView={DEFAULT_VIEW}
+        onNavigate={vi.fn()}
+        onSettingsOpen={vi.fn()}
+        onAddWorkspace={vi.fn()}
+      />,
+    );
+    const btn = screen.getByRole('button', { name: /new workspace/i });
+    expect(btn.textContent).not.toBe('Add workspace');
   });
 });

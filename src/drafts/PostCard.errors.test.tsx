@@ -180,6 +180,20 @@ describe('PostCard — error paths — delete and retry', () => {
     expect(onDismissed).not.toHaveBeenCalled();
   });
 
+  it('shows error alert when delete_post fails (HIGH-3)', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'delete_post') return Promise.reject(new Error('permission denied'));
+      return Promise.resolve(null);
+    });
+    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    await waitFor(() => screen.getByRole('button', { name: /delete/i }));
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(/permission denied/i),
+    );
+  });
+
   it('retry_post failure does not crash', async () => {
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === 'retry_post') return Promise.reject(new Error('network error'));
@@ -374,27 +388,6 @@ describe('PostCard — Fix 3: redraft instruction input constraints', () => {
     fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
     await waitFor(() =>
       expect(screen.getByText(/Failed to write file/i)).toBeInTheDocument(),
-    );
-  });
-});
-
-describe('PostCard — Fix 4: redraft queue overwrite blocked', () => {
-  it('shows "already queued" error message in UI when queue_redraft returns that error', async () => {
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_post_content') return Promise.resolve('');
-      if (cmd === 'get_attribution') return Promise.resolve(true);
-      if (cmd === 'queue_redraft') return Promise.reject(new Error('A redraft is already queued. Cancel the existing redraft first.'));
-      return Promise.resolve(null);
-    });
-    render(<PostCard post={makePost()} onApproved={vi.fn()} onDismissed={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
-    await waitFor(() => screen.getByPlaceholderText(/ask the llm to revise/i));
-    fireEvent.change(screen.getByPlaceholderText(/ask the llm to revise/i), {
-      target: { value: 'make it shorter' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /queue for redraft/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/A redraft is already queued/i)).toBeInTheDocument(),
     );
   });
 });

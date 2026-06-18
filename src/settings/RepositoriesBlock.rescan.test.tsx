@@ -60,12 +60,20 @@ describe('RepositoriesBlock — Rescan workspace button visibility (22.3.17)', (
 // ── 22.3.20 — Rescan workspace results ────────────────────────────────────────
 
 describe('RepositoriesBlock — Rescan workspace results (22.3.20)', () => {
-  it('calls rescan_workspace with the correct workspaceId', async () => {
-    mockInvoke.mockImplementation(async (cmd) => {
+  function setupRescan(result: object | Error) {
+    mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'get_repo_connection_status') return [makeRow()]
-      if (cmd === 'rescan_workspace') return { added: [], deactivated: [], unchanged: ['MyRepo'] }
+      if (cmd === 'rescan_workspace') {
+        if (result instanceof Error) throw result
+        return result
+      }
       return null
     })
+  }
+  const noChange = { added: [], deactivated: [], unchanged: ['MyRepo'] }
+
+  it('calls rescan_workspace with the correct workspaceId', async () => {
+    setupRescan(noChange)
     render(<RepositoriesBlock projectId="proj-42" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() =>
@@ -74,33 +82,21 @@ describe('RepositoriesBlock — Rescan workspace results (22.3.20)', () => {
   })
 
   it('shows "All repos up to date." when rescan finds no changes', async () => {
-    mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === 'get_repo_connection_status') return [makeRow()]
-      if (cmd === 'rescan_workspace') return { added: [], deactivated: [], unchanged: ['MyRepo'] }
-      return null
-    })
+    setupRescan(noChange)
     render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/All repos up to date/i)).toBeInTheDocument())
   })
 
   it('shows added count when rescan finds new repos', async () => {
-    mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === 'get_repo_connection_status') return [makeRow()]
-      if (cmd === 'rescan_workspace') return { added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] }
-      return null
-    })
+    setupRescan({ added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] })
     render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/Added: 1/i)).toBeInTheDocument())
   })
 
   it('refreshes the repo list after rescan completes (22.10.12)', async () => {
-    mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === 'get_repo_connection_status') return [makeRow()]
-      if (cmd === 'rescan_workspace') return { added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] }
-      return null
-    })
+    setupRescan({ added: ['new-repo'], deactivated: [], unchanged: ['MyRepo'] })
     render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/Added: 1/i)).toBeInTheDocument())
@@ -109,13 +105,19 @@ describe('RepositoriesBlock — Rescan workspace results (22.3.20)', () => {
   })
 
   it('shows deactivated count when repos go missing', async () => {
-    mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === 'get_repo_connection_status') return [makeRow()]
-      if (cmd === 'rescan_workspace') return { added: [], deactivated: ['gone-repo'], unchanged: [] }
-      return null
-    })
+    setupRescan({ added: [], deactivated: ['gone-repo'], unchanged: [] })
     render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
     await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
     await waitFor(() => expect(screen.getByText(/No longer found: 1/i)).toBeInTheDocument())
+  })
+
+  it('shows error message when rescan_workspace throws (UX-C8)', async () => {
+    setupRescan(new Error('PL-SCAN-001: workspace not found'))
+    render(<RepositoriesBlock projectId="proj-1" isOwner={true} />)
+    await waitFor(() => fireEvent.click(screen.getByRole('button', { name: /Rescan workspace/i })))
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getByRole('alert').textContent).toContain('PL-SCAN-001')
+    })
   })
 })

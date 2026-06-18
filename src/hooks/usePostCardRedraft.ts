@@ -9,6 +9,7 @@ export function usePostCardRedraft(post: DraftPost) {
   const [redraftInstruction, setRedraftInstruction] = useState('');
   const [redraftQueued, setRedraftQueued] = useState(false);
   const [redraftError, setRedraftError] = useState<string | null>(null);
+  const [cancelRedraftError, setCancelRedraftError] = useState<string | null>(null);
 
   const handleQueueRedraft = useCallback(async () => {
     const ok = await confirm(`Queue for redraft with instruction: "${redraftInstruction.trim()}"?`, { title: 'Confirm redraft', kind: 'info' });
@@ -18,11 +19,12 @@ export function usePostCardRedraft(post: DraftPost) {
   }, [post, redraftInstruction]);
 
   const handleCancelRedraft = useCallback(async () => {
+    setCancelRedraftError(null);
     try { await invoke('cancel_redraft', { repoPath: post.repo_path }); setRedraftQueued(false); setRedraftInstruction(''); setRedraftError(null); }
-    catch (e) { console.error('cancel_redraft failed:', e); }
+    catch (e) { setCancelRedraftError(e instanceof Error ? e.message : String(e)); }
   }, [post]);
 
   const handleInstructionChange = useCallback((v: string) => { setRedraftInstruction(v); setRedraftQueued(false); setRedraftError(null); }, []);
 
-  return { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange };
+  return { redraftInstruction, redraftQueued, redraftError, cancelRedraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange };
 }

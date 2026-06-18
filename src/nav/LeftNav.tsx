@@ -36,7 +36,7 @@ function countOrgDrafts(drafts: DraftPost[], projectId: string): number {
 
 function AddOrgButton({ onClick }: { onClick?: () => void }) {
   return (
-    <button className="button is-small is-light" onClick={onClick}>+ Add workspace</button>
+    <button className="button is-small is-light" onClick={onClick}>+ New workspace</button>
   );
 }
 

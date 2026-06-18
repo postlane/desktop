@@ -13,6 +13,7 @@ export function usePostCardImage(post: DraftPost) {
   const [imageInput, setImageInput] = useState('');
   const [fetchingOg, setFetchingOg] = useState(false);
   const [ogFetchError, setOgFetchError] = useState<string | null>(null);
+  const [imageSaveError, setImageSaveError] = useState<string | null>(null);
 
   const openImageInput = useCallback(() => { setImageInput(imageUrl ?? ''); setAddingImage(true); setOgFetchError(null); }, [imageUrl]);
   const closeImageInput = useCallback(() => { setAddingImage(false); setImageInput(''); setOgFetchError(null); }, []);
@@ -34,15 +35,16 @@ export function usePostCardImage(post: DraftPost) {
     }
     try {
       await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: resolvedUrl });
-      setImageUrl(resolvedUrl); setAddingImage(false); setImageInput(''); setOgFetchError(null);
-    } catch (e) { console.error('update_post_image failed:', e); }
+      setImageUrl(resolvedUrl); setAddingImage(false); setImageInput(''); setOgFetchError(null); setImageSaveError(null);
+    } catch (e) { setImageSaveError(e instanceof Error ? e.message : String(e)); }
   }, [post]);
 
   const handleRemoveImage = useCallback(async () => {
+    setImageSaveError(null);
     try {
       await invoke('update_post_image', { repoPath: post.repo_path, postFolder: post.post_folder, imageUrl: null });
       setImageUrl(null);
-    } catch (e) { console.error('update_post_image failed:', e); }
+    } catch (e) { setImageSaveError(e instanceof Error ? e.message : String(e)); }
   }, [post]);
 
   const handleSelectUnsplash = useCallback(async (url: string, dl: string, attr: Attribution) => {
@@ -57,7 +59,7 @@ export function usePostCardImage(post: DraftPost) {
   }, [post]);
 
   return {
-    imageUrl, addingImage, imageInput, fetchingOg, ogFetchError,
+    imageUrl, addingImage, imageInput, fetchingOg, ogFetchError, imageSaveError,
     openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, handleSelectUnsplash,
     onInputChange: (v: string) => { setImageInput(v); setOgFetchError(null); },
   };

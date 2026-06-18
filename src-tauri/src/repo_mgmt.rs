@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
 
-pub fn record_repo_connected(state: &AppState, consent: bool, name: &str) {
-    state.telemetry.record(consent, "repo_connected", serde_json::json!({"name": name}));
+pub fn record_repo_connected(state: &AppState, consent: bool) {
+    state.telemetry.record(consent, "repo_connected", serde_json::json!({}));
 }
 
 pub fn add_repo_impl(path: &str, state: &AppState) -> Result<Repo, String> {
@@ -52,7 +52,7 @@ pub fn add_repo_impl(path: &str, state: &AppState) -> Result<Repo, String> {
         .map_err(|e| format!("Failed to write repos.json: {:?}", e))?;
 
     let consent = crate::app_state::read_app_state().telemetry_consent;
-    record_repo_connected(state, consent, &name);
+    record_repo_connected(state, consent);
     Ok(repo)
 }
 
@@ -275,15 +275,27 @@ mod tests {
     #[test]
     fn test_record_repo_connected_queues_when_consent_given() {
         let state = make_empty_state();
-        record_repo_connected(&state, true, "my-repo");
+        record_repo_connected(&state, true);
         assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
     }
 
     #[test]
     fn test_record_repo_connected_no_op_when_consent_not_given() {
         let state = make_empty_state();
-        record_repo_connected(&state, false, "my-repo");
+        record_repo_connected(&state, false);
         assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+    }
+
+    #[test]
+    fn test_record_repo_connected_does_not_include_repo_name() {
+        let state = make_empty_state();
+        record_repo_connected(&state, true);
+        let events = state.telemetry.peek_queue();
+        assert_eq!(events.len(), 1);
+        assert!(
+            events[0].properties.get("name").is_none(),
+            "repo name (PII) must not appear in telemetry payload"
+        );
     }
 
     fn make_repo(id: &str, active: bool, path: &str) -> crate::storage::Repo {

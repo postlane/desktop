@@ -257,10 +257,16 @@ fn test_safelist_validate_path_comes_from_registry() {
 #[test]
 fn test_scheduler_keyring_keys_covers_all_providers() {
     let keys = crate::workspace_disconnect::scheduler_keyring_keys("proj-abc");
-    assert!(keys.contains(&"zernio/proj-abc".to_string()), "must include zernio key");
-    assert!(keys.contains(&"upload_post/proj-abc".to_string()), "must include upload_post key");
-    assert!(keys.contains(&"ayrshare/proj-abc".to_string()), "must include ayrshare key");
-    assert_eq!(keys.len(), 3, "must cover exactly 3 scheduler providers");
+    for provider in crate::credential_store::SCHEDULER_PROVIDERS {
+        let expected = format!("{}/proj-abc", provider);
+        assert!(keys.contains(&expected), "missing key for provider: {}", provider);
+    }
+    assert_eq!(
+        keys.len(),
+        crate::credential_store::SCHEDULER_PROVIDERS.len(),
+        "must cover all {} scheduler providers",
+        crate::credential_store::SCHEDULER_PROVIDERS.len(),
+    );
 }
 
 #[test]

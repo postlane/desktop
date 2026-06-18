@@ -19,7 +19,7 @@ use crate::storage::{self, ReposConfig};
 /// Returns every scheduler-scoped keyring account key for `project_id`.
 /// All entries use the "postlane" service.
 fn scheduler_keyring_keys(project_id: &str) -> Vec<String> {
-    ["zernio", "upload_post", "ayrshare"]
+    crate::credential_store::SCHEDULER_PROVIDERS
         .iter()
         .map(|p| format!("{}/{}", p, project_id))
         .collect()

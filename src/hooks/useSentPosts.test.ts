@@ -111,3 +111,20 @@ describe('useSentPosts — refresh and reactivity', () => {
     expect(result.current.error).toBeNull()
   })
 })
+
+describe('useSentPosts — null/non-array IPC result (HIGH-7)', () => {
+  it('treats null response as empty array without crashing', async () => {
+    mockInvoke.mockResolvedValueOnce(null)
+    const { result } = renderHook(() => useSentPosts('proj-1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.posts).toEqual([])
+    expect(result.current.error).toBeNull()
+  })
+
+  it('treats non-array response as empty array without crashing', async () => {
+    mockInvoke.mockResolvedValueOnce({ unexpected: true })
+    const { result } = renderHook(() => useSentPosts('proj-1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.posts).toEqual([])
+  })
+})

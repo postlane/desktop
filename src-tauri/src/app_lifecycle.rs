@@ -238,6 +238,8 @@ pub fn spawn_license_revalidation(app_handle: tauri::AppHandle) {
             {
                 Ok(crate::license::validator::LicenseState::Expired) => {
                     log::warn!("[revalidation] license expired");
+                    let state: tauri::State<AppState> = app_handle.state();
+                    state.license_expired.store(true, std::sync::atomic::Ordering::Relaxed);
                     let _ = app_handle.emit("license:expired", serde_json::json!({}));
                 }
                 Ok(_) => {}

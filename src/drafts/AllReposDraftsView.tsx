@@ -12,6 +12,8 @@ import { useConnectedPlatforms } from '../hooks/useConnectedPlatforms';
 interface Props {
   postWizardNudge: boolean;
   onNudgeDismissed: () => void;
+  /** False when the project billing gate is inactive. Defaults to true. */
+  billingActive?: boolean;
 }
 
 interface RepoGroup {
@@ -96,12 +98,13 @@ interface ApproveAllDialogProps {
   open: boolean;
   readyCount: number;
   running: boolean;
+  billingActive: boolean;
   results: Map<string, 'ok' | 'error'>;
   onClose: () => void;
   onConfirm: () => void;
 }
 
-function ApproveAllDialog({ open, readyCount, running, results, onClose, onConfirm }: ApproveAllDialogProps) {
+function ApproveAllDialog({ open, readyCount, running, billingActive, results, onClose, onConfirm }: ApproveAllDialogProps) {
   if (!open) return null;
   return (
     <div className="modal is-active">
@@ -112,6 +115,11 @@ function ApproveAllDialog({ open, readyCount, running, results, onClose, onConfi
           <button className="delete" onClick={onClose} aria-label="Close" />
         </header>
         <section className="modal-card-body">
+          {!billingActive && (
+            <p className="is-size-7 has-text-danger mb-3">
+              Billing inactive — update payment at postlane.dev/billing
+            </p>
+          )}
           <p className="is-size-7 has-text-grey mb-3">Send {readyCount} post{readyCount !== 1 ? 's' : ''} to your scheduler?</p>
           {results.size > 0 && (
             <ul>
@@ -126,7 +134,7 @@ function ApproveAllDialog({ open, readyCount, running, results, onClose, onConfi
         </section>
         <footer className="modal-card-foot is-justify-content-flex-end" style={{ gap: '0.5rem' }}>
           <button className="button is-ghost" onClick={onClose}>Cancel</button>
-          <button className="button is-success" onClick={onConfirm} disabled={running}>{running ? 'Sending…' : 'Confirm'}</button>
+          <button className="button is-success" onClick={onConfirm} disabled={running || !billingActive}>{running ? 'Sending…' : 'Confirm'}</button>
         </footer>
       </div>
     </div>
@@ -171,38 +179,39 @@ function useHasUnsplashKey() {
   return hasUnsplashKey;
 }
 
-export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }: Props) {
-  const { posts, loading, error, refresh } = useAllReposDrafts();
-  const hasUnsplashKey = useHasUnsplashKey();
-  const connectedPlatformsByRepo = useConnectedPlatforms(useMemo(() => [...new Set(posts.map((p) => p.repo_id))], [posts]));
-  const [approveAllOpen, setApproveAllOpen] = useState(false);
-  const [approveAllResults, setApproveAllResults] = useState<Map<string, 'ok' | 'error'>>(new Map());
-  const [approveAllRunning, setApproveAllRunning] = useState(false);
+function useApproveAll(posts: DraftPost[], billingActive: boolean, refresh: () => Promise<void>) {
+  const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<Map<string, 'ok' | 'error'>>(new Map());
+  const [running, setRunning] = useState(false);
   const postsRef = useRef(posts);
   postsRef.current = posts;
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && postsRef.current.filter((p) => p.status === 'ready').length >= 2) { e.preventDefault(); setApproveAllOpen(true); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && postsRef.current.filter((p) => p.status === 'ready').length >= 2) { e.preventDefault(); setOpen(true); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
-
-  async function handleApproveAll() {
-    setApproveAllRunning(true);
+  async function handleConfirm() {
+    if (!billingActive) { setOpen(false); return; }
+    setRunning(true);
     for (const post of posts.filter((p) => p.status === 'ready')) {
       try {
         await invoke('approve_post', { repoPath: post.repo_path, postFolder: post.post_folder, platform: post.platform ?? '' });
-        setApproveAllResults((prev) => new Map(prev).set(post.post_folder, 'ok'));
-      } catch { setApproveAllResults((prev) => new Map(prev).set(post.post_folder, 'error')); }
+        setResults((prev) => new Map(prev).set(post.post_folder, 'ok'));
+      } catch { setResults((prev) => new Map(prev).set(post.post_folder, 'error')); }
     }
-    setApproveAllRunning(false);
-    setApproveAllOpen(false);
-    setApproveAllResults(new Map());
+    setRunning(false); setOpen(false); setResults(new Map());
     await refresh();
   }
+  return { open, setOpen, results, running, handleConfirm };
+}
 
+export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed, billingActive = true }: Props) {
+  const { posts, loading, error, refresh } = useAllReposDrafts();
+  const hasUnsplashKey = useHasUnsplashKey();
+  const connectedPlatformsByRepo = useConnectedPlatforms(useMemo(() => [...new Set(posts.map((p) => p.repo_id))], [posts]));
+  const approveAll = useApproveAll(posts, billingActive, refresh);
   const readyCount = posts.filter((p) => p.status === 'ready').length;
 
   if (postWizardNudge) return <WizardNudge onDismiss={onNudgeDismissed} />;
@@ -218,7 +227,7 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
     <>
       <div className="is-flex is-align-items-center is-justify-content-space-between px-5 py-4" style={{ borderBottom: '1px solid var(--bulma-border-weak)' }}>
         <h1 className="has-text-weight-semibold">All repos — Drafts</h1>
-        {readyCount >= 2 && <button className="button is-success is-small" onClick={() => setApproveAllOpen(true)}>Approve all ready ({readyCount})</button>}
+        {readyCount >= 2 && <button className="button is-success is-small" onClick={() => approveAll.setOpen(true)}>Approve all ready ({readyCount})</button>}
       </div>
       <div className="p-5" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {groupAndSort(posts).map((group) => (
@@ -232,7 +241,7 @@ export default function AllReposDraftsView({ postWizardNudge, onNudgeDismissed }
           </section>
         ))}
       </div>
-      <ApproveAllDialog open={approveAllOpen} readyCount={readyCount} running={approveAllRunning} results={approveAllResults} onClose={() => setApproveAllOpen(false)} onConfirm={handleApproveAll} />
+      <ApproveAllDialog open={approveAll.open} readyCount={readyCount} running={approveAll.running} billingActive={billingActive} results={approveAll.results} onClose={() => approveAll.setOpen(false)} onConfirm={approveAll.handleConfirm} />
     </>
   );
 }
