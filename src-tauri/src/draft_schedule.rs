@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
+use crate::platform_constants::POST_META_SYNC_LOCKS;
+use std::sync::Arc;
+
 pub use crate::schedule_time::compute_schedule_utc;
 
 /// Production entry point: reads app state from disk and uses the current time.
@@ -28,6 +31,21 @@ pub(crate) fn pre_populate_with_version_lookup(
     now: chrono::DateTime<chrono::Utc>,
     lookup_fn: impl Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
+    // Serialise concurrent watcher events for the same (repo, post_folder) pair so that
+    // simultaneous file-change callbacks don't interleave their read-modify-write cycles.
+    let post_dir = meta_path.parent().ok_or("meta_path has no parent directory")?;
+    let folder_name = post_dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+    // post_dir is {repo}/.postlane/posts/{folder}/ → 3 parents up is {repo}/
+    let repo_root = post_dir.parent().and_then(|p| p.parent()).and_then(|p| p.parent())
+        .ok_or("meta.json is not in .postlane/posts/{folder}/ structure")?;
+    let canonical_root = std::fs::canonicalize(repo_root)
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+    let lock_key = format!("{}\x00{}", canonical_root.to_str().unwrap_or(""), folder_name);
+    let lock = POST_META_SYNC_LOCKS
+        .entry(lock_key)
+        .or_insert_with(|| Arc::new(std::sync::Mutex::new(())))
+        .clone();
+    let _guard = lock.lock().map_err(|e| format!("post meta sync lock poisoned: {}", e))?;
     let mut meta = crate::post_mutations::read_post_meta(meta_path)?;
     let mut dirty = false;
 
@@ -324,6 +342,57 @@ mod tests {
             "lookup must not be called when voice_guide_version is already set");
         let meta = crate::post_mutations::read_post_meta(&meta_path).unwrap();
         assert_eq!(meta.voice_guide_version.as_deref(), Some("already-set"));
+    }
+
+    #[test]
+    fn test_pre_populate_acquires_post_meta_sync_lock() {
+        use crate::platform_constants::POST_META_SYNC_LOCKS;
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        // meta.json must sit at {base}/.postlane/posts/{folder}/meta.json
+        let base = tempfile::TempDir::new().expect("create temp dir");
+        let post_dir = base.path().join(".postlane/posts/lock-schedule");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        fs::write(post_dir.join("meta.json"), r#"{"status":"ready","platforms":["x"]}"#)
+            .expect("write meta");
+        let meta_path = post_dir.join("meta.json");
+
+        // Derive lock key the same way the implementation will
+        let canonical_base = fs::canonicalize(base.path()).expect("canonicalize");
+        let lock_key = format!("{}\x00{}", canonical_base.to_str().unwrap(), "lock-schedule");
+
+        // Pre-acquire the lock
+        let lock = POST_META_SYNC_LOCKS
+            .entry(lock_key)
+            .or_insert_with(|| Arc::new(std::sync::Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().expect("acquire lock");
+
+        // Spawn a thread that calls pre_populate_with_version_lookup — must block
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let meta_path_clone = meta_path.clone();
+        let state = state_with_dpt(9, 0, "UTC");
+        std::thread::spawn(move || {
+            let result = pre_populate_with_version_lookup(
+                &meta_path_clone, &state, utc(2026, 5, 5, 8, 0), |_| None,
+            );
+            let _ = tx.send(result);
+        });
+
+        // Give thread time to start and attempt lock acquisition
+        std::thread::sleep(Duration::from_millis(50));
+
+        assert!(
+            rx.try_recv().is_err(),
+            "pre_populate_with_version_lookup must block while POST_META_SYNC_LOCKS is held"
+        );
+
+        // Release lock — thread should now complete
+        drop(_guard);
+        let result = rx.recv_timeout(Duration::from_secs(5))
+            .expect("pre_populate did not complete after lock released");
+        assert!(result.is_ok(), "pre_populate must succeed after acquiring lock: {:?}", result);
     }
 
     #[test]

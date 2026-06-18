@@ -23,26 +23,34 @@ impl WebhookProvider {
     }
 
     /// Validate the webhook URL: must use `https://` and must not target private/loopback
-    /// addresses (Security Rules 4 and 5). Loopback is allowed in test builds only.
-    fn validate_url(url: &str) -> Result<(), ProviderError> {
+    /// addresses (Security Rules 4 and 5). Performs async DNS resolution to catch hostnames
+    /// that resolve to private IPs (string-only checks are insufficient).
+    /// Loopback is allowed in test builds so httpmock servers work.
+    async fn validate_url(url: &str) -> Result<(), ProviderError> {
         #[cfg(test)]
         if url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost") {
             return Ok(());
         }
-        if !url.starts_with("https://") {
-            return Err(ProviderError::InvalidInstance(
-                "Webhook URL must use https://".to_string(),
-            ));
+        let url_owned = url.to_string();
+        tokio::task::spawn_blocking(move || {
+            crate::ssrf_validation::validate_ssrf_url(&url_owned)
+        })
+        .await
+        .map_err(|e| ProviderError::InvalidInstance(format!("SSRF check failed: {}", e)))?
+        .map_err(ProviderError::InvalidInstance)
+    }
+
+    /// Test-only variant that accepts a custom resolver so DNS is not needed in unit tests.
+    #[cfg(test)]
+    fn validate_url_sync_with_resolver(
+        url: &str,
+        resolver: fn(&str) -> Result<Vec<std::net::IpAddr>, String>,
+    ) -> Result<(), ProviderError> {
+        if url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost") {
+            return Ok(());
         }
-        let parsed = url::Url::parse(url)
-            .map_err(|_| ProviderError::InvalidInstance("Webhook URL is not a valid URL.".to_string()))?;
-        let host = parsed.host_str().unwrap_or("");
-        if crate::ssrf_validation::is_private_host_str(host) {
-            return Err(ProviderError::InvalidInstance(
-                "Webhook URL must not target a private or loopback address.".to_string(),
-            ));
-        }
-        Ok(())
+        crate::ssrf_validation::validate_ssrf_url_with_resolver(url, resolver)
+            .map_err(ProviderError::InvalidInstance)
     }
 
     /// Check HTTP status and return appropriate `ProviderError`.
@@ -69,7 +77,7 @@ impl SchedulingProvider for WebhookProvider {
         _image_url: Option<&str>,
         profile_id: Option<&str>,
     ) -> Result<PostScheduleResult, ProviderError> {
-        Self::validate_url(&self.webhook_url)?;
+        Self::validate_url(&self.webhook_url).await?;
         let payload = serde_json::json!({
             "content": content,
             "platform": platform,
@@ -105,7 +113,7 @@ impl SchedulingProvider for WebhookProvider {
     }
 
     async fn test_connection(&self) -> Result<(), ProviderError> {
-        Self::validate_url(&self.webhook_url)?;
+        Self::validate_url(&self.webhook_url).await?;
         let payload = serde_json::json!({ "test": true, "source": "postlane" });
         let response = self.client.post(&self.webhook_url)
             .json(&payload)
@@ -220,6 +228,35 @@ mod tests {
         let provider = WebhookProvider::new(url);
         let result = provider.test_connection().await;
         assert!(matches!(result, Err(ProviderError::AuthError(_))), "{:?}", result);
+    }
+
+    #[test]
+    fn test_validate_url_rejects_hostname_resolving_to_private_ip() {
+        // A hostname that is NOT a literal private IP string but whose DNS resolves to one.
+        // validate_url_sync_with_resolver injects the resolver so we control what "DNS" returns.
+        fn evil_resolver(_host: &str) -> Result<Vec<std::net::IpAddr>, String> {
+            Ok(vec!["10.0.0.1".parse().unwrap()])
+        }
+        let result = WebhookProvider::validate_url_sync_with_resolver(
+            "https://attacker.example.com/hook",
+            evil_resolver,
+        );
+        assert!(
+            matches!(result, Err(ProviderError::InvalidInstance(_))),
+            "must reject URL whose hostname resolves to a private IP, got {:?}", result,
+        );
+    }
+
+    #[test]
+    fn test_validate_url_accepts_public_hostname() {
+        fn public_resolver(_host: &str) -> Result<Vec<std::net::IpAddr>, String> {
+            Ok(vec!["93.184.216.34".parse().unwrap()])
+        }
+        let result = WebhookProvider::validate_url_sync_with_resolver(
+            "https://hooks.zapier.com/hooks/catch/123",
+            public_resolver,
+        );
+        assert!(result.is_ok(), "must accept URL that resolves to a public IP: {:?}", result);
     }
 
     #[test]

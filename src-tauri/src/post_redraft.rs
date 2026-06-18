@@ -37,10 +37,20 @@ pub fn queue_redraft_impl(
     }
 
     let postlane_dir = canonical_path.join(".postlane");
-    fs::create_dir_all(&postlane_dir).map_err(|e| {
+    write_pending_redraft_file(&postlane_dir, post_folder, instruction)
+}
+
+/// Creates `.postlane/` and atomically writes `pending-redraft.json` inside it.
+/// Returns an error if a pending redraft file already exists — callers must cancel first.
+fn write_pending_redraft_file(
+    postlane_dir: &std::path::Path,
+    post_folder: &str,
+    instruction: &str,
+) -> Result<(), String> {
+    fs::create_dir_all(postlane_dir).map_err(|e| {
         format!(
             "Failed to create .postlane directory in {}: {}",
-            canonical_path.display(),
+            postlane_dir.display(),
             e
         )
     })?;
@@ -347,6 +357,25 @@ mod tests {
         assert!(result.is_err(), "must Err for existing but unregistered path");
         let err = result.unwrap_err();
         assert!(err.contains("403"), "error must contain 403, got: {}", err);
+    }
+
+    #[test]
+    fn test_write_pending_redraft_file_creates_json_with_all_fields() {
+        // Directly exercise the extracted helper before it is implemented — RED.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let postlane_dir = dir.path().join(".postlane");
+        fs::create_dir_all(&postlane_dir).expect("create .postlane");
+
+        let result = write_pending_redraft_file(&postlane_dir, "my-post-folder", "rewrite it");
+        assert!(result.is_ok(), "expected Ok: {:?}", result);
+
+        let path = postlane_dir.join("pending-redraft.json");
+        assert!(path.exists(), "pending-redraft.json must be created");
+        let content = fs::read_to_string(&path).expect("read file");
+        let parsed: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
+        assert_eq!(parsed["post_folder"].as_str(), Some("my-post-folder"));
+        assert_eq!(parsed["instruction"].as_str(), Some("rewrite it"));
+        assert!(parsed["queued_at"].as_str().is_some(), "queued_at must be present");
     }
 
     #[test]

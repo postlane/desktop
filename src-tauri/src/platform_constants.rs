@@ -23,6 +23,13 @@ pub use crate::scheduler_credentials::VALID_PROVIDERS;
 pub static POST_META_LOCKS: LazyLock<DashMap<String, Arc<tokio::sync::Mutex<()>>>> =
     LazyLock::new(DashMap::new);
 
+/// Per-post-folder lock map for synchronous (non-async) read-mutate-write operations on meta.json.
+/// Used by callers running on non-tokio threads (e.g. file-watcher callbacks) that cannot
+/// hold a tokio::sync::Mutex across an await point.
+/// Keyed identically to POST_META_LOCKS so the two maps guard the same resources.
+pub static POST_META_SYNC_LOCKS: LazyLock<DashMap<String, Arc<Mutex<()>>>> =
+    LazyLock::new(DashMap::new);
+
 /// Per-config-path lock map for synchronous read-mutate-write operations on config.json.
 /// Keyed by the canonical path string. Prevents account_id and account_name writers from
 /// interleaving their read-modify-write cycles and clobbering each other.
