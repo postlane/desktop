@@ -9,7 +9,7 @@ export const CHAR_LIMITS: Record<string, number> = {
   bluesky: 300,
   mastodon: 500,
   linkedin: 3000,
-  substack_notes: 280,
+  substack_notes: 300,
   substack: 0,
   product_hunt: 260,
   show_hn: 0,

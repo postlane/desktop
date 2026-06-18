@@ -84,7 +84,7 @@ function ViewToggle({ mobileView, onChange }: { mobileView: boolean; onChange: (
   );
 }
 
-function PostCardErrors({ contentLoadError, attributionEnabled, approveError, saveError, retryError }: { contentLoadError: string | null; attributionEnabled: boolean; approveError: string | null; saveError: string | null; retryError: string | null }) {
+function PostCardErrors({ contentLoadError, attributionEnabled, approveError, saveError, retryError, dismissError, imageSaveError }: { contentLoadError: string | null; attributionEnabled: boolean; approveError: string | null; saveError: string | null; retryError: string | null; dismissError: string | null; imageSaveError: string | null }) {
   return (
     <>
       {contentLoadError && <p className="has-text-danger is-size-7 mt-2">{contentLoadError}</p>}
@@ -92,12 +92,14 @@ function PostCardErrors({ contentLoadError, attributionEnabled, approveError, sa
       {approveError && <p className="has-text-danger is-size-7 mt-2">{approveError}</p>}
       {saveError && <p className="has-text-danger is-size-7 mt-2">{saveError}</p>}
       {retryError && <p className="has-text-danger is-size-7 mt-2">{retryError}</p>}
+      {dismissError && <p role="alert" className="has-text-danger is-size-7 mt-2">{dismissError}</p>}
+      {imageSaveError && <p role="alert" className="has-text-danger is-size-7 mt-2">{imageSaveError}</p>}
     </>
   );
 }
 
 
-function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError, onInstructionChange, onQueue, onCancel }: { post: DraftPost; redraftInstruction: string; redraftQueued: boolean; redraftError: string | null; onInstructionChange: (_v: string) => void; onQueue: () => void; onCancel: () => void }) {
+function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError, cancelRedraftError, onInstructionChange, onQueue, onCancel }: { post: DraftPost; redraftInstruction: string; redraftQueued: boolean; redraftError: string | null; cancelRedraftError: string | null; onInstructionChange: (_v: string) => void; onQueue: () => void; onCancel: () => void }) {
   return (
     <div className="mt-4" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
       <div className="is-flex is-align-items-center" style={{ gap: '0.5rem' }}>
@@ -105,6 +107,7 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
         <button className="button is-outlined is-small" disabled={!redraftInstruction.trim()} onClick={onQueue}>Queue for redraft</button>
       </div>
       {redraftError && <p className="has-text-danger is-size-7 mt-2">{redraftError}</p>}
+      {cancelRedraftError && <p role="alert" className="has-text-danger is-size-7 mt-2">{cancelRedraftError}</p>}
       {redraftQueued && <p className="has-text-grey is-size-7 mt-2">Queued for redraft — open your IDE and run <code>/redraft-post</code>.</p>}
       {redraftQueued && <button type="button" onClick={onCancel} className="button is-ghost is-small">Cancel redraft</button>}
       <span data-post-folder={post.post_folder} style={{ display: 'none' }} />
@@ -112,13 +115,13 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
   );
 }
 
-function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, schedule, hasUnsplashKey: _hasUnsplashKey, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; schedule: string | null; hasUnsplashKey?: boolean; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
+function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, dismissError, schedule, hasUnsplashKey: _hasUnsplashKey, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; dismissError: string | null; schedule: string | null; hasUnsplashKey?: boolean; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError,
+  const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError, imageSaveError,
     openImageInput, closeImageInput, handleSaveImage, handleRemoveImage, handleSelectUnsplash, onInputChange } = usePostCardImage(post);
   const { postContent, setPostContent, contentLoadError, attributionEnabled } = usePostCardContent(post, activeTab);
-  const { redraftInstruction, redraftQueued, redraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
+  const { redraftInstruction, redraftQueued, redraftError, cancelRedraftError, handleQueueRedraft, handleCancelRedraft, handleInstructionChange } = usePostCardRedraft(post);
   const mastodonCharLimit = useMastodonCharLimit(activeTab);
   const approveLabel = isFailed ? (retrying ? 'Retrying…' : 'Retry') : (approving ? 'Approving…' : 'Approve');
 
@@ -157,8 +160,8 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
         </p>
       )}
       <ScheduleRow repoPath={post.repo_path} postFolder={post.post_folder} schedule={schedule} onScheduleChange={onScheduleChange} />
-      <PostCardErrors contentLoadError={contentLoadError} attributionEnabled={attributionEnabled} approveError={approveError} saveError={saveError} retryError={retryError} />
-      <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} redraftError={redraftError} onInstructionChange={handleInstructionChange} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
+      <PostCardErrors contentLoadError={contentLoadError} attributionEnabled={attributionEnabled} approveError={approveError} saveError={saveError} retryError={retryError} dismissError={dismissError} imageSaveError={imageSaveError} />
+      <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} redraftError={redraftError} cancelRedraftError={cancelRedraftError} onInstructionChange={handleInstructionChange} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
     </div>
   );
 }
@@ -207,7 +210,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
   const [localSchedule, setLocalSchedule] = useState<string | null>(post.schedule ?? null);
   const platforms = platformsOnPost(post);
-  const { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
+  const { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, dismissError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
   const handleKeyDown = usePostCardKeyboard(isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded);
 
   return (
@@ -235,7 +238,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (
-        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} schedule={localSchedule} hasUnsplashKey={hasUnsplashKey} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
+        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} dismissError={dismissError} schedule={localSchedule} hasUnsplashKey={hasUnsplashKey} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
       )}
     </article>
   );

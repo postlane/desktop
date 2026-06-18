@@ -45,6 +45,7 @@ pub fn update_post_content_impl(
     post_folder: &str,
     platform: &str,
     new_content: &str,
+    state: &AppState,
 ) -> Result<(), String> {
     if !VALID_PLATFORMS.contains(&platform) {
         return Err(format!(
@@ -59,6 +60,9 @@ pub fn update_post_content_impl(
             "Invalid post folder: must not contain path separators or '..'".to_string(),
         );
     }
+
+    validate_repo_path(repo_path, state)
+        .map_err(|e| format!("Repo path not registered: {}", e))?;
 
     let file_path = PathBuf::from(repo_path)
         .join(".postlane/posts")
@@ -84,8 +88,9 @@ pub fn update_post_content(
     post_folder: String,
     platform: String,
     new_content: String,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    update_post_content_impl(&repo_path, &post_folder, &platform, &new_content)
+    update_post_content_impl(&repo_path, &post_folder, &platform, &new_content, &state)
 }
 
 pub fn update_post_image_impl(
@@ -207,11 +212,14 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let post_dir = dir.path().join(".postlane/posts/my-post");
         fs::create_dir_all(&post_dir).expect("create post dir");
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
+        let state = make_state(vec![make_repo("r1", canonical.to_str().unwrap())]);
         let result = update_post_content_impl(
-            dir.path().to_str().expect("valid path"),
+            canonical.to_str().expect("valid path"),
             "my-post",
             "x",
             "hello world",
+            &state,
         );
         assert!(result.is_ok(), "write should succeed: {:?}", result);
         let written = fs::read_to_string(post_dir.join("x.md")).expect("x.md must exist");
@@ -326,23 +334,65 @@ mod tests {
         assert!(!legacy.exists(), "must NOT write to legacy child path");
     }
 
+    // --- update_post_content_impl: repo registration check ---
+
+    #[test]
+    fn test_update_content_rejects_unregistered_repo_path() {
+        let state = make_state(vec![]); // no repos registered
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let post_dir = dir.path().join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        let result = update_post_content_impl(
+            dir.path().to_str().unwrap(),
+            "my-post",
+            "x",
+            "content",
+            &state,
+        );
+        assert!(result.is_err(), "unregistered repo path must be rejected");
+    }
+
+    #[test]
+    fn test_update_content_accepts_registered_repo_path() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let post_dir = dir.path().join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_dir).expect("create post dir");
+        let canonical = fs::canonicalize(dir.path()).expect("canonicalize");
+        let state = make_state(vec![make_repo("r1", canonical.to_str().unwrap())]);
+        let result = update_post_content_impl(
+            canonical.to_str().unwrap(),
+            "my-post",
+            "x",
+            "content",
+            &state,
+        );
+        // May fail on folder-not-found, but must NOT fail on registration check.
+        if let Err(e) = &result {
+            assert!(!e.to_lowercase().contains("unregistered") && !e.to_lowercase().contains("not registered"),
+                "registered repo must not fail registration check, got: {}", e);
+        }
+    }
+
     // --- update_post_content_impl: path traversal ---
 
     #[test]
     fn test_update_content_rejects_slash_in_folder() {
-        let result = update_post_content_impl("/repo", "sub/folder", "x", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "sub/folder", "x", "content", &state);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_update_content_rejects_dotdot_in_folder() {
-        let result = update_post_content_impl("/repo", "../escape", "x", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "../escape", "x", "content", &state);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_update_content_rejects_invalid_platform() {
-        let result = update_post_content_impl("/repo", "valid-folder", "instagram", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "instagram", "content", &state);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid platform"));
     }
@@ -403,7 +453,8 @@ mod tests {
 
     #[test]
     fn test_update_content_accepts_linkedin() {
-        let result = update_post_content_impl("/repo", "valid-folder", "linkedin", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "linkedin", "content", &state);
         // Should not fail with "Invalid platform"
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "linkedin should be valid, got: {}", e);
@@ -412,7 +463,8 @@ mod tests {
 
     #[test]
     fn test_update_content_accepts_substack() {
-        let result = update_post_content_impl("/repo", "valid-folder", "substack", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "substack", "content", &state);
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "substack should be valid, got: {}", e);
         }
@@ -420,7 +472,8 @@ mod tests {
 
     #[test]
     fn test_update_content_accepts_product_hunt() {
-        let result = update_post_content_impl("/repo", "valid-folder", "product_hunt", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "product_hunt", "content", &state);
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "product_hunt should be valid, got: {}", e);
         }
@@ -428,7 +481,8 @@ mod tests {
 
     #[test]
     fn test_update_content_accepts_show_hn() {
-        let result = update_post_content_impl("/repo", "valid-folder", "show_hn", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "show_hn", "content", &state);
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "show_hn should be valid, got: {}", e);
         }
@@ -436,7 +490,8 @@ mod tests {
 
     #[test]
     fn test_update_content_accepts_changelog() {
-        let result = update_post_content_impl("/repo", "valid-folder", "changelog", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "changelog", "content", &state);
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "changelog should be valid, got: {}", e);
         }
@@ -444,7 +499,8 @@ mod tests {
 
     #[test]
     fn test_update_content_accepts_substack_notes() {
-        let result = update_post_content_impl("/repo", "valid-folder", "substack_notes", "content");
+        let state = make_state(vec![]);
+        let result = update_post_content_impl("/repo", "valid-folder", "substack_notes", "content", &state);
         if let Err(e) = &result {
             assert!(!e.contains("Invalid platform"), "substack_notes should be valid, got: {}", e);
         }

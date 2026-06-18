@@ -663,6 +663,47 @@ use std::path::Path;
         );
     }
 
+    // --- §license_check (FIN-C1) ---
+
+    /// approve_post must return Err when the license has been marked expired by the
+    /// revalidation loop. A cancelled subscriber must not be able to approve posts
+    /// after the 24-hour loop fires.
+    #[tokio::test]
+    async fn test_approve_post_blocked_when_license_expired() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-expired-license");
+        let state = make_state(&canonical_str);
+        state.license_expired.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let result = approve_post_impl(&canonical_str, "post-expired-license", "x", &state, None, false).await;
+
+        assert!(result.is_err(), "approval must be blocked when license is expired");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.to_lowercase().contains("license"),
+            "error must mention license, got: {}",
+            msg
+        );
+    }
+
+    /// approve_post must proceed normally when the license has not been marked expired.
+    /// This is the default state — all existing tests implicitly rely on this.
+    #[tokio::test]
+    async fn test_approve_post_proceeds_when_license_not_expired() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let canonical = std::fs::canonicalize(dir.path()).expect("canonicalize");
+        let canonical_str = canonical.to_str().unwrap().to_string();
+        write_post(&canonical, "post-valid-license");
+        let state = make_state(&canonical_str);
+        // license_expired defaults to false — no action needed
+
+        let result = approve_post_impl(&canonical_str, "post-valid-license", "x", &state, None, false).await;
+
+        assert!(result.is_ok(), "approval must proceed when license is not expired: {:?}", result);
+    }
+
     // --- §post_folder_missing ---
 
     /// When the repo is registered but the post folder does not exist on disk, approve_post

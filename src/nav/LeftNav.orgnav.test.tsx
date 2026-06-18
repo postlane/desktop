@@ -294,14 +294,14 @@ describe('LeftNav — empty and error states', () => {
     expect(screen.getByText(/no workspaces/i)).toBeInTheDocument()
   })
 
-  it('shows Add workspace button in empty state', () => {
+  it('shows New workspace button in empty state', () => {
     renderNav()
-    expect(screen.getByRole('button', { name: /add.*workspace/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new workspace/i })).toBeInTheDocument()
   })
 
-  it('Add workspace button is enabled', () => {
+  it('New workspace button is enabled', () => {
     renderNav()
-    expect(screen.getByRole('button', { name: /add.*workspace/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /new workspace/i })).not.toBeDisabled()
   })
 
   it('shows load error when projects.error is set', () => {

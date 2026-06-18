@@ -196,9 +196,12 @@ pub fn wipe_postlane_files(postlane_dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("PL-DEL-004: failed to wipe repos.json: {:?}", e))?;
 
     // Steps 7–8: delete state files (silently ignore if absent).
+    // license_cache.json / analytics_cache.json / analytics_sites.json contain PII
+    // (user email, display name, per-repo site tokens) and must be erased on account deletion.
     for name in &[
         "session.token", "local.token", "port",
         "wizard_state.json", "app_state.json",
+        "license_cache.json", "analytics_cache.json", "analytics_sites.json",
     ] {
         let p = postlane_dir.join(name);
         if p.exists() {

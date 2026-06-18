@@ -24,7 +24,7 @@ export function useSentPosts(projectId: string): SentPostsState {
     invoke<PublishedPost[]>('get_org_published', { projectId })
       .then((data) => {
         if (seqRef.current !== seq) return;
-        setPosts(data);
+        setPosts(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch((e: unknown) => {

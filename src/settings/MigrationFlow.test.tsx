@@ -117,6 +117,57 @@ describe('MigrationFlow — no workspace', () => {
   });
 });
 
+// ── UX-C6: migration errors show real message, not "No workspace" ────────────
+
+describe('MigrationFlow — migration error', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_workspace_path') return Promise.resolve(WS_PATH);
+      if (cmd === 'get_migration_conflicts') return Promise.resolve([]);
+      if (cmd === 'start_workspace_migration') return Promise.reject(new Error('PL-MIG-002: disk full'));
+      return Promise.resolve(null);
+    });
+  });
+
+  it('shows actual error message when migration fails', async () => {
+    render(<MigrationFlow projectId="proj-abc" onDone={vi.fn()} />);
+    const btn = await screen.findByRole('button', { name: /confirm and migrate/i });
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(screen.queryByText(/no workspace/i)).toBeNull();
+      expect(screen.getByRole('alert')).toBeDefined();
+    });
+  });
+});
+
+describe('MigrationFlow — retry error', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_workspace_path') return Promise.resolve(WS_PATH);
+      if (cmd === 'get_migration_conflicts') return Promise.resolve([]);
+      if (cmd === 'start_workspace_migration') return Promise.resolve({
+        results: [{ repo_path: '/repo', repo_name: 'repo', status: { tag: 'verification_failed', error: 'PL-MIG-001' } }],
+      });
+      if (cmd === 'retry_workspace_migration') return Promise.reject(new Error('PL-MIG-003: permission denied'));
+      return Promise.resolve(null);
+    });
+  });
+
+  it('shows actual error message when retry fails', async () => {
+    render(<MigrationFlow projectId="proj-abc" onDone={vi.fn()} />);
+    const confirmBtn = await screen.findByRole('button', { name: /confirm and migrate/i });
+    fireEvent.click(confirmBtn);
+    const retryBtn = await screen.findByRole('button', { name: /retry/i });
+    fireEvent.click(retryBtn);
+    await waitFor(() => {
+      expect(screen.queryByText(/no workspace/i)).toBeNull();
+      expect(screen.getByRole('alert')).toBeDefined();
+    });
+  });
+});
+
 // ── retry ─────────────────────────────────────────────────────────────────────
 
 describe('MigrationFlow — retry', () => {

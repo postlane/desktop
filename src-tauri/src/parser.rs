@@ -3,6 +3,7 @@
 use crate::types::PostMeta;
 use regex::Regex;
 use std::path::Path;
+use unicode_segmentation::UnicodeSegmentation;
 use std::sync::OnceLock;
 
 #[derive(Debug, PartialEq)]
@@ -74,8 +75,8 @@ pub fn count_chars(content: &str, platform: &str) -> usize {
             result.chars().count()
         }
         "bluesky" => {
-            // Bluesky counts full URL length
-            content.chars().count()
+            // AT Protocol counts Unicode grapheme clusters, not scalar values.
+            content.graphemes(true).count()
         }
         "linkedin" | "substack_notes" => count_linkedin_chars(content),
         _ => content.chars().count(),
@@ -158,6 +159,19 @@ mod tests {
     fn test_bluesky_url_counting() {
         let content = "Check out https://example.com/very/long/url/here";
         assert_eq!(count_chars(content, "bluesky"), content.chars().count());
+    }
+
+    #[test]
+    fn test_bluesky_counts_zwj_family_emoji_as_one_grapheme() {
+        // Family emoji: 👩‍👩‍👧‍👦 is 1 grapheme cluster but 7 Unicode scalar values.
+        // Bluesky counts grapheme clusters per the AT Protocol spec.
+        let family = "👩‍👩‍👧‍👦";
+        assert_eq!(
+            count_chars(family, "bluesky"), 1,
+            "family ZWJ sequence must count as 1 grapheme"
+        );
+        let with_text = format!("Hi {}", family);
+        assert_eq!(count_chars(&with_text, "bluesky"), 4, "Hi + space + 1 grapheme = 4");
     }
 
     #[test]

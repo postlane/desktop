@@ -9,7 +9,7 @@ describe('CHAR_LIMITS', () => {
     expect(CHAR_LIMITS['bluesky']).toBe(300);
     expect(CHAR_LIMITS['mastodon']).toBe(500);
     expect(CHAR_LIMITS['linkedin']).toBe(3000);
-    expect(CHAR_LIMITS['substack_notes']).toBe(280);
+    expect(CHAR_LIMITS['substack_notes']).toBe(300);
     expect(CHAR_LIMITS['substack']).toBe(0);
     expect(CHAR_LIMITS['product_hunt']).toBe(260);
     expect(CHAR_LIMITS['show_hn']).toBe(0);

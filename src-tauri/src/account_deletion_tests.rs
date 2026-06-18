@@ -226,6 +226,22 @@ fn test_wipe_postlane_files_succeeds_when_files_absent() {
     assert!(wipe_postlane_files(tmp.path()).is_ok());
 }
 
+// ── GDPR-C4: PII cache files deleted on wipe ─────────────────────────────────
+
+#[test]
+fn test_wipe_postlane_files_deletes_pii_cache_files() {
+    let tmp = TempDir::new().unwrap();
+    let repos_path = tmp.path().join("repos.json");
+    storage::write_repos(&repos_path, &ReposConfig { version: 2, workspaces: vec![], repos: vec![] }).unwrap();
+    for name in &["license_cache.json", "analytics_cache.json", "analytics_sites.json"] {
+        fs::write(tmp.path().join(name), r#"{"user":{"email":"alice@example.com"}}"#).unwrap();
+    }
+    wipe_postlane_files(tmp.path()).unwrap();
+    for name in &["license_cache.json", "analytics_cache.json", "analytics_sites.json"] {
+        assert!(!tmp.path().join(name).exists(), "{name} must be deleted on account wipe");
+    }
+}
+
 // ── B23: Step 9 deletes dirs even after repos.json wiped by step 6 ──────────
 
 #[test]

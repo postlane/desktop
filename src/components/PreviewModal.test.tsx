@@ -154,9 +154,9 @@ describe('CharCount', () => {
     expect(screen.getByText('50 / 3000')).toBeInTheDocument()
   })
 
-  it('shows count for substack_notes (280 limit)', () => {
+  it('shows count for substack_notes (300 limit)', () => {
     render(<CharCount platform="substack_notes" text={'a'.repeat(100)} />)
-    expect(screen.getByText('100 / 280')).toBeInTheDocument()
+    expect(screen.getByText('100 / 300')).toBeInTheDocument()
   })
 
   it('renders nothing for a platform with no char limit', () => {

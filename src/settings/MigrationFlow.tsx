@@ -11,6 +11,7 @@ import type { RepoConflicts, MigrationResult } from './MigrationBanner';
 type FlowState =
   | { tag: 'loading' }
   | { tag: 'no_workspace' }
+  | { tag: 'error'; message: string }
   | { tag: 'conflicts'; wsPath: string; conflicts: RepoConflicts[]; idx: number }
   | { tag: 'confirm'; wsPath: string }
   | { tag: 'running' }
@@ -35,6 +36,14 @@ export default function MigrationFlow({ projectId, onDone }: Props) {
         <p className="is-size-7 has-text-danger mb-2">
           No workspace found for this project. Register a workspace first.
         </p>
+        <button className="button is-small is-light" onClick={onDone}>Cancel</button>
+      </div>
+    );
+  }
+  if (state.tag === 'error') {
+    return (
+      <div className="box">
+        <p role="alert" className="is-size-7 has-text-danger mb-2">{state.message}</p>
         <button className="button is-small is-light" onClick={onDone}>Cancel</button>
       </div>
     );
@@ -143,8 +152,8 @@ async function runMigration(wsPath: string, setState: (s: FlowState) => void) {
   try {
     const result = await invoke<MigrationResult>('start_workspace_migration', { workspacePath: wsPath });
     setState({ tag: 'result', wsPath, result });
-  } catch {
-    setState({ tag: 'no_workspace' });
+  } catch (e) {
+    setState({ tag: 'error', message: e instanceof Error ? e.message : String(e) });
   }
 }
 
@@ -156,7 +165,7 @@ async function retryMigration(wsPath: string, failedPaths: string[], setState: (
       repoPaths: failedPaths,
     });
     setState({ tag: 'result', wsPath, result });
-  } catch {
-    setState({ tag: 'no_workspace' });
+  } catch (e) {
+    setState({ tag: 'error', message: e instanceof Error ? e.message : String(e) });
   }
 }

@@ -15,7 +15,7 @@ vi.mock('../hooks/useNavPersistence', () => ({
 }));
 
 describe('LeftNav CTA label', () => {
-  it('renders "+ Add workspace", not "+ Add org"', () => {
+  it('renders "+ New workspace", not "+ Add org"', () => {
     render(
       <LeftNav
         onNavigate={vi.fn()}
@@ -24,7 +24,7 @@ describe('LeftNav CTA label', () => {
       />,
     );
     const buttonTexts = screen.getAllByRole('button').map((b) => b.textContent ?? '');
-    expect(buttonTexts.some((t) => t.includes('Add workspace'))).toBe(true);
+    expect(buttonTexts.some((t) => t.includes('New workspace'))).toBe(true);
     expect(buttonTexts.every((t) => !t.includes('Add org'))).toBe(true);
   });
 });

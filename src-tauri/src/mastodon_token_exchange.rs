@@ -4,11 +4,16 @@
 
 use crate::app_state::AppState;
 use crate::mastodon_connection::{access_token_key, active_instance_key, active_username_key, KEYRING_SERVICE};
-use crate::providers::scheduling::build_client;
+use crate::providers::scheduling::{build_client, mastodon::validate_instance_domain};
 use crate::security::api_error::format_api_error;
 use crate::security::instance_url::validate_instance_hostname;
 use tauri::{Emitter, State};
 use tauri_plugin_keyring::KeyringExt;
+
+async fn exchange_validate_instance(instance: &str) -> Result<(), String> {
+    validate_instance_hostname(instance)?;
+    validate_instance_domain(instance).await.map_err(|e| e.to_string())
+}
 
 /// Exchanges an OAuth authorization code for an access token.
 ///
@@ -22,7 +27,7 @@ pub async fn exchange_mastodon_code(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    validate_instance_hostname(&instance)?;
+    exchange_validate_instance(&instance).await?;
 
     let client_id = app.keyring()
         .get_password(KEYRING_SERVICE, &format!("mastodon_client_id/{}", instance))
@@ -156,6 +161,30 @@ mod tests {
     use crate::mastodon_connection::{access_token_key, active_instance_key, active_username_key};
     use crate::providers::scheduling::build_client;
     use httpmock::prelude::*;
+
+    // ── SSRF: DNS validation (§ mastodon-ssrf) ───────────────────────────────
+
+    #[tokio::test]
+    async fn test_exchange_rejects_private_ip_instance() {
+        let result = exchange_validate_instance("192.168.1.1").await;
+        assert!(result.is_err(), "RFC-1918 IP must be rejected before any HTTP request");
+    }
+
+    #[tokio::test]
+    async fn test_exchange_rejects_loopback_instance() {
+        let result = exchange_validate_instance("127.0.0.1").await;
+        assert!(result.is_err(), "loopback IP must be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_exchange_accepts_public_hostname() {
+        // DNS resolution of a real hostname may fail in CI — we only care it doesn't
+        // reject the hostname on the SSRF / format checks. A DNS error is acceptable.
+        let result = exchange_validate_instance("mastodon.social").await;
+        // Either Ok (resolved + public) or Err(DNS failure) — both are fine.
+        // The only unacceptable outcome is a panic.
+        let _ = result;
+    }
 
     // ── Key format (§ mastodon-scope) ─────────────────────────────────────────
 

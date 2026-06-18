@@ -7,7 +7,7 @@ use crate::telemetry::client::TelemetryClient;
 use notify::RecommendedWatcher;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::RwLock;
 
@@ -37,6 +37,9 @@ pub struct AppState {
     /// Workspace snapshot taken at Phase 0 of account deletion.
     /// Read by Phase 7 (delete workspace dirs) after repos.json is already wiped.
     pub deletion_snapshot: Mutex<Vec<crate::workspace_entry::WorkspaceEntry>>,
+    /// Set to true by the 24-hour revalidation loop when the backend returns 401.
+    /// Checked by approve_post_impl to block post approval after subscription cancellation.
+    pub license_expired: AtomicBool,
 }
 
 impl AppState {
@@ -77,6 +80,7 @@ impl AppState {
             repos_path,
             projects_cache: Arc::new(RwLock::new(vec![])),
             deletion_snapshot: Mutex::new(vec![]),
+            license_expired: AtomicBool::new(false),
         }
     }
 }

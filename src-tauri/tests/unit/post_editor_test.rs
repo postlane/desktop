@@ -2,16 +2,26 @@
 
 use postlane_desktop_lib::app_state::AppState;
 use postlane_desktop_lib::post_editor::{update_post_content_impl, update_post_image_impl, is_direct_image_url};
-use postlane_desktop_lib::storage::ReposConfig;
+use postlane_desktop_lib::storage::{Repo, ReposConfig};
 use postlane_desktop_lib::types::PostMeta;
 use std::fs;
 use tempfile::TempDir;
 
-fn make_state(repos: Vec<postlane_desktop_lib::storage::Repo>) -> AppState {
+fn make_state(repos: Vec<Repo>) -> AppState {
     AppState::new_with_path(
         ReposConfig { version: 1, workspaces: vec![], repos },
         std::env::temp_dir().join(format!("pl_test_state_{}.json", std::process::id())),
     )
+}
+
+fn make_repo(id: &str, path: &str) -> Repo {
+    Repo {
+        id: id.to_string(),
+        name: id.to_string(),
+        path: path.to_string(),
+        active: true,
+        added_at: "2026-01-01T00:00:00Z".to_string(),
+    }
 }
 
 fn make_post_dir(temp_dir: &TempDir, post_folder: &str) -> std::path::PathBuf {
@@ -31,12 +41,15 @@ mod update_post_content_tests {
     fn test_writes_new_content_to_platform_file() {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_post_dir(&temp_dir, "post-001");
+        let canonical = fs::canonicalize(&repo_path).unwrap();
+        let state = make_state(vec![make_repo("r1", canonical.to_str().unwrap())]);
 
         let result = update_post_content_impl(
-            repo_path.to_str().unwrap(),
+            canonical.to_str().unwrap(),
             "post-001",
             "x",
             "Updated X post content.",
+            &state,
         );
 
         assert!(result.is_ok());
@@ -51,13 +64,16 @@ mod update_post_content_tests {
     fn test_all_three_platforms_accepted() {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_post_dir(&temp_dir, "post-002");
+        let canonical = fs::canonicalize(&repo_path).unwrap();
+        let state = make_state(vec![make_repo("r1", canonical.to_str().unwrap())]);
 
         for platform in &["x", "bluesky", "mastodon"] {
             let result = update_post_content_impl(
-                repo_path.to_str().unwrap(),
+                canonical.to_str().unwrap(),
                 "post-002",
                 platform,
                 "test content",
+                &state,
             );
             assert!(result.is_ok(), "platform '{}' should be accepted", platform);
         }
@@ -67,12 +83,15 @@ mod update_post_content_tests {
     fn test_rejects_unknown_platform() {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_post_dir(&temp_dir, "post-003");
+        // State irrelevant — platform check fires before repo check.
+        let state = make_state(vec![]);
 
         let result = update_post_content_impl(
             repo_path.to_str().unwrap(),
             "post-003",
             "instagram",
             "content",
+            &state,
         );
 
         assert!(result.is_err());
@@ -85,12 +104,15 @@ mod update_post_content_tests {
     #[test]
     fn test_rejects_post_folder_with_double_dot() {
         let temp_dir = TempDir::new().unwrap();
+        // State irrelevant — folder check fires before repo check.
+        let state = make_state(vec![]);
 
         let result = update_post_content_impl(
             temp_dir.path().to_str().unwrap(),
             "../escape-attempt",
             "x",
             "malicious",
+            &state,
         );
 
         assert!(result.is_err());
@@ -103,12 +125,14 @@ mod update_post_content_tests {
     #[test]
     fn test_rejects_post_folder_with_forward_slash() {
         let temp_dir = TempDir::new().unwrap();
+        let state = make_state(vec![]);
 
         let result = update_post_content_impl(
             temp_dir.path().to_str().unwrap(),
             "nested/folder",
             "x",
             "content",
+            &state,
         );
 
         assert!(result.is_err());
@@ -119,12 +143,15 @@ mod update_post_content_tests {
     fn test_no_tmp_file_remains_after_successful_write() {
         let temp_dir = TempDir::new().unwrap();
         let repo_path = make_post_dir(&temp_dir, "post-004");
+        let canonical = fs::canonicalize(&repo_path).unwrap();
+        let state = make_state(vec![make_repo("r1", canonical.to_str().unwrap())]);
 
         update_post_content_impl(
-            repo_path.to_str().unwrap(),
+            canonical.to_str().unwrap(),
             "post-004",
             "x",
             "new content",
+            &state,
         )
         .unwrap();
 
@@ -135,15 +162,36 @@ mod update_post_content_tests {
     #[test]
     fn test_returns_error_when_post_folder_does_not_exist() {
         let temp_dir = TempDir::new().unwrap();
+        let canonical = fs::canonicalize(temp_dir.path()).unwrap();
+        let state = make_state(vec![make_repo("r1", canonical.to_str().unwrap())]);
 
         let result = update_post_content_impl(
-            temp_dir.path().to_str().unwrap(),
+            canonical.to_str().unwrap(),
             "nonexistent-post",
             "x",
             "content",
+            &state,
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rejects_unregistered_repo_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let post_path = temp_dir.path().join(".postlane/posts/my-post");
+        fs::create_dir_all(&post_path).unwrap();
+        let state = make_state(vec![]); // no repos registered
+
+        let result = update_post_content_impl(
+            temp_dir.path().to_str().unwrap(),
+            "my-post",
+            "x",
+            "content",
+            &state,
+        );
+
+        assert!(result.is_err(), "unregistered repo path must be rejected");
     }
 }
 
