@@ -1,0 +1,11 @@
+---
+name: draft-bluesky
+description: Draft a single post for Bluesky (300 char limit, no hashtags)
+triggers:
+  - draft a bluesky post
+  - write something for bluesky
+  - post to bluesky only
+  - bluesky post only
+---
+
+Read the skill file at `.postlane/commands/draft-bluesky.md`, then draft one post for Bluesky. Output sets `platforms: ["bluesky"]` in `meta.json`.

@@ -1,0 +1,19 @@
+---
+name: draft-product-hunt
+description: Draft the four Product Hunt launch fields — tagline, description, maker comment, and topics
+triggers:
+  - write product hunt copy
+  - draft ph launch
+  - prepare product hunt launch
+  - product hunt submission
+  - ph launch post
+---
+
+Read the skill file at `.postlane/commands/draft-product-hunt.md`, then produce four files in `.postlane/posts/{slug}/`:
+
+1. `ph-tagline.md` — 60 characters maximum, no full stop, no "the"/"a" as first word
+2. `ph-description.md` — 260 characters maximum, no exclamation marks
+3. `ph-maker-comment.md` — four-part prose structure, no bullet points
+4. `ph-topics.md` — 3–5 topics from the embedded taxonomy list only
+
+Where `{slug}` is derived from the project name and today's date.

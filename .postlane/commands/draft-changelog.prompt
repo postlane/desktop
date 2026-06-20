@@ -1,0 +1,24 @@
+---
+name: draft-changelog
+description: Draft social posts announcing a software release from git history
+triggers:
+  - draft a changelog post
+  - write release announcement
+  - social posts for v{version}
+  - announce the release
+  - post about the new version
+---
+
+Read the skill file at `.postlane/commands/draft-changelog.md`, then draft release announcement posts using the context below.
+
+Git range: {from}..{to}
+
+Commits:
+{git_log_output}
+
+Files changed:
+{git_diff_stat}
+
+Tag annotation (if any): {tag_annotation}
+
+Write one post per platform in the user's config. Output each post in a fenced section labelled with the platform name.

@@ -1,0 +1,29 @@
+{
+  "created_at": null,
+  "edited_at": null,
+  "edited_platforms": null,
+  "error": "No scheduler configured. Add one in Settings → Scheduler.",
+  "image_attribution": null,
+  "image_source": null,
+  "image_url": null,
+  "llm_model": null,
+  "model_name": null,
+  "platform_results": null,
+  "platform_urls": {},
+  "platforms": [
+    "x",
+    "bluesky",
+    "mastodon"
+  ],
+  "repo_path": null,
+  "schedule": null,
+  "schedule_source": null,
+  "schedule_timezone": null,
+  "scheduled_for": null,
+  "scheduler_ids": {},
+  "sent_at": null,
+  "sent_platforms": {},
+  "status": "failed",
+  "trigger": "Two recent Postlane improvements: clickable history posts and scheduler disconnect config fix",
+  "voice_guide_version": "2026-05-19T23:02:25Z"
+}
