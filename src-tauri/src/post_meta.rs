@@ -87,6 +87,11 @@ pub struct PostMeta {
     /// Photographer attribution required by Unsplash ToS. Null for non-Unsplash images.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_attribution: Option<ImageAttribution>,
+    /// Skill command that generated this post (e.g. "draft-changelog", "draft-show-hn").
+    /// Written by the skill, not the app — skip_serializing_if preserves a skill-written
+    /// value when the app merges its own fields into meta.json.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
 }
 
 impl PostMeta {
@@ -319,6 +324,56 @@ mod tests {
         };
         meta.save(&nested).expect("save should create parent dirs automatically");
         assert!(nested.exists(), "meta.json must exist after save with missing parent");
+    }
+
+    #[test]
+    fn test_post_meta_command_absent_reads_as_none() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        fs::write(&path, r#"{"status":"ok"}"#).expect("write");
+        let meta = PostMeta::load(&path).expect("load");
+        assert!(meta.command.is_none(), "absent command field must deserialise as None");
+    }
+
+    #[test]
+    fn test_post_meta_command_round_trips() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        let meta = PostMeta {
+            command: Some("draft-changelog".to_string()),
+            ..Default::default()
+        };
+        meta.save(&path).expect("save");
+        let loaded = PostMeta::load(&path).expect("load");
+        assert_eq!(
+            loaded.command.as_deref(),
+            Some("draft-changelog"),
+            "command must survive save/load roundtrip"
+        );
+    }
+
+    #[test]
+    fn test_post_meta_command_preserved_on_save_when_none() {
+        // Skill writes meta.json with command; app later saves PostMeta without command set.
+        // The command field must survive because skip_serializing_if = "Option::is_none"
+        // keeps it out of the overlay, so the merge leaves the original value in place.
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("meta.json");
+        fs::write(&path, r#"{"command":"draft-changelog","model_name":"claude-test"}"#)
+            .expect("write initial");
+        // App saves without knowing the command
+        let meta = PostMeta {
+            model_name: Some("claude-sonnet-4-6".to_string()),
+            ..Default::default()
+        };
+        meta.save(&path).expect("save");
+        let raw = fs::read_to_string(&path).expect("read back");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("parse");
+        assert_eq!(
+            v["command"].as_str(),
+            Some("draft-changelog"),
+            "command must survive app save when PostMeta.command is None"
+        );
     }
 
     #[test]

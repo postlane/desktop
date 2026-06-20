@@ -1,0 +1,11 @@
+---
+name: draft-mastodon
+description: Draft a single post for Mastodon (500 char limit)
+triggers:
+  - draft a mastodon post
+  - write something for mastodon
+  - post to mastodon only
+  - mastodon post only
+---
+
+Read the skill file at `.postlane/commands/draft-mastodon.md`, then draft one post for Mastodon. Output sets `platforms: ["mastodon"]` in `meta.json`.

@@ -1,0 +1,17 @@
+---
+name: draft-show-hn
+description: Draft a Show HN title and author comment for a Hacker News submission
+triggers:
+  - write a show hn post
+  - draft a hacker news submission
+  - prepare hn launch post
+  - show hn for my project
+  - write my hacker news post
+---
+
+Read the skill file at `.postlane/commands/draft-show-hn.md`, then produce:
+
+1. `show-hn-title.md` — the Show HN title (format: `Show HN: [Name] — [description]`, 80 chars max)
+2. `show-hn-comment.md` — the author comment (three paragraphs max, prose only, no UTM on link)
+
+Write both to `.postlane/posts/{slug}/` where `{slug}` is derived from the project name and today's date.

@@ -1,0 +1,28 @@
+{
+  "created_at": "2026-05-22T05:57:55.617424+00:00",
+  "edited_at": null,
+  "edited_platforms": null,
+  "error": "HTTP error 400: {\"error\":\"Validation failed\",\"details\":\"Post validation failed: platforms.0.accountId: Path `accountId` is required.\",\"fields\":[\"platforms.0.accountId\"]}",
+  "image_attribution": null,
+  "image_source": null,
+  "llm_model": "claude-sonnet-4-6",
+  "model_name": null,
+  "platform_results": null,
+  "platform_urls": {},
+  "platforms": [
+    "x",
+    "bluesky",
+    "mastodon"
+  ],
+  "repo_path": null,
+  "schedule": null,
+  "schedule_source": null,
+  "schedule_timezone": null,
+  "scheduled_for": null,
+  "scheduler_ids": {},
+  "sent_at": null,
+  "sent_platforms": {},
+  "status": "failed",
+  "trigger": "Fix scheduler disconnect: clear provider from config.local.json (64968b1)",
+  "voice_guide_version": "2026-05-22T05:51:34Z"
+}

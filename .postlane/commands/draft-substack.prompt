@@ -1,0 +1,11 @@
+---
+name: draft-substack
+description: Draft a Substack Note (300 char limit, warm subscriber-aware tone)
+triggers:
+  - draft a substack note
+  - write a substack update
+  - post to substack
+  - substack note
+---
+
+Read the skill file at `.postlane/commands/draft-substack.md`, then draft one Substack Note. Output sets `platforms: ["substack_notes"]` in `meta.json`.

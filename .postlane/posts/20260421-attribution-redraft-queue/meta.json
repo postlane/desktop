@@ -1,0 +1,39 @@
+{
+  "created_at": "2026-04-21T00:00:00Z",
+  "edited_at": "2026-05-22T21:00:01.881958+00:00",
+  "edited_platforms": [
+    "x",
+    "bluesky"
+  ],
+  "error": "All configured schedulers have reached their limits or have no credentials. Check Settings → Scheduler to add capacity or upgrade a provider.",
+  "image_attribution": {
+    "photographer_name": "Khamkéo",
+    "photographer_url": "https://unsplash.com/@mahkeo"
+  },
+  "image_download_location": "https://api.unsplash.com/photos/WtwSsqwYlA0/download?ixid=M3w5NTc5ODV8MHwxfHNlYXJjaHwxfHxXaW5kfGVufDB8fHx8MTc3OTQ4MzU4N3ww",
+  "image_source": "unsplash",
+  "image_url": "https://images.unsplash.com/photo-1505672678657-cc7037095e60?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5NTc5ODV8MHwxfHNlYXJjaHwxfHxXaW5kfGVufDB8fHx8MTc3OTQ4MzU4N3ww&ixlib=rb-4.1.0&q=80&w=1080",
+  "llm_model": "anthropic/claude-sonnet-4-6",
+  "model_name": null,
+  "platform_results": null,
+  "platform_urls": {
+    "bluesky": "https://bsky.app/profile/hugoelliott.bsky.social/post/3mmah5gyddw2s"
+  },
+  "platforms": [
+    "x",
+    "bluesky"
+  ],
+  "repo_path": null,
+  "schedule": null,
+  "schedule_source": null,
+  "schedule_timezone": null,
+  "scheduled_for": null,
+  "scheduler_ids": {
+    "bluesky": "6a0ce55a0ca1373bc0800237"
+  },
+  "sent_at": null,
+  "sent_platforms": {},
+  "status": "sent",
+  "trigger": "Added attribution toggle and queue-for-redraft UI",
+  "voice_guide_version": "2026-05-22T16:53:33Z"
+}

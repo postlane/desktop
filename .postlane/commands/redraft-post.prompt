@@ -1,0 +1,14 @@
+---
+name: redraft-post
+description: Revise an existing draft post based on a user instruction
+triggers:
+  - revise this post
+  - make it shorter
+  - redraft the post
+  - rewrite the draft
+  - change the tone
+  - make it more casual
+  - make it more professional
+---
+
+Read the skill file at `.postlane/commands/redraft-post.md`, then revise the existing draft post using the instruction provided.

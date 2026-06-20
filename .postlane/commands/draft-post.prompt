@@ -1,0 +1,12 @@
+---
+name: draft-post
+description: Draft short-form posts for X, Bluesky, and Mastodon from a git trigger or description
+triggers:
+  - draft a post
+  - write a social post
+  - draft a short post
+  - write a social post for all my channels
+  - post about this
+---
+
+Read the skill file at `.postlane/commands/draft-post.md`, then draft posts for X, Bluesky, and Mastodon. Output sets `platforms: ["x", "bluesky", "mastodon"]` in `meta.json`.

@@ -1,0 +1,12 @@
+---
+name: draft-linkedin
+description: Draft a single post for LinkedIn (3,000 char limit, professional voice)
+triggers:
+  - draft a linkedin post
+  - write something for linkedin
+  - post to linkedin only
+  - professional post
+  - linkedin post only
+---
+
+Read the skill file at `.postlane/commands/draft-linkedin.md`, then draft one post for LinkedIn. Output sets `platforms: ["linkedin"]` in `meta.json`.

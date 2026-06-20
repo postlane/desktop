@@ -1,0 +1,11 @@
+---
+name: draft-x
+description: Draft a single post for X (280 char limit)
+triggers:
+  - draft an x post
+  - write a tweet
+  - post to x only
+  - x post only
+---
+
+Read the skill file at `.postlane/commands/draft-x.md`, then draft one post for X. Output sets `platforms: ["x"]` in `meta.json`.
