@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 pub struct PendingEvent {
     pub id: String,
     pub event_type: String,
-    pub payload: serde_json::Value,
 }
 
 // ── Config helpers ────────────────────────────────────────────────────────────
@@ -24,17 +23,6 @@ pub fn project_id_from_config(repo_path: &Path) -> Option<String> {
 }
 
 // ── Draft creation ────────────────────────────────────────────────────────────
-
-/// Extracts the first commit message from a push event payload.
-/// Returns a fallback string when the payload is malformed or has no commits.
-fn first_commit_message(payload: &serde_json::Value) -> String {
-    payload["commits"]
-        .as_array()
-        .and_then(|c| c.first())
-        .and_then(|c| c["message"].as_str())
-        .unwrap_or("Push event")
-        .to_string()
-}
 
 /// Creates a draft folder inside `repo_path/.postlane/posts/` from a push event.
 /// The folder name is derived from `event.id` for idempotency — calling twice
@@ -52,9 +40,8 @@ pub fn create_draft_from_push(repo_path: &Path, event: &PendingEvent) -> Result<
     std::fs::create_dir_all(&post_dir)
         .map_err(|e| format!("Failed to create draft dir {}: {}", post_dir.display(), e))?;
 
-    let title = first_commit_message(&event.payload);
     let meta = serde_json::json!({
-        "title": title,
+        "title": "Push event",
         "source": "webhook",
         "event_id": event.id,
     });
@@ -138,14 +125,10 @@ mod tests {
     use super::*;
     use httpmock::prelude::*;
 
-    fn make_push_event(id: &str, commit_msg: &str) -> PendingEvent {
+    fn make_push_event(id: &str) -> PendingEvent {
         PendingEvent {
             id: id.to_string(),
             event_type: "push".to_string(),
-            payload: serde_json::json!({
-                "repository": { "full_name": "acme/my-repo", "owner": { "login": "acme" } },
-                "commits": [{ "id": "abc123", "message": commit_msg }],
-            }),
         }
     }
 
@@ -188,29 +171,29 @@ mod tests {
     fn test_create_draft_writes_meta_json() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
-        let event = make_push_event("evt-001", "fix: typo in readme");
+        let event = make_push_event("evt-001");
 
         let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         assert!(meta_path.exists(), "meta.json should be created");
     }
 
     #[test]
-    fn test_create_draft_uses_first_commit_message_as_title() {
+    fn test_create_draft_title_is_push_event() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
-        let event = make_push_event("evt-002", "feat: add dark mode");
+        let event = make_push_event("evt-002");
 
         let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         let content = std::fs::read_to_string(&meta_path).expect("read meta.json");
         let meta: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(meta["title"].as_str(), Some("feat: add dark mode"));
+        assert_eq!(meta["title"].as_str(), Some("Push event"));
     }
 
     #[test]
     fn test_create_draft_sets_source_to_webhook() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
-        let event = make_push_event("evt-003", "chore: bump deps");
+        let event = make_push_event("evt-003");
 
         let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
         let content = std::fs::read_to_string(&meta_path).expect("read meta.json");
@@ -222,7 +205,7 @@ mod tests {
     fn test_create_draft_is_idempotent() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
-        let event = make_push_event("evt-004", "refactor: rename module");
+        let event = make_push_event("evt-004");
 
         let path1 = create_draft_from_push(dir.path(), &event).expect("first call");
         let path2 = create_draft_from_push(dir.path(), &event).expect("second call");
@@ -235,22 +218,6 @@ mod tests {
         assert_eq!(entries.len(), 1, "only one draft folder created");
     }
 
-    #[test]
-    fn test_create_draft_fallback_title_when_no_commits() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        std::fs::create_dir_all(dir.path().join(".postlane/posts")).expect("create posts");
-        let event = PendingEvent {
-            id: "evt-005".to_string(),
-            event_type: "push".to_string(),
-            payload: serde_json::json!({ "commits": [] }),
-        };
-
-        let meta_path = create_draft_from_push(dir.path(), &event).expect("should succeed");
-        let content = std::fs::read_to_string(&meta_path).expect("read meta.json");
-        let meta: serde_json::Value = serde_json::from_str(&content).expect("parse");
-        assert_eq!(meta["title"].as_str(), Some("Push event"));
-    }
-
     // ── fetch_pending_events ─────────────────────────────────────────────────
 
     #[tokio::test]
@@ -260,7 +227,7 @@ mod tests {
             when.method(GET).path("/v1/events/pending").query_param("project_id", "proj-1");
             then.status(200).json_body(serde_json::json!({
                 "events": [
-                    { "id": "evt-1", "event_type": "push", "payload": {} }
+                    { "id": "evt-1", "event_type": "push" }
                 ]
             }));
         });
