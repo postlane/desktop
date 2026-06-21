@@ -72,10 +72,13 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          shopt -s globstar nullglob
 
-          # Find all submission-id files; each sits alongside its DMG.
-          submission_files=( artifacts/**/*.submission-id )
+          # Use find instead of ** glob — macOS ships bash 3.2 which lacks globstar.
+          submission_files=()
+          while IFS= read -r f; do
+            submission_files+=("$f")
+          done < <(find artifacts -name '*.submission-id' -type f)
+
           if [ ${#submission_files[@]} -eq 0 ]; then
             echo "ERROR: no *.submission-id files found in artifacts." >&2
             echo "Ensure the release.yml build ran with the submit step." >&2
@@ -107,8 +110,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          shopt -s globstar nullglob
-          dmg_files=( artifacts/**/*.dmg )
+          dmg_files=()
+          while IFS= read -r f; do
+            dmg_files+=("$f")
+          done < <(find artifacts -name '*.dmg' -type f)
+
           if [ ${#dmg_files[@]} -eq 0 ]; then
             echo "ERROR: no DMG files found to upload." >&2
             exit 1
