@@ -95,11 +95,13 @@ jobs:
             fi
 
             echo "[$(date -u +%H:%M:%SZ)] Waiting for Apple to approve $submission_id ($(basename "$dmg"))..."
+            # 9600 s = 160 min per DMG; two sequential DMGs = 320 min, leaving a
+            # 40-minute buffer inside the 360-minute job cap.
             xcrun notarytool wait "$submission_id" \
               --apple-id "$APPLE_ID" \
               --password "$APPLE_PASSWORD" \
               --team-id "$APPLE_TEAM_ID" \
-              --timeout 21000
+              --timeout 9600
 
             echo "[$(date -u +%H:%M:%SZ)] Stapling $(basename "$dmg")..."
             xcrun stapler staple "$dmg"
@@ -109,7 +111,9 @@ jobs:
       - name: Upload stapled DMGs to draft release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
         run: |
+          set -euo pipefail
           dmg_files=()
           while IFS= read -r f; do
             dmg_files+=("$f")
@@ -121,22 +125,26 @@ jobs:
           fi
           for dmg in "${dmg_files[@]}"; do
             echo "Uploading $(basename "$dmg")..."
-            gh release upload "${{ inputs.tag }}" "$dmg" --clobber
+            gh release upload "$TAG" "$dmg" --clobber
           done
 
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
         run: |
-          gh release edit "${{ inputs.tag }}" --draft=false
-          echo "Release ${{ inputs.tag }} is now published."
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false
+          echo "Release $TAG is now published."
 
       - name: Open GitHub issue on failure
         if: failure()
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
         run: |
+          set -euo pipefail
           gh issue create \
-            --title "Notarisation failed for ${{ inputs.tag }}" \
-            --body "The \`notarize-finalize\` workflow failed for release \`${{ inputs.tag }}\`.\n\n**Common causes:**\n- Apple rejected the submission — check the workflow log for \`notarytool log\` output\n- \`APPLE_PASSWORD\` was revoked (happens when the Apple ID password is reset) — regenerate at appleid.apple.com → Sign-In and Security → App-Specific Passwords and update the \`APPLE_PASSWORD\` GitHub Actions secret\n- \`APPLE_CERTIFICATE\` has expired (Developer ID certs have a 2-year lifetime)\n\n**Failed workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --title "Notarisation failed for $TAG" \
+            --body "The \`notarize-finalize\` workflow failed for release \`$TAG\`.\n\n**Common causes:**\n- Apple rejected the submission — check the workflow log for \`notarytool log\` output\n- \`APPLE_PASSWORD\` was revoked (happens when the Apple ID password is reset) — regenerate at appleid.apple.com → Sign-In and Security → App-Specific Passwords and update the \`APPLE_PASSWORD\` GitHub Actions secret\n- \`APPLE_CERTIFICATE\` has expired (Developer ID certs have a 2-year lifetime)\n\n**Failed workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --label "bug"
