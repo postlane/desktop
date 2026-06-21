@@ -37,6 +37,7 @@ jobs:
     permissions:
       contents: write   # needed to upload assets and publish the draft release
       actions: read     # needed to download artifacts from the build run
+      issues: write     # needed to open a failure-alert issue if notarisation fails
     timeout-minutes: 360  # Apple review can take hours; 6 hours is the GitHub maximum
 
     steps:
@@ -123,3 +124,13 @@ jobs:
         run: |
           gh release edit "${{ inputs.tag }}" --draft=false
           echo "Release ${{ inputs.tag }} is now published."
+
+      - name: Open GitHub issue on failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Notarisation failed for ${{ inputs.tag }}" \
+            --body "The \`notarize-finalize\` workflow failed for release \`${{ inputs.tag }}\`.\n\n**Common causes:**\n- Apple rejected the submission — check the workflow log for \`notarytool log\` output\n- \`APPLE_PASSWORD\` was revoked (happens when the Apple ID password is reset) — regenerate at appleid.apple.com → Sign-In and Security → App-Specific Passwords and update the \`APPLE_PASSWORD\` GitHub Actions secret\n- \`APPLE_CERTIFICATE\` has expired (Developer ID certs have a 2-year lifetime)\n\n**Failed workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label "bug"

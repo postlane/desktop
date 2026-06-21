@@ -113,11 +113,24 @@ jobs:
         run: npm run tauri build -- --target ${{ matrix.target }}
 
       - name: Submit DMG to Apple for notarisation
-        # Submits immediately and exits — does NOT wait for Apple's response.
-        # Apple's review queue can take hours to days on a new developer account.
-        # Submission IDs are written to *.submission-id files alongside the DMGs
-        # and uploaded as artifacts. Once Apple approves, run notarize-finalize.yml
-        # to wait, staple, and publish the release.
+        # ─────────────────────────────────────────────────────────────────────
+        # WARNING: Do NOT add --wait to the notarytool submit call below.
+        #
+        # When v0.1.3 was first released, the workflow called notarytool with
+        # --wait inline. Apple's review queue took longer than the 150-minute
+        # CI timeout, the build job was killed, and the DMG artifacts were never
+        # uploaded — so no GitHub release was ever created for v0.1.3.
+        #
+        # The two-phase pattern used here avoids that:
+        #   Phase 1 (this step): submit only; save the submission ID to
+        #     a *.submission-id file alongside the DMG; upload both as artifacts.
+        #   Phase 2 (notarize-finalize.yml): manually triggered once Apple
+        #     approves; calls `notarytool wait`, staples the ticket, and
+        #     publishes the draft release. That workflow has a 6-hour timeout.
+        #
+        # If notarize-finalize.yml fails, a GitHub issue is opened automatically
+        # (see the on-failure step at the end of that workflow).
+        # ─────────────────────────────────────────────────────────────────────
         if: matrix.platform == 'macos-latest'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
