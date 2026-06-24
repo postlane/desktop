@@ -96,6 +96,7 @@ pub mod watcher;
 pub mod webhook_poller;
 pub mod wizard_state;
 pub mod repos_migration;
+pub mod updater_endpoint;
 pub mod workspace;
 pub mod workspace_add;
 pub mod workspace_confirm;
