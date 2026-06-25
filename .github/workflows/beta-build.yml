@@ -1,0 +1,215 @@
+name: Beta Build
+
+on:
+  push:
+    branches: [beta]
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    permissions:
+      contents: read
+      id-token: write  # required for cosign keyless signing
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout code
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Rust
+        # dtolnay/rust-toolchain — stable, pinned to latest commit
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        # actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Cache Cargo registry
+        # actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Cache Cargo build
+        # actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: src-tauri/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-target-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-target-
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Import signing certificate
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+          rm certificate.p12
+
+      - name: Build Tauri app (beta channel)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Hugo Elliott (RNUCP3LV48)"
+          # Override the updater endpoint so beta binaries check the beta feed,
+          # not the stable releases/latest feed. build.rs reads this and emits
+          # TAURI_CONFIG to patch the endpoint that generate_context!() embeds.
+          TAURI_UPDATER_ENDPOINT: https://github.com/postlane/desktop/releases/download/beta/latest.json
+        run: npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Install cosign
+        if: matrix.platform == 'ubuntu-latest'
+        # sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159
+
+      - name: GPG-sign Linux artifacts
+        if: matrix.platform == 'ubuntu-latest'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          find src-tauri/target/${{ matrix.target }}/release/bundle \
+            \( -name "*.AppImage" -o -name "*.deb" \) | \
+            while IFS= read -r f; do
+              gpg --batch --yes --detach-sign --armor "$f"
+            done
+
+      - name: Cosign sign Linux AppImage
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          find src-tauri/target/${{ matrix.target }}/release/bundle -name "*.AppImage" | \
+            while IFS= read -r f; do
+              cosign sign-blob --yes "$f" --bundle "${f}.cosign.bundle"
+            done
+
+      - name: Upload build artifacts
+        # actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.asc
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.cosign.bundle
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        # actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Download all artifacts
+        # actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: artifacts
+
+      - name: Build latest.json for beta feed
+        run: |
+          VERSION=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          REPO=${{ github.repository }}
+          BASE="https://github.com/${REPO}/releases/download/beta"
+
+          DARWIN_ARM_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*aarch64*" | head -1 | xargs cat 2>/dev/null || echo "")
+          DARWIN_X64_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*x86_64-apple*" | head -1 | xargs cat 2>/dev/null || echo "")
+          LINUX_SIG=$(find artifacts -name "*.AppImage.sig" | head -1 | xargs cat 2>/dev/null || echo "")
+
+          cat > latest.json <<EOF
+          {
+            "version": "v${VERSION}",
+            "notes": "Beta release — see the GitHub pre-release page for details.",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "url": "${BASE}/Postlane_${VERSION}_aarch64.app.tar.gz",
+                "signature": "${DARWIN_ARM_SIG}"
+              },
+              "darwin-x86_64": {
+                "url": "${BASE}/Postlane_${VERSION}_x64.app.tar.gz",
+                "signature": "${DARWIN_X64_SIG}"
+              },
+              "linux-x86_64": {
+                "url": "${BASE}/postlane_${VERSION}_amd64.AppImage",
+                "signature": "${LINUX_SIG}"
+              }
+            }
+          }
+          EOF
+
+      - name: Publish beta pre-release
+        # softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: beta
+          name: Beta release
+          prerelease: true
+          make_latest: false
+          body: |
+            Beta release — not for production use. Report issues at https://github.com/postlane/desktop/issues
+
+            This build uses the beta updater feed. Stable builds will not surface this pre-release.
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.app.tar.gz
+            artifacts/**/*.app.tar.gz.sig
+            artifacts/**/*.AppImage
+            artifacts/**/*.AppImage.sig
+            artifacts/**/*.asc
+            artifacts/**/*.cosign.bundle
+            latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
