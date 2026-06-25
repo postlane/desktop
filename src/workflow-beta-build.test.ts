@@ -34,6 +34,10 @@ describe('beta-build.yml workflow', () => {
     expect(content).toContain('not for production use');
   });
 
+  it('specifies toolchain: stable for dtolnay/rust-toolchain', () => {
+    expect(content).toContain('toolchain: stable');
+  });
+
   it('uses the Tauri signing secrets', () => {
     expect(content).toContain('TAURI_SIGNING_PRIVATE_KEY');
     expect(content).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
