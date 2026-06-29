@@ -98,6 +98,22 @@ describe('desktop workflow files — individual checks', () => {
     ).toBe(catIndent);
   });
 
+  it('every dtolnay/rust-toolchain step specifies toolchain: stable', () => {
+    const workflows = readWorkflows();
+    for (const { name, content } of workflows) {
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].includes('dtolnay/rust-toolchain@')) continue;
+        // Look for 'toolchain:' within the next 5 lines (the with: block)
+        const window = lines.slice(i + 1, i + 6).join('\n');
+        expect(
+          window,
+          `${name}: dtolnay/rust-toolchain step at line ${i + 1} is missing toolchain: stable`,
+        ).toContain('toolchain:');
+      }
+    }
+  });
+
   it('ci.yml license-checker step has no || echo fallback', () => {
     const ci = readWorkflows().find((w) => w.name === 'ci.yml');
     expect(ci, 'ci.yml not found').toBeDefined();
