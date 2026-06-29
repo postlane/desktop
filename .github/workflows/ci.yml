@@ -17,16 +17,16 @@ jobs:
         shard: [1, 2, 3]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
 
       - name: Cache node_modules
         id: cache-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
@@ -42,15 +42,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
         with:
+          toolchain: stable
           components: clippy
 
       - name: Cache Cargo registry and git sources
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
             ~/.cargo/registry
@@ -61,7 +62,7 @@ jobs:
 
       - name: Cache apt packages
         id: cache-apt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: /var/cache/apt/archives/*.deb
           key: ${{ runner.os }}-apt-webkit2gtk-4.1-librsvg2-patchelf
@@ -75,8 +76,16 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Cache cargo-nextest binary
+        id: cache-cargo-nextest
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ~/.cargo/bin/cargo-nextest
+          key: ${{ runner.os }}-cargo-nextest-0.9.98
+
       - name: Install cargo-nextest
-        run: curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+        if: steps.cache-cargo-nextest.outputs.cache-hit != 'true'
+        run: cargo install cargo-nextest --locked --version 0.9.98
 
       - name: Cargo nextest
         run: cargo nextest run
@@ -88,7 +97,7 @@ jobs:
 
       - name: Cache cargo-audit binary
         id: cache-cargo-audit
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ~/.cargo/bin/cargo-audit
           key: ${{ runner.os }}-cargo-audit-v0.21
@@ -105,16 +114,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
 
       - name: Cache node_modules
         id: cache-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: node_modules
           key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
@@ -136,7 +145,7 @@ jobs:
         run: npm install -g license-checker
 
       - name: Check licenses
-        run: license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;CC-BY-3.0;CC-BY-4.0" --excludePackages "$(node -p "Object.keys(require('./package.json').dependencies || {}).join(';')")" || echo "License check requires manual review"
+        run: license-checker --production --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;MIT-0;MPL-2.0;LGPL-3.0-or-later;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;CC-BY-3.0;CC-BY-4.0" --excludePackages "$(node -p "require('./package.json').name + '@' + require('./package.json').version")"
 
   ci:
     runs-on: ubuntu-latest

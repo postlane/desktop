@@ -17,25 +17,27 @@ jobs:
     name: Analyze JavaScript/TypeScript
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357
 
   analyze-rust:
     name: Analyze Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: src-tauri
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357
         with:
           languages: rust
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/autobuild@dd903d2e4f5405488e5ef1422510ee31c8b32357
+      - uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357
