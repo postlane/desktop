@@ -165,9 +165,12 @@ jobs:
           REPO=${{ github.repository }}
           BASE="https://github.com/${REPO}/releases/download/beta"
 
-          DARWIN_ARM_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*aarch64*" | head -1 | xargs cat 2>/dev/null || echo "")
-          DARWIN_X64_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*x86_64-apple*" | head -1 | xargs cat 2>/dev/null || echo "")
-          LINUX_SIG=$(find artifacts -name "*.AppImage.sig" | head -1 | xargs cat 2>/dev/null || echo "")
+          DARWIN_ARM_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*aarch64*" -print -quit | xargs cat)
+          [ -n "$DARWIN_ARM_SIG" ] || { echo "::error::aarch64 app signature not found in artifacts/"; exit 1; }
+          DARWIN_X64_SIG=$(find artifacts -name "*.app.tar.gz.sig" -path "*x86_64-apple*" -print -quit | xargs cat)
+          [ -n "$DARWIN_X64_SIG" ] || { echo "::error::x86_64 app signature not found in artifacts/"; exit 1; }
+          LINUX_SIG=$(find artifacts -name "*.AppImage.sig" -print -quit | xargs cat)
+          [ -n "$LINUX_SIG" ] || { echo "::error::AppImage signature not found in artifacts/"; exit 1; }
 
           cat > latest.json <<EOF
           {
@@ -180,7 +183,7 @@ jobs:
                 "signature": "${DARWIN_ARM_SIG}"
               },
               "darwin-x86_64": {
-                "url": "${BASE}/Postlane_${VERSION}_x64.app.tar.gz",
+                "url": "${BASE}/Postlane_${VERSION}_x86_64.app.tar.gz",
                 "signature": "${DARWIN_X64_SIG}"
               },
               "linux-x86_64": {

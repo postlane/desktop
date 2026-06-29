@@ -128,6 +128,48 @@ describe('desktop workflow files — individual checks', () => {
   });
 });
 
+describe('desktop workflow files — top-level permissions block', () => {
+  // Every workflow must have a top-level permissions: block before jobs: so
+  // any job added later does not inherit repo-default write access.
+  it('every workflow file has a top-level permissions block before jobs:', () => {
+    const workflows = readWorkflows();
+    for (const { name, content } of workflows) {
+      const permissionsIdx = content.indexOf('\npermissions:');
+      const jobsIdx = content.indexOf('\njobs:');
+      expect(
+        permissionsIdx,
+        `${name}: no top-level permissions: block — without it the default GITHUB_TOKEN has write access`,
+      ).toBeGreaterThan(-1);
+      expect(
+        permissionsIdx,
+        `${name}: top-level permissions: must appear before jobs:`,
+      ).toBeLessThan(jobsIdx);
+    }
+  });
+});
+
+describe('desktop workflow files — beta-build.yml signature extraction', () => {
+  // F10: the || echo "" fallback causes an empty signature to be written into
+  // latest.json when the artifact sig file is absent.  An empty sig is a
+  // security risk (Tauri may accept the update) and masks a missing artifact.
+  // Failing CI is the correct behaviour when a sig file is not found.
+  it('beta-build.yml signature extraction lines have no || echo "" fallback', () => {
+    const betaBuild = readWorkflows().find((w) => w.name === 'beta-build.yml');
+    expect(betaBuild, 'beta-build.yml not found').toBeDefined();
+    if (!betaBuild) return;
+    const sigLines = betaBuild.content
+      .split('\n')
+      .filter((l) => l.includes('_SIG=$(') || l.includes('_SIG=$( '));
+    expect(sigLines.length, 'no signature extraction lines found in beta-build.yml').toBeGreaterThan(0);
+    for (const line of sigLines) {
+      expect(
+        line,
+        `signature line has || echo "" fallback — remove it so missing artifacts fail CI: ${line.trim()}`,
+      ).not.toContain('|| echo ""');
+    }
+  });
+});
+
 describe('desktop workflow files — license-checker flags', () => {
   function getLicenseCheckerLine(): string | undefined {
     const ci = readWorkflows().find((w) => w.name === 'ci.yml');
