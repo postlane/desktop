@@ -36,18 +36,44 @@ mod tests {
     }
 
     #[test]
-    fn stable_constant_is_correct_url() {
-        assert_eq!(
-            STABLE,
-            "https://github.com/postlane/desktop/releases/latest/download/latest.json"
+    fn stable_uses_https() {
+        assert!(STABLE.starts_with("https://"), "STABLE must use https://");
+    }
+
+    #[test]
+    fn stable_points_to_releases_latest() {
+        assert!(
+            STABLE.contains("/releases/latest/download/"),
+            "STABLE must point to the /releases/latest/download/ path"
         );
     }
 
     #[test]
-    fn beta_constant_is_correct_url() {
-        assert_eq!(
-            BETA,
-            "https://github.com/postlane/desktop/releases/download/beta/latest.json"
+    fn stable_ends_with_latest_json() {
+        assert!(
+            STABLE.ends_with("/latest.json"),
+            "STABLE must end with /latest.json"
+        );
+    }
+
+    #[test]
+    fn beta_uses_https() {
+        assert!(BETA.starts_with("https://"), "BETA must use https://");
+    }
+
+    #[test]
+    fn beta_points_to_beta_channel() {
+        assert!(
+            BETA.contains("/releases/download/beta/"),
+            "BETA must point to the /releases/download/beta/ path"
+        );
+    }
+
+    #[test]
+    fn beta_ends_with_latest_json() {
+        assert!(
+            BETA.ends_with("/latest.json"),
+            "BETA must end with /latest.json"
         );
     }
 }

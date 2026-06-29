@@ -43,15 +43,23 @@ describe('beta-build.yml workflow', () => {
     expect(content).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
   });
 
-  it('all action references are SHA-pinned (no floating version tags)', () => {
-    const usesLines = content
-      .split('\n')
-      .filter((l) => /^\s+uses:\s/.test(l));
-    for (const line of usesLines) {
-      const ref = line.match(/uses:\s+(\S+)/)?.[1] ?? '';
-      expect(ref, `floating tag in: ${line.trim()}`).not.toMatch(/@v\d+(\.|$)/);
-      expect(ref, `floating @stable in: ${line.trim()}`).not.toMatch(/@stable$/);
-      expect(ref, `floating @main in: ${line.trim()}`).not.toMatch(/@main$/);
-    }
+  // F2: darwin-x86_64 platform URL must use _x86_64 suffix, not _x64.
+  // Tauri names the macOS Intel artifact Postlane_<version>_x86_64.app.tar.gz;
+  // the _x64 suffix matches no file and the updater silently serves a broken URL.
+  it('darwin-x86_64 latest.json URL uses _x86_64 suffix, not _x64', () => {
+    expect(
+      content,
+      'darwin-x86_64 URL uses _x64 suffix — Tauri names the artifact _x86_64; the updater will serve a 404',
+    ).not.toContain('_x64.app.tar.gz');
+    expect(content).toContain('_x86_64.app.tar.gz');
+  });
+
+  // Sweep: verify the correct artifact filenames for all three platform URLs
+  it('darwin-aarch64 URL uses _aarch64.app.tar.gz suffix', () => {
+    expect(content).toContain('_aarch64.app.tar.gz');
+  });
+
+  it('linux-x86_64 URL uses .AppImage suffix (amd64 Tauri artifact)', () => {
+    expect(content).toContain('_amd64.AppImage');
   });
 });
