@@ -145,7 +145,7 @@ jobs:
         run: npm install -g license-checker
 
       - name: Check licenses
-        run: license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;CC-BY-3.0;CC-BY-4.0" --excludePackages "$(node -p "Object.keys(require('./package.json').dependencies || {}).join(';')")"
+        run: license-checker --production --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;MIT-0;MPL-2.0;LGPL-3.0-or-later;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;CC-BY-3.0;CC-BY-4.0" --excludePackages "$(node -p "require('./package.json').name + '@' + require('./package.json').version")"
 
   ci:
     runs-on: ubuntu-latest

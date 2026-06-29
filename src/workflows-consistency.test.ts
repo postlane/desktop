@@ -127,3 +127,27 @@ describe('desktop workflow files — individual checks', () => {
     ).not.toContain('|| echo');
   });
 });
+
+describe('desktop workflow files — license-checker flags', () => {
+  function getLicenseCheckerLine(): string | undefined {
+    const ci = readWorkflows().find((w) => w.name === 'ci.yml');
+    return ci?.content.split('\n').find((l) => l.includes('license-checker') && l.includes('--onlyAllow'));
+  }
+
+  it('uses --production to skip dev-only deps', () => {
+    expect(getLicenseCheckerLine(), 'license-checker --onlyAllow line not found').toBeDefined();
+    expect(getLicenseCheckerLine()).toContain('--production');
+  });
+
+  it('allows MPL-2.0 (lightningcss via @tailwindcss/postcss)', () => {
+    expect(getLicenseCheckerLine()).toContain('MPL-2.0');
+  });
+
+  it('allows MIT-0 (@csstools packages)', () => {
+    expect(getLicenseCheckerLine()).toContain('MIT-0');
+  });
+
+  it('allows LGPL-3.0-or-later (next/sharp/libvips chain)', () => {
+    expect(getLicenseCheckerLine()).toContain('LGPL-3.0-or-later');
+  });
+});
