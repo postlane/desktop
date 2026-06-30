@@ -159,6 +159,19 @@ jobs:
         with:
           path: artifacts
 
+      - name: Rename macOS updater artifacts with architecture suffix
+        run: |
+          VERSION=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          for PAIR in "aarch64-apple-darwin:aarch64" "x86_64-apple-darwin:x86_64"; do
+            TARGET="${PAIR%%:*}"
+            ARCH="${PAIR##*:}"
+            for EXT in app.tar.gz app.tar.gz.sig; do
+              find artifacts -name "Postlane.${EXT}" -path "*${TARGET}*" | while IFS= read -r F; do
+                mv "$F" "$(dirname "$F")/Postlane_${VERSION}_${ARCH}.${EXT}"
+              done
+            done
+          done
+
       - name: Build latest.json for beta feed
         run: |
           VERSION=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
