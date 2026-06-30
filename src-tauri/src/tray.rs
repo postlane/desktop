@@ -10,7 +10,7 @@ use tauri::{
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 use crate::app_state::AppState;
-use crate::commands::approve_post_impl;
+use crate::post_approval::approve_post_impl;
 use crate::nav_commands::get_all_drafts_impl;
 
 /// Stable tray icon identifier — used to look up the tray after creation.

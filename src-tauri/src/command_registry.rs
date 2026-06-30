@@ -10,7 +10,7 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::account_config::get_account_ids, crate::account_config::save_account_id, crate::account_config::get_scheduler_account_names,
         crate::analytics::client::get_site_token, crate::analytics::client::get_post_analytics,
         crate::app_state_ops::set_default_post_time, crate::app_state_ops::set_wizard_completed,
-        crate::post_approval::approve_post, crate::commands::cancel_post_command, crate::commands::get_queue_command,
+        crate::post_approval::approve_post, crate::post_approval::cancel_post_command, crate::post_queries::get_queue_command,
         crate::post_dismiss::delete_post, crate::post_dismiss::dismiss_post, crate::post_export::export_history_csv,
         crate::post_queries::get_drafts, crate::post_queries::get_post_content, crate::post_retry::retry_post,
         crate::repo_mgmt::add_repo, crate::repo_mgmt::check_repo_health, crate::repo_mgmt::remove_repo,

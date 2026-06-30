@@ -724,3 +724,15 @@ use std::path::Path;
             "error must describe the missing folder, got: {}", msg
         );
     }
+
+    #[test]
+    fn test_cancel_post_impl_returns_not_implemented_error() {
+        let result = cancel_post_impl();
+        assert!(result.is_err(), "cancel must return Err");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("Cancel not implemented"),
+            "error message must contain 'Cancel not implemented', got: {}",
+            msg
+        );
+    }
