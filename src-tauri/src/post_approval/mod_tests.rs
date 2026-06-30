@@ -724,3 +724,29 @@ use std::path::Path;
             "error must describe the missing folder, got: {}", msg
         );
     }
+
+    #[test]
+    fn test_cancel_post_impl_returns_not_implemented_error() {
+        let result = cancel_post_impl();
+        assert!(result.is_err(), "cancel must return Err");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("not yet available"),
+            "error message must be user-facing (contain 'not yet available'), got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_cancel_post_impl_error_is_user_facing() {
+        let result = cancel_post_impl();
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        // Must NOT contain internal milestone/roadmap language
+        assert!(!msg.contains("Milestone"), "error message must not leak internal milestone: {}", msg);
+        assert!(!msg.contains("M4"), "error message must not leak internal milestone: {}", msg);
+        assert!(!msg.contains("deferred"), "error message must not leak internal milestone: {}", msg);
+        // Must be user-facing — contain actionable guidance
+        assert!(msg.contains("not yet available") || msg.contains("delete"),
+                "error message must be user-facing, got: {}", msg);
+    }

@@ -2,7 +2,7 @@
 
 use postlane_desktop_lib::app_state::AppState;
 use postlane_desktop_lib::storage::ReposConfig;
-use postlane_desktop_lib::commands::check_libsecret_availability;
+use postlane_desktop_lib::scheduler_credentials::check_libsecret_availability;
 
 #[cfg(test)]
 mod libsecret_tests {

@@ -27,7 +27,7 @@ function ScheduledRow({ post, onCancelled, tz }: { post: PublishedPost; onCancel
         return true;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        throw new Error(msg.toLowerCase().includes('not supported') ? 'Cancel via dashboard' : msg);
+        throw new Error(msg.toLowerCase().includes('not supported') || msg.toLowerCase().includes('not yet available') ? 'Cancel via dashboard' : msg);
       }
     });
     if (result !== null) {
