@@ -115,12 +115,31 @@ pub fn get_post_content(
     get_post_content_impl(&repo_path, &post_folder, &platform)
 }
 
+/// Stub — queue read is deferred to Milestone 4.
+#[tauri::command]
+pub fn get_queue_command(
+    _state: State<AppState>,
+) -> Result<Vec<crate::types::QueuedPost>, String> {
+    get_queue_impl()
+}
+
+pub(crate) fn get_queue_impl() -> Result<Vec<crate::types::QueuedPost>, String> {
+    Ok(Vec::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::app_state::AppState;
     use crate::storage::{Repo, ReposConfig};
     use std::fs;
+
+    #[test]
+    fn test_get_queue_impl_returns_empty_vec() {
+        let result = get_queue_impl();
+        assert!(result.is_ok(), "get_queue must return Ok");
+        assert!(result.unwrap().is_empty(), "queue must be empty");
+    }
 
     fn make_drafts_state(path: &str) -> (AppState, tempfile::TempDir) {
         let _tmp_repos = tempfile::TempDir::new().expect("create temp dir");

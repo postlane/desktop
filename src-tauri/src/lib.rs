@@ -9,7 +9,6 @@ pub mod app_lifecycle;
 pub mod app_state;
 pub mod app_state_ops;
 pub mod app_state_types;
-pub mod commands;
 pub mod config_local_write;
 pub mod config_merge;
 pub mod config_paths;

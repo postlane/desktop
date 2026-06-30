@@ -134,6 +134,21 @@ pub async fn approve_post(
     approve_post_impl(&repo_path, &post_folder, &platform, &state, Some(&app), consent).await
 }
 
+/// Stub — cancel is deferred to Milestone 4.
+#[tauri::command]
+pub fn cancel_post_command(
+    _repo_path: String,
+    _post_folder: String,
+    _post_id: String,
+    _platform: String,
+    _state: State<AppState>,
+) -> Result<(), String> {
+    cancel_post_impl()
+}
+
+pub(crate) fn cancel_post_impl() -> Result<(), String> {
+    Err("Cancel not implemented in Milestone 3 (deferred to M4)".to_string())
+}
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]
