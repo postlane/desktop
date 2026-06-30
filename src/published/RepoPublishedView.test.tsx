@@ -257,6 +257,7 @@ describe('RepoPublishedView — cancel error paths', () => {
       expect(screen.getByText(/raw cancel string error/i)).toBeInTheDocument(),
     );
   });
+
 });
 
 // ---------------------------------------------------------------------------

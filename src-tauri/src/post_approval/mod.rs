@@ -147,7 +147,7 @@ pub fn cancel_post_command(
 }
 
 pub(crate) fn cancel_post_impl() -> Result<(), String> {
-    Err("Cancel not implemented in Milestone 3 (deferred to M4)".to_string())
+    Err("Post cancellation is not yet available — please delete the draft instead.".to_string())
 }
 
 #[cfg(test)]
