@@ -1,69 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-//! Atomic read/write for `scheduler.account_names` in `.postlane/config.json`.
+//! Thin wrappers over `config_map_field` for the `scheduler.account_names` field.
 
-use crate::init::read_json_file;
-use std::fs;
+use std::collections::HashMap;
 use std::path::Path;
 
-fn acquire_config_lock(config_path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
-    let key = config_path.to_string_lossy().into_owned();
-    crate::platform_constants::CONFIG_JSON_LOCKS
-        .entry(key)
-        .or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(())))
-        .clone()
-}
-
-/// Writes a display name (e.g. "@rng_dev") for `platform` into
-/// `scheduler.account_names` in `config_path`. Atomic write, same contract as
-/// `save_account_id_impl`.
-/// Holds a per-path Mutex across the read-mutate-write cycle to prevent concurrent
-/// writes from clobbering each other (e.g. account_id and account_name written simultaneously).
+/// Writes a display name for `platform` into `scheduler.account_names` in `config_path`.
 pub(crate) fn save_account_name_impl(
     config_path: &Path,
     platform: &str,
     name: &str,
 ) -> Result<(), String> {
-    if !config_path.exists() {
-        return Err(format!("config.json not found at {}", config_path.display()));
-    }
-    let lock = acquire_config_lock(config_path);
-    let _guard = lock.lock().map_err(|e| format!("config.json lock poisoned: {}", e))?;
-    let mut config: serde_json::Value = read_json_file(config_path)?;
-    if !config["scheduler"].is_object() {
-        config["scheduler"] = serde_json::json!({});
-    }
-    if !config["scheduler"]["account_names"].is_object() {
-        config["scheduler"]["account_names"] = serde_json::json!({});
-    }
-    config["scheduler"]["account_names"][platform] = serde_json::json!(name);
-    let serialized = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config.json: {}", e))?;
-    let tmp_path = config_path.with_extension("tmp");
-    fs::write(&tmp_path, &serialized)
-        .map_err(|e| format!("Failed to write temp config: {}", e))?;
-    fs::rename(&tmp_path, config_path)
-        .map_err(|e| format!("Failed to rename temp config: {}", e))?;
-    Ok(())
+    crate::config_map_field::save_scheduler_field(config_path, "account_names", platform, name)
 }
 
 /// Returns `scheduler.account_names` from `config.json` as a platform → display-name map.
-/// Returns an empty map when the file is absent; errors on parse failure.
-pub(crate) fn get_account_names_impl(
-    config_path: &Path,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    if !config_path.exists() {
-        return Ok(std::collections::HashMap::new());
-    }
-    let config: serde_json::Value = read_json_file(config_path)?;
-    let names = match config["scheduler"]["account_names"].as_object() {
-        Some(obj) => obj
-            .iter()
-            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-            .collect(),
-        None => std::collections::HashMap::new(),
-    };
-    Ok(names)
+pub(crate) fn get_account_names_impl(config_path: &Path) -> Result<HashMap<String, String>, String> {
+    crate::config_map_field::get_scheduler_field(config_path, "account_names")
 }
 
 #[cfg(test)]

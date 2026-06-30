@@ -4,6 +4,7 @@ pub mod account_config;
 pub mod command_registry;
 pub mod account_id_store;
 pub mod account_name_store;
+pub mod config_map_field;
 pub mod analytics;
 pub mod app_lifecycle;
 pub mod app_state;

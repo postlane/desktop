@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use super::{build_client, parse_retry_after, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
+use super::{build_client, PostScheduleResult, ProviderError, SchedulerProfile, SchedulingProvider, Engagement};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -36,20 +36,6 @@ impl AyrshareProvider {
         &self.base_url
     }
 
-    /// Helper to check HTTP status and return appropriate error
-    fn check_response_status(response: &reqwest::Response) -> Result<(), ProviderError> {
-        let status = response.status();
-
-        if status == 401 {
-            return Err(ProviderError::AuthError("Invalid API key".to_string()));
-        }
-
-        if status == 429 {
-            return Err(ProviderError::RateLimit(parse_retry_after(response)));
-        }
-
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -99,7 +85,7 @@ impl SchedulingProvider for AyrshareProvider {
                     .await
                     .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
-                Self::check_response_status(&response)?;
+                super::http_client::check_response_status(&response)?;
 
                 let status = response.status();
                 if !status.is_success() {
@@ -141,7 +127,7 @@ impl SchedulingProvider for AyrshareProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
-        Self::check_response_status(&response)?;
+        super::http_client::check_response_status(&response)?;
 
         let status = response.status();
         if !status.is_success() {
@@ -193,7 +179,7 @@ impl SchedulingProvider for AyrshareProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
-        Self::check_response_status(&response)?;
+        super::http_client::check_response_status(&response)?;
 
         let status = response.status();
         if !status.is_success() {
@@ -221,7 +207,7 @@ impl SchedulingProvider for AyrshareProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
-        Self::check_response_status(&response)?;
+        super::http_client::check_response_status(&response)?;
 
         let status = response.status();
         if !status.is_success() {
@@ -289,7 +275,7 @@ impl SchedulingProvider for AyrshareProvider {
             .await
             .map_err(|e| ProviderError::NetworkError(e.to_string()))?;
 
-        Self::check_response_status(&response)?;
+        super::http_client::check_response_status(&response)?;
 
         let status = response.status();
         if !status.is_success() {
