@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-use postlane_desktop_lib::commands::{
+use postlane_desktop_lib::scheduler_credentials::{
     save_scheduler_credential_impl,
     mask_credential,
     delete_scheduler_credential_impl,
@@ -124,7 +124,7 @@ mod credential_tests {
 
     #[test]
     fn test_get_credential_keyring_key_format() {
-        use postlane_desktop_lib::commands::get_credential_keyring_key;
+        use postlane_desktop_lib::scheduler_credentials::get_credential_keyring_key;
 
         // Credentials are always workspace-scoped: "provider/workspace_id"
         let key = get_credential_keyring_key("zernio", "repo-123");
