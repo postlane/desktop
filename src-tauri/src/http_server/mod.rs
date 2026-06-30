@@ -185,75 +185,14 @@ pub async fn start_server(
 /// Writes the port file to ~/.postlane/port with 0600 permissions.
 pub fn write_port_file(port: u16) -> Result<(), String> {
     let port_path = crate::init::postlane_dir()?.join("port");
-    let content = port.to_string();
-
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&port_path)
-            .map_err(|e| format!("Failed to open port file: {}", e))?;
-
-        file.write_all(content.as_bytes())
-            .map_err(|e| format!("Failed to write port file: {}", e))?;
-
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&port_path, perms)
-            .map_err(|e| format!("Failed to set port file permissions: {}", e))?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&port_path, content)
-            .map_err(|e| format!("Failed to write port file: {}", e))?;
-    }
-
-    Ok(())
+    crate::secure_file::write_secure_file(&port_path, port.to_string().as_bytes())
 }
 
 /// Writes `token` to `~/.postlane/local.token` with 0600 permissions.
 /// The CLI reads this file for workspace registration (22.4.8a).
 pub fn write_local_token(token: &str) -> Result<(), String> {
     let token_path = crate::init::postlane_dir()?.join("local.token");
-
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&token_path)
-            .map_err(|e| format!("Failed to open local.token: {}", e))?;
-
-        file.write_all(token.as_bytes())
-            .map_err(|e| format!("Failed to write local.token: {}", e))?;
-
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&token_path, perms)
-            .map_err(|e| format!("Failed to set local.token permissions: {}", e))?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&token_path, token)
-            .map_err(|e| format!("Failed to write local.token: {}", e))?;
-    }
-
-    Ok(())
+    crate::secure_file::write_secure_file(&token_path, token.as_bytes())
 }
 
 /// Generates a random session token and writes it to ~/.postlane/session.token with 0600 permissions.
@@ -269,36 +208,7 @@ pub fn generate_and_write_token() -> Result<String, String> {
         .collect();
 
     let token_path = crate::init::postlane_dir()?.join("session.token");
-
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&token_path)
-            .map_err(|e| format!("Failed to open token file: {}", e))?;
-
-        file.write_all(token.as_bytes())
-            .map_err(|e| format!("Failed to write token file: {}", e))?;
-
-        let perms = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&token_path, perms)
-            .map_err(|e| format!("Failed to set token file permissions: {}", e))?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&token_path, &token)
-            .map_err(|e| format!("Failed to write token file: {}", e))?;
-    }
-
+    crate::secure_file::write_secure_file(&token_path, token.as_bytes())?;
     Ok(token)
 }
 
