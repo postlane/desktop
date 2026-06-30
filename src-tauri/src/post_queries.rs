@@ -115,7 +115,7 @@ pub fn get_post_content(
     get_post_content_impl(&repo_path, &post_folder, &platform)
 }
 
-/// Stub — queue read is deferred to Milestone 4.
+/// Stub -- queue view is not yet implemented.
 #[tauri::command]
 pub fn get_queue_command(
     _state: State<AppState>,
@@ -124,7 +124,7 @@ pub fn get_queue_command(
 }
 
 pub(crate) fn get_queue_impl() -> Result<Vec<crate::types::QueuedPost>, String> {
-    Ok(Vec::new())
+    Err("Post queue is not yet available.".to_string())
 }
 
 #[cfg(test)]
@@ -135,10 +135,20 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn test_get_queue_impl_returns_empty_vec() {
+    fn test_get_queue_impl_returns_not_yet_available_err() {
         let result = get_queue_impl();
-        assert!(result.is_ok(), "get_queue must return Ok");
-        assert!(result.unwrap().is_empty(), "queue must be empty");
+        assert!(result.is_err(), "queue stub must return Err, not Ok(empty)");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("not yet available"),
+            "error must be user-facing, got: {}", msg
+        );
+    }
+
+    #[test]
+    fn test_get_queue_impl_has_no_em_dash() {
+        let msg = get_queue_impl().unwrap_err();
+        assert!(!msg.contains('\u{2014}'), "em dashes banned: {}", msg);
     }
 
     fn make_drafts_state(path: &str) -> (AppState, tempfile::TempDir) {

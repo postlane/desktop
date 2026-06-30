@@ -45,6 +45,7 @@ pub mod platform_config_sync;
 pub mod platform_constants;
 pub mod poll_routing;
 pub mod post_approval;
+pub mod post_cancel;
 pub mod post_dismiss;
 pub mod post_editor;
 pub mod post_export;
