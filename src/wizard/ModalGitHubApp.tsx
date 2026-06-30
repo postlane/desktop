@@ -6,6 +6,7 @@ import { open as openDialog, message } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '../ipc/invoke';
 import WizardShell from './WizardShell';
+import type { RepoSummary } from '../hooks/useRepoData';
 
 const GITHUB_APP_INSTALL_URL = 'https://github.com/apps/postlane/installations/new';
 const CLI_COMMAND = 'npx @postlane/cli init';
@@ -74,12 +75,6 @@ function GitHubAppSection({ appInstalled, error, onInstall, pollSlowNotice, poll
       )}
     </div>
   );
-}
-
-interface RepoSummary {
-  id: string;
-  name: string;
-  path: string;
 }
 
 /** Returns the project_id that already owns the folder, or null if unknown. */

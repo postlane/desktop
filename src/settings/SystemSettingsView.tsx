@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { invoke } from '../ipc/invoke';
+import type { ModelStatsResponse } from '../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -10,14 +11,6 @@ interface WatcherStatus {
   repo_path: string;
   active: boolean;
   last_event_at: string | null;
-}
-
-interface ModelStatsResponse {
-  edit_rate: number;
-  edited_posts: number;
-  total_posts: number;
-  denominator_unit: string;
-  pre_m19_post_count: number;
 }
 
 // ── ModelStatsSection ─────────────────────────────────────────────────────────
