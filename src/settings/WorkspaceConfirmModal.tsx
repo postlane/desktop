@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { invoke } from '../ipc/invoke';
 import { useAsyncCommand } from '../hooks/useAsyncCommand';
 
-export interface RepoSummary {
+export interface DiscoveredRepo {
   name: string;
   path: string;
   posts_dir: string;
@@ -13,7 +13,7 @@ export interface RepoSummary {
 export interface WorkspaceSetupResult {
   workspace_id: string;
   workspace_path: string;
-  discovered_repos: RepoSummary[];
+  discovered_repos: DiscoveredRepo[];
 }
 
 interface Props {
@@ -23,7 +23,7 @@ interface Props {
 }
 
 function RepoCheckbox({ repo, checked, onChange }: {
-  repo: RepoSummary; checked: boolean; onChange: (checked: boolean) => void;
+  repo: DiscoveredRepo; checked: boolean; onChange: (checked: boolean) => void;
 }) {
   return (
     <label className="is-flex" style={{ gap: '0.5rem', alignItems: 'center', cursor: 'pointer' }}>
