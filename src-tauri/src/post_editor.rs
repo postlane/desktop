@@ -6,10 +6,7 @@ use crate::app_state::AppState;
 use crate::post_approval::pipeline::post_location::{PostLocation, validate_repo_path};
 use crate::post_meta::PostMeta;
 
-const VALID_PLATFORMS: &[&str] = &[
-    "x", "bluesky", "mastodon",
-    "linkedin", "substack_notes", "substack", "product_hunt", "show_hn", "changelog",
-];
+use crate::platform_constants::VALID_PLATFORMS;
 
 // Hostnames whose URLs are always direct images even without a file extension.
 const IMAGE_CDN_HOSTNAMES: &[&str] = &[

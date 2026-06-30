@@ -36,3 +36,31 @@ pub static POST_META_SYNC_LOCKS: LazyLock<DashMap<String, Arc<Mutex<()>>>> =
 /// Uses std::sync::Mutex (not tokio) because callers are synchronous.
 pub static CONFIG_JSON_LOCKS: LazyLock<DashMap<String, Arc<Mutex<()>>>> =
     LazyLock::new(DashMap::new);
+
+/// Canonical set of supported post platforms.
+/// Authoritative list for platform validation in post_editor and post_queries.
+/// Add a new platform here — it propagates to all validators automatically.
+pub const VALID_PLATFORMS: &[&str] = &[
+    "x", "bluesky", "mastodon",
+    "linkedin", "substack_notes", "substack", "product_hunt", "show_hn", "changelog",
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_platforms_contains_all_expected_platforms() {
+        let expected = [
+            "x", "bluesky", "mastodon", "linkedin", "substack_notes",
+            "substack", "product_hunt", "show_hn", "changelog",
+        ];
+        for p in &expected {
+            assert!(VALID_PLATFORMS.contains(p), "VALID_PLATFORMS must include '{p}'");
+        }
+        assert_eq!(
+            VALID_PLATFORMS.len(), expected.len(),
+            "VALID_PLATFORMS length mismatch — update expected array when adding a platform",
+        );
+    }
+}

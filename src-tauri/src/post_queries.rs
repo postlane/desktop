@@ -80,15 +80,12 @@ pub fn get_post_content_impl(
     post_folder: &str,
     platform: &str,
 ) -> Result<String, String> {
-    const VALID_PLATFORMS: &[&str] = &[
-        "x", "bluesky", "mastodon",
-        "linkedin", "substack_notes", "substack", "product_hunt", "show_hn", "changelog",
-    ];
-    if !VALID_PLATFORMS.contains(&platform) {
+    let valid_platforms = crate::platform_constants::VALID_PLATFORMS;
+    if !valid_platforms.contains(&platform) {
         return Err(format!(
             "Invalid platform: '{}'. Must be one of: {}",
             platform,
-            VALID_PLATFORMS.join(", ")
+            valid_platforms.join(", ")
         ));
     }
 
