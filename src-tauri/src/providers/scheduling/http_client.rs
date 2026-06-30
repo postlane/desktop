@@ -24,6 +24,20 @@ pub fn parse_retry_after(response: &reqwest::Response) -> Duration {
     Duration::from_secs(parse_retry_after_secs(header))
 }
 
+/// Checks a response status for the common 401/429 cases shared across scheduling providers.
+/// Returns `Ok(())` for any status that is not explicitly handled here.
+/// 401 → `AuthError`; 429 → `RateLimit` with the `Retry-After` header value.
+pub(crate) fn check_response_status(response: &reqwest::Response) -> Result<(), ProviderError> {
+    let status = response.status();
+    if status == 401 {
+        return Err(ProviderError::AuthError("Invalid API key".to_string()));
+    }
+    if status == 429 {
+        return Err(ProviderError::RateLimit(parse_retry_after(response)));
+    }
+    Ok(())
+}
+
 /// Build a shared reqwest::Client for provider HTTP requests.
 ///
 /// Creates a client with a 10 s request timeout and 5 s connect timeout.
@@ -207,5 +221,39 @@ mod tests {
         assert_eq!(result.unwrap(), 42);
         assert!(elapsed >= Duration::from_millis(2800));
         assert!(elapsed < Duration::from_millis(3500));
+    }
+
+    // --- check_response_status ---
+
+    #[tokio::test]
+    async fn check_response_status_returns_ok_for_200() {
+        use httpmock::prelude::*;
+        let server = MockServer::start();
+        server.mock(|when, then| { when.method(GET).path("/ok"); then.status(200); });
+        let resp = build_client().get(format!("{}/ok", server.base_url())).send().await.unwrap();
+        assert!(check_response_status(&resp).is_ok());
+    }
+
+    #[tokio::test]
+    async fn check_response_status_returns_auth_error_for_401() {
+        use httpmock::prelude::*;
+        let server = MockServer::start();
+        server.mock(|when, then| { when.method(GET).path("/unauth"); then.status(401); });
+        let resp = build_client().get(format!("{}/unauth", server.base_url())).send().await.unwrap();
+        let err = check_response_status(&resp).unwrap_err();
+        assert!(matches!(err, ProviderError::AuthError(_)));
+    }
+
+    #[tokio::test]
+    async fn check_response_status_returns_rate_limit_for_429() {
+        use httpmock::prelude::*;
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/limited");
+            then.status(429).header("Retry-After", "30");
+        });
+        let resp = build_client().get(format!("{}/limited", server.base_url())).send().await.unwrap();
+        let err = check_response_status(&resp).unwrap_err();
+        assert!(matches!(err, ProviderError::RateLimit(d) if d == Duration::from_secs(30)));
     }
 }
