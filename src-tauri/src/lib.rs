@@ -81,6 +81,7 @@ pub mod scheduler_account_sync;
 pub mod scheduler_credential_writer;
 pub mod scheduler_credentials;
 pub mod scheduling;
+pub mod secure_file;
 pub mod security;
 pub mod startup_projects;
 pub mod startup_sync;
