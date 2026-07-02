@@ -9,7 +9,14 @@ import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 
 // ── Types & constants ─────────────────────────────────────────────────────────
 
-const ALL_PROVIDERS = ['zernio', 'upload_post', 'buffer', 'publer', 'outstand', 'webhook'] as const;
+// Buffer removed 2026-07-01: its old REST API (api.bufferapp.com, which the
+// shipped BufferProvider still targets) is closed to new developer app
+// registrations, and the new GraphQL API doesn't support third-party OAuth
+// yet — no new user can obtain the credentials this provider needs. Kept out
+// of ALL_PROVIDERS (the "add new" list) but providerLabel/providerUrl below
+// still resolve it, so an existing connected Buffer credential (if any)
+// still renders correctly rather than falling back to a raw string.
+const ALL_PROVIDERS = ['zernio', 'upload_post', 'publer', 'outstand', 'webhook'] as const;
 type Provider = typeof ALL_PROVIDERS[number];
 
 /** Mirrors scheduler_credentials::SaveCredentialResponse */
