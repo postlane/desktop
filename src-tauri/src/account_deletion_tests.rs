@@ -16,8 +16,6 @@ fn build_client() -> reqwest::Client {
     crate::providers::scheduling::build_client()
 }
 
-fn accept_any_url(_url: &str) -> Result<(), String> { Ok(()) }
-fn ssrf_validator(url: &str) -> Result<(), String> { crate::ssrf_validation::validate_ssrf_url(url) }
 
 fn make_entry(id: &str, path: &str) -> WorkspaceEntry {
     WorkspaceEntry {
@@ -41,7 +39,6 @@ fn make_params(tmp: &TempDir, server: &MockServer) -> DeleteAccountParams {
         token: "tok".to_string(),
         project_ids: vec!["proj-1".to_string()],
         project_ids_with_github_app: vec![],
-        gitlab_instance_url: None,
         delete_workspace_dirs: false,
     }
 }
@@ -64,7 +61,7 @@ async fn test_preflight_401_aborts_delete() {
     let tmp = TempDir::new().unwrap();
     make_repos(&tmp, vec![]);
     let params = make_params(&tmp, &server);
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_err());
     let msg = result.unwrap_err();
     assert!(msg.contains("session") || msg.contains("expired") || msg.contains("401"),
@@ -83,10 +80,9 @@ async fn test_preflight_network_error_aborts_delete() {
         token: "tok".to_string(),
         project_ids: vec![],
         project_ids_with_github_app: vec![],
-        gitlab_instance_url: None,
         delete_workspace_dirs: false,
     };
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_err());
     let msg = result.unwrap_err();
     assert!(msg.contains("connection") || msg.contains("network") || msg.contains("verify"),
@@ -102,7 +98,7 @@ async fn test_preflight_200_proceeds_to_deletion() {
     full_mock(&server);
     make_repos(&tmp, vec![make_entry("proj-1", tmp.path().join("ws").to_str().unwrap())]);
     let params = make_params(&tmp, &server);
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_ok(), "200 pre-flight must allow deletion to proceed: {:?}", result);
 }
 
@@ -161,28 +157,6 @@ async fn test_disconnect_all_github_apps_skipped_when_empty() {
     assert!(result.is_ok(), "empty list must succeed without API calls");
     // Verify no calls were made to the mock server
     let _ = server; // no requests expected
-}
-
-// ── 22.7.13: Step 3 — uses stored GitLab instance URL ────────────────────────
-
-#[tokio::test]
-async fn test_revoke_gitlab_uses_stored_instance_url() {
-    let server = MockServer::start();
-    let m = server.mock(|when, then| {
-        when.method(httpmock::Method::DELETE).path("/oauth/token");
-        then.status(200);
-    });
-    // accept_any_url bypasses SSRF checks so the httpmock server (HTTP localhost) is reachable.
-    let instance_url = server.base_url();
-    let result = revoke_gitlab_token(Some(&instance_url), &build_client(), accept_any_url).await;
-    assert!(result.is_ok(), "valid URL must succeed: {:?}", result);
-    m.assert();
-}
-
-#[tokio::test]
-async fn test_revoke_gitlab_none_is_noop() {
-    let result = revoke_gitlab_token(None, &build_client(), ssrf_validator).await;
-    assert!(result.is_ok(), "no GitLab token is a noop");
 }
 
 // ── 22.7.16: Step 6 — repos.json wiped ──────────────────────────────────────
@@ -324,59 +298,23 @@ fn test_delete_workspace_dirs_rejects_shallow_path() {
     }
 }
 
-// ── 22.7.12: GitLab SSRF per-URL rejection tests ────────────────────────────
-// Each URL from the spec is tested individually against the real ssrf_validator.
-// On rejection revoke_gitlab_token returns Err("PL-DEL-003: …"); delete_account_impl
-// treats that as non-fatal (log::warn) so deletion continues — tested last.
+// ── Step 3 non-fatal behaviour (rewritten 2026-07-01) ────────────────────────
+// GitLab revocation failure must not abort the overall account deletion —
+// it's a third-party credential cleanup, not core Postlane data.
 
 #[tokio::test]
-async fn test_gitlab_ssrf_rejects_http_10_0_0_1() {
-    let res = revoke_gitlab_token(Some("http://10.0.0.1"), &build_client(), ssrf_validator).await;
-    assert!(res.is_err(), "http://10.0.0.1 must be rejected");
-    assert!(res.unwrap_err().contains("PL-DEL-003"));
-}
-
-#[tokio::test]
-async fn test_gitlab_ssrf_rejects_http_192_168_1_1() {
-    let res = revoke_gitlab_token(Some("http://192.168.1.1"), &build_client(), ssrf_validator).await;
-    assert!(res.is_err(), "http://192.168.1.1 must be rejected");
-    assert!(res.unwrap_err().contains("PL-DEL-003"));
-}
-
-#[tokio::test]
-async fn test_gitlab_ssrf_rejects_http_127_0_0_1() {
-    let res = revoke_gitlab_token(Some("http://127.0.0.1"), &build_client(), ssrf_validator).await;
-    assert!(res.is_err(), "http://127.0.0.1 must be rejected");
-    assert!(res.unwrap_err().contains("PL-DEL-003"));
-}
-
-#[tokio::test]
-async fn test_gitlab_ssrf_rejects_http_ipv6_loopback() {
-    // http://[::1]/oauth/token — http scheme + bare IPv6 loopback
-    let res = revoke_gitlab_token(Some("http://[::1]"), &build_client(), ssrf_validator).await;
-    assert!(res.is_err(), "http://[::1] must be rejected");
-    assert!(res.unwrap_err().contains("PL-DEL-003"));
-}
-
-#[tokio::test]
-async fn test_gitlab_ssrf_rejects_http_ipv6_mapped_10() {
-    // http://[::ffff:10.0.0.1]/oauth/token — IPv4-mapped private address
-    let res = revoke_gitlab_token(Some("http://[::ffff:10.0.0.1]"), &build_client(), ssrf_validator).await;
-    assert!(res.is_err(), "http://[::ffff:10.0.0.1] must be rejected");
-    assert!(res.unwrap_err().contains("PL-DEL-003"));
-}
-
-#[tokio::test]
-async fn test_gitlab_ssrf_blocked_deletion_continues() {
-    // SSRF-blocked GitLab URL must not abort the overall account deletion.
+async fn test_gitlab_revocation_failure_does_not_abort_deletion() {
     let server = MockServer::start();
     full_mock(&server);
+    server.mock(|when, then| {
+        when.method(httpmock::Method::POST).path("/v1/account/gitlab-revoke");
+        then.status(502);
+    });
     let tmp = TempDir::new().unwrap();
     make_repos(&tmp, vec![make_entry("proj-1", tmp.path().join("ws").to_str().unwrap())]);
-    let mut params = make_params(&tmp, &server);
-    params.gitlab_instance_url = Some("http://10.0.0.1".to_string());
-    let result = delete_account_impl(params, &build_client(), ssrf_validator).await;
-    assert!(result.is_ok(), "blocked GitLab URL must not abort deletion: {:?}", result);
+    let params = make_params(&tmp, &server);
+    let result = delete_account_impl(params, &build_client()).await;
+    assert!(result.is_ok(), "failed GitLab revocation must not abort deletion: {:?}", result);
 }
 
 // ── 22.9.11: account_deleted telemetry ───────────────────────────────────────
@@ -449,21 +387,6 @@ fn test_clear_all_keyring_covers_multiple_projects() {
     }
 }
 
-#[tokio::test]
-async fn test_gitlab_ssrf_valid_https_url_calls_endpoint() {
-    // A valid https URL must reach the revocation endpoint.
-    // accept_any_url bypasses the SSRF check so httpmock (HTTP localhost) is reachable,
-    // simulating how a real https://gitlab.example.com would behave.
-    let server = MockServer::start();
-    let m = server.mock(|when, then| {
-        when.method(httpmock::Method::DELETE).path("/oauth/token");
-        then.status(200);
-    });
-    let result = revoke_gitlab_token(Some(&server.base_url()), &build_client(), accept_any_url).await;
-    assert!(result.is_ok(), "valid GitLab URL must succeed: {:?}", result);
-    m.assert();
-}
-
 // ── 22.7.10b: Step 1 — 5xx server response returns Err ───────────────────────
 
 #[tokio::test]
@@ -500,10 +423,9 @@ async fn test_delete_account_impl_with_delete_workspace_dirs_true_deletes_dirs()
         token: "tok".to_string(),
         project_ids: vec!["proj-1".to_string()],
         project_ids_with_github_app: vec![],
-        gitlab_instance_url: None,
         delete_workspace_dirs: true,
     };
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_ok(), "delete with workspace dirs must succeed: {:?}", result);
     assert!(!ws_dir.exists(), "workspace directory must be removed when delete_workspace_dirs=true");
 }
@@ -529,10 +451,9 @@ async fn test_delete_account_impl_missing_repos_json_still_succeeds() {
         token: "tok".to_string(),
         project_ids: vec![],
         project_ids_with_github_app: vec![],
-        gitlab_instance_url: None,
         delete_workspace_dirs: false,
     };
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_ok(), "absent repos.json must not abort deletion: {:?}", result);
 }
 
@@ -562,10 +483,9 @@ async fn test_delete_account_record_returns_error_on_401() {
         token: "tok".to_string(),
         project_ids: vec![],
         project_ids_with_github_app: vec![],
-        gitlab_instance_url: None,
         delete_workspace_dirs: false,
     };
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_err(), "401 from account/delete must return Err");
     let msg = result.unwrap_err();
     assert!(msg.contains("PL-DEL-004"), "error must include PL-DEL-004, got: {msg}");
@@ -597,30 +517,67 @@ async fn test_delete_account_record_returns_error_on_5xx() {
         token: "tok".to_string(),
         project_ids: vec![],
         project_ids_with_github_app: vec![],
-        gitlab_instance_url: None,
         delete_workspace_dirs: false,
     };
-    let result = delete_account_impl(params, &build_client(), accept_any_url).await;
+    let result = delete_account_impl(params, &build_client()).await;
     assert!(result.is_err(), "5xx from account/delete must return Err");
     let msg = result.unwrap_err();
     assert!(msg.contains("PL-DEL-004"), "error must include PL-DEL-004, got: {msg}");
     assert!(msg.contains("500"), "error must mention status 500, got: {msg}");
 }
 
-// ── 22.7.13c: Step 3 — GitLab non-2xx response returns Err (line 166) ─────────
+// ── Step 3 (rewritten 2026-07-01) — revocation runs server-side ─────────────
+// A prior version called GitLab directly with no credentials at all and its
+// caller discarded the result unconditionally — always "succeeding" while
+// never actually revoking anything. See account_deletion.rs's Step 3 comment.
+
+#[tokio::test]
+async fn test_revoke_gitlab_calls_backend_endpoint_with_bearer_auth() {
+    let server = MockServer::start();
+    let m = server.mock(|when, then| {
+        when.method(httpmock::Method::POST)
+            .path("/v1/account/gitlab-revoke")
+            .header("authorization", "Bearer tok");
+        then.status(200);
+    });
+    let result = revoke_gitlab_token(&server.base_url(), "tok", &build_client()).await;
+    assert!(result.is_ok(), "200 from backend must succeed: {:?}", result);
+    m.assert();
+}
+
+#[tokio::test]
+async fn test_revoke_gitlab_returns_error_on_401() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(httpmock::Method::POST).path("/v1/account/gitlab-revoke");
+        then.status(401);
+    });
+    let result = revoke_gitlab_token(&server.base_url(), "tok", &build_client()).await;
+    assert!(result.is_err(), "401 must return Err");
+    let msg = result.unwrap_err();
+    assert!(msg.contains("PL-DEL-003"), "error must include PL-DEL-003, got: {msg}");
+}
 
 #[tokio::test]
 async fn test_revoke_gitlab_returns_error_on_non_2xx() {
     let server = MockServer::start();
     server.mock(|when, then| {
-        when.method(httpmock::Method::DELETE).path("/oauth/token");
-        then.status(403);
+        when.method(httpmock::Method::POST).path("/v1/account/gitlab-revoke");
+        then.status(502);
     });
-    let result = revoke_gitlab_token(Some(&server.base_url()), &build_client(), accept_any_url).await;
-    assert!(result.is_err(), "non-2xx GitLab response must return Err");
+    let result = revoke_gitlab_token(&server.base_url(), "tok", &build_client()).await;
+    assert!(result.is_err(), "non-2xx backend response must return Err");
     let msg = result.unwrap_err();
     assert!(msg.contains("PL-DEL-003"), "error must include PL-DEL-003, got: {msg}");
-    assert!(msg.contains("403"), "error must mention status 403, got: {msg}");
+    assert!(msg.contains("502"), "error must mention status 502, got: {msg}");
+}
+
+#[tokio::test]
+async fn test_revoke_gitlab_network_error_returns_err() {
+    // Port 0 on localhost is not listening — guarantees a connection error.
+    let result = revoke_gitlab_token("http://127.0.0.1:0", "tok", &build_client()).await;
+    assert!(result.is_err(), "network error must return Err, not panic");
+    assert!(result.unwrap_err().contains("PL-DEL-003"));
 }
 
 // ── 22.7.8b: preflight_session direct branch tests ────────────────────────────
