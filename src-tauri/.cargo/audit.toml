@@ -5,9 +5,18 @@
 # The vulnerability requires runtime conditions (custom logger, trace-level
 # logging, reseeding cycle) that cannot occur in build-time code generation.
 # Our own code uses rand 0.9.4 which is not affected.
-ignore = ["RUSTSEC-2026-0097", "RUSTSEC-2024-0429"]
+ignore = ["RUSTSEC-2026-0097", "RUSTSEC-2024-0429", "RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
 
 # RUSTSEC-2024-0429 — glib::VariantStrIter unsoundness
 # glib 0.18.5 is pulled in on Linux through tauri → wry → webkit2gtk → gtk → glib.
 # The fix requires glib >= 0.20.0 but the current webkit2gtk binding locks it to
 # 0.18.x. This must be resolved upstream in Tauri; no action available to us.
+
+# RUSTSEC-2026-0194 / RUSTSEC-2026-0195 — quick-xml 0.39.4 DoS advisories
+# (quadratic-time attribute check; unbounded namespace-declaration allocation).
+# Pulled in transitively via plist <- tauri (macOS Info.plist handling) and
+# wayland-scanner <- tao (Linux build-time protocol codegen) -- neither path
+# parses attacker-controlled XML in Postlane's own usage. No fix is available:
+# plist 1.9.0, the latest release on crates.io as of 2026-07-02, still pins
+# quick-xml "^0.39.2", so no compatible `cargo update` resolves this without
+# forking plist. Revisit once plist bumps its quick-xml requirement.
