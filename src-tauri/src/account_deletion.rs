@@ -19,7 +19,6 @@ pub struct DeleteAccountParams {
     pub token: String,
     pub project_ids: Vec<String>,
     pub project_ids_with_github_app: Vec<String>,
-    pub gitlab_instance_url: Option<String>,
     pub delete_workspace_dirs: bool,
 }
 
@@ -33,7 +32,6 @@ pub struct DeleteAccountResult {
 pub async fn delete_account_impl(
     params: DeleteAccountParams,
     client: &reqwest::Client,
-    validate_url: fn(&str) -> Result<(), String>,
 ) -> Result<DeleteAccountResult, String> {
     let repos_path = params.postlane_dir.join("repos.json");
 
@@ -51,10 +49,10 @@ pub async fn delete_account_impl(
         &params.api_base, &params.token, &params.project_ids_with_github_app, client,
     ).await?;
 
-    // Step 3: revoke GitLab token (non-fatal if SSRF blocked).
-    if let Err(e) = revoke_gitlab_token(
-        params.gitlab_instance_url.as_deref(), client, validate_url,
-    ).await {
+    // Step 3: revoke GitLab token (non-fatal — a transient GitLab outage
+    // should not block account deletion; the failure is still surfaced via
+    // the log, not swallowed).
+    if let Err(e) = revoke_gitlab_token(&params.api_base, &params.token, client).await {
         log::warn!("{}", e);
     }
 
@@ -144,26 +142,28 @@ pub async fn disconnect_all_github_apps(
 }
 
 // ── Step 3 ────────────────────────────────────────────────────────────────────
+//
+// Revocation runs server-side (POST {api_base}/v1/account/gitlab-revoke), not
+// as a direct client call to the user's GitLab instance. The desktop app has
+// neither the GitLab OAuth app's client_secret (registered in Supabase's Auth
+// provider config, never exposed to clients) nor the user's raw GitLab access
+// token (stored server-side in `user_provider_tokens` at OAuth callback time,
+// never returned to the desktop app). A prior version of this function called
+// GitLab directly with neither credential and always failed silently — see
+// the 2026-07-01 audit that found this.
 
 pub async fn revoke_gitlab_token(
-    instance_url: Option<&str>,
+    api_base: &str,
+    token: &str,
     client: &reqwest::Client,
-    validate_url: fn(&str) -> Result<(), String>,
 ) -> Result<(), String> {
-    let url = match instance_url {
-        None => return Ok(()),
-        Some(u) => u,
-    };
-    let revoke_url = format!("{}/oauth/token", url.trim_end_matches('/'));
-    validate_url(&revoke_url)
-        .map_err(|e| format!("PL-DEL-003: GitLab revocation skipped — {}", e))?;
-    let resp = client.delete(&revoke_url).send().await
-        .map_err(|e| format!("PL-DEL-003: GitLab revocation request failed: {}", e))?;
-    let status = resp.status().as_u16();
-    if (200..300).contains(&status) {
-        Ok(())
-    } else {
-        Err(format!("PL-DEL-003: GitLab revocation returned {}", status))
+    let url = format!("{}/v1/account/gitlab-revoke", api_base);
+    let resp = client.post(&url).bearer_auth(token).send().await
+        .map_err(|e| format!("PL-DEL-003: network error revoking GitLab token: {}", e))?;
+    match resp.status().as_u16() {
+        200 => Ok(()),
+        401 => Err("PL-DEL-003: session invalid while revoking GitLab token".to_string()),
+        s => Err(format!("PL-DEL-003: server returned {} while revoking GitLab token", s)),
     }
 }
 

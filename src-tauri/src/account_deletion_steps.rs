@@ -69,6 +69,12 @@ async fn run_phase_2(api_base: &str, token: &str, client: &reqwest::Client, repo
     Ok(ok(2))
 }
 
+async fn run_phase_3(api_base: &str, token: &str, client: &reqwest::Client) -> Result<DeletionPhaseResult, DeletionPhaseError> {
+    revoke_gitlab_token(api_base, token, client).await
+        .map_err(|m| phase_err(3, "PL-DEL-003", m))?;
+    Ok(ok(3))
+}
+
 async fn run_phase_5(api_base: &str, token: &str, client: &reqwest::Client) -> Result<DeletionPhaseResult, DeletionPhaseError> {
     let url = format!("{}/v1/account/delete", api_base);
     let resp = client.post(&url).bearer_auth(token).send().await
@@ -124,7 +130,7 @@ pub async fn run_deletion_phase(phase: u8, delete_workspace_dirs: bool, app: tau
         0 => run_phase_0(POSTLANE_API_BASE, &token, &client, &state).await,
         1 => run_phase_1(POSTLANE_API_BASE, &token, &client, &state.repos_path).await,
         2 => run_phase_2(POSTLANE_API_BASE, &token, &client, &state.repos_path).await,
-        3 => { let _ = revoke_gitlab_token(None, &client, crate::ssrf_validation::validate_ssrf_url).await; Ok(ok(3)) }
+        3 => run_phase_3(POSTLANE_API_BASE, &token, &client).await,
         4 => Ok(run_phase_4(&app, &state.repos_path)),
         5 => run_phase_5(POSTLANE_API_BASE, &token, &client).await,
         6 => run_phase_6(&state.repos_path),
