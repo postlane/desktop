@@ -8,6 +8,10 @@ pub enum DeepLinkPath {
     Activate,
     /// `postlane://draft` — stub for v2 weekly-review feature.
     Draft,
+    /// `postlane://account-updated` — stub for v2 "Connected accounts" Disconnect
+    /// flow (checklist 24.1.6a); the actual refetch-and-rerender lands with the
+    /// Settings -- Account UI in Workstream 1/24.4, not yet built.
+    AccountUpdated,
     /// `postlane://oauth/callback` — stub for v3 OAuth flow.
     OauthCallback,
     /// Any other host/path — logged at `warn!` level, no action taken.
@@ -32,6 +36,7 @@ pub fn classify(url: &str) -> DeepLinkPath {
     match (host, path) {
         ("activate", _) => DeepLinkPath::Activate,
         ("draft", "") => DeepLinkPath::Draft,
+        ("account-updated", "") => DeepLinkPath::AccountUpdated,
         ("oauth", "callback") => DeepLinkPath::OauthCallback,
         _ => {
             let full = if path.is_empty() {
@@ -107,6 +112,11 @@ mod tests {
     #[test]
     fn test_classify_draft() {
         assert_eq!(classify("postlane://draft"), DeepLinkPath::Draft);
+    }
+
+    #[test]
+    fn test_classify_account_updated() {
+        assert_eq!(classify("postlane://account-updated"), DeepLinkPath::AccountUpdated);
     }
 
     #[test]
