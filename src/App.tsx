@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useCallback } from 'react';
+import { MantineProvider } from '@mantine/core';
+import { postlaneTheme } from './theme';
 import { TimezoneContext } from './TimezoneContext';
 import { ProjectsProvider } from './context/ProjectsProvider';
 import { DraftPostsProvider } from './context/DraftPostsProvider';
@@ -15,6 +17,18 @@ export { MainContent } from './components/MainContent';
 export type { MainContentProps } from './components/MainContent';
 
 export default function App() {
+  return (
+    <MantineProvider theme={postlaneTheme}>
+      <AppContent />
+    </MantineProvider>
+  );
+}
+
+// v2.0 checklist 24.0.2: existing Bulma-styled screens (Wizard, AppShell,
+// etc.) are untouched here -- MantineProvider only supplies context/CSS
+// variables for the Mantine components built from this release onward. No
+// existing markup is migrated as part of this item.
+function AppContent() {
   const appState = useAppState();
   const { toastMessage, showToast } = useToast();
   const guard = useDirtyNavGuard(appState.setCurrentView, appState.currentView);
