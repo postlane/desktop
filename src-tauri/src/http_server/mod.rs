@@ -8,6 +8,8 @@ mod register_route;
 mod register_workspace_route;
 mod send_route;
 
+pub use activate_route::ActivationResult;
+
 use axum::{
     http::{HeaderName, HeaderValue, Response},
     middleware::{self, Next},
@@ -38,9 +40,9 @@ pub struct ServerState {
     pub repos: Arc<tokio::sync::Mutex<crate::storage::ReposConfig>>,
     /// Path to repos.json. Injected so tests can use a temp path instead of ~/.postlane/repos.json.
     pub repos_path: std::path::PathBuf,
-    /// Sends (token, new_link) to the activation receiver task.
+    /// Sends the completed OAuth round trip's result to the activation receiver task.
     /// `None` in tests and before the server is fully initialised.
-    pub activation_tx: Option<tokio::sync::mpsc::Sender<(String, bool)>>,
+    pub activation_tx: Option<tokio::sync::mpsc::Sender<ActivationResult>>,
     /// Sends (repo_id, repo_path) when a repo is registered mid-session so the
     /// Tauri side can start a file watcher immediately. `None` in tests.
     pub watcher_tx: Option<tokio::sync::mpsc::Sender<(String, String)>>,

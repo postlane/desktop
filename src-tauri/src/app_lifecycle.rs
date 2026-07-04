@@ -43,7 +43,8 @@ pub fn spawn_http_server(
     let token = crate::http_server::generate_and_write_token()?;
     crate::http_server::write_local_token(&token)?;
     let repos_arc = Arc::new(tokio::sync::Mutex::new(repos_config));
-    let (activation_tx, activation_rx) = tokio::sync::mpsc::channel::<(String, bool)>(4);
+    let (activation_tx, activation_rx) =
+        tokio::sync::mpsc::channel::<crate::http_server::ActivationResult>(4);
     let (watcher_tx, watcher_rx) = tokio::sync::mpsc::channel::<(String, String)>(16);
     let projects = app_handle.state::<AppState>().projects_cache.clone();
     let server_state = crate::http_server::ServerState {
@@ -80,11 +81,11 @@ pub fn spawn_http_server(
 }
 
 fn spawn_activation_listener(
-    mut rx: tokio::sync::mpsc::Receiver<(String, bool)>,
+    mut rx: tokio::sync::mpsc::Receiver<crate::http_server::ActivationResult>,
     app_handle: tauri::AppHandle,
 ) {
     tauri::async_runtime::spawn(async move {
-        while let Some((tok, new_link)) = rx.recv().await {
+        while let Some(crate::http_server::ActivationResult { token: tok, new_link, account_linked }) = rx.recv().await {
             log::info!("[activate] validating token from local server (length={})", tok.len());
             let handle = app_handle.clone();
             let keyring_handle = handle.clone();
@@ -121,7 +122,11 @@ fn spawn_activation_listener(
                     }
                     let _ = handle.emit(
                         "license:activated",
-                        serde_json::json!({ "display_name": display_name, "new_link": new_link }),
+                        serde_json::json!({
+                            "display_name": display_name,
+                            "new_link": new_link,
+                            "account_linked": account_linked,
+                        }),
                     );
                 }
                 Err(e) => {

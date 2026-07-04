@@ -12,6 +12,20 @@ use super::ServerState;
 pub struct ActivateParams {
     pub token: String,
     pub new_link: Option<String>,
+    pub account_linked: Option<String>,
+}
+
+/// What the /activate route learned about a completed OAuth round trip,
+/// sent to the activation listener over `activation_tx`. A named struct
+/// rather than a growing tuple of positional bools -- (String, bool, bool)
+/// is exactly the kind of thing that becomes an ambiguous-boolean-soup bug
+/// as more flags get added (checklist 24.4.10 added account_linked
+/// alongside the pre-existing new_link).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActivationResult {
+    pub token: String,
+    pub new_link: bool,
+    pub account_linked: bool,
 }
 
 /// Receives the license token forwarded from the browser after OAuth completes.
@@ -30,8 +44,9 @@ pub(super) async fn activate_handler(
     log::info!("[activate] token received (length={})", params.token.len());
 
     let new_link = params.new_link.as_deref() == Some("1");
+    let account_linked = params.account_linked.as_deref() == Some("1");
     if let Some(tx) = &state.activation_tx {
-        match tx.try_send((params.token, new_link)) {
+        match tx.try_send(ActivationResult { token: params.token, new_link, account_linked }) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 log::warn!("[activate] activation channel full");
@@ -84,7 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_returns_200_and_sends_token_to_channel() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ActivationResult>(1);
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
@@ -106,13 +121,13 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let (received_token, _) = rx.try_recv().expect("token should have been sent");
-        assert_eq!(received_token, "header.payload.sig");
+        let result = rx.try_recv().expect("token should have been sent");
+        assert_eq!(result.token, "header.payload.sig");
     }
 
     #[tokio::test]
     async fn test_activate_passes_new_link_true_when_flag_set() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ActivationResult>(1);
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
@@ -134,14 +149,44 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let (token, new_link) = rx.try_recv().expect("should have received");
-        assert_eq!(token, "a.b.c");
-        assert!(new_link, "new_link should be true when flag is set");
+        let result = rx.try_recv().expect("should have received");
+        assert_eq!(result.token, "a.b.c");
+        assert!(result.new_link, "new_link should be true when flag is set");
+    }
+
+    #[tokio::test]
+    async fn test_activate_passes_account_linked_true_when_flag_set() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ActivationResult>(1);
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = ServerState {
+            token: "tok".to_string(),
+            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+                version: 1, workspaces: vec![], repos: vec![],
+            })),
+            repos_path,
+            activation_tx: Some(tx),
+            watcher_tx: None,
+            app_handle: None,
+            projects: empty_projects(),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c&account_linked=1")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let result = rx.try_recv().expect("should have received");
+        assert_eq!(result.token, "a.b.c");
+        assert!(result.account_linked, "account_linked should be true when flag is set");
+        assert!(!result.new_link, "new_link should stay false when only account_linked is set");
     }
 
     #[tokio::test]
     async fn test_activate_passes_new_link_false_when_flag_absent() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ActivationResult>(1);
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
@@ -163,9 +208,38 @@ mod tests {
                 .body(axum::body::Body::empty()).unwrap(),
         ).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let (token, new_link) = rx.try_recv().expect("should have received");
-        assert_eq!(token, "a.b.c");
-        assert!(!new_link, "new_link should be false when flag is absent");
+        let result = rx.try_recv().expect("should have received");
+        assert_eq!(result.token, "a.b.c");
+        assert!(!result.new_link, "new_link should be false when flag is absent");
+    }
+
+    #[tokio::test]
+    async fn test_activate_passes_account_linked_false_when_flag_absent() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ActivationResult>(1);
+        let tmp = tempfile::TempDir::new().expect("create temp dir");
+        let repos_path = tmp.path().join("repos.json");
+        std::mem::forget(tmp);
+        let state = ServerState {
+            token: "tok".to_string(),
+            repos: Arc::new(tokio::sync::Mutex::new(crate::storage::ReposConfig {
+                version: 1, workspaces: vec![], repos: vec![],
+            })),
+            repos_path,
+            activation_tx: Some(tx),
+            watcher_tx: None,
+            app_handle: None,
+            projects: empty_projects(),
+        };
+        let app = create_router(state);
+        let response = app.oneshot(
+            axum::http::Request::builder()
+                .uri("/activate?token=a.b.c")
+                .body(axum::body::Body::empty()).unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let result = rx.try_recv().expect("should have received");
+        assert_eq!(result.token, "a.b.c");
+        assert!(!result.account_linked, "account_linked should be false when flag is absent");
     }
 
     #[tokio::test]
@@ -203,8 +277,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_activate_returns_503_when_channel_is_full() {
-        let (tx, _rx) = tokio::sync::mpsc::channel::<(String, bool)>(1);
-        tx.try_send(("filler.filler.filler".to_string(), false)).unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel::<ActivationResult>(1);
+        tx.try_send(ActivationResult { token: "filler.filler.filler".to_string(), new_link: false, account_linked: false }).unwrap();
         let tmp = tempfile::TempDir::new().expect("create temp dir");
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);

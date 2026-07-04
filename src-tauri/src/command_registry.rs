@@ -34,6 +34,7 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::project_lifecycle::update_project_org_login, crate::project_lifecycle::register_repo_with_project,
         crate::project_voice_guide::get_project_voice_guide, crate::project_voice_guide::get_voice_guide_fields, crate::project_voice_guide::sync_voice_guide_to_repos, crate::project_voice_guide::save_project_voice_guide,
         crate::provider_orgs::list_provider_orgs, crate::provider_orgs::list_linked_providers,
+        crate::provider_accounts::list_provider_accounts, crate::provider_accounts::remove_provider_account,
         crate::published_queries::get_all_published, crate::published_queries::get_repo_published,
         crate::repo_connection_status::get_repo_connection_status,
         crate::repo_discovery::discover_repos, crate::repo_project_filter::list_repos_for_project, crate::repo_project_filter::unregister_repo,
