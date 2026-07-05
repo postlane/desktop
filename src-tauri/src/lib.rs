@@ -66,6 +66,7 @@ pub mod project_lifecycle;
 pub mod project_registry;
 pub mod project_validation;
 pub mod project_voice_guide;
+pub mod provider_accounts;
 pub mod provider_orgs;
 pub mod providers;
 pub mod published_queries;
