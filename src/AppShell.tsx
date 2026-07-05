@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import TelemetryConsentModal from './telemetry/TelemetryConsentModal';
 import LeftNav from './nav/LeftNav';
+import AccountRail from './nav/AccountRail';
 import { MainContent } from './components/MainContent';
 import { EditGuardContext } from './context/EditGuardContext';
 import type { useAppState } from './hooks/useAppState';
@@ -22,10 +23,11 @@ export function AppShell({
   const { currentView, showConsentModal, handleAddOrg,
     setRepoVersion, wizardNudgePending,
     handleConsentChoice, handleWizardNudgeHandled, handleSignedOut, setTimezone } = appState;
-  const { discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, editPostViewDirtyRef, resetSignal } = guard;
+  const { discardModalOpen, handleNavClick, handleAccountSwitch, confirmDiscard, cancelDiscard, editPostViewDirtyRef, resetSignal } = guard;
   const setDirty = useCallback((dirty: boolean) => { editPostViewDirtyRef.current = dirty; }, [editPostViewDirtyRef]);
   return (
     <div className="is-flex" style={{ height: '100vh', overflow: 'hidden', background: 'white' }}>
+      <AccountRail onSwitch={handleAccountSwitch} />
       <LeftNav currentView={currentView} onNavigate={handleNavClick}
         onSettingsOpen={() => handleNavClick({ view: 'global_settings', section: 'account' })}
         onAddWorkspace={handleAddOrg} />
