@@ -60,15 +60,23 @@ export function isSameView(a: ViewSelection, b: ViewSelection): boolean {
   return true;
 }
 
-export function useDirtyNavGuard(setCurrentView: (_sel: ViewSelection) => void, currentView: ViewSelection) {
+type PendingAction =
+  | { kind: 'nav'; sel: ViewSelection }
+  | { kind: 'switch_account'; accountId: string };
+
+export function useDirtyNavGuard(
+  setCurrentView: (_sel: ViewSelection) => void,
+  currentView: ViewSelection,
+  onSwitchAccount: (_accountId: string) => void,
+) {
   const editPostViewDirtyRef = useRef(false);
-  const [pendingNavigation, setPendingNavigation] = useState<ViewSelection | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
 
   const handleNavClick = useCallback((sel: ViewSelection) => {
     if (editPostViewDirtyRef.current) {
-      setPendingNavigation(sel);
+      setPendingAction({ kind: 'nav', sel });
       setDiscardModalOpen(true);
     } else if (isSameView(sel, currentView)) {
       setResetSignal((s) => s + 1);
@@ -77,23 +85,37 @@ export function useDirtyNavGuard(setCurrentView: (_sel: ViewSelection) => void, 
     }
   }, [setCurrentView, currentView]);
 
+  // Switching provider accounts (checklist 24.4.10) shares the same guard as
+  // nav: an unsaved approval-queue edit prompts to discard before switching,
+  // rather than switching silently.
+  const handleAccountSwitch = useCallback((accountId: string) => {
+    if (editPostViewDirtyRef.current) {
+      setPendingAction({ kind: 'switch_account', accountId });
+      setDiscardModalOpen(true);
+    } else {
+      onSwitchAccount(accountId);
+    }
+  }, [onSwitchAccount]);
+
   const confirmDiscard = useCallback(() => {
-    if (pendingNavigation) {
-      if (isSameView(pendingNavigation, currentView)) {
+    if (pendingAction?.kind === 'nav') {
+      if (isSameView(pendingAction.sel, currentView)) {
         setResetSignal((s) => s + 1);
       } else {
-        setCurrentView(pendingNavigation);
+        setCurrentView(pendingAction.sel);
       }
+    } else if (pendingAction?.kind === 'switch_account') {
+      onSwitchAccount(pendingAction.accountId);
     }
-    setPendingNavigation(null);
+    setPendingAction(null);
     setDiscardModalOpen(false);
     editPostViewDirtyRef.current = false;
-  }, [pendingNavigation, setCurrentView, currentView]);
+  }, [pendingAction, setCurrentView, currentView, onSwitchAccount]);
 
   const cancelDiscard = useCallback(() => {
-    setPendingNavigation(null);
+    setPendingAction(null);
     setDiscardModalOpen(false);
   }, []);
 
-  return { editPostViewDirtyRef, discardModalOpen, handleNavClick, confirmDiscard, cancelDiscard, resetSignal };
+  return { editPostViewDirtyRef, discardModalOpen, handleNavClick, handleAccountSwitch, confirmDiscard, cancelDiscard, resetSignal };
 }

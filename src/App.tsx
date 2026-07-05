@@ -6,6 +6,7 @@ import { postlaneTheme } from './theme';
 import { TimezoneContext } from './TimezoneContext';
 import { ProjectsProvider } from './context/ProjectsProvider';
 import { DraftPostsProvider } from './context/DraftPostsProvider';
+import { ProviderAccountsProvider, useProviderAccountsContext } from './context/ProviderAccountsProvider';
 import { useAppState } from './hooks/useAppState';
 import { useToast, useCmdHShortcut, useWindowSizePersistence, useDirtyNavGuard } from './hooks/useAppHooks';
 import { AppShell } from './AppShell';
@@ -31,15 +32,6 @@ export default function App() {
 function AppContent() {
   const appState = useAppState();
   const { toastMessage, showToast } = useToast();
-  const guard = useDirtyNavGuard(appState.setCurrentView, appState.currentView);
-  const { handleNavClick } = guard;
-  const cmdHCallback = useCallback(() => {
-    const view = appState.currentView;
-    const projectId = (view.view === 'org_queue' || view.view === 'org_history' || view.view === 'org_settings')
-      ? view.projectId : '';
-    handleNavClick({ view: 'org_history', projectId });
-  }, [appState.currentView, handleNavClick]);
-  useCmdHShortcut(cmdHCallback);
   useWindowSizePersistence();
 
   if (appState.initError) return (
@@ -59,10 +51,35 @@ function AppContent() {
   return (
     <ProjectsProvider>
     <DraftPostsProvider>
+    <ProviderAccountsProvider>
     <TimezoneContext.Provider value={appState.timezone}>
-      <AppShell appState={appState} guard={guard} showToast={showToast} toastMessage={toastMessage} />
+      <AuthenticatedShell appState={appState} showToast={showToast} toastMessage={toastMessage} />
     </TimezoneContext.Provider>
+    </ProviderAccountsProvider>
     </DraftPostsProvider>
     </ProjectsProvider>
   );
+}
+
+// Split from AppContent so the guard's account-switch callback (checklist
+// 24.4.10) can come from ProviderAccountsProvider's context -- this must
+// render inside the provider tree, unlike the wizard/re-sign-in states above
+// which run before the user is authenticated.
+function AuthenticatedShell({ appState, showToast, toastMessage }: {
+  appState: ReturnType<typeof useAppState>;
+  showToast: (_msg: string) => void;
+  toastMessage: string | null;
+}) {
+  const { setActiveAccountId } = useProviderAccountsContext();
+  const guard = useDirtyNavGuard(appState.setCurrentView, appState.currentView, setActiveAccountId);
+  const { handleNavClick } = guard;
+  const cmdHCallback = useCallback(() => {
+    const view = appState.currentView;
+    const projectId = (view.view === 'org_queue' || view.view === 'org_history' || view.view === 'org_settings')
+      ? view.projectId : '';
+    handleNavClick({ view: 'org_history', projectId });
+  }, [appState.currentView, handleNavClick]);
+  useCmdHShortcut(cmdHCallback);
+
+  return <AppShell appState={appState} guard={guard} showToast={showToast} toastMessage={toastMessage} />;
 }
