@@ -23,6 +23,9 @@ fn write_global_repos_with_workspace(
     let config = crate::storage::ReposConfig {
         version: 2,
         workspaces: vec![crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: workspace_id.to_string(),
             name: "test-ws".to_string(),
             workspace_path: workspace_path.to_string(),

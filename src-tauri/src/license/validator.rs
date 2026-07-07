@@ -25,11 +25,25 @@ pub struct RepoLicenseInfo {
     pub status: String,
 }
 
+/// A single workspace entry in the license response (checklist 24.4.8).
+/// `project_id` matches `WorkspaceEntry.id` in `~/.postlane/repos.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceLicenseInfo {
+    pub project_id: String,
+    pub name: String,
+    pub status: String,
+    pub is_owner: bool,
+    /// ISO 8601 timestamp of when `status` last changed -- used to compute
+    /// the days-remaining countdown shown in the payment_failed approval
+    /// block CTA (checklist 24.4.11).
+    pub status_updated_at: String,
+}
+
 /// The result of a license validation attempt
 #[derive(Debug, Clone)]
 pub enum LicenseState {
     /// Backend confirmed the token is valid
-    Valid { user: UserInfo, repos: Vec<RepoLicenseInfo> },
+    Valid { user: UserInfo, repos: Vec<RepoLicenseInfo>, workspaces: Vec<WorkspaceLicenseInfo> },
     /// Backend returned 401 — token is expired or revoked
     Expired,
     /// Backend unreachable; cached state returned
@@ -45,6 +59,8 @@ pub struct LicenseCache {
     pub validated_at: DateTime<Utc>,
     pub user: UserInfo,
     pub repos: Vec<RepoLicenseInfo>,
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceLicenseInfo>,
 }
 
 /// In test builds, individual tests redirect cache_path() to a private TempDir
@@ -115,6 +131,8 @@ struct LicenseValidateResponse {
     user: UserInfo,
     #[serde(default)]
     repos: Vec<RepoLicenseInfo>,
+    #[serde(default)]
+    workspaces: Vec<WorkspaceLicenseInfo>,
 }
 
 /// Validates a license token against the backend.
@@ -139,9 +157,13 @@ pub async fn validate_token_with_client(
                 validated_at: Utc::now(),
                 user: body.user.clone(),
                 repos: body.repos.clone(),
+                workspaces: body.workspaces.clone(),
             };
             warn_on_cache_write(write_license_cache(&cache));
-            Ok(LicenseState::Valid { user: body.user, repos: body.repos })
+            if let Err(e) = crate::workspace_license_sync::sync_license_statuses(&body.workspaces) {
+                log::warn!("[validate] failed to sync workspace license statuses: {}", e);
+            }
+            Ok(LicenseState::Valid { user: body.user, repos: body.repos, workspaces: body.workspaces })
         }
         Ok(r) if r.status().as_u16() == 401 => {
             let body = r.text().await.unwrap_or_default();

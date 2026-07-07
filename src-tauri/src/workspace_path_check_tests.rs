@@ -13,6 +13,9 @@ fn write_config_json(dir: &std::path::Path, project_id: &str) {
 
 fn make_workspace_entry(id: &str, name: &str, path: &std::path::Path) -> WorkspaceEntry {
     WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
         id: id.to_string(),
         name: name.to_string(),
         workspace_path: path.to_string_lossy().to_string(),

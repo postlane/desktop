@@ -102,6 +102,7 @@ pub mod workspace_add;
 pub mod workspace_confirm;
 pub mod workspace_entry;
 pub mod workspace_history;
+pub mod workspace_license_sync;
 pub mod workspace_repos;
 pub mod workspace_rescan;
 pub mod account_deletion;

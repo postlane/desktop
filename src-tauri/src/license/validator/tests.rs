@@ -84,6 +84,7 @@ async fn test_validate_token_offline() {
         validated_at: Utc::now() - Duration::hours(1),
         user: test_user(),
         repos: vec![],
+        workspaces: vec![],
     };
     std::fs::write(&guard.path, serde_json::to_string_pretty(&cache).unwrap()).unwrap();
     let server = MockServer::start();
@@ -103,6 +104,7 @@ fn test_license_cache_expired() {
         validated_at: Utc::now() - Duration::days(8),
         user: test_user(),
         repos: vec![],
+        workspaces: vec![],
     };
     assert!(is_cache_expired(&cache), "8-day-old cache should be expired");
     let fresh = LicenseCache { validated_at: Utc::now() - Duration::days(6), ..cache };
@@ -119,6 +121,7 @@ async fn test_enforcing_variant_returns_expired_for_stale_offline_cache() {
         validated_at: Utc::now() - Duration::days(31),
         user: test_user(),
         repos: vec![],
+        workspaces: vec![],
     };
     std::fs::write(&guard.path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
     let server = MockServer::start();
@@ -146,12 +149,24 @@ async fn test_enforcing_expiry_30_day_boundary() {
     });
     let client = build_client();
 
-    let fresh = LicenseCache { version: 1, validated_at: Utc::now() - Duration::days(29), user: test_user(), repos: vec![] };
+    let fresh = LicenseCache {
+        version: 1,
+        validated_at: Utc::now() - Duration::days(29),
+        user: test_user(),
+        repos: vec![],
+        workspaces: vec![],
+    };
     std::fs::write(&guard.path, serde_json::to_string_pretty(&fresh).unwrap()).unwrap();
     let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
     assert!(matches!(state, LicenseState::Offline { .. }), "29-day-old cache must not be hard-expired");
 
-    let stale = LicenseCache { version: 1, validated_at: Utc::now() - Duration::days(31), user: test_user(), repos: vec![] };
+    let stale = LicenseCache {
+        version: 1,
+        validated_at: Utc::now() - Duration::days(31),
+        user: test_user(),
+        repos: vec![],
+        workspaces: vec![],
+    };
     std::fs::write(&guard.path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
     let state = validate_token_enforcing_expiry("tok", &client, &server.base_url()).await.unwrap();
     assert!(matches!(state, LicenseState::Expired), "31-day-old cache must be hard-expired");
@@ -341,4 +356,61 @@ async fn test_validate_token_missing_repos_field_succeeds() {
     let client = build_client();
     let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
     assert!(matches!(state, LicenseState::Valid { .. }), "missing repos field must parse successfully");
+}
+
+/// checklist 24.4.8 — the workspaces[] array parses into LicenseState::Valid.
+#[tokio::test]
+async fn test_validate_token_parses_workspaces_field() {
+    let _guard = CacheGuard::acquire();
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/v1/license/validate");
+        then.status(200).json_body(serde_json::json!({
+            "valid": true,
+            "user": { "id": "u1", "display_name": "Alice", "avatar_url": null },
+            "workspaces": [
+                {
+                    "project_id": "proj-1",
+                    "name": "My Workspace",
+                    "status": "paid_owned",
+                    "is_owner": true,
+                    "status_updated_at": "2026-07-01T00:00:00.000Z"
+                }
+            ]
+        }));
+    });
+    let client = build_client();
+    let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
+    match state {
+        LicenseState::Valid { workspaces, .. } => {
+            assert_eq!(workspaces.len(), 1);
+            assert_eq!(workspaces[0].project_id, "proj-1");
+            assert_eq!(workspaces[0].name, "My Workspace");
+            assert_eq!(workspaces[0].status, "paid_owned");
+            assert!(workspaces[0].is_owner);
+            assert_eq!(workspaces[0].status_updated_at, "2026-07-01T00:00:00.000Z");
+        }
+        other => panic!("expected Valid state, got: {:?}", other),
+    }
+}
+
+/// Web endpoint may omit `workspaces` field entirely (older server or no
+/// workspaces yet) — must not fail deserialization.
+#[tokio::test]
+async fn test_validate_token_missing_workspaces_field_succeeds() {
+    let _guard = CacheGuard::acquire();
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/v1/license/validate");
+        then.status(200).json_body(serde_json::json!({
+            "valid": true,
+            "user": { "id": "u1", "display_name": "Alice", "avatar_url": null }
+        }));
+    });
+    let client = build_client();
+    let state = validate_token_with_client("tok", &client, &server.base_url()).await.unwrap();
+    match state {
+        LicenseState::Valid { workspaces, .. } => assert!(workspaces.is_empty()),
+        other => panic!("expected Valid state, got: {:?}", other),
+    }
 }

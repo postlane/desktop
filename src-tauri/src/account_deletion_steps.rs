@@ -357,11 +357,17 @@ mod tests {
             version: 2,
             workspaces: vec![
                 WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                     id: "id-alpha".to_string(), name: "alpha".to_string(),
                     workspace_path: "/a/b/c".to_string(), active: true,
                     added_at: "2026-01-01T00:00:00Z".to_string(),
                 },
                 WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                     id: "id-beta".to_string(), name: "beta".to_string(),
                     workspace_path: "/d/e/f".to_string(), active: true,
                     added_at: "2026-01-01T00:00:00Z".to_string(),
@@ -385,11 +391,17 @@ mod tests {
             version: 2,
             workspaces: vec![
                 WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                     id: "".to_string(), name: "empty-id".to_string(),
                     workspace_path: "/a/b/c".to_string(), active: true,
                     added_at: "2026-01-01T00:00:00Z".to_string(),
                 },
                 WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                     id: "real-id".to_string(), name: "real".to_string(),
                     workspace_path: "/d/e/f".to_string(), active: true,
                     added_at: "2026-01-01T00:00:00Z".to_string(),

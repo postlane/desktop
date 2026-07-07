@@ -65,13 +65,14 @@ pub async fn handle_activate(
     mut cache_write: impl FnMut(&LicenseCache) -> Result<(), String>,
 ) -> Result<String, DeepLinkError> {
     match validate_token_with_client(token, client, base_url).await {
-        Ok(LicenseState::Valid { user, repos }) => {
+        Ok(LicenseState::Valid { user, repos, workspaces }) => {
             keyring_write(token).map_err(DeepLinkError::KeyringWrite)?;
             let cache = LicenseCache {
                 version: 1,
                 validated_at: Utc::now(),
                 user: user.clone(),
                 repos,
+                workspaces,
             };
             cache_write(&cache).map_err(DeepLinkError::CacheWrite)?;
             Ok(user.display_name.unwrap_or_default())

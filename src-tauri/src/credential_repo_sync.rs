@@ -209,6 +209,9 @@ mod tests {
         let config = crate::storage::ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: project_id.to_string(),
                 name: "ws".to_string(),
                 workspace_path: ws_path.to_string(),
