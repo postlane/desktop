@@ -41,7 +41,7 @@ pub fn clear_all_keyring_impl(project_ids: &[String], mut delete_fn: impl FnMut(
 
 #[cfg(test)]
 thread_local! {
-    static INCOMPLETE_SPY: std::cell::RefCell<Vec<bool>> = std::cell::RefCell::new(vec![]);
+    static INCOMPLETE_SPY: std::cell::RefCell<Vec<bool>> = const { std::cell::RefCell::new(vec![]) };
 }
 
 pub fn set_deletion_incomplete_pub(value: bool) {

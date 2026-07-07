@@ -152,7 +152,7 @@ async fn test_get_queue_fetches_all_pages() {
     server.mock(|when, then| {
         when.method(GET).path("/scheduled_statuses");
         then.status(200)
-            .header("Link", &format!("<{}{}>; rel=\"next\"", server.base_url(), page2_path))
+            .header("Link", format!("<{}{}>; rel=\"next\"", server.base_url(), page2_path))
             .json_body(serde_json::json!([{
                 "id": "3221",
                 "scheduled_at": "2024-06-01T12:00:00.000Z",

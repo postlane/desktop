@@ -22,6 +22,41 @@ fn make_test_state(repos: ReposConfig) -> (AppState, TempDir) {
     (state, tmp)
 }
 
+/// Writes a post's meta.json under `{repo_path}/.postlane/posts/{folder}` with only the
+/// fields tests commonly vary; every other PostMeta field is left at None.
+fn write_post_with_status(
+    repo_path: &std::path::Path,
+    folder: &str,
+    status: &str,
+    platforms: Vec<String>,
+    error: Option<String>,
+    created_at: &str,
+    sent_at: Option<String>,
+) {
+    let post_dir = repo_path.join(".postlane/posts").join(folder);
+    fs::create_dir_all(&post_dir).unwrap();
+    let meta = PostMeta {
+        status: status.to_string(),
+        platforms,
+        schedule: None,
+        trigger: None,
+        scheduler_ids: None,
+        platform_results: None,
+        platform_urls: None,
+        error,
+        image_url: None,
+        image_source: None,
+        image_attribution: None,
+        llm_model: None,
+        created_at: Some(created_at.to_string()),
+        sent_at,
+        voice_guide_version: None,
+        schedule_source: None,
+        schedule_timezone: None,
+    };
+    fs::write(post_dir.join("meta.json"), serde_json::to_string(&meta).unwrap()).unwrap();
+}
+
 #[cfg(test)]
 mod get_drafts_tests {
     use super::*;
@@ -34,89 +69,16 @@ mod get_drafts_tests {
         fs::create_dir_all(&repo1_path).unwrap();
         fs::create_dir_all(repo1_path.join(".postlane/posts")).unwrap();
 
-        // Create a ready post
-        let ready_post_dir = repo1_path.join(".postlane/posts/post1");
-        fs::create_dir_all(&ready_post_dir).unwrap();
-        let ready_meta = PostMeta {
-            status: "ready".to_string(),
-            platforms: vec!["x".to_string()],
-            schedule: None,
-            trigger: None,
-            scheduler_ids: None,
-            platform_results: None,
-            platform_urls: None,
-            error: None,
-            image_url: None,
-            image_source: None,
-            image_attribution: None,
-            llm_model: None,
-            created_at: Some("2024-01-01T00:00:00Z".to_string()),
-            sent_at: None,
-            voice_guide_version: None,
-            schedule_source: None,
-            schedule_timezone: None,
-        };
-        fs::write(
-            ready_post_dir.join("meta.json"),
-            serde_json::to_string(&ready_meta).unwrap(),
-        )
-        .unwrap();
-
-        // Create a failed post
-        let failed_post_dir = repo1_path.join(".postlane/posts/post2");
-        fs::create_dir_all(&failed_post_dir).unwrap();
-        let failed_meta = PostMeta {
-            status: "failed".to_string(),
-            platforms: vec!["bluesky".to_string()],
-            schedule: None,
-            trigger: None,
-            scheduler_ids: None,
-            platform_results: None,
-            platform_urls: None,
-            error: Some("Connection timeout".to_string()),
-            image_url: None,
-            image_source: None,
-            image_attribution: None,
-            llm_model: None,
-            created_at: Some("2024-01-02T00:00:00Z".to_string()),
-            sent_at: None,
-            voice_guide_version: None,
-            schedule_source: None,
-            schedule_timezone: None,
-        };
-        fs::write(
-            failed_post_dir.join("meta.json"),
-            serde_json::to_string(&failed_meta).unwrap(),
-        )
-        .unwrap();
-
-        // Create a sent post (should be excluded)
-        let sent_post_dir = repo1_path.join(".postlane/posts/post3");
-        fs::create_dir_all(&sent_post_dir).unwrap();
-        let sent_meta = PostMeta {
-            status: "sent".to_string(),
-            platforms: vec!["x".to_string()],
-            schedule: None,
-            trigger: None,
-            scheduler_ids: None,
-            platform_results: None,
-            platform_urls: None,
-            error: None,
-            image_url: None,
-            image_source: None,
-            image_attribution: None,
-            llm_model: None,
-            created_at: Some("2024-01-03T00:00:00Z".to_string()),
-            sent_at: Some("2024-01-03T01:00:00Z".to_string()),
-            voice_guide_version: None,
-            schedule_source: None,
-            schedule_timezone: None,
-        };
-        fs::write(
-            sent_post_dir.join("meta.json"),
-            serde_json::to_string(&sent_meta).unwrap(),
-        )
-        .unwrap();
+        write_post_with_status(&repo1_path, "post1", "ready", vec!["x".to_string()], None, "2024-01-01T00:00:00Z", None);
+        write_post_with_status(
+            &repo1_path, "post2", "failed", vec!["bluesky".to_string()],
+            Some("Connection timeout".to_string()), "2024-01-02T00:00:00Z", None,
+        );
+        // post3 is "sent" and should be excluded from get_drafts_impl's results
+        write_post_with_status(
+            &repo1_path, "post3", "sent", vec!["x".to_string()], None,
+            "2024-01-03T00:00:00Z", Some("2024-01-03T01:00:00Z".to_string()),
+        );
 
         // Setup AppState
         let repos_config = ReposConfig {
@@ -785,7 +747,7 @@ mod set_repo_active_tests {
 
         // Verify: Repo is now inactive
         let repos = state.repos.lock().unwrap();
-        assert_eq!(repos.repos[0].active, false);
+        assert!(!repos.repos[0].active);
     }
 
     #[test]
@@ -810,7 +772,7 @@ mod set_repo_active_tests {
 
         // Verify: Repo is now active
         let repos = state.repos.lock().unwrap();
-        assert_eq!(repos.repos[0].active, true);
+        assert!(repos.repos[0].active);
     }
 
     #[test]
@@ -875,7 +837,7 @@ mod check_repo_health_tests {
         let statuses = result.unwrap();
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].id, "id1");
-        assert_eq!(statuses[0].reachable, true);
+        assert!(statuses[0].reachable);
     }
 
     #[test]
@@ -902,13 +864,41 @@ mod check_repo_health_tests {
         let statuses = result.unwrap();
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].id, "id1");
-        assert_eq!(statuses[0].reachable, false);
+        assert!(!statuses[0].reachable);
     }
 }
 
 #[cfg(test)]
 mod export_history_csv_tests {
     use super::*;
+
+    fn write_sent_post_meta(
+        posts_dir: &std::path::Path,
+        folder: &str,
+        platforms: &[&str],
+        llm_model: Option<&str>,
+        created_at: &str,
+        sent_at: &str,
+    ) {
+        let post_dir = posts_dir.join(folder);
+        fs::create_dir_all(&post_dir).unwrap();
+        let meta = serde_json::json!({
+            "status": "sent",
+            "platforms": platforms,
+            "schedule": null,
+            "trigger": null,
+            "scheduler_ids": null,
+            "platform_results": null,
+            "error": null,
+            "image_url": null,
+            "image_source": null,
+            "image_attribution": null,
+            "llm_model": llm_model,
+            "created_at": created_at,
+            "sent_at": sent_at
+        });
+        fs::write(post_dir.join("meta.json"), serde_json::to_string(&meta).unwrap()).unwrap();
+    }
 
     #[test]
     fn test_export_history_csv_generates_valid_csv_headers() {
@@ -954,72 +944,19 @@ mod export_history_csv_tests {
 
         // Repo 1 with 2 sent posts
         let repo1_path = temp_dir.path().join("repo1");
-        fs::create_dir_all(&repo1_path).unwrap();
         let posts1_dir = repo1_path.join(".postlane/posts");
         fs::create_dir_all(&posts1_dir).unwrap();
-
-        let post1a_dir = posts1_dir.join("post1a");
-        fs::create_dir_all(&post1a_dir).unwrap();
-        let meta1a = serde_json::json!({
-            "status": "sent",
-            "platforms": ["x"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": "2024-01-01T00:00:00Z",
-            "sent_at": "2024-01-01T12:00:00Z"
-        });
-        fs::write(post1a_dir.join("meta.json"), serde_json::to_string(&meta1a).unwrap()).unwrap();
-
-        let post1b_dir = posts1_dir.join("post1b");
-        fs::create_dir_all(&post1b_dir).unwrap();
-        let meta1b = serde_json::json!({
-            "status": "sent",
-            "platforms": ["x", "linkedin"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": "claude-3-5-sonnet",
-            "created_at": "2024-01-02T00:00:00Z",
-            "sent_at": "2024-01-02T12:00:00Z"
-        });
-        fs::write(post1b_dir.join("meta.json"), serde_json::to_string(&meta1b).unwrap()).unwrap();
+        write_sent_post_meta(&posts1_dir, "post1a", &["x"], None, "2024-01-01T00:00:00Z", "2024-01-01T12:00:00Z");
+        write_sent_post_meta(
+            &posts1_dir, "post1b", &["x", "linkedin"], Some("claude-3-5-sonnet"),
+            "2024-01-02T00:00:00Z", "2024-01-02T12:00:00Z",
+        );
 
         // Repo 2 with 1 sent post
         let repo2_path = temp_dir.path().join("repo2");
-        fs::create_dir_all(&repo2_path).unwrap();
         let posts2_dir = repo2_path.join(".postlane/posts");
         fs::create_dir_all(&posts2_dir).unwrap();
-
-        let post2a_dir = posts2_dir.join("post2a");
-        fs::create_dir_all(&post2a_dir).unwrap();
-        let meta2a = serde_json::json!({
-            "status": "sent",
-            "platforms": ["x"],
-            "schedule": null,
-            "trigger": null,
-            "scheduler_ids": null,
-            "platform_results": null,
-            "error": null,
-            "image_url": null,
-            "image_source": null,
-            "image_attribution": null,
-            "llm_model": null,
-            "created_at": "2024-01-03T00:00:00Z",
-            "sent_at": "2024-01-03T12:00:00Z"
-        });
-        fs::write(post2a_dir.join("meta.json"), serde_json::to_string(&meta2a).unwrap()).unwrap();
+        write_sent_post_meta(&posts2_dir, "post2a", &["x"], None, "2024-01-03T00:00:00Z", "2024-01-03T12:00:00Z");
 
         // Canonicalize paths
         let canonical_repo1 = fs::canonicalize(&repo1_path).unwrap();

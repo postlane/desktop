@@ -289,7 +289,7 @@ fn test_update_workspace_path_updates_in_memory_state() {
     let new_path = dir.path().join("workspace-renamed");
 
     let entry = make_workspace_entry("proj-1", "workspace", &old_path);
-    write_global_repos(&repos_path, &[entry.clone()]);
+    write_global_repos(&repos_path, std::slice::from_ref(&entry));
 
     let state = crate::app_state::AppState::new_with_path(
         crate::storage::ReposConfig { version: 2, workspaces: vec![entry], repos: vec![] },

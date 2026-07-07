@@ -342,7 +342,7 @@ fn test_build_schedule_body_sends_media_items_for_image() {
         serde_json::json!("https://example.com/image.jpg")
     );
     assert!(
-        body.get("imageUrl").map_or(true, |v| v.is_null()),
+        body.get("imageUrl").is_none_or(|v| v.is_null()),
         "imageUrl must be absent when mediaItems is used, got: {}",
         body["imageUrl"]
     );
@@ -352,7 +352,7 @@ fn test_build_schedule_body_sends_media_items_for_image() {
 fn test_build_schedule_body_omits_media_items_when_no_image() {
     let body = ZernioProvider::build_schedule_body("No image post", "bluesky", None, None, None);
     assert!(
-        body.get("mediaItems").map_or(true, |v| v.is_null()),
+        body.get("mediaItems").is_none_or(|v| v.is_null()),
         "mediaItems must be absent when no image provided"
     );
 }

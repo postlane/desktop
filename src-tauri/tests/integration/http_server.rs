@@ -5,9 +5,9 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 
-#[tokio::test]
-async fn test_send_with_correct_token_and_registered_path() {
-    let temp_dir = TempDir::new().unwrap();
+fn build_test_repo_with_ready_post(
+    temp_dir: &TempDir,
+) -> (std::path::PathBuf, postlane_desktop_lib::storage::ReposConfig) {
     let repo_path = temp_dir.path().join("test-repo");
     fs::create_dir_all(&repo_path).unwrap();
     fs::create_dir_all(repo_path.join(".git")).unwrap();
@@ -39,7 +39,6 @@ async fn test_send_with_correct_token_and_registered_path() {
     fs::write(post_dir.join("meta.json"), serde_json::to_string(&meta).unwrap()).unwrap();
 
     let canonical_path = fs::canonicalize(&repo_path).unwrap();
-
     let repos_config = postlane_desktop_lib::storage::ReposConfig {
         version: 1, workspaces: vec![], repos: vec![postlane_desktop_lib::storage::Repo {
             id: "test-id".to_string(),
@@ -49,6 +48,13 @@ async fn test_send_with_correct_token_and_registered_path() {
             added_at: "2024-01-01T00:00:00Z".to_string(),
         }],
     };
+    (canonical_path, repos_config)
+}
+
+#[tokio::test]
+async fn test_send_with_correct_token_and_registered_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let (canonical_path, repos_config) = build_test_repo_with_ready_post(&temp_dir);
 
     let token = "test-token-12345678901234567890";
     let server_state = postlane_desktop_lib::http_server::ServerState {
@@ -306,7 +312,7 @@ async fn test_register_actually_adds_repo_to_repos_json() {
     assert_eq!(repos.repos.len(), 1);
     assert_eq!(repos.repos[0].name, "test-repo");
     assert_eq!(repos.repos[0].path, canonical_path.to_str().unwrap());
-    assert_eq!(repos.repos[0].active, true);
+    assert!(repos.repos[0].active);
     assert!(!repos.repos[0].id.is_empty(), "ID should be generated");
 }
 

@@ -236,8 +236,7 @@ mod tests {
     #[test]
     fn test_cache_version_mismatch() {
         let guard = EngagementCacheGuard::acquire();
-        let mut cache = EngagementCache::default();
-        cache.version = 999;
+        let cache = EngagementCache { version: 999, ..Default::default() };
         let json = serde_json::to_string(&cache).expect("Failed to serialize");
         fs::write(&guard.path, json).expect("Failed to write");
         let loaded = read_engagement_cache();

@@ -21,7 +21,7 @@ fn test_keyring_patterns_contains_all_scheduler_providers() {
     for provider in SCHEDULER_PROVIDERS {
         let pattern = format!("{}/", provider);
         assert!(
-            KEYRING_PATTERNS.iter().any(|p| *p == pattern.as_str()),
+            KEYRING_PATTERNS.contains(&pattern.as_str()),
             "scheduler provider pattern {pattern} must be in KEYRING_PATTERNS"
         );
     }
