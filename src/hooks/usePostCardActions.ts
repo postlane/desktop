@@ -5,9 +5,37 @@ import { invoke } from '../ipc/invoke';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import type { DraftPost } from '../types';
 
+// Mirrors Rust's ApproveError (checklist 24.4.11) as delivered by Tauri's
+// invoke() rejection — a plain tagged object, not a wrapped Error.
+export interface ApproveBlockedInfo {
+  status: string;
+  isOwner: boolean;
+  daysRemaining: number | null;
+}
+
+interface RawBlockedError {
+  kind: 'blocked';
+  status: string;
+  is_owner: boolean;
+  days_remaining: number | null;
+}
+
+function isBlockedError(e: unknown): e is RawBlockedError {
+  return typeof e === 'object' && e !== null && (e as { kind?: unknown }).kind === 'blocked';
+}
+
+function approveErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string') {
+    return (e as { message: string }).message;
+  }
+  return String(e);
+}
+
 export function usePostCardActions(post: DraftPost, onApproved: () => void, onDismissed: () => void) {
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [approveBlockedInfo, setApproveBlockedInfo] = useState<ApproveBlockedInfo | null>(null);
   const [approveSuccessPlatforms, setApproveSuccessPlatforms] = useState<string[] | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -15,9 +43,9 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
   const [dismissError, setDismissError] = useState<string | null>(null);
 
   const approve = useCallback(async () => {
-    setApproving(true); setApproveError(null);
+    setApproving(true); setApproveError(null); setApproveBlockedInfo(null);
     try {
-      // approve_post returns Result<(), String> which serialises to null on success.
+      // approve_post returns Result<(), ApproveError> which serialises to null on success.
       // Treat a successful (non-throwing) call as approval complete.
       await invoke('approve_post', {
         repoPath: post.repo_path,
@@ -26,7 +54,13 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
       });
       setApproveSuccessPlatforms(post.platforms ?? []);
     }
-    catch (e) { setApproveError(e instanceof Error ? e.message : String(e)); }
+    catch (e) {
+      if (isBlockedError(e)) {
+        setApproveBlockedInfo({ status: e.status, isOwner: e.is_owner, daysRemaining: e.days_remaining });
+      } else {
+        setApproveError(approveErrorMessage(e));
+      }
+    }
     finally { setApproving(false); }
   }, [post]);
 
@@ -49,5 +83,5 @@ export function usePostCardActions(post: DraftPost, onApproved: () => void, onDi
     finally { setRetrying(false); }
   }, [post, onApproved]);
 
-  return { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, dismissError, approve, dismiss, retry };
+  return { approving, approveError, approveBlockedInfo, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, dismissError, approve, dismiss, retry };
 }

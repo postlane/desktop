@@ -15,6 +15,11 @@ pub enum PostLocation {
         workspace_path: String,
         posts_dir: String,
         repo_name: String,
+        /// v2.0 billing status of the owning workspace (checklist 24.4.8),
+        /// gated on by approve_post_impl (checklist 24.4.11).
+        license_status: Option<String>,
+        is_owner: Option<bool>,
+        status_updated_at: Option<String>,
     },
 }
 
@@ -76,6 +81,9 @@ pub fn validate_repo_path(repo_path: &str, state: &AppState) -> Result<PostLocat
                 workspace_path: ws_entry.workspace_path.clone(),
                 posts_dir: entry.posts_dir.clone(),
                 repo_name: entry.name.clone(),
+                license_status: ws_entry.license_status.clone(),
+                is_owner: ws_entry.is_owner,
+                status_updated_at: ws_entry.status_updated_at.clone(),
             });
         }
     }
@@ -115,6 +123,9 @@ mod tests {
         let repos_config = crate::storage::ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "proj-1".to_string(),
                 name: "ws".to_string(),
                 workspace_path: ws_path.to_str().unwrap().to_string(),
@@ -131,6 +142,61 @@ mod tests {
         };
         let tmp = tempfile::NamedTempFile::new().expect("tmp file");
         crate::app_state::AppState::new_with_path(repos_config, tmp.path().to_path_buf())
+    }
+
+    /// checklist 24.4.8/24.4.11 -- validate_repo_path must carry the matching
+    /// WorkspaceEntry's license_status/is_owner/status_updated_at through to
+    /// PostLocation::Workspace, since approve_post_impl gates on these.
+    #[test]
+    fn validate_repo_path_threads_license_fields_from_workspace_entry() {
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        let child_dir = tmp.path().join("repo-a");
+        std::fs::create_dir_all(&child_dir).expect("create child dir");
+        let child_path = std::fs::canonicalize(&child_dir)
+            .expect("canonicalize")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        let ws_repos = WorkspaceReposConfig {
+            version: 1,
+            repos: vec![RepoEntry {
+                id: "child-id".to_string(),
+                name: "child".to_string(),
+                path: child_path.clone(),
+                posts_dir: "repo-a".to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        write_workspace_repos(&tmp.path().join("repos.json"), &ws_repos).expect("write ws repos");
+
+        let repos_config = ReposConfig {
+            version: 2,
+            workspaces: vec![WorkspaceEntry {
+                id: "proj-1".to_string(),
+                name: "ws".to_string(),
+                workspace_path: tmp.path().to_str().unwrap().to_string(),
+                active: true,
+                added_at: "2026-01-01T00:00:00Z".to_string(),
+                license_status: Some("payment_failed".to_string()),
+                is_owner: Some(true),
+                status_updated_at: Some("2026-06-20T12:00:00Z".to_string()),
+            }],
+            repos: vec![],
+        };
+        let tmp_file = tempfile::NamedTempFile::new().expect("tmp file");
+        let state = crate::app_state::AppState::new_with_path(repos_config, tmp_file.path().to_path_buf());
+
+        let result = validate_repo_path(&child_path, &state).expect("must resolve");
+        match result {
+            PostLocation::Workspace { license_status, is_owner, status_updated_at, .. } => {
+                assert_eq!(license_status.as_deref(), Some("payment_failed"));
+                assert_eq!(is_owner, Some(true));
+                assert_eq!(status_updated_at.as_deref(), Some("2026-06-20T12:00:00Z"));
+            }
+            PostLocation::Legacy { .. } => panic!("expected Workspace location"),
+        }
     }
 
     /// When a repo appears in both the legacy `repos` array and a workspace's `repos.json`,
@@ -169,6 +235,9 @@ mod tests {
             workspace_path: "/ws".to_string(),
             posts_dir: "repo-a".to_string(),
             repo_name: "repo-a".to_string(),
+            license_status: None,
+            is_owner: None,
+            status_updated_at: None,
         };
         assert_eq!(loc.config_root(), "/ws");
     }
@@ -199,6 +268,9 @@ mod tests {
             workspace_path: "/ws".to_string(),
             posts_dir: "repo-a".to_string(),
             repo_name: "repo-a".to_string(),
+            license_status: None,
+            is_owner: None,
+            status_updated_at: None,
         };
         let result = loc.posts_base("my-post-2026");
         assert_eq!(
@@ -230,6 +302,9 @@ mod tests {
         let repos_config = ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "ws-1".to_string(),
                 name: "ws".to_string(),
                 workspace_path: ws_dir.to_str().unwrap().to_string(),
