@@ -106,6 +106,9 @@ fn register_workspace_globally(
         .unwrap_or_else(|_| crate::storage::ReposConfig::default());
     if !global.workspaces.iter().any(|w| w.id == project_id) {
         global.workspaces.push(crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: project_id.to_string(),
             name: name.to_string(),
             workspace_path: workspace_path.to_string(),
@@ -179,6 +182,9 @@ pub fn sync_workspace_to_app_state(
     state: &crate::app_state::AppState,
 ) {
     let entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
         id: result.workspace_id.clone(),
         name: result.workspace_path
             .file_name()

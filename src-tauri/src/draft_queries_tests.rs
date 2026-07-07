@@ -352,6 +352,9 @@ use std::path::{Path, PathBuf};
         let config = ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "ws-1".to_string(),
                 name: "myorg".to_string(),
                 workspace_path: ws.path().to_str().unwrap().to_string(),
@@ -417,6 +420,9 @@ use std::path::{Path, PathBuf};
         let repos_config = ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "ws-1".to_string(), name: "myorg".to_string(),
                 workspace_path: ws.path().to_str().unwrap().to_string(),
                 active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
@@ -464,6 +470,9 @@ use std::path::{Path, PathBuf};
         let config = ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "ws-1".to_string(),
                 name: "myorg".to_string(),
                 workspace_path: ws.path().to_str().unwrap().to_string(),
@@ -524,6 +533,9 @@ use std::path::{Path, PathBuf};
         let config = ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "ws-1".to_string(), name: "myorg".to_string(),
                 workspace_path: ws.path().to_str().unwrap().to_string(),
                 active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
@@ -562,6 +574,9 @@ use std::path::{Path, PathBuf};
         let ws = tempfile::TempDir::new().expect("create ws");
         // No repos.json written → read_workspace_repos will fail
         let ws_entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: "ws-1".to_string(),
             name: "ws".to_string(),
             workspace_path: ws.path().to_str().unwrap().to_string(),
@@ -580,6 +595,9 @@ use std::path::{Path, PathBuf};
         fs::write(ws.path().join("repos.json"), b"not valid json at all")
             .expect("write malformed repos.json");
         let ws_entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: "ws-1".to_string(),
             name: "ws".to_string(),
             workspace_path: ws.path().to_str().unwrap().to_string(),
@@ -614,6 +632,9 @@ use std::path::{Path, PathBuf};
         // posts/repo-a/ intentionally not created → posts_subdir.exists() == false
 
         let ws_entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: "ws-1".to_string(),
             name: "ws".to_string(),
             workspace_path: ws.path().to_str().unwrap().to_string(),

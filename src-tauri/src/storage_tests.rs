@@ -259,6 +259,9 @@ fn test_repos_config_v2_with_workspaces_roundtrips() {
     let config = ReposConfig {
         version: 2,
         workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: "ws-1".to_string(),
             name: "myorg".to_string(),
             workspace_path: "/code/myorg".to_string(),

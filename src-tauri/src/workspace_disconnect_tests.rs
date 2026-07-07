@@ -17,6 +17,9 @@ use crate::workspace_entry::WorkspaceEntry;
 
 fn make_workspace_entry(id: &str, path: &str) -> WorkspaceEntry {
     WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
         id: id.to_string(),
         name: id.to_string(),
         workspace_path: path.to_string(),

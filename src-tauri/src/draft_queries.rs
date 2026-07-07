@@ -196,6 +196,9 @@ mod project_id_tests {
         write_workspace_draft_simple(ws.path(), "repo-a", "my-post", "bluesky");
 
         let ws_entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: "ws-proj-abc".to_string(), name: "ws".to_string(),
             workspace_path: ws.path().to_str().unwrap().to_string(),
             active: true, added_at: "2026-01-01T00:00:00Z".to_string(),
@@ -239,6 +242,9 @@ mod project_id_tests {
         write_workspace_draft_simple(ws.path(), "repo-b", "child-post", "bluesky");
 
         let ws_entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: "ws-proj-xyz".to_string(), name: "ws".to_string(),
             workspace_path: ws.path().to_str().unwrap().to_string(),
             active: true, added_at: "2026-01-01T00:00:00Z".to_string(),

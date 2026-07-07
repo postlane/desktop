@@ -19,6 +19,9 @@ fn build_client() -> reqwest::Client {
 
 fn make_entry(id: &str, path: &str) -> WorkspaceEntry {
     WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
         id: id.to_string(), name: id.to_string(),
         workspace_path: path.to_string(),
         active: true, added_at: "2026-01-01T00:00:00Z".to_string(),

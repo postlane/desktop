@@ -200,6 +200,9 @@ mod tests {
             version: 2,
             workspaces: vec![
                 WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                     id: "proj-multi".to_string(),
                     name: "missing".to_string(),
                     workspace_path: missing_path.to_string(),
@@ -207,6 +210,9 @@ mod tests {
                     added_at: "2026-01-01T00:00:00Z".to_string(),
                 },
                 WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                     id: "proj-multi".to_string(),
                     name: "existing".to_string(),
                     workspace_path: existing.path().to_str().unwrap().to_string(),
@@ -258,6 +264,9 @@ mod tests {
         let config = crate::storage::ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: project_id.to_string(),
                 name: "test-ws".to_string(),
                 workspace_path: workspace_path.to_string(),

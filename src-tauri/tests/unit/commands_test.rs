@@ -253,7 +253,7 @@ mod approve_post_tests {
 
         // Assert: Should fail with path not registered error
         assert!(result.is_err());
-        let err = result.unwrap_err();
+        let err = result.unwrap_err().to_string();
         assert!(err.contains("not registered") || err.contains("403"));
     }
 

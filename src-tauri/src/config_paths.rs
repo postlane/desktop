@@ -103,6 +103,9 @@ mod tests {
         let repos_config = crate::storage::ReposConfig {
             version: 2,
             workspaces: vec![WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: project_id.to_string(),
                 name: "test-workspace".to_string(),
                 workspace_path: workspace_path.to_str().unwrap().to_string(),
@@ -178,6 +181,9 @@ mod tests {
         let repos_config = crate::storage::ReposConfig {
             version: 2,
             workspaces: vec![crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
                 id: "ws-proj-abc".to_string(),
                 name: "my-workspace".to_string(),
                 workspace_path: ws_path.to_str().unwrap().to_string(),

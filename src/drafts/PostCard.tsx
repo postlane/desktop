@@ -3,13 +3,14 @@
 import { useState, useCallback } from 'react';
 import { useTimezone, formatTimestamp, getTimezoneOffsetLabel } from '../TimezoneContext';
 import { invoke } from '../ipc/invoke';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faMobileScreen, faDesktop } from '@fortawesome/free-solid-svg-icons';
 import PostPreview from '../components/PostPreview';
 import type { DraftPost, Platform } from '../types';
 import { PLATFORM_LABELS, PLATFORM_ORDER } from '../constants/platforms';
 import { usePostCardContent } from '../hooks/usePostCardContent';
-import { usePostCardActions } from '../hooks/usePostCardActions';
+import { usePostCardActions, type ApproveBlockedInfo } from '../hooks/usePostCardActions';
 import { usePostCardRedraft } from '../hooks/usePostCardRedraft';
 import { useMastodonCharLimit } from '../hooks/useMastodonCharLimit';
 import { usePostCardKeyboard } from '../hooks/usePostCardKeyboard';
@@ -115,7 +116,7 @@ function PostCardRedraft({ post, redraftInstruction, redraftQueued, redraftError
   );
 }
 
-function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, retrying, retryError, dismissError, schedule, hasUnsplashKey: _hasUnsplashKey, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; retrying: boolean; retryError: string | null; dismissError: string | null; schedule: string | null; hasUnsplashKey?: boolean; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
+function PostCardBody({ post, platforms, activeTab, isFailed, approving, approveError, approveBlockedInfo, retrying, retryError, dismissError, schedule, hasUnsplashKey: _hasUnsplashKey, onApprove, onDelete, onTabChange, onScheduleChange }: { post: DraftPost; platforms: Platform[]; activeTab: Platform; isFailed: boolean; approving: boolean; approveError: string | null; approveBlockedInfo: ApproveBlockedInfo | null; retrying: boolean; retryError: string | null; dismissError: string | null; schedule: string | null; hasUnsplashKey?: boolean; onApprove: () => void; onDelete: () => void; onTabChange: (_p: Platform) => void; onScheduleChange: (_s: string | null) => void }) {
   const [mobileView, setMobileView] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { imageUrl, addingImage, imageInput, fetchingOg, ogFetchError, imageSaveError,
@@ -160,6 +161,7 @@ function PostCardBody({ post, platforms, activeTab, isFailed, approving, approve
         </p>
       )}
       <ScheduleRow repoPath={post.repo_path} postFolder={post.post_folder} schedule={schedule} onScheduleChange={onScheduleChange} />
+      {approveBlockedInfo && <ApprovalBlockedBanner info={approveBlockedInfo} />}
       <PostCardErrors contentLoadError={contentLoadError} attributionEnabled={attributionEnabled} approveError={approveError} saveError={saveError} retryError={retryError} dismissError={dismissError} imageSaveError={imageSaveError} />
       <PostCardRedraft post={post} redraftInstruction={redraftInstruction} redraftQueued={redraftQueued} redraftError={redraftError} cancelRedraftError={cancelRedraftError} onInstructionChange={handleInstructionChange} onQueue={handleQueueRedraft} onCancel={handleCancelRedraft} />
     </div>
@@ -195,6 +197,53 @@ function FailedErrorBanner({ error, platformResults }: { error: string | null; p
   );
 }
 
+// checklist 24.4.11 — CTA copy differs by license_status and by whether the
+// caller owns the workspace or collaborates on it. payment_failed
+// (collaborator) and unlicensed (either role) share the take-over-billing
+// framing, since an admin collaborator can already initiate transfer during
+// payment_failed's grace period, not just once it lapses into unlicensed.
+function ApprovalBlockedBanner({ info }: { info: ApproveBlockedInfo }) {
+  const { status, isOwner, daysRemaining } = info;
+  const openDashboard = () => openUrl('https://postlane.dev/dashboard');
+
+  if (status === 'inactive' && isOwner) {
+    return (
+      <div role="alert" className="notification is-warning is-light mt-3 is-size-7" style={{ padding: '0.5rem 0.75rem' }}>
+        <p>This workspace is paused.</p>
+        <button type="button" className="button is-small is-warning is-light mt-2" onClick={openDashboard}>
+          Reactivate to resume posting
+        </button>
+      </div>
+    );
+  }
+  if (status === 'inactive') {
+    return (
+      <div role="alert" className="notification is-light mt-3 is-size-7" style={{ padding: '0.5rem 0.75rem' }}>
+        This workspace is paused by its owner.
+      </div>
+    );
+  }
+  if (status === 'payment_failed' && isOwner) {
+    const days = daysRemaining ?? 0;
+    return (
+      <div role="alert" className="notification is-danger is-light mt-3 is-size-7" style={{ padding: '0.5rem 0.75rem' }}>
+        <p>You have {days} day{days === 1 ? '' : 's'} left before an admin collaborator can take over billing.</p>
+        <button type="button" className="button is-small is-danger is-light mt-2" onClick={openDashboard}>
+          Update billing
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div role="alert" className="notification is-danger is-light mt-3 is-size-7" style={{ padding: '0.5rem 0.75rem' }}>
+      <p>Take over billing or continue read-only.</p>
+      <button type="button" className="button is-small is-danger is-light mt-2" onClick={openDashboard}>
+        Manage billing
+      </button>
+    </div>
+  );
+}
+
 function FallbackNotice({ provider, onDismiss }: { provider: string; onDismiss: () => void }) {
   return (
     <div role="alert" className="notification is-warning is-light mt-3 is-size-7" style={{ padding: '0.5rem 0.75rem' }}>
@@ -210,7 +259,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
   const [activeTab, setActiveTab] = useState<Platform>(isPlatform(post.platforms[0]) ? post.platforms[0] : 'x');
   const [localSchedule, setLocalSchedule] = useState<string | null>(post.schedule ?? null);
   const platforms = platformsOnPost(post);
-  const { approving, approveError, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, dismissError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
+  const { approving, approveError, approveBlockedInfo, approveSuccessPlatforms, onSuccessDismissed, fallbackNotice, dismissFallbackNotice, retrying, retryError, dismissError, approve, dismiss, retry } = usePostCardActions(post, onApproved, onDismissed);
   const handleKeyDown = usePostCardKeyboard(isFocused, isFailed, platforms, approve, dismiss, retry, setActiveTab, setExpanded);
 
   return (
@@ -238,7 +287,7 @@ export default function PostCard({ post, onApproved, onDismissed, isFocused = fa
       )}
       {fallbackNotice && <FallbackNotice provider={fallbackNotice} onDismiss={dismissFallbackNotice} />}
       {expanded && platforms.length > 0 && (
-        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} retrying={retrying} retryError={retryError} dismissError={dismissError} schedule={localSchedule} hasUnsplashKey={hasUnsplashKey} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
+        <PostCardBody post={post} platforms={platforms} activeTab={activeTab} isFailed={isFailed} approving={approving} approveError={approveError} approveBlockedInfo={approveBlockedInfo} retrying={retrying} retryError={retryError} dismissError={dismissError} schedule={localSchedule} hasUnsplashKey={hasUnsplashKey} onApprove={approve} onDelete={dismiss} onTabChange={setActiveTab} onScheduleChange={setLocalSchedule} />
       )}
     </article>
   );

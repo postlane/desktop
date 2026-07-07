@@ -293,6 +293,9 @@ mod tests {
 
     fn make_workspace(id: &str, path: &str, active: bool) -> crate::workspace_entry::WorkspaceEntry {
         crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: id.to_string(),
             name: "test-workspace".to_string(),
             workspace_path: path.to_string(),

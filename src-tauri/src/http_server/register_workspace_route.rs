@@ -27,6 +27,9 @@ pub(super) async fn register_workspace_handler(
     }
 
     let entry = crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
         id: payload.project_id.clone(),
         name: payload.name.clone(),
         workspace_path: payload.workspace_path.clone(),
@@ -88,6 +91,9 @@ mod tests {
 
     fn make_entry(id: &str) -> crate::workspace_entry::WorkspaceEntry {
         crate::workspace_entry::WorkspaceEntry {
+    license_status: None,
+    is_owner: None,
+    status_updated_at: None,
             id: id.to_string(),
             name: "ws".to_string(),
             workspace_path: "/some/path".to_string(),

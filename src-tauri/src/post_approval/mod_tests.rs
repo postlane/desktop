@@ -42,7 +42,7 @@ use std::path::Path;
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-over-limit", "bluesky", &state, None, false).await;
         assert!(result.is_err());
-        let msg = result.unwrap_err();
+        let msg = result.unwrap_err().to_string();
         assert!(msg.contains("301"), "error must mention actual count: {}", msg);
         assert!(msg.contains("300"), "error must mention the limit: {}", msg);
     }
@@ -68,7 +68,7 @@ use std::path::Path;
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-a", "unknown", &state, None, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown platform"));
+        assert!(result.unwrap_err().to_string().contains("Unknown platform"));
     }
 
     #[tokio::test]
@@ -79,7 +79,7 @@ use std::path::Path;
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "post-a", "", &state, None, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown platform"));
+        assert!(result.unwrap_err().to_string().contains("Unknown platform"));
     }
 
     // --- §validate_post_folder ---
@@ -92,7 +92,7 @@ use std::path::Path;
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "../etc", "x", &state, None, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
+        assert!(result.unwrap_err().to_string().to_lowercase().contains("invalid post folder"));
     }
 
     #[tokio::test]
@@ -103,7 +103,7 @@ use std::path::Path;
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "a/b", "x", &state, None, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_lowercase().contains("invalid post folder"));
+        assert!(result.unwrap_err().to_string().to_lowercase().contains("invalid post folder"));
     }
 
     // --- §validate_repo_path ---
@@ -113,7 +113,7 @@ use std::path::Path;
         let state = make_state("/nonexistent/path/that/is/not/registered");
         let result = approve_post_impl("/tmp", "post-a", "x", &state, None, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not registered"));
+        assert!(result.unwrap_err().to_string().contains("not registered"));
     }
 
     // --- §idempotency ---
@@ -455,6 +455,17 @@ use std::path::Path;
     // ── 22.2.7 workspace path resolution ─────────────────────────────────────
 
     fn make_workspace_state(workspace_path: &str, child_path: &str, posts_dir: &str) -> AppState {
+        make_workspace_state_with_license(workspace_path, child_path, posts_dir, None, None, None)
+    }
+
+    fn make_workspace_state_with_license(
+        workspace_path: &str,
+        child_path: &str,
+        posts_dir: &str,
+        license_status: Option<&str>,
+        is_owner: Option<bool>,
+        status_updated_at: Option<&str>,
+    ) -> AppState {
         use crate::storage::ReposConfig;
         use crate::workspace_entry::WorkspaceEntry;
         use crate::workspace_repos::{RepoEntry, WorkspaceReposConfig, write_workspace_repos};
@@ -481,6 +492,9 @@ use std::path::Path;
                 workspace_path: workspace_path.to_string(),
                 active: true,
                 added_at: "2026-01-01T00:00:00Z".to_string(),
+                license_status: license_status.map(|s| s.to_string()),
+                is_owner,
+                status_updated_at: status_updated_at.map(|s| s.to_string()),
             }],
             repos: vec![],
         };
@@ -680,7 +694,7 @@ use std::path::Path;
         let result = approve_post_impl(&canonical_str, "post-expired-license", "x", &state, None, false).await;
 
         assert!(result.is_err(), "approval must be blocked when license is expired");
-        let msg = result.unwrap_err();
+        let msg = result.unwrap_err().to_string();
         assert!(
             msg.to_lowercase().contains("license"),
             "error must mention license, got: {}",
@@ -718,7 +732,7 @@ use std::path::Path;
         let state = make_state(&canonical_str);
         let result = approve_post_impl(&canonical_str, "no-such-post", "x", &state, None, false).await;
         assert!(result.is_err(), "must fail when post folder does not exist");
-        let msg = result.unwrap_err();
+        let msg = result.unwrap_err().to_string();
         assert!(
             msg.contains("does not exist"),
             "error must describe the missing folder, got: {}", msg
