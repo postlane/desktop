@@ -259,7 +259,7 @@ mod tests {
         let projects = vec![
             ProjectInfo { id: "proj-cli-1".to_string(), provider_org_login: None },
         ];
-        let targets = all_poll_targets(&[dir.clone()], &projects);
+        let targets = all_poll_targets(std::slice::from_ref(&dir), &projects);
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].project_id, "proj-cli-1");
@@ -276,7 +276,7 @@ mod tests {
         let projects = vec![
             ProjectInfo { id: "proj-app-1".to_string(), provider_org_login: Some("acme-org".to_string()) },
         ];
-        let targets = all_poll_targets(&[dir.clone()], &projects);
+        let targets = all_poll_targets(std::slice::from_ref(&dir), &projects);
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].project_id, "proj-app-1");
@@ -296,7 +296,7 @@ mod tests {
         let projects = vec![
             ProjectInfo { id: "proj-both".to_string(), provider_org_login: Some("acme-org".to_string()) },
         ];
-        let targets = all_poll_targets(&[dir.clone()], &projects);
+        let targets = all_poll_targets(std::slice::from_ref(&dir), &projects);
 
         assert_eq!(targets.len(), 1, "should deduplicate when both sources match same repo");
         let _ = std::fs::remove_dir_all(&dir);
@@ -311,7 +311,7 @@ mod tests {
         let projects = vec![
             ProjectInfo { id: "proj-other".to_string(), provider_org_login: Some("different-org".to_string()) },
         ];
-        let targets = all_poll_targets(&[dir.clone()], &projects);
+        let targets = all_poll_targets(std::slice::from_ref(&dir), &projects);
 
         assert!(targets.is_empty(), "no match → no target");
         let _ = std::fs::remove_dir_all(&dir);

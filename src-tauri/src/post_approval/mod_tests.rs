@@ -219,9 +219,11 @@ use std::path::Path;
         write_post(&canonical, "post-retry");
         // Pre-write meta with status=Failed (simulates a prior failed attempt)
         let meta_path = PostMeta::path_for(&canonical, "post-retry");
-        let mut meta = PostMeta::default();
-        meta.status = Some(PostStatus::Failed);
-        meta.error = Some("prior failure".to_string());
+        let meta = PostMeta {
+            status: Some(PostStatus::Failed),
+            error: Some("prior failure".to_string()),
+            ..Default::default()
+        };
         meta.save(&meta_path).expect("save failed meta");
         // Retry must proceed (idempotency is on sent_platforms, not status)
         let state = make_state(&canonical_str);

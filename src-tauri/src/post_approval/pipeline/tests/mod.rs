@@ -124,8 +124,10 @@ fn test_apply_scheduler_result_sets_sent_status() {
 
 #[test]
 fn test_apply_scheduler_result_clears_error_field_on_success() {
-    let mut meta = PostMeta::default();
-    meta.error = Some("No project linked to this repo. Run `postlane init` to connect it.".to_string());
+    let mut meta = PostMeta {
+        error: Some("No project linked to this repo. Run `postlane init` to connect it.".to_string()),
+        ..Default::default()
+    };
     apply_scheduler_result(&mut meta, "bluesky", "sched-1", None, "2026-06-02T10:00:00Z");
     assert!(meta.error.is_none(), "apply_scheduler_result must clear meta.error so stale errors don't persist after retry");
 }

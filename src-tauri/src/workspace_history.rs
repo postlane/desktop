@@ -174,8 +174,7 @@ mod tests {
 
         // Write exactly 10,000 lines to sent.jsonl
         let line = r#"{"sent_at":"2026-01-01T00:00:00Z","repo_name":"r","post_folder":"p","platform":"x","scheduler_id":"s"}"#;
-        let content: String = std::iter::repeat(line)
-            .take(10_000)
+        let content: String = std::iter::repeat_n(line, 10_000)
             .collect::<Vec<_>>()
             .join("\n") + "\n";
         fs::write(hist_dir.join("sent.jsonl"), &content).unwrap();
@@ -265,7 +264,7 @@ mod tests {
 
         // First rotation: write 10,000 line file, rotate
         let line = r#"{"sent_at":"2026-01-01T00:00:00Z","repo_name":"r","post_folder":"p","platform":"x","scheduler_id":"s"}"#;
-        let content: String = std::iter::repeat(line).take(10_000).collect::<Vec<_>>().join("\n") + "\n";
+        let content: String = std::iter::repeat_n(line, 10_000).collect::<Vec<_>>().join("\n") + "\n";
         fs::write(hist_dir.join("sent.jsonl"), &content).unwrap();
         fs::write(hist_dir.join("sent.jsonl.count"), "10000").unwrap();
 
@@ -277,7 +276,7 @@ mod tests {
         append_sent_entry(&hist_dir, &e).expect("first rotation");
 
         // Write 10,000 more lines, trigger second rotation
-        let content2: String = std::iter::repeat(line).take(10_000).collect::<Vec<_>>().join("\n") + "\n";
+        let content2: String = std::iter::repeat_n(line, 10_000).collect::<Vec<_>>().join("\n") + "\n";
         fs::write(hist_dir.join("sent.jsonl"), &content2).unwrap();
         fs::write(hist_dir.join("sent.jsonl.count"), "10000").unwrap();
 

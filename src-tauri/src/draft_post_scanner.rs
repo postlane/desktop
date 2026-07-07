@@ -201,15 +201,13 @@ mod tests {
 
     #[test]
     fn test_status_str_returns_ready_when_status_is_ok() {
-        let mut meta = PostMeta::default();
-        meta.status = Some(PostStatus::Ok);
+        let meta = PostMeta { status: Some(PostStatus::Ok), ..Default::default() };
         assert_eq!(status_str(&meta), "ready");
     }
 
     #[test]
     fn test_status_str_returns_failed_when_status_is_failed() {
-        let mut meta = PostMeta::default();
-        meta.status = Some(PostStatus::Failed);
+        let meta = PostMeta { status: Some(PostStatus::Failed), ..Default::default() };
         assert_eq!(status_str(&meta), "failed");
     }
 
@@ -249,9 +247,11 @@ mod tests {
     fn test_build_draft_sets_failed_status_from_meta() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let repo = make_repo("r1", dir.path().to_str().unwrap());
-        let mut meta = PostMeta::default();
-        meta.status = Some(PostStatus::Failed);
-        meta.error = Some("scheduler timeout".to_string());
+        let meta = PostMeta {
+            status: Some(PostStatus::Failed),
+            error: Some("scheduler timeout".to_string()),
+            ..Default::default()
+        };
         let draft = build_draft(&repo, "fail-post", "x", String::new(), &meta, None);
         assert_eq!(draft.status, "failed");
         assert_eq!(draft.error.as_deref(), Some("scheduler timeout"));

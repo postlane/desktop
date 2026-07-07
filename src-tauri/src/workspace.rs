@@ -217,7 +217,7 @@ mod tests {
 
         let path = effective_config_path(&child, &ws);
         assert!(
-            path.to_str().unwrap().contains(&ws.to_str().unwrap()),
+            path.to_str().unwrap().contains(ws.to_str().unwrap()),
             "should use workspace config"
         );
         assert!(path.ends_with("config.json"));

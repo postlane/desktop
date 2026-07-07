@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_failed_repos_extracted_correctly() {
-        let results = vec![
+        let results = [
             crate::workspace_migration::RepoMigrationResult {
                 repo_path: "/repo-a".to_string(),
                 repo_name: "repo-a".to_string(),

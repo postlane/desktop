@@ -174,9 +174,10 @@ mod tests {
         let state = crate::app_state::AppState::new_with_path(config, repos_path.clone());
 
         // Write repos.json so AppState initialises correctly, then seal the directory
-        let repos = state.repos.lock().expect("lock");
-        crate::storage::write_repos(&repos_path, &repos).expect("initial write");
-        drop(repos);
+        {
+            let repos = state.repos.lock().expect("lock");
+            crate::storage::write_repos(&repos_path, &repos).expect("initial write");
+        }
         let ro_perms = std::fs::Permissions::from_mode(0o444);
         std::fs::set_permissions(repos_dir.path(), ro_perms).expect("set read-only");
 

@@ -51,10 +51,9 @@ fn test_error_registry_source_codes_all_registered() {
             if !name.ends_with(".rs") || name.ends_with("_tests.rs") { continue; }
             let Ok(content) = std::fs::read_to_string(&path) else { continue };
             for segment in content.split('"') {
-                if segment.starts_with("PL-") && segment.len() <= 12 {
-                    if !ERROR_REGISTRY.iter().any(|e| e.code == segment) {
-                        unregistered.push(format!("{segment} (in {name})"));
-                    }
+                if segment.starts_with("PL-") && segment.len() <= 12
+                    && !ERROR_REGISTRY.iter().any(|e| e.code == segment) {
+                    unregistered.push(format!("{segment} (in {name})"));
                 }
             }
         }

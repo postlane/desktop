@@ -269,53 +269,6 @@ pub fn spawn_daily_engagement_sync(app_handle: tauri::AppHandle) {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::license::deep_link::DeepLinkError;
-
-    #[test]
-    fn token_rejected_returns_try_again_message() {
-        let msg = user_facing_activation_error(&DeepLinkError::TokenRejected);
-        assert!(msg.contains("Sign-in failed"), "got: {}", msg);
-        assert!(
-            !msg.contains("license server"),
-            "must not expose internal term, got: {}",
-            msg
-        );
-    }
-
-    #[test]
-    fn backend_unavailable_mentions_internet() {
-        let msg = user_facing_activation_error(&DeepLinkError::BackendUnavailable);
-        assert!(
-            msg.to_lowercase().contains("internet") || msg.to_lowercase().contains("connect"),
-            "got: {}",
-            msg
-        );
-    }
-
-    #[test]
-    fn keyring_error_does_not_expose_os_error_string() {
-        let msg = user_facing_activation_error(&DeepLinkError::KeyringWrite(
-            "gnome-keyring: daemon not running".to_string(),
-        ));
-        assert!(
-            !msg.contains("gnome-keyring"),
-            "must not expose OS error details, got: {}",
-            msg
-        );
-    }
-
-    #[test]
-    fn revalidation_reads_keyring_each_cycle_by_design() {
-        // spawn_license_revalidation must read the keyring inside the loop, not outside.
-        // The function is async and requires a real AppHandle to test end-to-end.
-        // The invariant is enforced by code review of the loop structure.
-        assert!(true, "see spawn_license_revalidation implementation");
-    }
-}
-
 /// Spawns a background task that discovers and registers repos connected via the
 /// GitHub App. Runs on login and on startup (no-op when not signed in).
 /// Emits `repos:discovered` and `repos:not_found_on_disk` to the frontend.
@@ -430,5 +383,51 @@ fn sync_discovered_repos_to_state(
     }
     for repo in new_repos {
         crate::repo_mgmt::start_repo_watcher(&repo.id, &repo.path, state, app_handle.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::license::deep_link::DeepLinkError;
+
+    #[test]
+    fn token_rejected_returns_try_again_message() {
+        let msg = user_facing_activation_error(&DeepLinkError::TokenRejected);
+        assert!(msg.contains("Sign-in failed"), "got: {}", msg);
+        assert!(
+            !msg.contains("license server"),
+            "must not expose internal term, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn backend_unavailable_mentions_internet() {
+        let msg = user_facing_activation_error(&DeepLinkError::BackendUnavailable);
+        assert!(
+            msg.to_lowercase().contains("internet") || msg.to_lowercase().contains("connect"),
+            "got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn keyring_error_does_not_expose_os_error_string() {
+        let msg = user_facing_activation_error(&DeepLinkError::KeyringWrite(
+            "gnome-keyring: daemon not running".to_string(),
+        ));
+        assert!(
+            !msg.contains("gnome-keyring"),
+            "must not expose OS error details, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn revalidation_reads_keyring_each_cycle_by_design() {
+        // spawn_license_revalidation must read the keyring inside the loop, not outside.
+        // The function is async and requires a real AppHandle to test end-to-end.
+        // The invariant is enforced by code review of the loop structure.
     }
 }

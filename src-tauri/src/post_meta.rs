@@ -220,12 +220,14 @@ mod tests {
     fn test_post_meta_round_trips() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let path = dir.path().join("meta.json");
-        let mut original = PostMeta::default();
-        original.edited_platforms = Some(vec!["x".to_string(), "bluesky".to_string()]);
-        original.model_name = Some("claude-opus-4".to_string());
+        let mut original = PostMeta {
+            edited_platforms: Some(vec!["x".to_string(), "bluesky".to_string()]),
+            model_name: Some("claude-opus-4".to_string()),
+            status: Some(PostStatus::Failed),
+            error: Some("network error".to_string()),
+            ..Default::default()
+        };
         original.sent_platforms.insert("x".to_string(), "2026-05-01T00:00:00Z".to_string());
-        original.status = Some(PostStatus::Failed);
-        original.error = Some("network error".to_string());
         original.save(&path).expect("save");
         let loaded = PostMeta::load(&path).expect("load");
         assert_eq!(loaded.edited_platforms, original.edited_platforms);
@@ -260,8 +262,7 @@ mod tests {
     fn test_post_meta_repo_path_round_trips() {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let path = dir.path().join("meta.json");
-        let mut meta = PostMeta::default();
-        meta.repo_path = Some("/workspace/child-repo".to_string());
+        let meta = PostMeta { repo_path: Some("/workspace/child-repo".to_string()), ..Default::default() };
         meta.save(&path).expect("save");
         let loaded = PostMeta::load(&path).expect("load");
         assert_eq!(loaded.repo_path, Some("/workspace/child-repo".to_string()));

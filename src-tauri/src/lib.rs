@@ -145,54 +145,6 @@ fn get_local_server_port(state: tauri::State<AppState>) -> Result<u16, String> {
     get_local_server_port_impl(&port_path, in_memory)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_port_from_file_when_present() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let path = dir.path().join("port");
-        std::fs::write(&path, "47312").unwrap();
-        assert_eq!(get_local_server_port_impl(&path, None).unwrap(), 47312);
-    }
-
-    #[test]
-    fn test_port_from_file_takes_priority_over_in_memory() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let path = dir.path().join("port");
-        std::fs::write(&path, "47312").unwrap();
-        let result = get_local_server_port_impl(&path, Some(9999));
-        assert_eq!(result.unwrap(), 47312, "file port must win over in-memory");
-    }
-
-    #[test]
-    fn test_port_falls_back_to_in_memory_when_file_missing() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let path = dir.path().join("port"); // does not exist
-        let result = get_local_server_port_impl(&path, Some(47312));
-        assert_eq!(result.unwrap(), 47312);
-    }
-
-    #[test]
-    fn test_port_falls_back_to_in_memory_when_file_corrupt() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let path = dir.path().join("port");
-        std::fs::write(&path, "not_a_port_number").unwrap();
-        let result = get_local_server_port_impl(&path, Some(47312));
-        assert_eq!(result.unwrap(), 47312, "corrupt file must fall back to in-memory");
-    }
-
-    #[test]
-    fn test_port_returns_error_when_file_missing_and_no_in_memory() {
-        let dir = tempfile::TempDir::new().expect("create temp dir");
-        let path = dir.path().join("port"); // does not exist
-        let result = get_local_server_port_impl(&path, None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not available"));
-    }
-}
-
 fn setup_app(app: &mut tauri::App, repos: storage::ReposConfig) -> Result<(), Box<dyn std::error::Error>> {
     instance_guard::exit_if_duplicate_instance();
     let handle = app.handle().clone();
@@ -253,4 +205,52 @@ pub fn run() {
         .invoke_handler(command_registry::all_commands())
         .run(tauri::generate_context!())
         .expect("error while running postlane");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_port_from_file_when_present() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port");
+        std::fs::write(&path, "47312").unwrap();
+        assert_eq!(get_local_server_port_impl(&path, None).unwrap(), 47312);
+    }
+
+    #[test]
+    fn test_port_from_file_takes_priority_over_in_memory() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port");
+        std::fs::write(&path, "47312").unwrap();
+        let result = get_local_server_port_impl(&path, Some(9999));
+        assert_eq!(result.unwrap(), 47312, "file port must win over in-memory");
+    }
+
+    #[test]
+    fn test_port_falls_back_to_in_memory_when_file_missing() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port"); // does not exist
+        let result = get_local_server_port_impl(&path, Some(47312));
+        assert_eq!(result.unwrap(), 47312);
+    }
+
+    #[test]
+    fn test_port_falls_back_to_in_memory_when_file_corrupt() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port");
+        std::fs::write(&path, "not_a_port_number").unwrap();
+        let result = get_local_server_port_impl(&path, Some(47312));
+        assert_eq!(result.unwrap(), 47312, "corrupt file must fall back to in-memory");
+    }
+
+    #[test]
+    fn test_port_returns_error_when_file_missing_and_no_in_memory() {
+        let dir = tempfile::TempDir::new().expect("create temp dir");
+        let path = dir.path().join("port"); // does not exist
+        let result = get_local_server_port_impl(&path, None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not available"));
+    }
 }

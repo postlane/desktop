@@ -245,8 +245,7 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let path = dir.path().join("test.json");
         let result = write_json_file(&path, &serde_json::json!({"v": 1}));
-        if result.is_err() {
-            let msg = result.unwrap_err();
+        if let Err(msg) = result {
             assert!(msg.contains("test.json"), "error must name file, got: {}", msg);
         }
     }

@@ -10,6 +10,5 @@ mod keyring_tests {
         
         // This will fail if the plugin isn't properly wired up
         let _result: Result<(), String> = Ok(());
-        assert!(true, "Keyring plugin types should be available");
     }
 }
