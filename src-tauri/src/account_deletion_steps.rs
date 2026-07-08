@@ -2,7 +2,7 @@
 
 //! §22.7.6/22.7.7 — Per-phase deletion step dispatcher.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri_plugin_keyring::KeyringExt;
 use crate::account_deletion::{preflight_session, delete_all_projects, disconnect_all_github_apps, revoke_gitlab_token, wipe_postlane_files};
 use crate::credential_store::{global_keyring_keys, project_keyring_keys};
@@ -13,8 +13,35 @@ use crate::license::POSTLANE_API_BASE;
 #[derive(Serialize, Debug, Clone)]
 pub struct DeletionPhaseResult { pub phase: u8, pub message: String, pub next_phase: Option<u8> }
 
+/// checklist 24.4.15a — an admin-role collaborator eligible to receive an
+/// explicit ownership transfer for a blocked workspace.
 #[derive(Serialize, Debug, Clone)]
-pub struct DeletionPhaseError { pub phase: u8, pub code: String, pub message: String, pub skippable: bool }
+pub struct AdminCollaboratorInfo { pub user_id: String, pub display_name: Option<String> }
+
+/// checklist 24.4.15a — a workspace blocking account deletion (409), with
+/// enough data to render both resolution paths inline: "Transfer to..."
+/// (using admin_collaborators) and "Start 14-day departure window".
+#[derive(Serialize, Debug, Clone)]
+pub struct BlockedWorkspace { pub project_id: String, pub admin_collaborators: Vec<AdminCollaboratorInfo> }
+
+#[derive(Serialize, Debug, Clone)]
+pub struct DeletionPhaseError {
+    pub phase: u8,
+    pub code: String,
+    pub message: String,
+    pub skippable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_workspaces: Option<Vec<BlockedWorkspace>>,
+}
+
+#[derive(Deserialize)]
+struct DeleteBlockedResponseCollaborator { user_id: String, display_name: Option<String> }
+
+#[derive(Deserialize)]
+struct DeleteBlockedResponseWorkspace { project_id: String, admin_collaborators: Vec<DeleteBlockedResponseCollaborator> }
+
+#[derive(Deserialize)]
+struct DeleteBlockedResponse { workspaces: Vec<DeleteBlockedResponseWorkspace> }
 
 // ── Phase metadata ────────────────────────────────────────────────────────────
 
@@ -36,7 +63,19 @@ pub const TOTAL_PHASES: u8 = 8;
 
 fn next_phase(phase: u8) -> Option<u8> { if phase + 1 < TOTAL_PHASES { Some(phase + 1) } else { None } }
 fn ok(phase: u8) -> DeletionPhaseResult { DeletionPhaseResult { phase, message: phase_message(phase).to_string(), next_phase: next_phase(phase) } }
-fn phase_err(phase: u8, code: &str, msg: String) -> DeletionPhaseError { DeletionPhaseError { phase, code: code.to_string(), message: msg, skippable: is_skippable(phase) } }
+fn phase_err(phase: u8, code: &str, msg: String) -> DeletionPhaseError {
+    DeletionPhaseError { phase, code: code.to_string(), message: msg, skippable: is_skippable(phase), blocked_workspaces: None }
+}
+
+fn phase_err_blocked(phase: u8, workspaces: Vec<BlockedWorkspace>) -> DeletionPhaseError {
+    DeletionPhaseError {
+        phase,
+        code: "PL-DEL-BLOCKED".to_string(),
+        message: "This account owns a workspace with active collaborators.".to_string(),
+        skippable: false,
+        blocked_workspaces: Some(workspaces),
+    }
+}
 
 fn workspace_ids(repos_path: &std::path::Path) -> Vec<String> {
     crate::storage::read_repos_with_recovery(repos_path)
@@ -81,8 +120,31 @@ async fn run_phase_5(api_base: &str, token: &str, client: &reqwest::Client) -> R
         .map_err(|e| phase_err(5, "PL-DEL-004", format!("Network error: {}", e)))?;
     match resp.status().as_u16() {
         200 | 404 => { crate::account_deletion_commands::set_deletion_incomplete_pub(false); Ok(ok(5)) }
+        409 => Err(parse_blocked_response(resp).await),
         s => Err(phase_err(5, "PL-DEL-004", format!("Server returned {}", s))),
     }
+}
+
+// checklist 24.4.15a — turns the 409 body into structured BlockedWorkspace
+// data the frontend renders resolution actions from.
+async fn parse_blocked_response(resp: reqwest::Response) -> DeletionPhaseError {
+    let body: DeleteBlockedResponse = match resp.json().await {
+        Ok(b) => b,
+        Err(e) => return phase_err(5, "PL-DEL-004", format!("Invalid 409 response: {}", e)),
+    };
+    let workspaces = body
+        .workspaces
+        .into_iter()
+        .map(|w| BlockedWorkspace {
+            project_id: w.project_id,
+            admin_collaborators: w
+                .admin_collaborators
+                .into_iter()
+                .map(|c| AdminCollaboratorInfo { user_id: c.user_id, display_name: c.display_name })
+                .collect(),
+        })
+        .collect();
+    phase_err_blocked(5, workspaces)
 }
 
 fn run_phase_4(app: &tauri::AppHandle, repos_path: &std::path::Path) -> DeletionPhaseResult {
@@ -416,6 +478,61 @@ mod tests {
     }
 
     // ── run_phase_6 ───────────────────────────────────────────────────────────
+
+    // ── checklist 24.4.15a: run_phase_5 parses the 409 body ──────────────────
+
+    #[tokio::test]
+    async fn test_phase_5_parses_409_body_into_blocked_workspaces() {
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST).path("/v1/account/delete");
+            then.status(409).json_body(serde_json::json!({
+                "error": "workspace_has_collaborators",
+                "workspaces": [
+                    {
+                        "project_id": "proj-1",
+                        "admin_collaborators": [{ "user_id": "u1", "display_name": "Ada" }]
+                    }
+                ]
+            }));
+        });
+        let client = crate::providers::scheduling::build_client();
+        let err = run_phase_5(&server.base_url(), "tok", &client).await.unwrap_err();
+        let blocked = err.blocked_workspaces.expect("expected blocked_workspaces to be Some");
+        assert_eq!(blocked.len(), 1);
+        assert_eq!(blocked[0].project_id, "proj-1");
+        assert_eq!(blocked[0].admin_collaborators.len(), 1);
+        assert_eq!(blocked[0].admin_collaborators[0].user_id, "u1");
+        assert_eq!(blocked[0].admin_collaborators[0].display_name.as_deref(), Some("Ada"));
+    }
+
+    #[tokio::test]
+    async fn test_phase_5_409_with_zero_admin_collaborators() {
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST).path("/v1/account/delete");
+            then.status(409).json_body(serde_json::json!({
+                "error": "workspace_has_collaborators",
+                "workspaces": [{ "project_id": "proj-1", "admin_collaborators": [] }]
+            }));
+        });
+        let client = crate::providers::scheduling::build_client();
+        let err = run_phase_5(&server.base_url(), "tok", &client).await.unwrap_err();
+        let blocked = err.blocked_workspaces.expect("expected blocked_workspaces to be Some");
+        assert!(blocked[0].admin_collaborators.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_phase_5_success_leaves_blocked_workspaces_none() {
+        let server = httpmock::MockServer::start();
+        server.mock(|when, then| {
+            when.method(httpmock::Method::POST).path("/v1/account/delete");
+            then.status(200).json_body(serde_json::json!({ "deleted": true }));
+        });
+        let client = crate::providers::scheduling::build_client();
+        let result = run_phase_5(&server.base_url(), "tok", &client).await.expect("must succeed on 200");
+        assert_eq!(result.phase, 5);
+    }
 
     #[test]
     fn test_run_phase_6_returns_ok_and_phase_6_result() {

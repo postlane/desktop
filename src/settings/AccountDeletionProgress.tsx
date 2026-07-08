@@ -4,13 +4,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '../ipc/invoke';
 import { ErrorCode } from './ErrorCode';
+import BlockedWorkspacesPanel, { type BlockedWorkspace } from './BlockedWorkspacesPanel';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props { deleteWorkspaceDirs: boolean; onDeleted: () => void; onAbort: () => void; }
 
 interface PhaseResult { phase: number; message: string; next_phase: number | null; }
-interface PhaseError { phase: number; code: string; message: string; skippable: boolean; }
+interface PhaseError {
+  phase: number;
+  code: string;
+  message: string;
+  skippable: boolean;
+  blocked_workspaces?: BlockedWorkspace[];
+}
 
 type StepState =
   | { kind: 'running'; message: string }
@@ -62,6 +69,20 @@ function ErrorPanel({ error, onRetry, onSkip, onAbort }: ErrorPanelProps) {
   );
 }
 
+function getDefaultMessage(phase: number): string {
+  const msgs: Record<number, string> = {
+    0: 'Verifying session…',
+    1: 'Removing project data…',
+    2: 'Removing project data…',
+    3: 'Revoking integrations…',
+    4: 'Clearing credentials…',
+    5: 'Removing account record…',
+    6: 'Cleaning up local files…',
+    7: 'Removing workspace files…',
+  };
+  return msgs[phase] ?? 'Finishing…';
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function AccountDeletionProgress({ deleteWorkspaceDirs, onDeleted, onAbort }: Props) {
@@ -85,20 +106,6 @@ export default function AccountDeletionProgress({ deleteWorkspaceDirs, onDeleted
     }
   }
 
-  function getDefaultMessage(phase: number): string {
-    const msgs: Record<number, string> = {
-      0: 'Verifying session…',
-      1: 'Removing project data…',
-      2: 'Removing project data…',
-      3: 'Revoking integrations…',
-      4: 'Clearing credentials…',
-      5: 'Removing account record…',
-      6: 'Cleaning up local files…',
-      7: 'Removing workspace files…',
-    };
-    return msgs[phase] ?? 'Finishing…';
-  }
-
   useEffect(() => { runPhase(0); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (stepState.kind === 'done') {
@@ -110,6 +117,16 @@ export default function AccountDeletionProgress({ deleteWorkspaceDirs, onDeleted
   }
 
   if (stepState.kind === 'error') {
+    const blockedWorkspaces = stepState.error.blocked_workspaces;
+    if (blockedWorkspaces && blockedWorkspaces.length > 0) {
+      return (
+        <BlockedWorkspacesPanel
+          workspaces={blockedWorkspaces}
+          onAllResolved={() => runPhase(stepState.phase)}
+          onPromoteFirst={onAbort}
+        />
+      );
+    }
     return (
       <ErrorPanel
         error={stepState.error}

@@ -7,6 +7,7 @@ import { invoke } from '../ipc/invoke';
 import { useProjectsContext } from '../context/ProjectsProvider';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
 import AccountDangerZone from './AccountDangerZone';
+import ManageCollaboratorsSection from './ManageCollaboratorsSection';
 
 interface Props {
   onSignedOut: () => void;
@@ -46,6 +47,7 @@ export default function AccountSettingsView({ onSignedOut }: Props) {
           Sign out
         </button>
       </div>
+      <ManageCollaboratorsSection />
       {(email || displayName) && (
         <AccountDangerZone userEmail={email ?? displayName ?? ''} onDeleted={onSignedOut} />
       )}

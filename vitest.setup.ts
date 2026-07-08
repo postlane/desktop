@@ -18,3 +18,17 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 });
+
+// jsdom has no ResizeObserver either -- needed by Mantine components that
+// measure their own size (Select/Combobox's internal ScrollArea, checklist
+// 24.4.15a). Global polyfill for the same reason as matchMedia above.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+Object.defineProperty(window, 'ResizeObserver', {
+  writable: true,
+  configurable: true,
+  value: ResizeObserverStub,
+});
