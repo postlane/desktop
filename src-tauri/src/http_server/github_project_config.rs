@@ -81,6 +81,7 @@ mod tests {
             tier: "free".to_string(),
             billing_active: true,
             is_owner: true,
+            status: "free_owned".to_string(),
             provider_org_login: org.map(|s| s.to_string()),
         }
     }

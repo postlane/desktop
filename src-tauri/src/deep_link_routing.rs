@@ -14,6 +14,11 @@ pub enum DeepLinkPath {
     AccountUpdated,
     /// `postlane://oauth/callback` — stub for v3 OAuth flow.
     OauthCallback,
+    /// `postlane://billing-complete` — Stripe Checkout/Portal return redirect
+    /// (24.4.2/24.4.4, both success and cancel land here since Stripe is given
+    /// the same URL for both); triggers a workspace-status refresh in the
+    /// Settings — Account tab (24.4.9/24.4.5a).
+    BillingComplete,
     /// Any other host/path — logged at `warn!` level, no action taken.
     Unknown { path: String },
 }
@@ -38,6 +43,7 @@ pub fn classify(url: &str) -> DeepLinkPath {
         ("draft", "") => DeepLinkPath::Draft,
         ("account-updated", "") => DeepLinkPath::AccountUpdated,
         ("oauth", "callback") => DeepLinkPath::OauthCallback,
+        ("billing-complete", "") => DeepLinkPath::BillingComplete,
         _ => {
             let full = if path.is_empty() {
                 host.to_owned()
@@ -56,6 +62,14 @@ pub fn installation_id_from_url(url: &str) -> Option<u64> {
     let id_str = parsed.query_pairs().find(|(k, _)| k == "installation_id")?.1;
     let id: u64 = id_str.parse().ok()?;
     if id == 0 { None } else { Some(id) }
+}
+
+/// Extracts `project_id` from `postlane://billing-complete?project_id=...`.
+/// Returns `None` if the parameter is absent or empty.
+pub fn billing_project_id_from_url(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    let id = parsed.query_pairs().find(|(k, _)| k == "project_id")?.1.into_owned();
+    if id.is_empty() { None } else { Some(id) }
 }
 
 /// Extracts the first `postlane://` URL from a list of process arguments.
@@ -78,6 +92,42 @@ pub fn log_safe_url(url: &str) -> String {
     } else {
         format!("{}://{}/{}", parsed.scheme(), parsed.host_str().unwrap_or(""), path)
     }
+}
+
+/// A `DeepLinkPath` reduced to a frontend-consumable shape: a stable string
+/// tag (never the Rust variant name, which is free to change) plus whatever
+/// per-kind data the frontend needs to react — currently only `project_id`
+/// for `billing_complete`.
+#[derive(Debug, PartialEq, serde::Serialize)]
+pub struct ClassifiedDeepLink {
+    pub kind: String,
+    pub project_id: Option<String>,
+}
+
+fn classify_deep_link_impl(url: &str) -> ClassifiedDeepLink {
+    match classify(url) {
+        DeepLinkPath::BillingComplete => ClassifiedDeepLink {
+            kind: "billing_complete".to_string(),
+            project_id: billing_project_id_from_url(url),
+        },
+        DeepLinkPath::Activate => ClassifiedDeepLink { kind: "activate".to_string(), project_id: None },
+        DeepLinkPath::Draft => ClassifiedDeepLink { kind: "draft".to_string(), project_id: None },
+        DeepLinkPath::AccountUpdated => {
+            ClassifiedDeepLink { kind: "account_updated".to_string(), project_id: None }
+        }
+        DeepLinkPath::OauthCallback => {
+            ClassifiedDeepLink { kind: "oauth_callback".to_string(), project_id: None }
+        }
+        DeepLinkPath::Unknown { .. } => ClassifiedDeepLink { kind: "unknown".to_string(), project_id: None },
+    }
+}
+
+/// Frontend entry point for the deep-link plugin's `deep-link://new-url` event:
+/// classifies a raw URL so the frontend can dispatch on `kind` without
+/// duplicating the host/path matching logic in TypeScript.
+#[tauri::command]
+pub fn classify_deep_link(url: String) -> ClassifiedDeepLink {
+    classify_deep_link_impl(&url)
 }
 
 #[cfg(test)]
@@ -123,6 +173,56 @@ mod tests {
     fn test_classify_oauth_callback() {
         assert_eq!(classify("postlane://oauth/callback"), DeepLinkPath::OauthCallback);
         assert_eq!(classify("postlane://oauth/callback?code=xyz"), DeepLinkPath::OauthCallback);
+    }
+
+    #[test]
+    fn test_classify_billing_complete() {
+        assert_eq!(
+            classify("postlane://billing-complete?project_id=proj-1"),
+            DeepLinkPath::BillingComplete
+        );
+    }
+
+    // ── billing_project_id_from_url ──────────────────────────────────────────
+
+    #[test]
+    fn test_billing_project_id_from_url_extracts_id() {
+        let id = billing_project_id_from_url("postlane://billing-complete?project_id=proj-1");
+        assert_eq!(id, Some("proj-1".to_string()));
+    }
+
+    #[test]
+    fn test_billing_project_id_from_url_returns_none_when_missing() {
+        let id = billing_project_id_from_url("postlane://billing-complete");
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn test_billing_project_id_from_url_returns_none_when_empty() {
+        let id = billing_project_id_from_url("postlane://billing-complete?project_id=");
+        assert_eq!(id, None);
+    }
+
+    // ── classify_deep_link command ────────────────────────────────────────────
+
+    #[test]
+    fn test_classify_deep_link_billing_complete_includes_project_id() {
+        let result = classify_deep_link_impl("postlane://billing-complete?project_id=proj-1");
+        assert_eq!(result.kind, "billing_complete");
+        assert_eq!(result.project_id, Some("proj-1".to_string()));
+    }
+
+    #[test]
+    fn test_classify_deep_link_activate_has_no_project_id() {
+        let result = classify_deep_link_impl("postlane://activate?token=abc");
+        assert_eq!(result.kind, "activate");
+        assert_eq!(result.project_id, None);
+    }
+
+    #[test]
+    fn test_classify_deep_link_unknown_path() {
+        let result = classify_deep_link_impl("postlane://unknown-path-xyz");
+        assert_eq!(result.kind, "unknown");
     }
 
     #[test]

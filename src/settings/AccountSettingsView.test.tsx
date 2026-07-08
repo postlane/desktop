@@ -3,21 +3,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import { MantineProvider } from '@mantine/core'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
 vi.mock('../context/ProjectsProvider', () => ({ useProjectsContext: vi.fn() }))
 vi.mock('../context/DraftPostsProvider', () => ({ useDraftPostsContext: vi.fn() }))
+vi.mock('../context/ProviderAccountsProvider', () => ({ useProviderAccountsContext: vi.fn() }))
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }))
 
 import { invoke } from '../ipc/invoke'
 import { useProjectsContext } from '../context/ProjectsProvider'
 import { useDraftPostsContext } from '../context/DraftPostsProvider'
+import { useProviderAccountsContext } from '../context/ProviderAccountsProvider'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import AccountSettingsView from './AccountSettingsView'
 
 const mockInvoke = vi.mocked(invoke)
 const mockProjectsCtx = vi.mocked(useProjectsContext)
 const mockDraftCtx = vi.mocked(useDraftPostsContext)
+const mockProviderAccountsCtx = vi.mocked(useProviderAccountsContext)
 const mockOpenUrl = vi.mocked(openUrl)
 const mockClearProjects = vi.fn()
 const mockClearDrafts = vi.fn()
@@ -33,18 +37,27 @@ beforeEach(() => {
   })
   mockProjectsCtx.mockReturnValue({ projects: [], loading: false, error: null, refresh: vi.fn(), clear: mockClearProjects })
   mockDraftCtx.mockReturnValue({ drafts: [], loading: false, error: null, refresh: vi.fn(), clear: mockClearDrafts })
+  mockProviderAccountsCtx.mockReturnValue({ accounts: [], activeAccountId: null, setActiveAccountId: vi.fn(), loading: false, error: null, refresh: vi.fn(), clear: vi.fn() })
 })
+
+function renderView(onSignedOut: () => void) {
+  return render(
+    <MantineProvider>
+      <AccountSettingsView onSignedOut={onSignedOut} />
+    </MantineProvider>,
+  )
+}
 
 // ── Display name ───────────────────────────────────────────────────────────────
 
 describe('AccountSettingsView — display name', () => {
   it('calls get_license_display_name on mount', async () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('get_license_display_name'))
   })
 
   it('shows the display name', async () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     await waitFor(() => expect(screen.getByText('alice@example.com')).toBeInTheDocument())
   })
 
@@ -53,7 +66,7 @@ describe('AccountSettingsView — display name', () => {
       if (cmd === 'get_license_display_name') return null
       return undefined
     })
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     await waitFor(() => expect(screen.getByText('Signed in')).toBeInTheDocument())
   })
 })
@@ -62,26 +75,26 @@ describe('AccountSettingsView — display name', () => {
 
 describe('AccountSettingsView — sign out', () => {
   it('calls sign_out invoke when Sign out is clicked', async () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('sign_out'))
   })
 
   it('calls projectsContext.clear() on sign out', async () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(mockClearProjects).toHaveBeenCalled())
   })
 
   it('calls draftPostsContext.clear() on sign out', async () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(mockClearDrafts).toHaveBeenCalled())
   })
 
   it('calls onSignedOut callback after sign out', async () => {
     const onSignedOut = vi.fn()
-    render(<AccountSettingsView onSignedOut={onSignedOut} />)
+    renderView(onSignedOut)
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
   })
@@ -95,7 +108,7 @@ describe('AccountSettingsView — sign out', () => {
       return null
     })
     const onSignedOut = vi.fn()
-    render(<AccountSettingsView onSignedOut={onSignedOut} />)
+    renderView(onSignedOut)
     fireEvent.click(screen.getByRole('button', { name: /Sign out/i }))
     await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
   })
@@ -111,7 +124,7 @@ describe('AccountSettingsView — account danger zone', () => {
       if (cmd === 'get_deletion_incomplete') return false
       return undefined
     })
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Danger Zone/i })).toBeInTheDocument()
     )
@@ -122,13 +135,13 @@ describe('AccountSettingsView — account danger zone', () => {
 
 describe('AccountSettingsView — account link', () => {
   it('opens postlane.dev/account via openUrl', async () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     fireEvent.click(screen.getByRole('button', { name: /Manage account/i }))
     await waitFor(() => expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/account'))
   })
 
   it('does not render a Delete Account button', () => {
-    render(<AccountSettingsView onSignedOut={vi.fn()} />)
+    renderView(vi.fn())
     expect(screen.queryByRole('button', { name: /Delete account/i })).not.toBeInTheDocument()
   })
 })

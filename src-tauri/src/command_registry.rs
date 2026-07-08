@@ -12,6 +12,8 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::app_state_ops::set_default_post_time, crate::app_state_ops::set_wizard_completed,
         crate::collaborators::list_project_collaborators, crate::collaborators::update_collaborator_role, crate::collaborators::remove_project_collaborator,
         crate::ownership_transfer::transfer_workspace_to_admin, crate::ownership_transfer::initiate_ownership_departure,
+        crate::deep_link_routing::classify_deep_link,
+        crate::workspace_billing::subscribe_workspace, crate::workspace_billing::open_billing_portal, crate::workspace_billing::deactivate_workspace,
         crate::post_approval::approve_post, crate::post_cancel::cancel_post_command, crate::post_queries::get_queue_command,
         crate::post_dismiss::delete_post, crate::post_dismiss::dismiss_post, crate::post_export::export_history_csv,
         crate::post_queries::get_drafts, crate::post_queries::get_post_content, crate::post_retry::retry_post,
