@@ -15,12 +15,13 @@ import StepFolderPick from './StepFolderPick';
 const mockInvoke = vi.mocked(invoke);
 const mockOpen = vi.mocked(openDialog);
 
-function renderStep(onNext: (workspacePath: string, childRepos: unknown[]) => void) {
-  return render(
+function renderStep(onNext: (workspacePath: string, childRepos: unknown[]) => void, onBack = vi.fn()) {
+  render(
     <MantineProvider>
-      <StepFolderPick onNext={onNext} />
+      <StepFolderPick onNext={onNext} onBack={onBack} />
     </MantineProvider>,
   );
+  return { onBack };
 }
 
 beforeEach(() => {
@@ -92,5 +93,13 @@ describe('StepFolderPick', () => {
       { name: 'frontend', path: '/Users/jordan/code/myorg/frontend', posts_dir: 'frontend' },
       { name: 'frontend', path: '/Users/jordan/other/frontend', posts_dir: 'frontend-2' },
     ]);
+  });
+});
+
+describe('StepFolderPick — back navigation', () => {
+  it('calls onBack when Back is clicked', () => {
+    const { onBack } = renderStep(vi.fn());
+    fireEvent.click(screen.getByRole('button', { name: /back/i }));
+    expect(onBack).toHaveBeenCalled();
   });
 });

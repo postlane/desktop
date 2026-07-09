@@ -3,16 +3,17 @@
 // child git repos, and show the assigned posts_dir for each before advancing.
 
 import { useState } from 'react';
-import { Button, Text, Stack, Table } from '@mantine/core';
+import { Button, Group, Text, Stack, Table } from '@mantine/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '../../ipc/invoke';
 import type { ChildRepo } from './types';
 
 interface Props {
   onNext: (workspacePath: string, childRepos: ChildRepo[]) => void;
+  onBack: () => void;
 }
 
-export default function StepFolderPick({ onNext }: Props) {
+export default function StepFolderPick({ onNext, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [discovered, setDiscovered] = useState<{ path: string; repos: ChildRepo[] } | null>(null);
@@ -38,9 +39,10 @@ export default function StepFolderPick({ onNext }: Props) {
   return (
     <Stack gap="sm">
       <Text size="sm">Pick the folder that contains your Git repositories.</Text>
-      <Button onClick={handleChooseFolder} loading={loading} style={{ alignSelf: 'flex-start' }}>
-        Choose folder
-      </Button>
+      <Group>
+        <Button variant="subtle" onClick={onBack}>Back</Button>
+        <Button onClick={handleChooseFolder} loading={loading}>Choose folder</Button>
+      </Group>
       {error && <Text size="sm" c="red">{error}</Text>}
       {discovered && (
         <Table>
