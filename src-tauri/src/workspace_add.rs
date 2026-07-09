@@ -96,7 +96,7 @@ fn write_child_repos(
 }
 
 /// Add a workspace entry to the global `~/.postlane/repos.json` (idempotent by `project_id`).
-fn register_workspace_globally(
+pub(crate) fn register_workspace_globally(
     repos_path: &Path,
     project_id: &str,
     name: &str,

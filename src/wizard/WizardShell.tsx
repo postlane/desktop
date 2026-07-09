@@ -2,14 +2,13 @@
 
 import type { ReactNode } from 'react';
 
+// Steps 4-7 (SCHEDULER/INSTALL/VOICE/COMPLETE) are gone from this shell --
+// checklist 24.3.7 replaced that back half with WorkspaceSetupWizard, which
+// owns its own step indicator (a Mantine Stepper), not this one.
 const STEP_NAMES: Record<number, string> = {
   1: 'WELCOME',
   2: 'ACCOUNT',
   3: 'WORKSPACE',
-  4: 'SCHEDULER',
-  5: 'INSTALL',
-  6: 'VOICE',
-  7: 'COMPLETE',
 };
 
 interface Props {

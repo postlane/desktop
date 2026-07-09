@@ -36,7 +36,14 @@ to a commit message or PR description.
 3. `session.token` and `port` files must have 0600 permissions on Unix
 4. All URLs must start with `https://` — reject bare IPs and `http://`
 5. SSRF: validate URLs do not resolve to private ranges before any fetch
-6. No analytics SDK, no telemetry — zero
+6. No third-party analytics SDK, no hidden telemetry. First-party opt-in
+   analytics to `api.postlane.dev` are the one exception, gated on the user's
+   telemetry consent (see `telemetry/client.rs`'s `record()`): `post_approved`,
+   `provider_configured`, `repo_connected`, `workspace_created`,
+   `workspace_upgrade_prompted`, `workspace_upgraded`,
+   `weekly_review_deep_link_opened` — see `internal/CLAUDE.md`'s Security
+   Rule 6 for the full list and rationale. Any new event name being added
+   here must be added to that list too, not just this repo.
 
 Each security rule must have a corresponding test.
 

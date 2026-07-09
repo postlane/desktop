@@ -2,21 +2,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAsyncCommand } from '../hooks/useAsyncCommand';
-import { flushSync } from 'react-dom';
 import { invoke } from '../ipc/invoke';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import WorkspaceConfirmModal from './WorkspaceConfirmModal';
 import VoiceGuideHint from './VoiceGuideHint';
 import { RepoListSection } from './RepoTable';
+import WorkspaceSetupWizard from '../wizard/workspace-setup/WorkspaceSetupWizard';
 import type { AppStateFile } from '../types';
 import type { RepoConnectionStatus, RowActions } from './RepoTable';
-import type { WorkspaceSetupResult } from './WorkspaceConfirmModal';
 import { useMigrationStatus } from './MigrationBanner';
 import MigrationFlow from './MigrationFlow';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Props { projectId: string; isOwner: boolean; }
+interface Props { projectId: string; projectName?: string; isOwner: boolean; }
 
 interface RescanResult { added: string[]; deactivated: string[]; unchanged: string[]; }
 
@@ -114,62 +111,6 @@ function useRepoActions(rows: RepoConnectionStatus[], refresh: () => void) {
   return { pendingRemoveId, setPendingRemoveId, removeLoading, pendingName, handleConfirmRemove };
 }
 
-function useWorkspaceFlow(projectId: string, refresh: () => void) {
-  const [wsResult, setWsResult] = useState<WorkspaceSetupResult | null>(null);
-  const [wsError, setWsError] = useState<string | null>(null);
-  const [wsToast, setWsToast] = useState<string | null>(null);
-  const [wsSuccess, setWsSuccess] = useState<WorkspaceSetupResult | null>(null);
-
-  async function handleAddWorkspace() {
-    const selected = await openDialog({ directory: true });
-    if (typeof selected !== 'string') return;
-    setWsError(null);
-    try {
-      const result = await invoke<WorkspaceSetupResult>('add_workspace', { folderPath: selected, projectId });
-      if (result.discovered_repos.length === 1) {
-        const repoName = result.discovered_repos[0].name;
-        // flushSync ensures the toast paints before the confirm call starts,
-        // preventing React 18 from batching the set+clear into a single render.
-        flushSync(() => {
-          setWsToast(`Creating workspace at ${result.workspace_path} — Postlane files will be added to ${repoName}/`);
-        });
-        await Promise.all([
-          invoke('confirm_workspace_repos', {
-            workspaceId: result.workspace_id,
-            selectedPaths: result.discovered_repos.map((r) => r.path),
-          }),
-          new Promise<void>(resolve => setTimeout(resolve, 1500)),
-        ]);
-        setWsToast(null);
-        setWsSuccess(result);
-        refresh();
-      } else {
-        setWsResult(result);
-      }
-    } catch (err) {
-      setWsToast(null);
-      setWsError(typeof err === 'string' ? err : 'Failed to add workspace');
-    }
-  }
-
-  async function handleConfirmWorkspace(selectedPaths: string[]) {
-    if (!wsResult) return;
-    try {
-      await invoke('confirm_workspace_repos', { workspaceId: wsResult.workspace_id, selectedPaths });
-      const completed = wsResult;
-      setWsResult(null);
-      setWsSuccess(completed);
-      refresh();
-    } catch (err) {
-      setWsError(typeof err === 'string' ? err : 'Failed to confirm workspace');
-    }
-  }
-
-  function dismissSuccess() { setWsSuccess(null); }
-
-  return { wsResult, wsError, wsToast, wsSuccess, setWsResult, handleAddWorkspace, handleConfirmWorkspace, dismissSuccess };
-}
-
 function useDisconnect(projectId: string, refresh: () => void) {
   const [pending, setPending] = useState(false);
   const { loading, run } = useAsyncCommand();
@@ -258,30 +199,57 @@ function MigrateWorkspaceButton({ projectId }: { projectId: string }) {
   );
 }
 
-function OwnerStatusMessages({ rescanResult, rescanError, wsToast, wsError }: {
+function OwnerStatusMessages({ rescanResult, rescanError }: {
   rescanResult: RescanResult | null; rescanError: string | null;
-  wsToast: string | null; wsError: string | null;
 }) {
   return (
     <>
       {rescanResult && <RescanResultView result={rescanResult} />}
       {rescanError && <p role="alert" className="is-size-7 has-text-danger mt-2">{rescanError}</p>}
-      {wsToast && <p className="is-size-7 has-text-info mt-2" role="status">{wsToast}</p>}
-      {wsError && <p role="alert" className="is-size-7 has-text-danger mt-2">{wsError}</p>}
     </>
+  );
+}
+
+// ── Setup wizard modal (checklist 24.3.7 -- Settings entry point) ────────────
+//
+// Repoints "Add workspace" from the old direct folder-picker ->
+// add_workspace -> confirm_workspace_repos flow to the same 6-step
+// WorkspaceSetupWizard the primary (left-nav) entry point uses, so both
+// entry points write the same full config.json schema instead of two
+// diverging shapes. add_workspace/confirm_workspace_repos/WorkspaceConfirmModal
+// are left in place (still tested independently) for a future cleanup pass,
+// not deleted here.
+
+function SetupWizardModal({ projectId, projectName, onClose, onComplete }: {
+  projectId: string; projectName: string; onClose: () => void; onComplete: () => void;
+}) {
+  return (
+    <div className="modal is-active">
+      <div className="modal-background" onClick={onClose} />
+      <div className="modal-card" style={{ width: '90%', maxWidth: '640px' }}>
+        <section className="modal-card-body">
+          <WorkspaceSetupWizard
+            projectId={projectId}
+            projectName={projectName}
+            onComplete={onComplete}
+            onBack={onClose}
+          />
+        </section>
+      </div>
+    </div>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function RepositoriesBlock({ projectId, isOwner }: Props) {
+export default function RepositoriesBlock({ projectId, projectName, isOwner }: Props) {
   const { rows, loading, refresh } = useConnectionStatus(projectId);
   const actions = useRepoActions(rows, refresh);
   const disconnect = useDisconnect(projectId, refresh);
-  const ws = useWorkspaceFlow(projectId, refresh);
   const rescan = useRescanWorkspace(projectId, refresh);
   const workspacePath = useWorkspacePath(projectId);
   const { dismissed: hintDismissed, dismiss: dismissHint } = useVoiceGuideHintDismiss();
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
 
   const hasGitHubApp = rows.some((r) => r.github_app_connected);
 
@@ -302,29 +270,29 @@ export default function RepositoriesBlock({ projectId, isOwner }: Props) {
         <>
           <OwnerActionBar hasGitHubApp={hasGitHubApp}
             rescanScanning={rescan.scanning} disconnectPending={disconnect.pending}
-            onAddWorkspace={ws.handleAddWorkspace}
+            onAddWorkspace={() => setShowSetupWizard(true)}
             onRescan={rescan.rescan}
             onDisconnect={() => disconnect.setPending(true)} />
           {disconnect.pending && (
             <DisconnectConfirm onConfirm={disconnect.confirm}
               onCancel={() => disconnect.setPending(false)} loading={disconnect.loading} />
           )}
-          <OwnerStatusMessages rescanResult={rescan.result} rescanError={rescan.error} wsToast={ws.wsToast} wsError={ws.wsError} />
+          <OwnerStatusMessages rescanResult={rescan.result} rescanError={rescan.error} />
           <MigrateWorkspaceButton projectId={projectId} />
         </>
       )}
 
-      {ws.wsSuccess && !hintDismissed && (
-        <VoiceGuideHint workspacePath={ws.wsSuccess.workspace_path}
-          onDismiss={() => { ws.dismissSuccess(); void dismissHint(); }} />
-      )}
-      {!ws.wsSuccess && workspacePath && !hintDismissed && (
+      {workspacePath && !hintDismissed && (
         <VoiceGuideHint workspacePath={workspacePath} onDismiss={dismissHint} />
       )}
-      {ws.wsResult && (
-        <WorkspaceConfirmModal result={ws.wsResult}
-          onConfirm={ws.handleConfirmWorkspace}
-          onCancel={() => ws.setWsResult(null)} />
+
+      {showSetupWizard && (
+        <SetupWizardModal
+          projectId={projectId}
+          projectName={projectName ?? ''}
+          onClose={() => setShowSetupWizard(false)}
+          onComplete={() => { setShowSetupWizard(false); refresh(); }}
+        />
       )}
     </div>
   );

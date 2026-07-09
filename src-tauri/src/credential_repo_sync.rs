@@ -15,7 +15,7 @@ pub(crate) fn collect_matching_repo_paths(project_id: &str, state: &AppState) ->
         Err(e) => {
             log::warn!(
                 "[credential_repo_sync] failed to read repos.json at {:?}: {:?}",
-                &state.repos_path, e
+                state.repos_path, e
             );
             return vec![];
         }
@@ -44,7 +44,7 @@ pub(crate) fn collect_matching_workspace_config_paths(project_id: &str, state: &
         Err(e) => {
             log::warn!(
                 "[credential_repo_sync] failed to read repos.json at {:?}: {:?}",
-                &state.repos_path, e
+                state.repos_path, e
             );
             return vec![];
         }

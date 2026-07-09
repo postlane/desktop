@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 pub mod account_config;
+pub mod bundle_skills;
+pub mod child_repo_discovery;
 pub mod command_registry;
+pub mod workspace_setup;
 pub mod account_id_store;
 pub mod account_name_store;
 pub mod analytics;
@@ -151,6 +154,10 @@ fn get_local_server_port(state: tauri::State<AppState>) -> Result<u16, String> {
 fn setup_app(app: &mut tauri::App, repos: storage::ReposConfig) -> Result<(), Box<dyn std::error::Error>> {
     instance_guard::exit_if_duplicate_instance();
     let handle = app.handle().clone();
+    match tauri::Manager::path(app).resource_dir() {
+        Ok(dir) => bundle_skills::init_skills_source_dir(dir.join("prompts")),
+        Err(e) => log::warn!("[startup] could not resolve resource dir for bundled skill files: {}", e),
+    }
     app_lifecycle::spawn_http_server(handle.clone(), repos.clone())?;
     let app_state: tauri::State<AppState> = app.state();
     let repos_ref = app_state.repos.lock().map_err(|e| e.to_string())?;

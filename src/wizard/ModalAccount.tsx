@@ -75,7 +75,7 @@ export default function ModalAccount({ onNext, onBack, mode = 'sign_in' }: Props
 
   const { title, subtitle } = COPY[mode];
   return (
-    <WizardShell step={2} totalSteps={7} title={title}
+    <WizardShell step={2} totalSteps={3} title={title}
       subtitle={subtitle} onNext={() => {}} onBack={onBack} nextHidden>
       <div className="is-flex mb-4" style={{ gap: 12, maxWidth: 425 }}>
         <button className="button is-flex-grow-1"

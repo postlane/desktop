@@ -6,12 +6,9 @@ import { useWizardState } from './useWizardState';
 import ModalWelcome from './ModalWelcome';
 import ModalAccount from './ModalAccount';
 import ModalOrgPicker from './ModalOrgPicker';
-import ModalScheduler from './ModalScheduler';
-import ModalGitHubApp from './ModalGitHubApp';
-import ModalProjectContext from './ModalProjectContext';
-import ModalComplete from './ModalComplete';
 import ModalPricingGate from './ModalPricingGate';
 import ModalProviderLinked from './ModalProviderLinked';
+import WorkspaceSetupWizard from './workspace-setup/WorkspaceSetupWizard';
 
 interface Props {
   onComplete: () => void;
@@ -19,23 +16,6 @@ interface Props {
   initialProvider?: string | null;
   initialWorkspaceId?: string | null;
   initialWorkspaceName?: string | null;
-}
-
-interface LateStepProps {
-  step: number;
-  provider: string;
-  workspaceId: string;
-  workspaceName: string;
-  schedulerLinked: boolean;
-  repoConnected: boolean;
-  setRepoConnected: (_v: boolean) => void;
-  onNext: () => void;
-  onBack: () => void;
-  onComplete: () => void;
-  /** Folder connect found the folder already belongs to a different project.
-   *  The wizard should redirect to that project instead of continuing with the
-   *  newly-created empty one. */
-  onFolderConflict?: (existingProjectId: string) => void;
 }
 
 interface Step3Props {
@@ -56,16 +36,6 @@ function WizardStep3({ provider, showProviderLinked, linkedProviders, onContinue
   return <ModalOrgPicker onNext={onOrgNext} onBack={onBack} onPricingGate={onPricingGate} onSkipToApp={onSkipToApp} provider={provider} />;
 }
 
-function WizardLateSteps({ step, provider, workspaceId, workspaceName, schedulerLinked, repoConnected, setRepoConnected, onNext, onBack, onComplete, onFolderConflict }: LateStepProps) {
-  if (step === 5) {
-    return <ModalGitHubApp provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} setRepoConnected={setRepoConnected} onFolderAlreadyConnected={onFolderConflict} />;
-  }
-  if (step === 6) {
-    return <ModalProjectContext workspaceId={workspaceId} workspaceName={workspaceName} onNext={onNext} onBack={onBack} />;
-  }
-  return <ModalComplete schedulerLinked={schedulerLinked} repoConnected={repoConnected} onComplete={onComplete} onBack={onBack} />;
-}
-
 export default function Wizard({ onComplete, startAt, initialProvider, initialWorkspaceId, initialWorkspaceName }: Props) {
   const wizard = useWizardState({
     startAt,
@@ -74,7 +44,6 @@ export default function Wizard({ onComplete, startAt, initialProvider, initialWo
     initialWorkspaceName,
   });
   const [showPricingGate, setShowPricingGate] = useState(false);
-  const [repoConnected, setRepoConnected] = useState(false);
   const [showProviderLinked, setShowProviderLinked] = useState(false);
   const [linkedProviders, setLinkedProviders] = useState<string[]>([]);
   const providerCheckDone = useRef(false);
@@ -125,8 +94,8 @@ export default function Wizard({ onComplete, startAt, initialProvider, initialWo
   if (wizard.step === 3) {
     return <WizardStep3 provider={provider} showProviderLinked={showProviderLinked} linkedProviders={linkedProviders} onContinue={() => setShowProviderLinked(false)} onOrgNext={(wid, wname) => { wizard.setWorkspaceId(wid); wizard.setWorkspaceName(wname); wizard.next(); }} onBack={wizard.back} onPricingGate={() => setShowPricingGate(true)} onSkipToApp={handleSkipToApp} />;
   }
-  if (wizard.step === 4) {
-    return <ModalScheduler workspaceId={workspaceId} workspaceName={workspaceName} onNext={wizard.next} onBack={wizard.back} setSchedulerLinked={wizard.setSchedulerLinked} onSkipToApp={wizard.next} />;
-  }
-  return <WizardLateSteps step={wizard.step} provider={provider} workspaceId={workspaceId} workspaceName={workspaceName} schedulerLinked={wizard.schedulerLinked} repoConnected={repoConnected} setRepoConnected={setRepoConnected} onNext={wizard.next} onBack={wizard.back} onComplete={onComplete} onFolderConflict={(existingProjectId) => { wizard.setWorkspaceId(existingProjectId); void handleSkipToApp(); }} />;
+  // Steps 4-7 (Scheduler/GitHubApp/ProjectContext/Complete) are replaced by
+  // WorkspaceSetupWizard's own 6-step flow (checklist 24.3.7) -- it owns its
+  // own internal progression from here, not useWizardState's step counter.
+  return <WorkspaceSetupWizard projectId={workspaceId} projectName={workspaceName} onComplete={onComplete} onBack={wizard.back} />;
 }

@@ -85,7 +85,7 @@ function ScopeError({ provider, onBack }: { provider: string; onBack: () => void
     }
   }
   return (
-    <WizardShell step={3} totalSteps={7}
+    <WizardShell step={3} totalSteps={3}
       title="Permission needed"
       subtitle="Postlane needs permission to read your organisation list."
       onNext={() => {}} onBack={onBack} nextHidden
@@ -100,7 +100,7 @@ interface LoadErrorProps { message: string; onBack: () => void; onRetry: () => v
 
 function LoadError({ message, onBack, onRetry }: LoadErrorProps) {
   return (
-    <WizardShell step={3} totalSteps={7}
+    <WizardShell step={3} totalSteps={3}
       title="Could not load organisations"
       subtitle="Check your connection and try again."
       onNext={() => {}} onBack={onBack} nextHidden
@@ -113,7 +113,7 @@ function LoadError({ message, onBack, onRetry }: LoadErrorProps) {
 
 function OrgLoadingView({ onBack, onNext }: { onBack: () => void; onNext: () => void }) {
   return (
-    <WizardShell step={3} totalSteps={7}
+    <WizardShell step={3} totalSteps={3}
       title="Choose your account or org"
       subtitle="Select the account or organisation this workspace is for."
       onNext={onNext} onBack={onBack} nextDisabled nextHidden
@@ -133,7 +133,7 @@ function OrgListView({ orgs, selectedOrg, name, createError, creating, provider,
   const providerLabel = provider === 'gitlab' ? 'GitLab' : 'GitHub';
   const entityLabel = provider === 'gitlab' ? 'groups' : 'organisations';
   return (
-    <WizardShell step={3} totalSteps={7}
+    <WizardShell step={3} totalSteps={3}
       title="Choose your account or org"
       subtitle="Select the account or organisation this workspace is for."
       onNext={onNext} onBack={onBack}

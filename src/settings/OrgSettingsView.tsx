@@ -22,7 +22,7 @@ export default function OrgSettingsView({ org, onDisconnected, onDeleted }: Prop
     <div className="px-5 py-4" style={{ maxWidth: '48rem' }}>
       <p className="is-size-5 has-text-weight-semibold mb-5">{org.name} — Settings</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        <RepositoriesBlock projectId={org.id} isOwner={isOwner} />
+        <RepositoriesBlock projectId={org.id} projectName={org.name} isOwner={isOwner} />
         <SchedulerBlock projectId={org.id} isOwner={isOwner} />
         <DirectChannelsBlock projectId={org.id} />
         <ImageSearchBlock />
