@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Tests for workspace_billing.rs — checklist 24.4.9 (subscribe/portal/deactivate).
 
-use super::{deactivate_workspace_with_client, open_billing_portal_with_client, subscribe_workspace_with_client};
+use super::{
+    billing_status_to_license_info, deactivate_workspace_with_client, get_billing_status_with_client,
+    open_billing_portal_with_client, record_workspace_upgrade_prompted, subscribe_workspace_with_client,
+    BillingStatusResponse,
+};
 use crate::providers::scheduling::build_client;
 use httpmock::prelude::*;
 
@@ -117,4 +121,84 @@ async fn test_deactivate_returns_err_on_403_not_owner() {
     let result =
         deactivate_workspace_with_client("proj-1", "key-1", &build_test_client(), &server.base_url(), "tok").await;
     assert!(result.is_err());
+}
+
+// ── get_billing_status (checklist 24.3.6a) ────────────────────────────────────
+
+#[tokio::test]
+async fn test_billing_status_returns_owner_status() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(200).json_body(serde_json::json!({ "status": "free_owned" }));
+    });
+
+    let result = get_billing_status_with_client("proj-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert_eq!(result, Ok(BillingStatusResponse { status: "free_owned".to_string(), owner: None }));
+}
+
+#[tokio::test]
+async fn test_billing_status_returns_collaborator_status_with_owner() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(200).json_body(serde_json::json!({ "status": "collaborator", "owner": "Dana Kim" }));
+    });
+
+    let result = get_billing_status_with_client("proj-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert_eq!(
+        result,
+        Ok(BillingStatusResponse { status: "collaborator".to_string(), owner: Some("Dana Kim".to_string()) })
+    );
+}
+
+#[tokio::test]
+async fn test_billing_status_returns_err_on_5xx() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(503);
+    });
+
+    let result = get_billing_status_with_client("proj-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert!(result.is_err());
+}
+
+// ── billing_status_to_license_info mapping (checklist 24.3.6a) ───────────────
+
+#[test]
+fn test_billing_status_to_license_info_owner_status() {
+    let response = BillingStatusResponse { status: "paid_required".to_string(), owner: None };
+    let info = billing_status_to_license_info("proj-1", &response, "2026-07-09T00:00:00Z");
+    assert_eq!(info.project_id, "proj-1");
+    assert_eq!(info.status, "paid_required");
+    assert!(info.is_owner, "any status other than collaborator implies is_owner");
+    assert_eq!(info.status_updated_at, "2026-07-09T00:00:00Z");
+}
+
+#[test]
+fn test_billing_status_to_license_info_collaborator_status() {
+    let response = BillingStatusResponse { status: "collaborator".to_string(), owner: Some("Dana".to_string()) };
+    let info = billing_status_to_license_info("proj-1", &response, "2026-07-09T00:00:00Z");
+    assert!(!info.is_owner, "collaborator status implies not is_owner");
+}
+
+// ── workspace_upgrade_prompted telemetry (checklist 24.3.6a, pulled forward
+// from 24.4.11c since this item's own TDD test needs it) ────────────────────
+
+#[test]
+fn test_record_workspace_upgrade_prompted_queues_when_consent_given() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_upgrade_prompted(&state, true, "proj-1");
+    assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+    let events = state.telemetry.peek_queue();
+    assert_eq!(events[0].name, "workspace_upgrade_prompted");
+    assert_eq!(events[0].properties["project_id"], "proj-1");
+}
+
+#[test]
+fn test_record_workspace_upgrade_prompted_no_op_when_consent_not_given() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_upgrade_prompted(&state, false, "proj-1");
+    assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
 }

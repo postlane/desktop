@@ -87,6 +87,7 @@ fn test_all_set_password_call_sites_have_keyring_pattern() {
         "mastodon_token_exchange.rs",   // "mastodon/{project_id}/{instance}", active_instance, active_username
         "scheduler_credentials.rs",     // "{provider}/{project_id}" + transient "__libsecret_test__" (libsecret probe, immediately deleted)
         "unsplash_search.rs",           // "postlane/unsplash_access_key"
+        "workspace_setup.rs",           // "{provider}/{project_id}" -- same pattern scheduler_credentials.rs already registers, new call site (checklist 24.3.3)
     ].iter().copied().collect();
 
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -125,6 +126,7 @@ fn test_set_password_call_counts_match_expected() {
         ("mastodon_token_exchange.rs", 3),
         ("scheduler_credentials.rs", 2),
         ("unsplash_search.rs", 1),
+        ("workspace_setup.rs", 1),
     ];
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut failures = Vec::new();
