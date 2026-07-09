@@ -14,10 +14,9 @@ pub fn normalize_github_url(url: &str) -> Option<String> {
     let url = url.trim();
     let slug = if let Some(rest) = url.strip_prefix("git@github.com:") {
         rest.strip_suffix(".git").unwrap_or(rest)
-    } else if let Some(rest) = url.strip_prefix("https://github.com/") {
-        rest.strip_suffix(".git").unwrap_or(rest).trim_end_matches('/')
     } else {
-        return None;
+        let rest = url.strip_prefix("https://github.com/")?;
+        rest.strip_suffix(".git").unwrap_or(rest).trim_end_matches('/')
     };
     let (owner, repo) = slug.split_once('/')?;
     if owner.is_empty() || repo.is_empty() {
