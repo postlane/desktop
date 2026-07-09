@@ -142,7 +142,7 @@ fn test_setup_copies_skill_files_to_each_child_repo() {
     fs::create_dir_all(&commands_dir).unwrap();
     fs::write(commands_dir.join("draft-post.md"), "# draft-post").unwrap();
     fs::write(commands_dir.join("draft-post.prompt"), "draft-post body").unwrap();
-    crate::bundle_skills::set_test_skills_source_override(Some(source.path().to_path_buf()));
+    let _guard = crate::bundle_skills::set_test_skills_source_override(Some(source.path().to_path_buf()));
 
     let ws = TempDir::new().unwrap();
     let repos_dir = TempDir::new().unwrap();
@@ -170,8 +170,6 @@ fn test_setup_copies_skill_files_to_each_child_repo() {
             "{} must have .postlane/commands/draft-post.prompt", child.display()
         );
     }
-
-    crate::bundle_skills::set_test_skills_source_override(None);
 }
 
 // ── 24.3.3 ── scheduler API key goes to keyring, never to any file ──────────

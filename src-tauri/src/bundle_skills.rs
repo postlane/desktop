@@ -32,32 +32,50 @@ pub fn init_skills_source_dir(path: PathBuf) {
     let _ = SKILLS_SOURCE_DIR.set(path);
 }
 
+// Thread-local, not a global static: cargo test runs many tests concurrently
+// on separate threads, and most callers of `copy_to_repo` (e.g. every
+// `workspace_setup` test that isn't specifically about skill files) never
+// set an override at all -- a shared global would let one test's override
+// leak into another running concurrently on a different thread. An
+// RAII guard resets the value on scope exit (including on a panicking
+// assertion, since Drop still runs during unwind), so a test can't leak
+// its override into a later test that happens to reuse the same thread.
 #[cfg(test)]
-static TEST_SKILLS_SOURCE_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
-    std::sync::OnceLock::new();
-
-#[cfg(test)]
-pub fn set_test_skills_source_override(path: Option<PathBuf>) {
-    *TEST_SKILLS_SOURCE_OVERRIDE
-        .get_or_init(|| std::sync::Mutex::new(None))
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()) = path;
+thread_local! {
+    static TEST_SKILLS_SOURCE_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Resolves the bundled-skills source directory: a test override in tests,
-/// the Tauri resource dir (`{app}/prompts`) in production.
+#[cfg(test)]
+pub struct SkillsSourceOverrideGuard;
+
+#[cfg(test)]
+impl Drop for SkillsSourceOverrideGuard {
+    fn drop(&mut self) {
+        TEST_SKILLS_SOURCE_OVERRIDE.with(|cell| *cell.borrow_mut() = None);
+    }
+}
+
+#[cfg(test)]
+#[must_use = "the override resets when this guard drops -- bind it (`let _guard = ...`), don't discard it"]
+pub fn set_test_skills_source_override(path: Option<PathBuf>) -> SkillsSourceOverrideGuard {
+    TEST_SKILLS_SOURCE_OVERRIDE.with(|cell| *cell.borrow_mut() = path);
+    SkillsSourceOverrideGuard
+}
+
+/// Resolves the bundled-skills source directory: a test override in tests
+/// (a definitely-nonexistent placeholder when no override is set, so
+/// `copy_to_repo`'s missing-source-dir handling degrades gracefully for the
+/// many tests of dependent modules that don't care about skill files at
+/// all), the Tauri resource dir (`{app}/prompts`) in production.
 fn resolve_skills_source_dir() -> Result<PathBuf, String> {
     #[cfg(test)]
     {
-        let maybe = TEST_SKILLS_SOURCE_OVERRIDE
-            .get_or_init(|| std::sync::Mutex::new(None))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
-        if let Some(path) = maybe {
-            return Ok(path);
-        }
+        let path = TEST_SKILLS_SOURCE_OVERRIDE
+            .with(|cell| cell.borrow().clone())
+            .unwrap_or_else(|| PathBuf::from("/nonexistent/postlane-test-skills-source"));
+        Ok(path)
     }
+    #[cfg(not(test))]
     SKILLS_SOURCE_DIR.get().cloned().ok_or_else(|| {
         "skills source dir not initialized -- init_skills_source_dir must be called at app startup".to_string()
     })

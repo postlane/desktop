@@ -24,7 +24,7 @@ fn make_fixture_source() -> TempDir {
 #[test]
 fn test_skill_files_copy_to_repo() {
     let source = make_fixture_source();
-    set_test_skills_source_override(Some(source.path().to_path_buf()));
+    let _guard = set_test_skills_source_override(Some(source.path().to_path_buf()));
 
     let target = TempDir::new().unwrap();
     let result = copy_to_repo(target.path());
@@ -46,8 +46,6 @@ fn test_skill_files_copy_to_repo() {
 
     let run_ts = target.path().join(".postlane").join("runner").join("run.ts");
     assert!(run_ts.exists(), ".postlane/runner/run.ts must exist");
-
-    set_test_skills_source_override(None);
 }
 
 // ── 24.3.1 ── calling twice produces identical content, no error ────────────
@@ -55,7 +53,7 @@ fn test_skill_files_copy_to_repo() {
 #[test]
 fn test_copy_is_idempotent() {
     let source = make_fixture_source();
-    set_test_skills_source_override(Some(source.path().to_path_buf()));
+    let _guard = set_test_skills_source_override(Some(source.path().to_path_buf()));
 
     let target = TempDir::new().unwrap();
     copy_to_repo(target.path()).expect("first copy must succeed");
@@ -66,8 +64,6 @@ fn test_copy_is_idempotent() {
     let second = fs::read_to_string(target.path().join(".claude").join("commands").join("draft-post.md")).unwrap();
 
     assert_eq!(first, second, "content must be identical after a second copy");
-
-    set_test_skills_source_override(None);
 }
 
 // ── missing source dir is not a hard failure — degrades gracefully ──────────
@@ -75,7 +71,7 @@ fn test_copy_is_idempotent() {
 #[test]
 fn test_copy_to_repo_missing_source_dir_is_not_an_error() {
     let missing = TempDir::new().unwrap().path().join("does-not-exist");
-    set_test_skills_source_override(Some(missing));
+    let _guard = set_test_skills_source_override(Some(missing));
 
     let target = TempDir::new().unwrap();
     let result = copy_to_repo(target.path());
@@ -84,6 +80,13 @@ fn test_copy_to_repo_missing_source_dir_is_not_an_error() {
         !target.path().join(".claude").join("commands").exists(),
         "no commands dir should be created when there's nothing to copy"
     );
+}
 
-    set_test_skills_source_override(None);
+// ── no override set at all — same graceful no-op, not an error ──────────────
+
+#[test]
+fn test_copy_to_repo_no_override_set_is_not_an_error() {
+    let target = TempDir::new().unwrap();
+    let result = copy_to_repo(target.path());
+    assert!(result.is_ok(), "no override set must degrade gracefully, not error: {:?}", result);
 }
