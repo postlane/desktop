@@ -87,6 +87,11 @@ describe('WorkspaceSetupWizard — step progression', () => {
     expect(screen.getByText('next-folder')).toBeInTheDocument();
   });
 
+  it('shows the project name in the header', () => {
+    renderWizard();
+    expect(screen.getByText('Set up "North Lane"')).toBeInTheDocument();
+  });
+
   it('advances through all 6 steps in order', () => {
     renderWizard();
     advanceThroughAllSteps();

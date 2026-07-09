@@ -11,7 +11,7 @@
 // not yet the redisplayed UI state on every step.
 
 import { useState } from 'react';
-import { Stepper } from '@mantine/core';
+import { Stepper, Title } from '@mantine/core';
 import StepFolderPick from './StepFolderPick';
 import StepBasicConfig, { type BasicConfigPatch } from './StepBasicConfig';
 import StepLlm, { type LlmPatch } from './StepLlm';
@@ -35,7 +35,7 @@ type ConfigDraft = Partial<Omit<WorkspaceConfig, 'project_id'>>;
 
 const STEP_LABELS = ['Folder', 'Basic config', 'LLM', 'Scheduler', 'Attribution', 'Review'];
 
-export default function WorkspaceSetupWizard({ projectId, onComplete, onBack, onUpgradeClick }: Props) {
+export default function WorkspaceSetupWizard({ projectId, projectName, onComplete, onBack, onUpgradeClick }: Props) {
   const [step, setStep] = useState(0);
   const [workspacePath, setWorkspacePath] = useState('');
   const [childRepos, setChildRepos] = useState<ChildRepo[]>([]);
@@ -65,6 +65,7 @@ export default function WorkspaceSetupWizard({ projectId, onComplete, onBack, on
 
   return (
     <div>
+      {projectName && <Title order={4} mb="sm">Set up &quot;{projectName}&quot;</Title>}
       <Stepper active={step} allowNextStepsSelect={false} mb="md">
         {STEP_LABELS.map((label) => <Stepper.Step key={label} label={label} />)}
       </Stepper>

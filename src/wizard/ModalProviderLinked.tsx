@@ -29,7 +29,7 @@ export default function ModalProviderLinked({ currentProvider, linkedProviders, 
   return (
     <WizardShell
       step={3}
-      totalSteps={7}
+      totalSteps={3}
       title="Account already exists"
       subtitle="We found an existing Postlane account linked to this email address."
       onNext={onContinue}
