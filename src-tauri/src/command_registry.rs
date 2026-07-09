@@ -52,6 +52,7 @@ pub(crate) fn all_commands() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool 
         crate::wizard_state::read_wizard_state, crate::wizard_state::write_wizard_state, crate::wizard_state::clear_wizard_state,
         crate::workspace_add::add_workspace,
         crate::workspace_confirm::confirm_workspace_repos,
+        crate::child_repo_discovery::discover_child_repos,
         crate::workspace_rescan::rescan_workspace,
         crate::workspace_path_check::check_workspace_paths,
         crate::workspace_path_check::update_workspace_path,
