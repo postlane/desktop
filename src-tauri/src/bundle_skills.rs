@@ -10,15 +10,31 @@
 //! the `postlane/prompts` bundle is a sibling package this crate does not
 //! control, and a partially-populated resource dir should not block setup.
 //!
-//! `tauri.conf.json`'s `bundle.resources` currently bundles only
-//! `prompts/commands/*` -- `runner/run.ts` and `preview-template.html` are
-//! NOT bundled, because Tauri's build script hard-fails at compile time on a
-//! literal (non-glob) resource path that doesn't exist on disk, and neither
-//! file exists in `postlane/prompts` as of this writing. Once that sibling
-//! repo adds them, add `"../../prompts/runner/run.ts": "prompts/runner/run.ts"`
-//! and `"../../prompts/preview-template.html": "prompts/preview-template.html"`
-//! back to `bundle.resources` -- this module's copy logic already handles
-//! them (see `copy_to_repo`) and needs no change.
+//! `tauri.conf.json` currently has NO `bundle.resources` entry at all --
+//! production builds do not embed any skill files yet, and `copy_to_repo`
+//! is a no-op until `init_skills_source_dir` is wired up for real. Two
+//! separate problems block wiring this in, discovered building this item:
+//!
+//! 1. Tauri's build script hard-fails at compile time on a resource glob
+//!    that matches zero files (not just a literal missing path) -- and
+//!    `runner/run.ts`/`preview-template.html` don't exist in
+//!    `postlane/prompts` yet regardless.
+//! 2. More fundamentally: `postlane/desktop`'s CI (`.github/workflows/ci.yml`,
+//!    `test-rust` job) only checks out `postlane/desktop` itself -- there is
+//!    no sibling checkout of `postlane/prompts` at build time in CI at all,
+//!    unlike a local dev machine where both repos sit side by side. A
+//!    `bundle.resources` entry that works locally (`../../prompts/...`)
+//!    will always fail CI until that workflow checks out `postlane/prompts`
+//!    as a sibling directory -- which needs a cross-repo access token
+//!    (`postlane/prompts` isn't public), a secrets-provisioning decision
+//!    for whoever owns this repo's CI, not something to wire up silently.
+//!
+//! Once both are resolved, add back:
+//! `"../../prompts/commands/*": "prompts/commands/"`,
+//! `"../../prompts/runner/run.ts": "prompts/runner/run.ts"`,
+//! `"../../prompts/preview-template.html": "prompts/preview-template.html"`
+//! to `bundle.resources` -- this module's copy logic already handles all
+//! three (see `copy_to_repo`) and needs no further change.
 
 use std::path::{Path, PathBuf};
 
