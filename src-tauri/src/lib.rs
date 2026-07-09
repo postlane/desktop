@@ -4,6 +4,7 @@ pub mod account_config;
 pub mod bundle_skills;
 pub mod child_repo_discovery;
 pub mod command_registry;
+pub mod workspace_setup;
 pub mod account_id_store;
 pub mod account_name_store;
 pub mod analytics;
