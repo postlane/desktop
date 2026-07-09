@@ -23,7 +23,8 @@ async fn test_list_projects_returns_vec_on_success() {
                 "workspace_type": "organization",
                 "tier": "free",
                 "billing_active": true,
-                "is_owner": true
+                "is_owner": true,
+                "status": "free_owned"
             }]
         }));
     });
@@ -39,6 +40,32 @@ async fn test_list_projects_returns_vec_on_success() {
     assert_eq!(projects[0].tier, "free");
     assert!(projects[0].billing_active);
     assert!(projects[0].is_owner);
+    assert_eq!(projects[0].status, "free_owned");
+}
+
+#[tokio::test]
+async fn test_list_projects_deserializes_paid_owned_status() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects");
+        then.status(200).json_body(serde_json::json!({
+            "projects": [{
+                "id": "proj-2",
+                "name": "Acme",
+                "workspace_type": "organization",
+                "tier": "paid",
+                "billing_active": true,
+                "is_owner": true,
+                "status": "paid_owned"
+            }]
+        }));
+    });
+
+    let result =
+        list_projects_with_client(&build_test_client(), &server.base_url(), "tok").await;
+    let projects =
+        result.expect("list_projects_with_client should succeed for 200 response");
+    assert_eq!(projects[0].status, "paid_owned");
 }
 
 #[tokio::test]

@@ -78,6 +78,16 @@ export interface NoOrgsView { view: 'no_orgs' }
 
 export type ViewSelection = OrgQueueView | OrgHistoryView | OrgSettingsView | GlobalSettingsView | NoOrgsView;
 
+export type WorkspaceStatus =
+  | 'free_owned'
+  | 'paid_owned'
+  | 'paid_required'
+  | 'collaborator'
+  | 'inactive'
+  | 'payment_failed'
+  | 'owner_departing'
+  | 'unlicensed';
+
 export interface Project {
   id: string;
   name: string;
@@ -85,6 +95,8 @@ export interface Project {
   tier: string;
   billing_active: boolean;
   is_owner: boolean;
+  /** Absent on fixtures predating 24.4.9; real invoke('list_projects') responses always include it. */
+  status?: WorkspaceStatus;
   /** GitHub org login linked to this project. Null for projects created before v1.2. */
   provider_org_login?: string | null;
 }

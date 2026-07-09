@@ -74,7 +74,7 @@ mod tests {
             then.status(200).json_body(serde_json::json!({
                 "projects": [
                     {"id": "proj-123", "name": "my-proj", "workspace_type": "personal",
-                     "tier": "free", "billing_active": false, "is_owner": true}
+                     "tier": "free", "billing_active": false, "is_owner": true, "status": "free_owned"}
                 ]
             }));
         });
@@ -112,8 +112,8 @@ mod tests {
             when.method(GET).path("/v1/projects");
             then.status(200).json_body(serde_json::json!({
                 "projects": [
-                    {"id": "a", "name": "alpha", "workspace_type": "personal", "tier": "free", "billing_active": false, "is_owner": true},
-                    {"id": "b", "name": "beta",  "workspace_type": "personal", "tier": "free", "billing_active": false, "is_owner": true}
+                    {"id": "a", "name": "alpha", "workspace_type": "personal", "tier": "free", "billing_active": false, "is_owner": true, "status": "free_owned"},
+                    {"id": "b", "name": "beta",  "workspace_type": "personal", "tier": "free", "billing_active": false, "is_owner": true, "status": "free_owned"}
                 ]
             }));
         });

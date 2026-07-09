@@ -27,6 +27,7 @@ fn make_project(id: &str, name: &str) -> ProjectSummary {
         tier: "free".to_string(),
         billing_active: true,
         is_owner: true,
+        status: "free_owned".to_string(),
         provider_org_login: None,
     }
 }

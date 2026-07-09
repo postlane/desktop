@@ -7,11 +7,11 @@
 // actually connected.
 
 import { ActionIcon, Menu, Stack, Tooltip } from '@mantine/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '../ipc/invoke';
 import { useProviderAccountsContext } from '../context/ProviderAccountsProvider';
 import type { ProviderAccountsState } from '../hooks/useProviderAccounts';
 import { deriveOrgColour } from '../formatting/orgColour';
+import { startLinkProviderAccountFlow } from '../auth/providerAccountLinking';
 
 interface AccountIconProps {
   account: ProviderAccountsState['accounts'][number];
@@ -71,16 +71,6 @@ function AccountIcon({ account, active, onSwitch, onRemoved }: AccountIconProps)
   );
 }
 
-async function handleAddAccount() {
-  try {
-    const port = await invoke<number>('get_local_server_port');
-    openUrl(`https://postlane.dev/login?desktop=1&port=${port}&mode=link_provider_account`).catch(console.error);
-  } catch (e) {
-    console.error('[account-rail] get_local_server_port failed — opening without port:', e);
-    openUrl('https://postlane.dev/login?desktop=1&mode=link_provider_account').catch(console.error);
-  }
-}
-
 export default function AccountRail({ onSwitch }: { onSwitch: (_id: string) => void }) {
   const { accounts, activeAccountId, refresh } = useProviderAccountsContext();
 
@@ -104,7 +94,7 @@ export default function AccountRail({ onSwitch }: { onSwitch: (_id: string) => v
         />
       ))}
       <Tooltip label="Add provider account" position="right">
-        <ActionIcon radius="xl" size={36} variant="light" aria-label="Add provider account" onClick={handleAddAccount}>
+        <ActionIcon radius="xl" size={36} variant="light" aria-label="Add provider account" onClick={startLinkProviderAccountFlow}>
           +
         </ActionIcon>
       </Tooltip>

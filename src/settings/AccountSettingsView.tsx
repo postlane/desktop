@@ -8,6 +8,8 @@ import { useProjectsContext } from '../context/ProjectsProvider';
 import { useDraftPostsContext } from '../context/DraftPostsProvider';
 import AccountDangerZone from './AccountDangerZone';
 import ManageCollaboratorsSection from './ManageCollaboratorsSection';
+import WorkspaceListSection from './WorkspaceListSection';
+import ConnectedAccountsSection from './ConnectedAccountsSection';
 
 interface Props {
   onSignedOut: () => void;
@@ -47,7 +49,9 @@ export default function AccountSettingsView({ onSignedOut }: Props) {
           Sign out
         </button>
       </div>
+      <WorkspaceListSection />
       <ManageCollaboratorsSection />
+      <ConnectedAccountsSection />
       {(email || displayName) && (
         <AccountDangerZone userEmail={email ?? displayName ?? ''} onDeleted={onSignedOut} />
       )}

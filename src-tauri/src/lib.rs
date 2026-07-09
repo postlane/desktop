@@ -97,6 +97,7 @@ pub mod upload_post_account;
 pub mod voice_guide_versions;
 pub mod watcher;
 pub mod webhook_poller;
+pub mod workspace_billing;
 pub mod wizard_state;
 pub mod repos_migration;
 pub mod workspace;

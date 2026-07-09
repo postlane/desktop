@@ -41,6 +41,7 @@ pub struct ProjectSummary {
     pub tier: String,
     pub billing_active: bool,
     pub is_owner: bool,
+    pub status: String,
     #[serde(default)]
     pub provider_org_login: Option<String>,
 }

@@ -22,7 +22,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 import { invoke } from '../ipc/invoke'
 import { ProjectsProvider, useProjectsContext } from '../context/ProjectsProvider'
-import { PROJECTS_CHANGED_EVENT } from '../constants/tauriEvents'
+import { PROJECTS_CHANGED_EVENT, DEEP_LINK_NEW_URL_EVENT } from '../constants/tauriEvents'
 
 const mockInvoke = vi.mocked(invoke)
 
@@ -95,5 +95,52 @@ describe('ProjectsProvider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<Consumer />)).toThrow()
     consoleError.mockRestore()
+  })
+})
+
+describe('ProjectsProvider — 24.4.5a billing-complete deep link', () => {
+  it('refreshes projects when a billing_complete deep link arrives', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'classify_deep_link') return Promise.resolve({ kind: 'billing_complete', project_id: 'proj-1' })
+      return Promise.resolve(PROJECTS)
+    })
+
+    render(<ProjectsProvider><Consumer /></ProjectsProvider>)
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('1'))
+
+    const callsBefore = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'list_projects').length
+
+    await act(async () => {
+      const handlers = capturedListeners.get(DEEP_LINK_NEW_URL_EVENT) ?? []
+      handlers.forEach((h) => h({ payload: ['postlane://billing-complete?project_id=proj-1'] }))
+    })
+
+    await waitFor(() => {
+      const callsAfter = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'list_projects').length
+      expect(callsAfter).toBe(callsBefore + 1)
+    })
+    expect(mockInvoke).toHaveBeenCalledWith('classify_deep_link', { url: 'postlane://billing-complete?project_id=proj-1' })
+  })
+
+  it('does not refresh projects for an unrelated deep link', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'classify_deep_link') return Promise.resolve({ kind: 'activate', project_id: null })
+      return Promise.resolve(PROJECTS)
+    })
+
+    render(<ProjectsProvider><Consumer /></ProjectsProvider>)
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('1'))
+
+    const callsBefore = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'list_projects').length
+
+    await act(async () => {
+      const handlers = capturedListeners.get(DEEP_LINK_NEW_URL_EVENT) ?? []
+      handlers.forEach((h) => h({ payload: ['postlane://activate?token=abc'] }))
+    })
+
+    // give any (incorrect) refresh a chance to fire before asserting it didn't
+    await new Promise((r) => setTimeout(r, 10))
+    const callsAfter = mockInvoke.mock.calls.filter(([cmd]) => cmd === 'list_projects').length
+    expect(callsAfter).toBe(callsBefore)
   })
 })

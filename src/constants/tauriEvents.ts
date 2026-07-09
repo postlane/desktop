@@ -11,3 +11,10 @@ export const PROJECTS_CHANGED_EVENT = 'projects-changed' as const;
 /** Emitted by `repo_mgmt.rs` watcher when a post meta.json changes.
  *  `DraftPostsProvider` subscribes to reload drafts on each detection. */
 export const DRAFT_DETECTED_EVENT = 'meta-changed' as const;
+
+/** Emitted by the `tauri-plugin-deep-link` plugin itself (not our own Rust code)
+ *  whenever the OS opens the app via a registered `postlane://` URL. Payload is
+ *  `string[]`. `ProjectsProvider` subscribes and classifies each URL via the
+ *  `classify_deep_link` command (deep_link_routing.rs), refreshing on
+ *  `billing_complete` (24.4.5a). */
+export const DEEP_LINK_NEW_URL_EVENT = 'deep-link://new-url' as const;
