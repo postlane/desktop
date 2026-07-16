@@ -3,8 +3,8 @@
 
 use super::{
     billing_status_to_license_info, deactivate_workspace_with_client, get_billing_status_with_client,
-    open_billing_portal_with_client, record_workspace_upgrade_prompted, subscribe_workspace_with_client,
-    BillingStatusResponse,
+    open_billing_portal_with_client, record_billing_complete_upgrade_with_client, record_workspace_upgrade_prompted,
+    record_workspace_upgraded, subscribe_workspace_with_client, BillingStatusResponse,
 };
 use crate::providers::scheduling::build_client;
 use httpmock::prelude::*;
@@ -201,4 +201,94 @@ fn test_record_workspace_upgrade_prompted_no_op_when_consent_not_given() {
     let state = crate::test_fixtures::make_state(vec![]);
     record_workspace_upgrade_prompted(&state, false, "proj-1");
     assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+}
+
+// ── workspace_upgraded telemetry (checklist 24.4.11c, the other half of
+// workspace_upgrade_prompted above) ─────────────────────────────────────────
+
+#[test]
+fn test_record_workspace_upgraded_queues_when_consent_given() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_upgraded(&state, true, "proj-1");
+    assert_eq!(state.telemetry.queue_len(), 1, "one event must be queued");
+    let events = state.telemetry.peek_queue();
+    assert_eq!(events[0].name, "workspace_upgraded");
+    assert_eq!(events[0].properties["project_id"], "proj-1");
+}
+
+#[test]
+fn test_record_workspace_upgraded_no_op_when_consent_not_given() {
+    let state = crate::test_fixtures::make_state(vec![]);
+    record_workspace_upgraded(&state, false, "proj-1");
+    assert_eq!(state.telemetry.queue_len(), 0, "no event without consent");
+}
+
+#[tokio::test]
+async fn test_billing_complete_upgrade_fires_workspace_upgraded_when_paid_owned() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(200).json_body(serde_json::json!({ "status": "paid_owned" }));
+    });
+    let state = crate::test_fixtures::make_state(vec![]);
+
+    record_billing_complete_upgrade_with_client("proj-1", &build_test_client(), &server.base_url(), "tok", &state, true)
+        .await
+        .unwrap();
+
+    assert_eq!(state.telemetry.queue_len(), 1);
+    let events = state.telemetry.peek_queue();
+    assert_eq!(events[0].name, "workspace_upgraded");
+}
+
+#[tokio::test]
+async fn test_billing_complete_upgrade_no_op_when_not_paid_owned() {
+    // Covers both the checkout-cancel path (24.4.5a) and a status check that
+    // simply hasn't transitioned -- the deep link fires on both success and
+    // cancel, with no other signal distinguishing them.
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(200).json_body(serde_json::json!({ "status": "paid_required" }));
+    });
+    let state = crate::test_fixtures::make_state(vec![]);
+
+    record_billing_complete_upgrade_with_client("proj-1", &build_test_client(), &server.base_url(), "tok", &state, true)
+        .await
+        .unwrap();
+
+    assert_eq!(state.telemetry.queue_len(), 0, "no event when status is not paid_owned");
+}
+
+#[tokio::test]
+async fn test_billing_complete_upgrade_no_op_when_consent_not_given() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(200).json_body(serde_json::json!({ "status": "paid_owned" }));
+    });
+    let state = crate::test_fixtures::make_state(vec![]);
+
+    record_billing_complete_upgrade_with_client("proj-1", &build_test_client(), &server.base_url(), "tok", &state, false)
+        .await
+        .unwrap();
+
+    assert_eq!(state.telemetry.queue_len(), 0, "no event without consent, even when paid_owned");
+}
+
+#[tokio::test]
+async fn test_billing_complete_upgrade_propagates_billing_status_error() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/projects/proj-1/billing-status");
+        then.status(503);
+    });
+    let state = crate::test_fixtures::make_state(vec![]);
+
+    let result =
+        record_billing_complete_upgrade_with_client("proj-1", &build_test_client(), &server.base_url(), "tok", &state, true)
+            .await;
+
+    assert!(result.is_err());
+    assert_eq!(state.telemetry.queue_len(), 0);
 }
