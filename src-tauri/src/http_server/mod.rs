@@ -366,7 +366,19 @@ mod tests {
         let repos_path = tmp.path().join("repos.json");
         std::mem::forget(tmp);
         let state = ServerState { token: "test-token".to_string(), repos, repos_path, activation_tx: None, watcher_tx: None, app_handle: None, projects: Arc::new(tokio::sync::RwLock::new(vec![])) };
-        let test_port = 57312u16;
+
+        // Reserve a genuinely free port by letting the OS assign one, then
+        // release it immediately -- a hardcoded port number is not
+        // guaranteed free in a shared CI runner (this test previously
+        // hardcoded 57312, which intermittently failed when something else
+        // already held it, per bind_listener's own documented fallback
+        // behavior: it silently falls back to a different port rather than
+        // erroring, so the flakiness showed up as a mismatched port number,
+        // not a failure to start).
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").expect("probe bind failed");
+        let test_port = probe.local_addr().expect("local_addr failed").port();
+        drop(probe);
+
         let bound_port = start_server(state, test_port).await.unwrap();
         assert_eq!(bound_port, test_port);
     }
