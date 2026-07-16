@@ -144,3 +144,63 @@ describe('ProjectsProvider — 24.4.5a billing-complete deep link', () => {
     expect(callsAfter).toBe(callsBefore)
   })
 })
+
+describe('ProjectsProvider — 24.4.11c workspace_upgraded telemetry', () => {
+  it('calls record_billing_complete_upgrade with the project_id from a billing_complete deep link', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'classify_deep_link') return Promise.resolve({ kind: 'billing_complete', project_id: 'proj-1' })
+      if (cmd === 'record_billing_complete_upgrade') return Promise.resolve(undefined)
+      return Promise.resolve(PROJECTS)
+    })
+
+    render(<ProjectsProvider><Consumer /></ProjectsProvider>)
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('1'))
+
+    await act(async () => {
+      const handlers = capturedListeners.get(DEEP_LINK_NEW_URL_EVENT) ?? []
+      handlers.forEach((h) => h({ payload: ['postlane://billing-complete?project_id=proj-1'] }))
+    })
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('record_billing_complete_upgrade', { projectId: 'proj-1' })
+    })
+  })
+
+  it('does not call record_billing_complete_upgrade for an unrelated deep link', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'classify_deep_link') return Promise.resolve({ kind: 'activate', project_id: null })
+      return Promise.resolve(PROJECTS)
+    })
+
+    render(<ProjectsProvider><Consumer /></ProjectsProvider>)
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('1'))
+
+    await act(async () => {
+      const handlers = capturedListeners.get(DEEP_LINK_NEW_URL_EVENT) ?? []
+      handlers.forEach((h) => h({ payload: ['postlane://activate?token=abc'] }))
+    })
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(mockInvoke).not.toHaveBeenCalledWith('record_billing_complete_upgrade', expect.anything())
+  })
+
+  it('does not fail the deep link handling when record_billing_complete_upgrade rejects', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'classify_deep_link') return Promise.resolve({ kind: 'billing_complete', project_id: 'proj-1' })
+      if (cmd === 'record_billing_complete_upgrade') return Promise.reject(new Error('network failure'))
+      return Promise.resolve(PROJECTS)
+    })
+
+    render(<ProjectsProvider><Consumer /></ProjectsProvider>)
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('1'))
+
+    await act(async () => {
+      const handlers = capturedListeners.get(DEEP_LINK_NEW_URL_EVENT) ?? []
+      handlers.forEach((h) => h({ payload: ['postlane://billing-complete?project_id=proj-1'] }))
+    })
+
+    await waitFor(() => expect(screen.getByTestId('count').textContent).toBe('1'))
+    consoleError.mockRestore()
+  })
+})

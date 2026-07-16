@@ -18,11 +18,24 @@ export function useProjectsContext(): ProjectsState {
   return ctx;
 }
 
+// checklist 24.4.11c: best-effort telemetry, never blocks or fails the
+// actual status refresh in handleDeepLinkUrls below.
+function recordBillingCompleteUpgrade(projectId: string) {
+  invoke('record_billing_complete_upgrade', { projectId }).catch((e: unknown) => {
+    console.error(
+      '[projects-provider] failed to record billing-complete upgrade telemetry:',
+      e instanceof Error ? e.message : String(e),
+    );
+  });
+}
+
 async function handleDeepLinkUrls(urls: string[], refresh: () => void) {
   for (const url of urls) {
     try {
       const classified = await invoke<ClassifiedDeepLink>('classify_deep_link', { url });
-      if (classified.kind === 'billing_complete') refresh();
+      if (classified.kind !== 'billing_complete') continue;
+      refresh();
+      if (classified.project_id) recordBillingCompleteUpgrade(classified.project_id);
     } catch (e) {
       console.error('[projects-provider] failed to classify deep link:', e instanceof Error ? e.message : String(e));
     }

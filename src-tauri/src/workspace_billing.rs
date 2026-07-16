@@ -138,6 +138,37 @@ pub(crate) fn record_workspace_upgrade_prompted(state: &crate::app_state::AppSta
     state.telemetry.record(consent, "workspace_upgrade_prompted", serde_json::json!({ "project_id": project_id }));
 }
 
+/// Fires `workspace_upgraded` (checklist 24.4.11c, the other half of
+/// `workspace_upgrade_prompted` above) when 24.4.2's subscribe flow
+/// succeeds.
+pub(crate) fn record_workspace_upgraded(state: &crate::app_state::AppState, consent: bool, project_id: &str) {
+    state.telemetry.record(consent, "workspace_upgraded", serde_json::json!({ "project_id": project_id }));
+}
+
+/// Re-fetches billing-status for the workspace named in a `postlane://
+/// billing-complete` deep link (24.4.5a) and fires `workspace_upgraded` when
+/// it now reads `paid_owned`. The deep link fires on both Checkout success
+/// and cancel (Stripe is given the same return URL for both) and on the
+/// third+-workspace direct-quantity-update path, which never opens a
+/// browser at all -- a fresh status check is the only reliable signal that
+/// distinguishes "just upgraded" from "checkout cancelled, nothing
+/// changed," since neither the deep link URL nor the original subscribe
+/// response carries that outcome.
+pub async fn record_billing_complete_upgrade_with_client(
+    project_id: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    state: &crate::app_state::AppState,
+    consent: bool,
+) -> Result<(), String> {
+    let response = get_billing_status_with_client(project_id, client, base_url, token).await?;
+    if response.status == "paid_owned" {
+        record_workspace_upgraded(state, consent, project_id);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn subscribe_workspace(project_id: String, app: tauri::AppHandle) -> Result<Option<String>, String> {
     let token = resolve_token(&app).await?;
@@ -182,6 +213,30 @@ pub async fn get_workspace_billing_status(
     }
 
     Ok(response)
+}
+
+/// Called by the frontend's `postlane://billing-complete` deep-link handler
+/// (24.4.5a, `ProjectsProvider.tsx`) once it has the `project_id` from the
+/// URL. See `record_billing_complete_upgrade_with_client` for why this needs
+/// its own fresh status check rather than reusing the deep link's existing
+/// workspace-list refresh.
+#[tauri::command]
+pub async fn record_billing_complete_upgrade(
+    project_id: String,
+    state: tauri::State<'_, crate::app_state::AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let token = resolve_token(&app).await?;
+    let consent = crate::app_state::read_app_state().telemetry_consent;
+    record_billing_complete_upgrade_with_client(
+        &project_id,
+        &build_client(),
+        POSTLANE_API_BASE,
+        &token,
+        &state,
+        consent,
+    )
+    .await
 }
 
 #[cfg(test)]
