@@ -76,6 +76,16 @@ pub async fn open_billing_portal_with_client(
     Ok(body.url)
 }
 
+/// Response shape from `POST /v1/billing/withdraw/{project_id}` (checklist
+/// 24.4.13, the Article 11a withdrawal button's backend).
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct WithdrawResponse {
+    pub status: String,
+    pub refunded: bool,
+    #[serde(default)]
+    pub refund_amount: Option<i64>,
+}
+
 pub async fn deactivate_workspace_with_client(
     project_id: &str,
     idempotency_key: &str,
@@ -95,6 +105,31 @@ pub async fn deactivate_workspace_with_client(
         return Err(format!("Server returned {}", resp.status()));
     }
     Ok(())
+}
+
+/// Backend for the Article 11a withdrawal button (design brief 10,
+/// checklist 24.4.13) — triggers the same effect as `deactivate_workspace`
+/// (pause, pro-rata refund if within the 14-day window) plus a durable-
+/// medium email acknowledgment the server sends on success.
+pub async fn withdraw_from_contract_with_client(
+    project_id: &str,
+    idempotency_key: &str,
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+) -> Result<WithdrawResponse, String> {
+    let url = format!("{}/v1/billing/withdraw/{}", base_url, project_id);
+    let resp = client
+        .post(&url)
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "idempotency_key": idempotency_key }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("Server returned {}", resp.status()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
 }
 
 pub async fn get_billing_status_with_client(
@@ -187,6 +222,18 @@ pub async fn deactivate_workspace(project_id: String, app: tauri::AppHandle) -> 
     let token = resolve_token(&app).await?;
     let idempotency_key = uuid::Uuid::new_v4().to_string();
     deactivate_workspace_with_client(&project_id, &idempotency_key, &build_client(), POSTLANE_API_BASE, &token).await
+}
+
+/// Called by the (upcoming) "Withdraw from contract" button in `BillingBlock.tsx`
+/// (design brief 10, checklist 24.4.13) after the frontend's own two-step
+/// confirmation completes -- by the time this fires, Step 2 has already
+/// happened; this IPC call is the action itself, not part of the confirm UI.
+#[tauri::command]
+pub async fn withdraw_from_contract(project_id: String, app: tauri::AppHandle) -> Result<WithdrawResponse, String> {
+    let token = resolve_token(&app).await?;
+    let idempotency_key = uuid::Uuid::new_v4().to_string();
+    withdraw_from_contract_with_client(&project_id, &idempotency_key, &build_client(), POSTLANE_API_BASE, &token)
+        .await
 }
 
 /// Called by `WorkspaceSetupWizard`'s Step 6 immediately after `setup_workspace`
