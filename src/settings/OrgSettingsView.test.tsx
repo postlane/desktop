@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import { MantineProvider } from '@mantine/core'
 
 vi.mock('../ipc/invoke', () => ({ invoke: vi.fn() }))
 vi.mock('../hooks/useRepoData', () => ({ useProjectRepos: vi.fn() }))
@@ -23,6 +24,17 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   return { id: 'proj-1', name: 'Acme', workspace_type: 'organization', tier: 'free', billing_active: true, is_owner: true, ...overrides }
 }
 
+// OrgSettingsView renders BillingBlock, which renders WithdrawFromContractButton
+// (checklist 24.4.13) -- a Mantine component -- so every render needs a
+// MantineProvider now.
+function renderView(org: Project) {
+  return render(
+    <MantineProvider>
+      <OrgSettingsView org={org} />
+    </MantineProvider>,
+  )
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockInvoke.mockImplementation(async (cmd) => {
@@ -39,42 +51,42 @@ beforeEach(() => {
 
 describe('OrgSettingsView', () => {
   it('renders RepositoriesBlock', async () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     await screen.findByText(/No repositories connected/i)
   })
 
   it('renders SchedulerBlock', () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     expect(screen.getByText('Scheduler')).toBeInTheDocument()
   })
 
   it('renders VoiceGuideBlock', () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     expect(screen.getByText(/Voice guide/i)).toBeInTheDocument()
   })
 
   it('renders MembersBlock placeholder', () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     expect(screen.getByText(/Member management coming soon/i)).toBeInTheDocument()
   })
 
   it('renders BillingBlock', () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     expect(screen.getByText('Billing')).toBeInTheDocument()
   })
 
   it('renders MastodonOAuthPanel', () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     expect(screen.getByText('Mastodon')).toBeInTheDocument()
   })
 
   it('derives isOwner from org.is_owner', () => {
-    render(<OrgSettingsView org={makeProject({ is_owner: false })} />)
+    renderView(makeProject({ is_owner: false }))
     expect(screen.queryByRole('button', { name: /Add repository/i })).not.toBeInTheDocument()
   })
 
   it('renders DangerZone toggle for owner below billing', async () => {
-    render(<OrgSettingsView org={makeProject()} />)
+    renderView(makeProject())
     const toggle = await screen.findByRole('button', { name: /Danger zone/i })
     expect(toggle).toBeInTheDocument()
     // rows are hidden until expanded
@@ -82,7 +94,7 @@ describe('OrgSettingsView', () => {
   })
 
   it('does not render DangerZone rows for non-owner', () => {
-    render(<OrgSettingsView org={makeProject({ is_owner: false })} />)
+    renderView(makeProject({ is_owner: false }))
     expect(screen.queryByText(/Disconnect this workspace/i)).not.toBeInTheDocument()
   })
 })

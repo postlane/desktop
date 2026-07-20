@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import { MantineProvider } from '@mantine/core'
 
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }))
 vi.mock('../context/ProjectsProvider', () => ({ useProjectsContext: vi.fn() }))
@@ -23,6 +24,19 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   return { id: 'proj-1', name: 'Postlane', workspace_type: 'organization', tier: 'free', billing_active: true, is_owner: true, ...overrides }
 }
 
+// BillingBlock renders WithdrawFromContractButton (checklist 24.4.13), a
+// Mantine component, alongside its own still-Bulma markup -- every render
+// needs a MantineProvider now, matching this repo's established
+// convention for components with any Mantine child (WorkspaceListSection.
+// test.tsx).
+function renderBlock(project: Project, isOwner: boolean) {
+  return render(
+    <MantineProvider>
+      <BillingBlock project={project} isOwner={isOwner} />
+    </MantineProvider>,
+  )
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockInvoke.mockResolvedValue(null)
@@ -33,12 +47,12 @@ beforeEach(() => {
 
 describe('BillingBlock — active billing', () => {
   it('shows tier label', () => {
-    render(<BillingBlock project={makeProject({ tier: 'pro' })} isOwner={true} />)
+    renderBlock(makeProject({ tier: 'pro' }), true)
     expect(screen.getByText(/pro/i)).toBeInTheDocument()
   })
 
   it('no alert banner when billing is active', () => {
-    render(<BillingBlock project={makeProject({ billing_active: true })} isOwner={true} />)
+    renderBlock(makeProject({ billing_active: true }), true)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
@@ -47,17 +61,17 @@ describe('BillingBlock — active billing', () => {
 
 describe('BillingBlock — lapsed billing', () => {
   it('shows alert banner when billing is inactive', () => {
-    render(<BillingBlock project={makeProject({ billing_active: false })} isOwner={true} />)
+    renderBlock(makeProject({ billing_active: false }), true)
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
   it('shows Refresh button in alert banner', () => {
-    render(<BillingBlock project={makeProject({ billing_active: false })} isOwner={true} />)
+    renderBlock(makeProject({ billing_active: false }), true)
     expect(screen.getByRole('button', { name: /I've updated my billing.*Refresh/i })).toBeInTheDocument()
   })
 
   it('Refresh calls projectsContext.refresh()', () => {
-    render(<BillingBlock project={makeProject({ billing_active: false })} isOwner={true} />)
+    renderBlock(makeProject({ billing_active: false }), true)
     fireEvent.click(screen.getByRole('button', { name: /I've updated my billing.*Refresh/i }))
     expect(mockRefresh).toHaveBeenCalled()
   })
@@ -67,18 +81,32 @@ describe('BillingBlock — lapsed billing', () => {
 
 describe('BillingBlock — billing link', () => {
   it('owner sees manage billing link', () => {
-    render(<BillingBlock project={makeProject()} isOwner={true} />)
+    renderBlock(makeProject(), true)
     expect(screen.getByRole('button', { name: /Manage billing/i })).toBeInTheDocument()
   })
 
   it('Manage billing opens postlane.dev/billing via openUrl', async () => {
-    render(<BillingBlock project={makeProject()} isOwner={true} />)
+    renderBlock(makeProject(), true)
     fireEvent.click(screen.getByRole('button', { name: /Manage billing/i }))
     await waitFor(() => expect(mockOpenUrl).toHaveBeenCalledWith('https://postlane.dev/billing'))
   })
 
   it('non-owner does not see Manage billing button', () => {
-    render(<BillingBlock project={makeProject()} isOwner={false} />)
+    renderBlock(makeProject(), false)
     expect(screen.queryByRole('button', { name: /Manage billing/i })).not.toBeInTheDocument()
+  })
+})
+
+// ── Withdrawal button (checklist 24.4.13) ─────────────────────────────────────
+
+describe('BillingBlock — withdrawal button', () => {
+  it('owner sees the Withdraw from contract button alongside Manage billing', () => {
+    renderBlock(makeProject(), true)
+    expect(screen.getByRole('button', { name: 'Withdraw from contract' })).toBeInTheDocument()
+  })
+
+  it('non-owner does not see the Withdraw from contract button, same gating as Manage billing', () => {
+    renderBlock(makeProject(), false)
+    expect(screen.queryByRole('button', { name: 'Withdraw from contract' })).not.toBeInTheDocument()
   })
 })
