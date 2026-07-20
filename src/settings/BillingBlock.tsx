@@ -2,6 +2,7 @@
 
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useProjectsContext } from '../context/ProjectsProvider';
+import WithdrawFromContractButton from './WithdrawFromContractButton';
 import type { Project } from '../types';
 
 interface Props {
@@ -27,9 +28,16 @@ export default function BillingBlock({ project, isOwner }: Props) {
         </div>
       )}
       {isOwner && (
-        <button className="button is-small is-light" onClick={() => openUrl('https://postlane.dev/billing')}>
-          Manage billing
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="button is-small is-light" onClick={() => openUrl('https://postlane.dev/billing')}>
+            Manage billing
+          </button>
+          <WithdrawFromContractButton
+            projectId={project.id}
+            workspaceName={project.name}
+            billingActive={project.billing_active}
+          />
+        </div>
       )}
     </div>
   );
