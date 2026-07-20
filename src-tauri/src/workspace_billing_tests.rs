@@ -4,7 +4,8 @@
 use super::{
     billing_status_to_license_info, deactivate_workspace_with_client, get_billing_status_with_client,
     open_billing_portal_with_client, record_billing_complete_upgrade_with_client, record_workspace_upgrade_prompted,
-    record_workspace_upgraded, subscribe_workspace_with_client, BillingStatusResponse,
+    record_workspace_upgraded, subscribe_workspace_with_client, withdraw_from_contract_with_client,
+    BillingStatusResponse, WithdrawResponse,
 };
 use crate::providers::scheduling::build_client;
 use httpmock::prelude::*;
@@ -120,6 +121,79 @@ async fn test_deactivate_returns_err_on_403_not_owner() {
 
     let result =
         deactivate_workspace_with_client("proj-1", "key-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert!(result.is_err());
+}
+
+// ── withdraw_from_contract (checklist 24.4.13, Article 11a withdrawal button) ──
+
+#[tokio::test]
+async fn test_withdrawal_button_present_and_labeled_returns_status_and_no_refund() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST)
+            .path("/v1/billing/withdraw/proj-1")
+            .json_body(serde_json::json!({ "idempotency_key": "key-1" }));
+        then.status(200)
+            .json_body(serde_json::json!({ "status": "inactive", "refunded": false }));
+    });
+
+    let result =
+        withdraw_from_contract_with_client("proj-1", "key-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert_eq!(
+        result,
+        Ok(WithdrawResponse { status: "inactive".to_string(), refunded: false, refund_amount: None })
+    );
+}
+
+#[tokio::test]
+async fn test_withdrawal_button_returns_refund_amount_when_refunded() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/v1/billing/withdraw/proj-1");
+        then.status(200)
+            .json_body(serde_json::json!({ "status": "inactive", "refunded": true, "refund_amount": 300 }));
+    });
+
+    let result =
+        withdraw_from_contract_with_client("proj-1", "key-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert_eq!(
+        result,
+        Ok(WithdrawResponse { status: "inactive".to_string(), refunded: true, refund_amount: Some(300) })
+    );
+}
+
+#[tokio::test]
+async fn test_withdrawal_returns_err_on_403_not_owner() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/v1/billing/withdraw/proj-1");
+        then.status(403).json_body(serde_json::json!({ "error": "forbidden" }));
+    });
+
+    let result =
+        withdraw_from_contract_with_client("proj-1", "key-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_withdrawal_returns_err_on_409_no_active_subscription() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/v1/billing/withdraw/proj-1");
+        then.status(409).json_body(serde_json::json!({ "error": "no_active_subscription" }));
+    });
+
+    let result =
+        withdraw_from_contract_with_client("proj-1", "key-1", &build_test_client(), &server.base_url(), "tok").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_withdrawal_returns_err_on_network_failure() {
+    let result = withdraw_from_contract_with_client(
+        "proj-1", "key-1", &build_test_client(), "http://127.0.0.1:19994", "tok",
+    )
+    .await;
     assert!(result.is_err());
 }
 
